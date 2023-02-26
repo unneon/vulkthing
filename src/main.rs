@@ -1,9 +1,11 @@
 #![feature(const_cstr_methods)]
 
 use ash::extensions::ext::DebugUtils;
+use ash::extensions::khr::Surface;
 use ash::{vk, Entry};
-use raw_window_handle::HasRawDisplayHandle;
+use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use std::borrow::Cow;
+use std::collections::HashSet;
 use std::ffi::CStr;
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::EventLoop;
@@ -85,6 +87,20 @@ fn main() {
     let debug_call_back =
         unsafe { debug_utils_loader.create_debug_utils_messenger(&debug_info, None) }.unwrap();
 
+    // Create the KHR extension surface from winit object. This must be done before selecting a
+    // physical device to check whether is supports presenting to the display.
+    let surface = unsafe {
+        ash_window::create_surface(
+            &entry,
+            &instance,
+            window.raw_display_handle(),
+            window.raw_window_handle(),
+            None,
+        )
+    }
+    .unwrap();
+    let surface_loader = Surface::new(&entry, &instance);
+
     // Select the GPU. For now, just select the first discrete GPU with graphics support. Later,
     // this should react better to iGPU, dGPU and iGPU+dGPU setups. In more complex setups, it would
     // be neat if you could start the game on any GPU, display a choice to the user and seamlessly
@@ -92,18 +108,27 @@ fn main() {
     let mut found = None;
     for device in unsafe { instance.enumerate_physical_devices() }.unwrap() {
         let properties = unsafe { instance.get_physical_device_properties(device) };
+        let gpu_name = unsafe { CStr::from_ptr(properties.device_name.as_ptr()) }
+            .to_str()
+            .unwrap();
         let queues = unsafe { instance.get_physical_device_queue_family_properties(device) };
         let is_discrete_gpu = properties.device_type == vk::PhysicalDeviceType::DISCRETE_GPU;
         let has_graphics_queue = queues
             .iter()
             .any(|queue| queue.queue_flags.contains(vk::QueueFlags::GRAPHICS));
-        if is_discrete_gpu && has_graphics_queue {
-            let gpu_name = unsafe { CStr::from_ptr(properties.device_name.as_ptr()) }
-                .to_str()
-                .unwrap();
+        let has_present_queue = (0..queues.len() as u32).into_iter().any(|i| {
+            unsafe { surface_loader.get_physical_device_surface_support(device, i, surface) }
+                .unwrap()
+        });
+        dbg!(
+            gpu_name,
+            is_discrete_gpu,
+            has_graphics_queue,
+            has_present_queue
+        );
+        if is_discrete_gpu && has_graphics_queue && has_present_queue && found.is_none() {
             println!("selected gpu: {gpu_name}");
             found = Some((device, queues));
-            break;
         }
     }
     let Some((physical_device, queues)) = found else {
@@ -117,23 +142,40 @@ fn main() {
         .enumerate()
         .find(|(_, queue)| queue.queue_flags.contains(vk::QueueFlags::GRAPHICS))
         .unwrap()
-        .0;
-    let device_queue_create = vk::DeviceQueueCreateInfo::builder()
-        .queue_family_index(graphics_queue_index as u32)
-        .queue_priorities(&[1.]);
+        .0 as u32;
+    let present_queue_index = (0..queues.len() as u32)
+        .into_iter()
+        .find(|i| {
+            unsafe {
+                surface_loader.get_physical_device_surface_support(physical_device, *i, surface)
+            }
+            .unwrap()
+        })
+        .unwrap();
+    let queue_indices = HashSet::from([graphics_queue_index, present_queue_index]);
+    let queue_creates: Vec<_> = queue_indices
+        .iter()
+        .map(|queue_index| {
+            vk::DeviceQueueCreateInfo::builder()
+                .queue_family_index(*queue_index)
+                .queue_priorities(&[1.])
+                .build()
+        })
+        .collect();
     let physical_device_features = vk::PhysicalDeviceFeatures::builder();
     let device = unsafe {
         instance.create_device(
             physical_device,
             &vk::DeviceCreateInfo::builder()
-                .queue_create_infos(&[device_queue_create.build()])
+                .queue_create_infos(&queue_creates)
                 .enabled_features(&physical_device_features)
                 .enabled_layer_names(&layer_names),
             None,
         )
     }
     .unwrap();
-    let graphics_queue = unsafe { device.get_device_queue(graphics_queue_index as u32, 0) };
+    let graphics_queue = unsafe { device.get_device_queue(graphics_queue_index, 0) };
+    let present_queue = unsafe { device.get_device_queue(present_queue_index, 0) };
 
     // Run the event loop. Winit delivers events, like key presses. After it finishes delivering
     // some batch of events, it sends a MainEventsCleared event, which means the application should
@@ -157,9 +199,8 @@ fn main() {
         }
     });
 
-    unsafe {
-        device.destroy_device(None);
-    }
+    unsafe { device.destroy_device(None) };
+    unsafe { surface_loader.destroy_surface(surface, None) };
     unsafe { debug_utils_loader.destroy_debug_utils_messenger(debug_call_back, None) };
     unsafe { instance.destroy_instance(None) };
 }
