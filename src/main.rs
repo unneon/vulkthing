@@ -463,6 +463,17 @@ fn main() {
         swapchain_framebuffers[i] = framebuffer;
     }
 
+    let command_pool_info = vk::CommandPoolCreateInfo::builder()
+        .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
+        .queue_family_index(queues.graphics_family);
+    let command_pool = unsafe { device.create_command_pool(&command_pool_info, None) }.unwrap();
+    let command_buffer_allocate_info = vk::CommandBufferAllocateInfo::builder()
+        .command_pool(command_pool)
+        .level(vk::CommandBufferLevel::PRIMARY)
+        .command_buffer_count(1);
+    let command_buffer =
+        unsafe { device.allocate_command_buffers(&command_buffer_allocate_info) }.unwrap();
+
     // Run the event loop. Winit delivers events, like key presses. After it finishes delivering
     // some batch of events, it sends a MainEventsCleared event, which means the application should
     // either render, or check whether it needs to rerender anything and possibly only request a
@@ -485,6 +496,7 @@ fn main() {
         }
     });
 
+    unsafe { device.destroy_command_pool(command_pool, None) };
     for framebuffer in swapchain_framebuffers {
         unsafe { device.destroy_framebuffer(framebuffer, None) };
     }
@@ -507,6 +519,63 @@ fn make_shader(device: &Device, code: &[u8]) -> vk::ShaderModule {
     let aligned_code = ash::util::read_spv(&mut std::io::Cursor::new(code)).unwrap();
     let shader_module_create = vk::ShaderModuleCreateInfo::builder().code(&aligned_code);
     unsafe { device.create_shader_module(&shader_module_create, None) }.unwrap()
+}
+
+fn record_command_buffer(
+    device: &Device,
+    command_buffer: vk::CommandBuffer,
+    image_index: u32,
+    render_pass: vk::RenderPass,
+    swapchain_framebuffers: &[vk::Framebuffer],
+    swapchain_extent: vk::Extent2D,
+    pipeline: vk::Pipeline,
+) {
+    let begin_info = vk::CommandBufferBeginInfo::builder();
+    unsafe { device.begin_command_buffer(command_buffer, &begin_info) }.unwrap();
+
+    let render_pass_info = vk::RenderPassBeginInfo::builder()
+        .render_pass(render_pass)
+        .framebuffer(swapchain_framebuffers[image_index as usize])
+        .render_area(vk::Rect2D {
+            offset: vk::Offset2D { x: 0, y: 0 },
+            extent: swapchain_extent,
+        })
+        .clear_values(&[vk::ClearValue {
+            color: vk::ClearColorValue {
+                float32: [0., 0., 0., 0.],
+            },
+        }]);
+    unsafe {
+        device.cmd_begin_render_pass(
+            command_buffer,
+            &render_pass_info,
+            vk::SubpassContents::INLINE,
+        )
+    };
+
+    unsafe { device.cmd_bind_pipeline(command_buffer, vk::PipelineBindPoint::GRAPHICS, pipeline) };
+
+    let viewport = vk::Viewport {
+        x: 0.,
+        y: 0.,
+        width: swapchain_extent.width as f32,
+        height: swapchain_extent.height as f32,
+        min_depth: 0.,
+        max_depth: 1.,
+    };
+    unsafe { device.cmd_set_viewport(command_buffer, 0, &[viewport]) };
+
+    let scissor = vk::Rect2D {
+        offset: vk::Offset2D { x: 0, y: 0 },
+        extent: swapchain_extent,
+    };
+    unsafe { device.cmd_set_scissor(command_buffer, 0, &[scissor]) };
+
+    unsafe { device.cmd_draw(command_buffer, 3, 1, 0, 0) };
+
+    unsafe { device.cmd_end_render_pass(command_buffer) };
+
+    unsafe { device.end_command_buffer(command_buffer) }.unwrap();
 }
 
 unsafe extern "system" fn vulkan_debug_callback(
