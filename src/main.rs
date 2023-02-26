@@ -1,10 +1,13 @@
 #![feature(const_cstr_methods)]
 
+use ash::extensions::ext::DebugUtils;
 use ash::{vk, Entry};
 use raw_window_handle::HasRawDisplayHandle;
+use std::borrow::Cow;
 use std::ffi::CStr;
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::EventLoop;
+use winit::platform::run_return::EventLoopExtRunReturn;
 use winit::window::WindowBuilder;
 
 const WINDOW_TITLE: &str = "Vulkthing";
@@ -18,7 +21,7 @@ const VULKAN_ENGINE_VERSION: u32 = vk::make_api_version(0, 0, 0, 0);
 fn main() {
     // Create the application window using winit. Use a predefined size for now, though games should
     // run in fullscreen eventually.
-    let event_loop = EventLoop::new();
+    let mut event_loop = EventLoop::new();
     let window = WindowBuilder::new()
         .with_title(WINDOW_TITLE)
         .with_inner_size(winit::dpi::LogicalSize::new(
@@ -45,14 +48,42 @@ fn main() {
         .engine_name(VULKAN_ENGINE_NAME)
         .engine_version(VULKAN_ENGINE_VERSION)
         .api_version(vk::API_VERSION_1_0);
-    let extension_names = ash_window::enumerate_required_extensions(window.raw_display_handle())
+    let layer_names = [CStr::from_bytes_with_nul(b"VK_LAYER_KHRONOS_validation\0")
         .unwrap()
-        .to_vec();
+        .as_ptr()];
+    let mut extension_names =
+        ash_window::enumerate_required_extensions(window.raw_display_handle())
+            .unwrap()
+            .to_vec();
+    extension_names.push(
+        CStr::from_bytes_with_nul(b"VK_EXT_debug_utils\0")
+            .unwrap()
+            .as_ptr(),
+    );
     let instance_create_info = vk::InstanceCreateInfo::builder()
         .application_info(&app_info)
-        .enabled_layer_names(&[])
+        .enabled_layer_names(&layer_names)
         .enabled_extension_names(&extension_names);
     let instance = unsafe { entry.create_instance(&instance_create_info, None) }.unwrap();
+
+    // Set up the callback for debug messages from validation layers. vulkan-tutorial.com also shows
+    // how to enable this for creating instances, but ash example doesn't include this.
+    let debug_info = vk::DebugUtilsMessengerCreateInfoEXT::builder()
+        .message_severity(
+            vk::DebugUtilsMessageSeverityFlagsEXT::ERROR
+                | vk::DebugUtilsMessageSeverityFlagsEXT::WARNING
+                | vk::DebugUtilsMessageSeverityFlagsEXT::INFO
+                | vk::DebugUtilsMessageSeverityFlagsEXT::VERBOSE,
+        )
+        .message_type(
+            vk::DebugUtilsMessageTypeFlagsEXT::GENERAL
+                | vk::DebugUtilsMessageTypeFlagsEXT::VALIDATION
+                | vk::DebugUtilsMessageTypeFlagsEXT::PERFORMANCE,
+        )
+        .pfn_user_callback(Some(vulkan_debug_callback));
+    let debug_utils_loader = DebugUtils::new(&entry, &instance);
+    let debug_call_back =
+        unsafe { debug_utils_loader.create_debug_utils_messenger(&debug_info, None) }.unwrap();
 
     // Run the event loop. Winit delivers events, like key presses. After it finishes delivering
     // some batch of events, it sends a MainEventsCleared event, which means the application should
@@ -61,20 +92,44 @@ fn main() {
     // system, for example if the window size changes. For games, initially I'll render at both
     // events, but this probably needs to be changed to alter framebuffer size if the window is
     // resized?
-    event_loop.run(move |event, _, control_flow| {
+    event_loop.run_return(move |event, _, control_flow| {
         control_flow.set_poll();
         match event {
             Event::WindowEvent {
                 event: WindowEvent::CloseRequested,
                 ..
-            } => {
-                unsafe { instance.destroy_instance(None) };
-                control_flow.set_exit()
-            }
+            } => control_flow.set_exit(),
             Event::MainEventsCleared | Event::RedrawRequested(_) => {
                 // render
             }
             _ => (),
         }
     });
+
+    unsafe { debug_utils_loader.destroy_debug_utils_messenger(debug_call_back, None) };
+    unsafe { instance.destroy_instance(None) };
+}
+
+unsafe extern "system" fn vulkan_debug_callback(
+    message_severity: vk::DebugUtilsMessageSeverityFlagsEXT,
+    message_type: vk::DebugUtilsMessageTypeFlagsEXT,
+    p_callback_data: *const vk::DebugUtilsMessengerCallbackDataEXT,
+    _user_data: *mut std::os::raw::c_void,
+) -> vk::Bool32 {
+    let callback_data = *p_callback_data;
+    let message_id_number = callback_data.message_id_number;
+    let message_id_name = if callback_data.p_message_id_name.is_null() {
+        Cow::from("")
+    } else {
+        CStr::from_ptr(callback_data.p_message_id_name).to_string_lossy()
+    };
+    let message = if callback_data.p_message.is_null() {
+        Cow::from("")
+    } else {
+        CStr::from_ptr(callback_data.p_message).to_string_lossy()
+    };
+    println!(
+        "{message_severity:?}:\n{message_type:?} [{message_id_name} ({message_id_number})] : {message}\n",
+    );
+    vk::FALSE
 }
