@@ -57,11 +57,7 @@ fn main() {
         ash_window::enumerate_required_extensions(window.raw_display_handle())
             .unwrap()
             .to_vec();
-    extension_names.push(
-        CStr::from_bytes_with_nul(b"VK_EXT_debug_utils\0")
-            .unwrap()
-            .as_ptr(),
-    );
+    extension_names.push(DebugUtils::name().as_ptr());
     let instance_create_info = vk::InstanceCreateInfo::builder()
         .application_info(&app_info)
         .enabled_layer_names(&layer_names)
