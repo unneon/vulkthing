@@ -4,7 +4,7 @@ use ash::extensions::ext::DebugUtils;
 use ash::extensions::khr::{Surface, Swapchain};
 use ash::prelude::VkResult;
 use ash::vk::ComponentSwizzle;
-use ash::{vk, Entry, Instance};
+use ash::{vk, Device, Entry, Instance};
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use std::borrow::Cow;
 use std::collections::HashSet;
@@ -343,6 +343,68 @@ fn main() {
             unsafe { device.create_image_view(&image_view_create, None) }.unwrap();
     }
 
+    let vert_shader = make_shader(&device, include_bytes!("../shaders/triangle-vert.spv"));
+    let frag_shader = make_shader(&device, include_bytes!("../shaders/triangle-frag.spv"));
+    let vert_shader_stage = vk::PipelineShaderStageCreateInfo::builder()
+        .stage(vk::ShaderStageFlags::VERTEX)
+        .module(vert_shader)
+        .name(CStr::from_bytes_with_nul(b"main\0").unwrap());
+    let frag_shader_stage = vk::PipelineShaderStageCreateInfo::builder()
+        .stage(vk::ShaderStageFlags::FRAGMENT)
+        .module(frag_shader)
+        .name(CStr::from_bytes_with_nul(b"main\0").unwrap());
+    let dynamic_state = vk::PipelineDynamicStateCreateInfo::builder()
+        .dynamic_states(&[vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR]);
+    let vertex_input = vk::PipelineVertexInputStateCreateInfo::builder();
+    let input_assembly = vk::PipelineInputAssemblyStateCreateInfo::builder()
+        .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
+        .primitive_restart_enable(false);
+    let viewport = vk::Viewport {
+        x: 0.,
+        y: 0.,
+        width: swapchain_extent.width as f32,
+        height: swapchain_extent.height as f32,
+        min_depth: 0.,
+        max_depth: 1.,
+    };
+    let scissor = vk::Rect2D {
+        offset: vk::Offset2D { x: 0, y: 0 },
+        extent: swapchain_extent,
+    };
+    let viewport_state = vk::PipelineViewportStateCreateInfo::builder()
+        .viewport_count(1)
+        .scissor_count(1);
+    let rasterizer = vk::PipelineRasterizationStateCreateInfo::builder()
+        .depth_clamp_enable(false)
+        .rasterizer_discard_enable(false)
+        .polygon_mode(vk::PolygonMode::FILL)
+        .line_width(1.)
+        .cull_mode(vk::CullModeFlags::BACK)
+        .front_face(vk::FrontFace::CLOCKWISE)
+        .depth_bias_enable(false)
+        .depth_bias_constant_factor(0.)
+        .depth_bias_clamp(0.)
+        .depth_bias_slope_factor(0.);
+    let multisampling = vk::PipelineMultisampleStateCreateInfo::builder()
+        .sample_shading_enable(false)
+        .rasterization_samples(vk::SampleCountFlags::TYPE_1)
+        .min_sample_shading(1.)
+        .sample_mask(&[])
+        .alpha_to_coverage_enable(false)
+        .alpha_to_one_enable(false);
+    let color_blend_attachment = vk::PipelineColorBlendAttachmentState::builder()
+        .color_write_mask(vk::ColorComponentFlags::RGBA)
+        .blend_enable(false);
+    let color_blending = vk::PipelineColorBlendStateCreateInfo::builder()
+        .logic_op_enable(false)
+        .logic_op(vk::LogicOp::COPY)
+        .attachments(&[*color_blend_attachment]);
+    let pipeline_layout_info = vk::PipelineLayoutCreateInfo::builder()
+        .set_layouts(&[])
+        .push_constant_ranges(&[]);
+    let pipeline_layout =
+        unsafe { device.create_pipeline_layout(&pipeline_layout_info, None) }.unwrap();
+
     // Run the event loop. Winit delivers events, like key presses. After it finishes delivering
     // some batch of events, it sends a MainEventsCleared event, which means the application should
     // either render, or check whether it needs to rerender anything and possibly only request a
@@ -365,6 +427,9 @@ fn main() {
         }
     });
 
+    unsafe { device.destroy_pipeline_layout(pipeline_layout, None) };
+    unsafe { device.destroy_shader_module(frag_shader, None) };
+    unsafe { device.destroy_shader_module(vert_shader, None) };
     for image_view in swapchain_image_views {
         unsafe { device.destroy_image_view(image_view, None) };
     }
@@ -373,6 +438,12 @@ fn main() {
     unsafe { surface.destroy_surface(surface_khr, None) };
     unsafe { debug_utils_loader.destroy_debug_utils_messenger(debug_call_back, None) };
     unsafe { instance.destroy_instance(None) };
+}
+
+fn make_shader(device: &Device, code: &[u8]) -> vk::ShaderModule {
+    let aligned_code = ash::util::read_spv(&mut std::io::Cursor::new(code)).unwrap();
+    let shader_module_create = vk::ShaderModuleCreateInfo::builder().code(&aligned_code);
+    unsafe { device.create_shader_module(&shader_module_create, None) }.unwrap()
 }
 
 unsafe extern "system" fn vulkan_debug_callback(
