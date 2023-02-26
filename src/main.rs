@@ -89,7 +89,7 @@ fn main() {
     // this should react better to iGPU, dGPU and iGPU+dGPU setups. In more complex setups, it would
     // be neat if you could start the game on any GPU, display a choice to the user and seamlessly
     // switch to a new physical device.
-    let mut physical_device = None;
+    let mut found = None;
     for device in unsafe { instance.enumerate_physical_devices() }.unwrap() {
         let properties = unsafe { instance.get_physical_device_properties(device) };
         let queues = unsafe { instance.get_physical_device_queue_family_properties(device) };
@@ -102,13 +102,38 @@ fn main() {
                 .to_str()
                 .unwrap();
             println!("selected gpu: {gpu_name}");
-            physical_device = Some(device);
+            found = Some((device, queues));
             break;
         }
     }
-    let Some(physical_device) = physical_device else {
+    let Some((physical_device, queues)) = found else {
         panic!("gpu not found");
     };
+
+    // Specify physical device extensions, required queues and create them. Probably should pick
+    // queues more reasonably?
+    let graphics_queue_index = queues
+        .iter()
+        .enumerate()
+        .find(|(_, queue)| queue.queue_flags.contains(vk::QueueFlags::GRAPHICS))
+        .unwrap()
+        .0;
+    let device_queue_create = vk::DeviceQueueCreateInfo::builder()
+        .queue_family_index(graphics_queue_index as u32)
+        .queue_priorities(&[1.]);
+    let physical_device_features = vk::PhysicalDeviceFeatures::builder();
+    let device = unsafe {
+        instance.create_device(
+            physical_device,
+            &vk::DeviceCreateInfo::builder()
+                .queue_create_infos(&[device_queue_create.build()])
+                .enabled_features(&physical_device_features)
+                .enabled_layer_names(&layer_names),
+            None,
+        )
+    }
+    .unwrap();
+    let graphics_queue = unsafe { device.get_device_queue(graphics_queue_index as u32, 0) };
 
     // Run the event loop. Winit delivers events, like key presses. After it finishes delivering
     // some batch of events, it sends a MainEventsCleared event, which means the application should
@@ -126,11 +151,15 @@ fn main() {
             } => control_flow.set_exit(),
             Event::MainEventsCleared | Event::RedrawRequested(_) => {
                 // render
+                control_flow.set_exit();
             }
             _ => (),
         }
     });
 
+    unsafe {
+        device.destroy_device(None);
+    }
     unsafe { debug_utils_loader.destroy_debug_utils_messenger(debug_call_back, None) };
     unsafe { instance.destroy_instance(None) };
 }
