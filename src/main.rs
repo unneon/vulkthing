@@ -85,6 +85,31 @@ fn main() {
     let debug_call_back =
         unsafe { debug_utils_loader.create_debug_utils_messenger(&debug_info, None) }.unwrap();
 
+    // Select the GPU. For now, just select the first discrete GPU with graphics support. Later,
+    // this should react better to iGPU, dGPU and iGPU+dGPU setups. In more complex setups, it would
+    // be neat if you could start the game on any GPU, display a choice to the user and seamlessly
+    // switch to a new physical device.
+    let mut physical_device = None;
+    for device in unsafe { instance.enumerate_physical_devices() }.unwrap() {
+        let properties = unsafe { instance.get_physical_device_properties(device) };
+        let queues = unsafe { instance.get_physical_device_queue_family_properties(device) };
+        let is_discrete_gpu = properties.device_type == vk::PhysicalDeviceType::DISCRETE_GPU;
+        let has_graphics_queue = queues
+            .iter()
+            .any(|queue| queue.queue_flags.contains(vk::QueueFlags::GRAPHICS));
+        if is_discrete_gpu && has_graphics_queue {
+            let gpu_name = unsafe { CStr::from_ptr(properties.device_name.as_ptr()) }
+                .to_str()
+                .unwrap();
+            println!("selected gpu: {gpu_name}");
+            physical_device = Some(device);
+            break;
+        }
+    }
+    let Some(physical_device) = physical_device else {
+        panic!("gpu not found");
+    };
+
     // Run the event loop. Winit delivers events, like key presses. After it finishes delivering
     // some batch of events, it sends a MainEventsCleared event, which means the application should
     // either render, or check whether it needs to rerender anything and possibly only request a
