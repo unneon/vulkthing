@@ -3,12 +3,12 @@
 use ash::extensions::ext::DebugUtils;
 use ash::extensions::khr::{Surface, Swapchain};
 use ash::prelude::VkResult;
+use ash::vk::ComponentSwizzle;
 use ash::{vk, Entry, Instance};
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use std::borrow::Cow;
 use std::collections::HashSet;
 use std::ffi::CStr;
-use std::mem::swap;
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::EventLoop;
 use winit::platform::run_return::EventLoopExtRunReturn;
@@ -319,6 +319,30 @@ fn main() {
     let swapchain_image_format = format.format;
     let swapchain_extent = extent;
 
+    // Create image views. Not really interesting for now, as I only use normal color settings.
+    let mut swapchain_image_views = vec![vk::ImageView::null(); swapchain_images.len()];
+    for i in 0..swapchain_images.len() {
+        let image_view_create = vk::ImageViewCreateInfo::builder()
+            .image(swapchain_images[i])
+            .view_type(vk::ImageViewType::TYPE_2D)
+            .format(swapchain_image_format)
+            .components(vk::ComponentMapping {
+                r: ComponentSwizzle::IDENTITY,
+                g: ComponentSwizzle::IDENTITY,
+                b: ComponentSwizzle::IDENTITY,
+                a: ComponentSwizzle::IDENTITY,
+            })
+            .subresource_range(vk::ImageSubresourceRange {
+                aspect_mask: vk::ImageAspectFlags::COLOR,
+                base_mip_level: 0,
+                level_count: 1,
+                base_array_layer: 0,
+                layer_count: 1,
+            });
+        swapchain_image_views[i] =
+            unsafe { device.create_image_view(&image_view_create, None) }.unwrap();
+    }
+
     // Run the event loop. Winit delivers events, like key presses. After it finishes delivering
     // some batch of events, it sends a MainEventsCleared event, which means the application should
     // either render, or check whether it needs to rerender anything and possibly only request a
@@ -341,6 +365,9 @@ fn main() {
         }
     });
 
+    for image_view in swapchain_image_views {
+        unsafe { device.destroy_image_view(image_view, None) };
+    }
     unsafe { swapchain.destroy_swapchain(swapchain_khr, None) };
     unsafe { device.destroy_device(None) };
     unsafe { surface.destroy_surface(surface_khr, None) };
