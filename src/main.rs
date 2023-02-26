@@ -450,6 +450,19 @@ fn main() {
     .next()
     .unwrap();
 
+    let mut swapchain_framebuffers = vec![vk::Framebuffer::null(); swapchain_image_views.len()];
+    for i in 0..swapchain_image_views.len() {
+        let attachments = [swapchain_image_views[i]];
+        let framebuffer_info = vk::FramebufferCreateInfo::builder()
+            .render_pass(render_pass)
+            .attachments(&attachments)
+            .width(swapchain_extent.width)
+            .height(swapchain_extent.height)
+            .layers(1);
+        let framebuffer = unsafe { device.create_framebuffer(&framebuffer_info, None) }.unwrap();
+        swapchain_framebuffers[i] = framebuffer;
+    }
+
     // Run the event loop. Winit delivers events, like key presses. After it finishes delivering
     // some batch of events, it sends a MainEventsCleared event, which means the application should
     // either render, or check whether it needs to rerender anything and possibly only request a
@@ -472,6 +485,9 @@ fn main() {
         }
     });
 
+    for framebuffer in swapchain_framebuffers {
+        unsafe { device.destroy_framebuffer(framebuffer, None) };
+    }
     unsafe { device.destroy_pipeline(pipeline, None) };
     unsafe { device.destroy_render_pass(render_pass, None) };
     unsafe { device.destroy_pipeline_layout(pipeline_layout, None) };
