@@ -405,6 +405,29 @@ fn main() {
     let pipeline_layout =
         unsafe { device.create_pipeline_layout(&pipeline_layout_info, None) }.unwrap();
 
+    let color_attachment = vk::AttachmentDescription::builder()
+        .format(swapchain_image_format)
+        .samples(vk::SampleCountFlags::TYPE_1)
+        .load_op(vk::AttachmentLoadOp::CLEAR)
+        .store_op(vk::AttachmentStoreOp::STORE)
+        .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
+        .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
+        .initial_layout(vk::ImageLayout::UNDEFINED)
+        .final_layout(vk::ImageLayout::PRESENT_SRC_KHR);
+    let color_attachment_ref = vk::AttachmentReference::builder()
+        .attachment(0)
+        .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL);
+    let color_attachments = [*color_attachment_ref];
+    let subpass = vk::SubpassDescription::builder()
+        .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
+        .color_attachments(&color_attachments);
+    let attachments = [*color_attachment];
+    let subpasses = [*subpass];
+    let render_pass_info = vk::RenderPassCreateInfo::builder()
+        .attachments(&attachments)
+        .subpasses(&subpasses);
+    let render_pass = unsafe { device.create_render_pass(&render_pass_info, None) }.unwrap();
+
     // Run the event loop. Winit delivers events, like key presses. After it finishes delivering
     // some batch of events, it sends a MainEventsCleared event, which means the application should
     // either render, or check whether it needs to rerender anything and possibly only request a
@@ -427,6 +450,7 @@ fn main() {
         }
     });
 
+    unsafe { device.destroy_render_pass(render_pass, None) };
     unsafe { device.destroy_pipeline_layout(pipeline_layout, None) };
     unsafe { device.destroy_shader_module(frag_shader, None) };
     unsafe { device.destroy_shader_module(vert_shader, None) };
