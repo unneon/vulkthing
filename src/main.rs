@@ -353,6 +353,7 @@ fn main() {
         .stage(vk::ShaderStageFlags::FRAGMENT)
         .module(frag_shader)
         .name(CStr::from_bytes_with_nul(b"main\0").unwrap());
+    let shader_stages = [*vert_shader_stage, *frag_shader_stage];
     let dynamic_state = vk::PipelineDynamicStateCreateInfo::builder()
         .dynamic_states(&[vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR]);
     let vertex_input = vk::PipelineVertexInputStateCreateInfo::builder();
@@ -395,10 +396,11 @@ fn main() {
     let color_blend_attachment = vk::PipelineColorBlendAttachmentState::builder()
         .color_write_mask(vk::ColorComponentFlags::RGBA)
         .blend_enable(false);
+    let color_blend_attachments = [*color_blend_attachment];
     let color_blending = vk::PipelineColorBlendStateCreateInfo::builder()
         .logic_op_enable(false)
         .logic_op(vk::LogicOp::COPY)
-        .attachments(&[*color_blend_attachment]);
+        .attachments(&color_blend_attachments);
     let pipeline_layout_info = vk::PipelineLayoutCreateInfo::builder()
         .set_layouts(&[])
         .push_constant_ranges(&[]);
@@ -428,6 +430,26 @@ fn main() {
         .subpasses(&subpasses);
     let render_pass = unsafe { device.create_render_pass(&render_pass_info, None) }.unwrap();
 
+    let pipeline_info = vk::GraphicsPipelineCreateInfo::builder()
+        .stages(&shader_stages)
+        .vertex_input_state(&vertex_input)
+        .input_assembly_state(&input_assembly)
+        .viewport_state(&viewport_state)
+        .rasterization_state(&rasterizer)
+        .multisample_state(&multisampling)
+        .color_blend_state(&color_blending)
+        .dynamic_state(&dynamic_state)
+        .layout(pipeline_layout)
+        .render_pass(render_pass)
+        .subpass(0);
+    let pipeline = unsafe {
+        device.create_graphics_pipelines(vk::PipelineCache::null(), &[*pipeline_info], None)
+    }
+    .unwrap()
+    .into_iter()
+    .next()
+    .unwrap();
+
     // Run the event loop. Winit delivers events, like key presses. After it finishes delivering
     // some batch of events, it sends a MainEventsCleared event, which means the application should
     // either render, or check whether it needs to rerender anything and possibly only request a
@@ -450,6 +472,7 @@ fn main() {
         }
     });
 
+    unsafe { device.destroy_pipeline(pipeline, None) };
     unsafe { device.destroy_render_pass(render_pass, None) };
     unsafe { device.destroy_pipeline_layout(pipeline_layout, None) };
     unsafe { device.destroy_shader_module(frag_shader, None) };
