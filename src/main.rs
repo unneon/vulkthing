@@ -360,18 +360,6 @@ fn main() {
     let input_assembly = vk::PipelineInputAssemblyStateCreateInfo::builder()
         .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
         .primitive_restart_enable(false);
-    let viewport = vk::Viewport {
-        x: 0.,
-        y: 0.,
-        width: swapchain_extent.width as f32,
-        height: swapchain_extent.height as f32,
-        min_depth: 0.,
-        max_depth: 1.,
-    };
-    let scissor = vk::Rect2D {
-        offset: vk::Offset2D { x: 0, y: 0 },
-        extent: swapchain_extent,
-    };
     let viewport_state = vk::PipelineViewportStateCreateInfo::builder()
         .viewport_count(1)
         .scissor_count(1);
@@ -423,11 +411,20 @@ fn main() {
     let subpass = vk::SubpassDescription::builder()
         .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
         .color_attachments(&color_attachments);
+    let dependency = vk::SubpassDependency::builder()
+        .src_subpass(vk::SUBPASS_EXTERNAL)
+        .dst_subpass(0)
+        .src_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
+        .src_access_mask(vk::AccessFlags::empty())
+        .dst_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
+        .dst_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_WRITE);
     let attachments = [*color_attachment];
     let subpasses = [*subpass];
+    let dependencies = [*dependency];
     let render_pass_info = vk::RenderPassCreateInfo::builder()
         .attachments(&attachments)
-        .subpasses(&subpasses);
+        .subpasses(&subpasses)
+        .dependencies(&dependencies);
     let render_pass = unsafe { device.create_render_pass(&render_pass_info, None) }.unwrap();
 
     let pipeline_info = vk::GraphicsPipelineCreateInfo::builder()
@@ -471,8 +468,19 @@ fn main() {
         .command_pool(command_pool)
         .level(vk::CommandBufferLevel::PRIMARY)
         .command_buffer_count(1);
-    let command_buffer =
-        unsafe { device.allocate_command_buffers(&command_buffer_allocate_info) }.unwrap();
+    let command_buffer = unsafe { device.allocate_command_buffers(&command_buffer_allocate_info) }
+        .unwrap()
+        .into_iter()
+        .next()
+        .unwrap();
+
+    let semaphore_info = vk::SemaphoreCreateInfo::builder();
+    let fence_info = vk::FenceCreateInfo::builder().flags(vk::FenceCreateFlags::SIGNALED);
+    let image_available_semaphore =
+        unsafe { device.create_semaphore(&semaphore_info, None) }.unwrap();
+    let render_finished_semaphore =
+        unsafe { device.create_semaphore(&semaphore_info, None) }.unwrap();
+    let in_flight_fence = unsafe { device.create_fence(&fence_info, None) }.unwrap();
 
     // Run the event loop. Winit delivers events, like key presses. After it finishes delivering
     // some batch of events, it sends a MainEventsCleared event, which means the application should
@@ -481,7 +489,7 @@ fn main() {
     // system, for example if the window size changes. For games, initially I'll render at both
     // events, but this probably needs to be changed to alter framebuffer size if the window is
     // resized?
-    event_loop.run_return(move |event, _, control_flow| {
+    event_loop.run_return(|event, _, control_flow| {
         control_flow.set_poll();
         match event {
             Event::WindowEvent {
@@ -490,12 +498,31 @@ fn main() {
             } => control_flow.set_exit(),
             Event::MainEventsCleared | Event::RedrawRequested(_) => {
                 // render
-                control_flow.set_exit();
+                draw_frame(
+                    &device,
+                    in_flight_fence,
+                    &swapchain,
+                    swapchain_khr,
+                    image_available_semaphore,
+                    command_buffer,
+                    render_pass,
+                    &swapchain_framebuffers,
+                    swapchain_extent,
+                    pipeline,
+                    render_finished_semaphore,
+                    graphics_queue,
+                    present_queue,
+                );
             }
             _ => (),
         }
     });
 
+    unsafe { device.device_wait_idle() }.unwrap();
+
+    unsafe { device.destroy_fence(in_flight_fence, None) };
+    unsafe { device.destroy_semaphore(render_finished_semaphore, None) };
+    unsafe { device.destroy_semaphore(image_available_semaphore, None) };
     unsafe { device.destroy_command_pool(command_pool, None) };
     for framebuffer in swapchain_framebuffers {
         unsafe { device.destroy_framebuffer(framebuffer, None) };
@@ -519,6 +546,65 @@ fn make_shader(device: &Device, code: &[u8]) -> vk::ShaderModule {
     let aligned_code = ash::util::read_spv(&mut std::io::Cursor::new(code)).unwrap();
     let shader_module_create = vk::ShaderModuleCreateInfo::builder().code(&aligned_code);
     unsafe { device.create_shader_module(&shader_module_create, None) }.unwrap()
+}
+
+fn draw_frame(
+    device: &Device,
+    in_flight_fence: vk::Fence,
+    swapchain: &Swapchain,
+    swapchain_khr: vk::SwapchainKHR,
+    image_available_semaphore: vk::Semaphore,
+    command_buffer: vk::CommandBuffer,
+    render_pass: vk::RenderPass,
+    swapchain_framebuffers: &[vk::Framebuffer],
+    swapchain_extent: vk::Extent2D,
+    pipeline: vk::Pipeline,
+    render_finished_semaphore: vk::Semaphore,
+    graphics_queue: vk::Queue,
+    present_queue: vk::Queue,
+) {
+    unsafe { device.wait_for_fences(&[in_flight_fence], true, u64::MAX) }.unwrap();
+    unsafe { device.reset_fences(&[in_flight_fence]) }.unwrap();
+    // What is the second value?
+    let image_index = unsafe {
+        swapchain.acquire_next_image(
+            swapchain_khr,
+            u64::MAX,
+            image_available_semaphore,
+            vk::Fence::null(),
+        )
+    }
+    .unwrap()
+    .0;
+    unsafe { device.reset_command_buffer(command_buffer, vk::CommandBufferResetFlags::empty()) }
+        .unwrap();
+    record_command_buffer(
+        device,
+        command_buffer,
+        image_index,
+        render_pass,
+        swapchain_framebuffers,
+        swapchain_extent,
+        pipeline,
+    );
+
+    let wait_semaphores = [image_available_semaphore];
+    let command_buffers = [command_buffer];
+    let signal_semaphores = [render_finished_semaphore];
+    let submit_info = vk::SubmitInfo::builder()
+        .wait_semaphores(&wait_semaphores)
+        .wait_dst_stage_mask(&[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT])
+        .command_buffers(&command_buffers)
+        .signal_semaphores(&signal_semaphores);
+    unsafe { device.queue_submit(graphics_queue, &[*submit_info], in_flight_fence) }.unwrap();
+
+    let present_info_swapchains = [swapchain_khr];
+    let present_info_images = [image_index];
+    let present_info = vk::PresentInfoKHR::builder()
+        .wait_semaphores(&signal_semaphores)
+        .swapchains(&present_info_swapchains)
+        .image_indices(&present_info_images);
+    unsafe { swapchain.queue_present(present_queue, &present_info) }.unwrap();
 }
 
 fn record_command_buffer(
