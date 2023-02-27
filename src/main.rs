@@ -61,6 +61,12 @@ struct SwapchainDetails {
     present_modes: Vec<vk::PresentModeKHR>,
 }
 
+struct VulkanLogicalDevice {
+    device: Device,
+    graphics_queue: vk::Queue,
+    present_queue: vk::Queue,
+}
+
 impl VulkanInstance {
     fn create(entry: &Entry, window: &winit::window::Window) -> VulkanInstance {
         // Set metadata of the app and the engine. May be used by the drivers to enable
@@ -222,12 +228,69 @@ impl VulkanPhysicalDevice {
     }
 }
 
+impl VulkanLogicalDevice {
+    fn create(
+        instance: &VulkanInstance,
+        physical_device: &VulkanPhysicalDevice,
+    ) -> VulkanLogicalDevice {
+        // Queues from the same family must be created at once, so we need to use a set to eliminate
+        // duplicates. If the queue families are the same, we create only a single queue and keep
+        // two handles. This needs to be remembered later when setting flags related to memory
+        // access being exclusive to the queue or concurrent from many queues.
+        let queue_indices = HashSet::from([
+            physical_device.queues.graphics_family,
+            physical_device.queues.present_family,
+        ]);
+        let queue_creates: Vec<_> = queue_indices
+            .iter()
+            .map(|queue_index| {
+                vk::DeviceQueueCreateInfo::builder()
+                    .queue_family_index(*queue_index)
+                    .queue_priorities(&[1.])
+                    .build()
+            })
+            .collect();
+
+        let physical_device_features = vk::PhysicalDeviceFeatures::builder();
+
+        // Using validation layers on a device level shouldn't be necessary on newer Vulkan version
+        // (since which one?), but it's good to keep it for compatibility.
+        let layer_names = [b"VK_LAYER_KHRONOS_validation\0".as_ptr() as *const i8];
+
+        let device = unsafe {
+            instance.create_device(
+                physical_device.device,
+                &vk::DeviceCreateInfo::builder()
+                    .queue_create_infos(&queue_creates)
+                    .enabled_features(&physical_device_features)
+                    .enabled_layer_names(&layer_names)
+                    .enabled_extension_names(&[Swapchain::name().as_ptr()]),
+                None,
+            )
+        }
+        .unwrap();
+        let graphics_queue =
+            unsafe { device.get_device_queue(physical_device.queues.graphics_family, 0) };
+        let present_queue =
+            unsafe { device.get_device_queue(physical_device.queues.present_family, 0) };
+        VulkanLogicalDevice {
+            device,
+            graphics_queue,
+            present_queue,
+        }
+    }
+}
+
 impl QueueDetails {
     fn query(
         instance: &VulkanInstance,
         device: vk::PhysicalDevice,
         surface: &VulkanSurface,
     ) -> VkResult<Option<QueueDetails>> {
+        // Find the first queue that supports a given operation and return it. Not sure what to do
+        // when there are multiple queues that support an operation? Also, graphics queue being
+        // distinct from present queue is supposed to be somewhat rare, so not sure where can I test
+        // it.
         let queues = unsafe { instance.get_physical_device_queue_family_properties(device) };
         let Some(graphics_family) = QueueDetails::find_queue(&queues, |_, q| q.queue_flags.contains(vk::QueueFlags::GRAPHICS)) else {
             return Ok(None);
@@ -348,6 +411,14 @@ impl Deref for VulkanInstance {
     }
 }
 
+impl Deref for VulkanLogicalDevice {
+    type Target = Device;
+
+    fn deref(&self) -> &Device {
+        &self.device
+    }
+}
+
 impl Drop for VulkanInstance {
     fn drop(&mut self) {
         unsafe { self.instance.destroy_instance(None) };
@@ -363,6 +434,12 @@ impl Drop for VulkanDebug {
 impl Drop for VulkanSurface {
     fn drop(&mut self) {
         unsafe { self.ext.destroy_surface(self.surface, None) };
+    }
+}
+
+impl Drop for VulkanLogicalDevice {
+    fn drop(&mut self) {
+        unsafe { self.device.destroy_device(None) };
     }
 }
 
@@ -392,42 +469,7 @@ fn main() {
     let _debug = VulkanDebug::create(&instance);
     let surface = VulkanSurface::create(&entry, &instance, &window);
     let physical_device = VulkanPhysicalDevice::find(&instance, &surface);
-
-    // Specify physical device extensions, required queues and create them. Probably should pick
-    // queues more reasonably?
-    let queue_indices = HashSet::from([
-        physical_device.queues.graphics_family,
-        physical_device.queues.present_family,
-    ]);
-    let queue_creates: Vec<_> = queue_indices
-        .iter()
-        .map(|queue_index| {
-            vk::DeviceQueueCreateInfo::builder()
-                .queue_family_index(*queue_index)
-                .queue_priorities(&[1.])
-                .build()
-        })
-        .collect();
-    let physical_device_features = vk::PhysicalDeviceFeatures::builder();
-    let layer_names = [CStr::from_bytes_with_nul(b"VK_LAYER_KHRONOS_validation\0")
-        .unwrap()
-        .as_ptr()];
-    let device = unsafe {
-        instance.create_device(
-            physical_device.device,
-            &vk::DeviceCreateInfo::builder()
-                .queue_create_infos(&queue_creates)
-                .enabled_features(&physical_device_features)
-                .enabled_layer_names(&layer_names)
-                .enabled_extension_names(&[Swapchain::name().as_ptr()]),
-            None,
-        )
-    }
-    .unwrap();
-    let graphics_queue =
-        unsafe { device.get_device_queue(physical_device.queues.graphics_family, 0) };
-    let present_queue =
-        unsafe { device.get_device_queue(physical_device.queues.present_family, 0) };
+    let logical_device = VulkanLogicalDevice::create(&instance, &physical_device);
 
     // Create the swapchain for presenting images to display. Set to prefer triple buffering right
     // now, should be possible to change on laptops or integrated GPUs?
@@ -461,7 +503,7 @@ fn main() {
         .present_mode(present_mode)
         .clipped(true)
         .old_swapchain(vk::SwapchainKHR::null());
-    let swapchain = Swapchain::new(&instance, &device);
+    let swapchain = Swapchain::new(&instance, &logical_device.device);
     let swapchain_khr =
         unsafe { swapchain.create_swapchain(&swapchain_create_info, None) }.unwrap();
     let swapchain_images = unsafe { swapchain.get_swapchain_images(swapchain_khr) }.unwrap();
@@ -488,12 +530,22 @@ fn main() {
                 base_array_layer: 0,
                 layer_count: 1,
             });
-        swapchain_image_views[i] =
-            unsafe { device.create_image_view(&image_view_create, None) }.unwrap();
+        swapchain_image_views[i] = unsafe {
+            logical_device
+                .device
+                .create_image_view(&image_view_create, None)
+        }
+        .unwrap();
     }
 
-    let vert_shader = make_shader(&device, include_bytes!("../shaders/triangle-vert.spv"));
-    let frag_shader = make_shader(&device, include_bytes!("../shaders/triangle-frag.spv"));
+    let vert_shader = make_shader(
+        &logical_device,
+        include_bytes!("../shaders/triangle-vert.spv"),
+    );
+    let frag_shader = make_shader(
+        &logical_device,
+        include_bytes!("../shaders/triangle-frag.spv"),
+    );
     let vert_shader_stage = vk::PipelineShaderStageCreateInfo::builder()
         .stage(vk::ShaderStageFlags::VERTEX)
         .module(vert_shader)
@@ -542,7 +594,7 @@ fn main() {
         .set_layouts(&[])
         .push_constant_ranges(&[]);
     let pipeline_layout =
-        unsafe { device.create_pipeline_layout(&pipeline_layout_info, None) }.unwrap();
+        unsafe { logical_device.create_pipeline_layout(&pipeline_layout_info, None) }.unwrap();
 
     let color_attachment = vk::AttachmentDescription::builder()
         .format(swapchain_image_format)
@@ -574,7 +626,8 @@ fn main() {
         .attachments(&attachments)
         .subpasses(&subpasses)
         .dependencies(&dependencies);
-    let render_pass = unsafe { device.create_render_pass(&render_pass_info, None) }.unwrap();
+    let render_pass =
+        unsafe { logical_device.create_render_pass(&render_pass_info, None) }.unwrap();
 
     let pipeline_info = vk::GraphicsPipelineCreateInfo::builder()
         .stages(&shader_stages)
@@ -589,7 +642,7 @@ fn main() {
         .render_pass(render_pass)
         .subpass(0);
     let pipeline = unsafe {
-        device.create_graphics_pipelines(vk::PipelineCache::null(), &[*pipeline_info], None)
+        logical_device.create_graphics_pipelines(vk::PipelineCache::null(), &[*pipeline_info], None)
     }
     .unwrap()
     .into_iter()
@@ -605,31 +658,34 @@ fn main() {
             .width(swapchain_extent.width)
             .height(swapchain_extent.height)
             .layers(1);
-        let framebuffer = unsafe { device.create_framebuffer(&framebuffer_info, None) }.unwrap();
+        let framebuffer =
+            unsafe { logical_device.create_framebuffer(&framebuffer_info, None) }.unwrap();
         swapchain_framebuffers[i] = framebuffer;
     }
 
     let command_pool_info = vk::CommandPoolCreateInfo::builder()
         .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
         .queue_family_index(physical_device.queues.graphics_family);
-    let command_pool = unsafe { device.create_command_pool(&command_pool_info, None) }.unwrap();
+    let command_pool =
+        unsafe { logical_device.create_command_pool(&command_pool_info, None) }.unwrap();
     let command_buffer_allocate_info = vk::CommandBufferAllocateInfo::builder()
         .command_pool(command_pool)
         .level(vk::CommandBufferLevel::PRIMARY)
         .command_buffer_count(1);
-    let command_buffer = unsafe { device.allocate_command_buffers(&command_buffer_allocate_info) }
-        .unwrap()
-        .into_iter()
-        .next()
-        .unwrap();
+    let command_buffer =
+        unsafe { logical_device.allocate_command_buffers(&command_buffer_allocate_info) }
+            .unwrap()
+            .into_iter()
+            .next()
+            .unwrap();
 
     let semaphore_info = vk::SemaphoreCreateInfo::builder();
     let fence_info = vk::FenceCreateInfo::builder().flags(vk::FenceCreateFlags::SIGNALED);
     let image_available_semaphore =
-        unsafe { device.create_semaphore(&semaphore_info, None) }.unwrap();
+        unsafe { logical_device.create_semaphore(&semaphore_info, None) }.unwrap();
     let render_finished_semaphore =
-        unsafe { device.create_semaphore(&semaphore_info, None) }.unwrap();
-    let in_flight_fence = unsafe { device.create_fence(&fence_info, None) }.unwrap();
+        unsafe { logical_device.create_semaphore(&semaphore_info, None) }.unwrap();
+    let in_flight_fence = unsafe { logical_device.create_fence(&fence_info, None) }.unwrap();
 
     // Run the event loop. Winit delivers events, like key presses. After it finishes delivering
     // some batch of events, it sends a MainEventsCleared event, which means the application should
@@ -648,7 +704,7 @@ fn main() {
             Event::MainEventsCleared | Event::RedrawRequested(_) => {
                 // render
                 draw_frame(
-                    &device,
+                    &logical_device,
                     in_flight_fence,
                     &swapchain,
                     swapchain_khr,
@@ -659,33 +715,30 @@ fn main() {
                     swapchain_extent,
                     pipeline,
                     render_finished_semaphore,
-                    graphics_queue,
-                    present_queue,
                 );
             }
             _ => (),
         }
     });
 
-    unsafe { device.device_wait_idle() }.unwrap();
+    unsafe { logical_device.device_wait_idle() }.unwrap();
 
-    unsafe { device.destroy_fence(in_flight_fence, None) };
-    unsafe { device.destroy_semaphore(render_finished_semaphore, None) };
-    unsafe { device.destroy_semaphore(image_available_semaphore, None) };
-    unsafe { device.destroy_command_pool(command_pool, None) };
+    unsafe { logical_device.destroy_fence(in_flight_fence, None) };
+    unsafe { logical_device.destroy_semaphore(render_finished_semaphore, None) };
+    unsafe { logical_device.destroy_semaphore(image_available_semaphore, None) };
+    unsafe { logical_device.destroy_command_pool(command_pool, None) };
     for framebuffer in swapchain_framebuffers {
-        unsafe { device.destroy_framebuffer(framebuffer, None) };
+        unsafe { logical_device.destroy_framebuffer(framebuffer, None) };
     }
-    unsafe { device.destroy_pipeline(pipeline, None) };
-    unsafe { device.destroy_render_pass(render_pass, None) };
-    unsafe { device.destroy_pipeline_layout(pipeline_layout, None) };
-    unsafe { device.destroy_shader_module(frag_shader, None) };
-    unsafe { device.destroy_shader_module(vert_shader, None) };
+    unsafe { logical_device.destroy_pipeline(pipeline, None) };
+    unsafe { logical_device.destroy_render_pass(render_pass, None) };
+    unsafe { logical_device.destroy_pipeline_layout(pipeline_layout, None) };
+    unsafe { logical_device.destroy_shader_module(frag_shader, None) };
+    unsafe { logical_device.destroy_shader_module(vert_shader, None) };
     for image_view in swapchain_image_views {
-        unsafe { device.destroy_image_view(image_view, None) };
+        unsafe { logical_device.destroy_image_view(image_view, None) };
     }
     unsafe { swapchain.destroy_swapchain(swapchain_khr, None) };
-    unsafe { device.destroy_device(None) };
 }
 
 fn make_shader(device: &Device, code: &[u8]) -> vk::ShaderModule {
@@ -695,7 +748,7 @@ fn make_shader(device: &Device, code: &[u8]) -> vk::ShaderModule {
 }
 
 fn draw_frame(
-    device: &Device,
+    device: &VulkanLogicalDevice,
     in_flight_fence: vk::Fence,
     swapchain: &Swapchain,
     swapchain_khr: vk::SwapchainKHR,
@@ -706,8 +759,6 @@ fn draw_frame(
     swapchain_extent: vk::Extent2D,
     pipeline: vk::Pipeline,
     render_finished_semaphore: vk::Semaphore,
-    graphics_queue: vk::Queue,
-    present_queue: vk::Queue,
 ) {
     unsafe { device.wait_for_fences(&[in_flight_fence], true, u64::MAX) }.unwrap();
     unsafe { device.reset_fences(&[in_flight_fence]) }.unwrap();
@@ -742,7 +793,8 @@ fn draw_frame(
         .wait_dst_stage_mask(&[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT])
         .command_buffers(&command_buffers)
         .signal_semaphores(&signal_semaphores);
-    unsafe { device.queue_submit(graphics_queue, &[*submit_info], in_flight_fence) }.unwrap();
+    unsafe { device.queue_submit(device.graphics_queue, &[*submit_info], in_flight_fence) }
+        .unwrap();
 
     let present_info_swapchains = [swapchain_khr];
     let present_info_images = [image_index];
@@ -750,7 +802,7 @@ fn draw_frame(
         .wait_semaphores(&signal_semaphores)
         .swapchains(&present_info_swapchains)
         .image_indices(&present_info_images);
-    unsafe { swapchain.queue_present(present_queue, &present_info) }.unwrap();
+    unsafe { swapchain.queue_present(device.present_queue, &present_info) }.unwrap();
 }
 
 fn record_command_buffer(
