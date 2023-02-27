@@ -32,6 +32,11 @@ struct VulkanDebug {
     messenger: vk::DebugUtilsMessengerEXT,
 }
 
+struct VulkanSurface {
+    ext: Surface,
+    surface: vk::SurfaceKHR,
+}
+
 struct QueueDetails {
     graphics_family: u32,
     present_family: u32,
@@ -103,18 +108,38 @@ impl VulkanDebug {
     }
 }
 
+impl VulkanSurface {
+    fn create(
+        entry: &Entry,
+        instance: &VulkanInstance,
+        window: &winit::window::Window,
+    ) -> VulkanSurface {
+        let ext = Surface::new(&entry, &instance);
+        let surface = unsafe {
+            ash_window::create_surface(
+                &entry,
+                &instance,
+                window.raw_display_handle(),
+                window.raw_window_handle(),
+                None,
+            )
+        }
+        .unwrap();
+        VulkanSurface { ext, surface }
+    }
+}
+
 impl QueueDetails {
     fn query(
         instance: &Instance,
         device: vk::PhysicalDevice,
-        surface: &Surface,
-        surface_khr: vk::SurfaceKHR,
+        surface: &VulkanSurface,
     ) -> VkResult<Option<QueueDetails>> {
         let queues = unsafe { instance.get_physical_device_queue_family_properties(device) };
         let Some(graphics_family) = QueueDetails::find_queue(&queues, |_, q| q.queue_flags.contains(vk::QueueFlags::GRAPHICS)) else {
             return Ok(None);
         };
-        let Some(present_family) = QueueDetails::find_queue(&queues, |i, _| unsafe { surface.get_physical_device_surface_support(device, i, surface_khr) }
+        let Some(present_family) = QueueDetails::find_queue(&queues, |i, _| unsafe { surface.ext.get_physical_device_surface_support(device, i, surface.surface) }
             .unwrap()) else {
             return Ok(None);
         };
@@ -139,19 +164,25 @@ impl QueueDetails {
 }
 
 impl SwapchainDetails {
-    fn query(
-        device: vk::PhysicalDevice,
-        surface: &Surface,
-        surface_khr: vk::SurfaceKHR,
-    ) -> VkResult<SwapchainDetails> {
-        let capabilities =
-            unsafe { surface.get_physical_device_surface_capabilities(device, surface_khr) }
-                .unwrap();
-        let formats =
-            unsafe { surface.get_physical_device_surface_formats(device, surface_khr) }.unwrap();
-        let present_modes =
-            unsafe { surface.get_physical_device_surface_present_modes(device, surface_khr) }
-                .unwrap();
+    fn query(device: vk::PhysicalDevice, surface: &VulkanSurface) -> VkResult<SwapchainDetails> {
+        let capabilities = unsafe {
+            surface
+                .ext
+                .get_physical_device_surface_capabilities(device, surface.surface)
+        }
+        .unwrap();
+        let formats = unsafe {
+            surface
+                .ext
+                .get_physical_device_surface_formats(device, surface.surface)
+        }
+        .unwrap();
+        let present_modes = unsafe {
+            surface
+                .ext
+                .get_physical_device_surface_present_modes(device, surface.surface)
+        }
+        .unwrap();
         Ok(SwapchainDetails {
             capabilities,
             formats,
@@ -229,6 +260,12 @@ impl Drop for VulkanDebug {
     }
 }
 
+impl Drop for VulkanSurface {
+    fn drop(&mut self) {
+        unsafe { self.ext.destroy_surface(self.surface, None) };
+    }
+}
+
 fn main() {
     // Create the application window using winit. Use a predefined size for now, though games should
     // run in fullscreen eventually.
@@ -253,20 +290,7 @@ fn main() {
 
     let instance = VulkanInstance::create(&entry, &window);
     let _debug = VulkanDebug::create(&entry, &instance);
-
-    // Create the KHR extension surface from winit object. This must be done before selecting a
-    // physical device to check whether is supports presenting to the display.
-    let surface_khr = unsafe {
-        ash_window::create_surface(
-            &entry,
-            &instance,
-            window.raw_display_handle(),
-            window.raw_window_handle(),
-            None,
-        )
-    }
-    .unwrap();
-    let surface = Surface::new(&entry, &instance);
+    let surface = VulkanSurface::create(&entry, &instance, &window);
 
     // Select the GPU. For now, just select the first discrete GPU with graphics support. Later,
     // this should react better to iGPU, dGPU and iGPU+dGPU setups. In more complex setups, it would
@@ -278,7 +302,7 @@ fn main() {
         let gpu_name = unsafe { CStr::from_ptr(properties.device_name.as_ptr()) }
             .to_str()
             .unwrap();
-        let Some(queues) = QueueDetails::query(&instance, device, &surface, surface_khr).unwrap() else {
+        let Some(queues) = QueueDetails::query(&instance, device, &surface).unwrap() else {
             println!("rejected gpu, no suitable queues ({gpu_name})");
             continue;
         };
@@ -292,7 +316,7 @@ fn main() {
             continue;
         }
         // This query requires the swapchain extension to be present.
-        let swapchains = SwapchainDetails::query(device, &surface, surface_khr).unwrap();
+        let swapchains = SwapchainDetails::query(device, &surface).unwrap();
         if swapchains.formats.is_empty() || swapchains.present_modes.is_empty() {
             println!("rejected gpu, unsuitable swapchain ({gpu_name})");
             continue;
@@ -346,7 +370,7 @@ fn main() {
     let extent = swapchains.select_swap_extent(&window);
     let image_count = swapchains.select_image_count();
     let swapchain_create_info = vk::SwapchainCreateInfoKHR::builder()
-        .surface(surface_khr)
+        .surface(surface.surface)
         .min_image_count(image_count)
         .image_format(format.format)
         .image_color_space(format.color_space)
@@ -592,7 +616,6 @@ fn main() {
     }
     unsafe { swapchain.destroy_swapchain(swapchain_khr, None) };
     unsafe { device.destroy_device(None) };
-    unsafe { surface.destroy_surface(surface_khr, None) };
 }
 
 fn make_shader(device: &Device, code: &[u8]) -> vk::ShaderModule {
