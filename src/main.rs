@@ -10,6 +10,7 @@ use std::borrow::Cow;
 use std::collections::HashSet;
 use std::ffi::CStr;
 use std::ops::Deref;
+use std::sync::Arc;
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::EventLoop;
 use winit::platform::run_return::EventLoopExtRunReturn;
@@ -25,15 +26,21 @@ const VULKAN_ENGINE_VERSION: u32 = vk::make_api_version(0, 0, 0, 0);
 
 struct VulkanInstance {
     instance: Instance,
+    ext: VulkanInstanceExts,
+}
+
+struct VulkanInstanceExts {
+    debug: Arc<DebugUtils>,
+    surface: Arc<Surface>,
 }
 
 struct VulkanDebug {
-    ext: DebugUtils,
+    ext: Arc<DebugUtils>,
     messenger: vk::DebugUtilsMessengerEXT,
 }
 
 struct VulkanSurface {
-    ext: Surface,
+    ext: Arc<Surface>,
     surface: vk::SurfaceKHR,
 }
 
@@ -80,16 +87,19 @@ impl VulkanInstance {
             .enabled_layer_names(&layer_names)
             .enabled_extension_names(&extension_names);
         let instance = unsafe { entry.create_instance(&instance_create_info, None) }.unwrap();
-        VulkanInstance { instance }
+
+        // Load the extension function pointers. The DebugUtils extension was explicitly added to
+        // extension_names list, and Surface is implied by enumerate_required_extensions.
+        let debug = Arc::new(DebugUtils::new(&entry, &instance));
+        let surface = Arc::new(Surface::new(&entry, &instance));
+        let ext = VulkanInstanceExts { debug, surface };
+
+        VulkanInstance { instance, ext }
     }
 }
 
 impl VulkanDebug {
-    fn create(entry: &Entry, instance: &VulkanInstance) -> VulkanDebug {
-        // Load the debug extension function pointers. This probably assumes that the extension in
-        // question exists, which we should check?
-        let ext = DebugUtils::new(&entry, &instance);
-
+    fn create(instance: &VulkanInstance) -> VulkanDebug {
         // Enable filtering by message severity and type. General and verbose levels seem to produce
         // too much noise related to physical device selection, so I turned them off.
         // vulkan-tutorial.com also shows how to enable this for creating instances, but the ash
@@ -103,8 +113,12 @@ impl VulkanDebug {
             .message_severity(severity_filter)
             .message_type(type_filter)
             .pfn_user_callback(Some(vulkan_debug_callback));
-        let messenger = unsafe { ext.create_debug_utils_messenger(&info, None) }.unwrap();
-        VulkanDebug { ext, messenger }
+        let messenger =
+            unsafe { instance.ext.debug.create_debug_utils_messenger(&info, None) }.unwrap();
+        VulkanDebug {
+            ext: instance.ext.debug.clone(),
+            messenger,
+        }
     }
 }
 
@@ -114,7 +128,6 @@ impl VulkanSurface {
         instance: &VulkanInstance,
         window: &winit::window::Window,
     ) -> VulkanSurface {
-        let ext = Surface::new(&entry, &instance);
         let surface = unsafe {
             ash_window::create_surface(
                 &entry,
@@ -125,13 +138,16 @@ impl VulkanSurface {
             )
         }
         .unwrap();
-        VulkanSurface { ext, surface }
+        VulkanSurface {
+            ext: instance.ext.surface.clone(),
+            surface,
+        }
     }
 }
 
 impl QueueDetails {
     fn query(
-        instance: &Instance,
+        instance: &VulkanInstance,
         device: vk::PhysicalDevice,
         surface: &VulkanSurface,
     ) -> VkResult<Option<QueueDetails>> {
@@ -139,7 +155,7 @@ impl QueueDetails {
         let Some(graphics_family) = QueueDetails::find_queue(&queues, |_, q| q.queue_flags.contains(vk::QueueFlags::GRAPHICS)) else {
             return Ok(None);
         };
-        let Some(present_family) = QueueDetails::find_queue(&queues, |i, _| unsafe { surface.ext.get_physical_device_surface_support(device, i, surface.surface) }
+        let Some(present_family) = QueueDetails::find_queue(&queues, |i, _| unsafe { instance.ext.surface.get_physical_device_surface_support(device, i, surface.surface) }
             .unwrap()) else {
             return Ok(None);
         };
@@ -164,22 +180,29 @@ impl QueueDetails {
 }
 
 impl SwapchainDetails {
-    fn query(device: vk::PhysicalDevice, surface: &VulkanSurface) -> VkResult<SwapchainDetails> {
+    fn query(
+        instance: &VulkanInstance,
+        device: vk::PhysicalDevice,
+        surface: &VulkanSurface,
+    ) -> VkResult<SwapchainDetails> {
         let capabilities = unsafe {
-            surface
+            instance
                 .ext
+                .surface
                 .get_physical_device_surface_capabilities(device, surface.surface)
         }
         .unwrap();
         let formats = unsafe {
-            surface
+            instance
                 .ext
+                .surface
                 .get_physical_device_surface_formats(device, surface.surface)
         }
         .unwrap();
         let present_modes = unsafe {
-            surface
+            instance
                 .ext
+                .surface
                 .get_physical_device_surface_present_modes(device, surface.surface)
         }
         .unwrap();
@@ -289,7 +312,7 @@ fn main() {
     }
 
     let instance = VulkanInstance::create(&entry, &window);
-    let _debug = VulkanDebug::create(&entry, &instance);
+    let _debug = VulkanDebug::create(&instance);
     let surface = VulkanSurface::create(&entry, &instance, &window);
 
     // Select the GPU. For now, just select the first discrete GPU with graphics support. Later,
@@ -316,7 +339,7 @@ fn main() {
             continue;
         }
         // This query requires the swapchain extension to be present.
-        let swapchains = SwapchainDetails::query(device, &surface).unwrap();
+        let swapchains = SwapchainDetails::query(&instance, device, &surface).unwrap();
         if swapchains.formats.is_empty() || swapchains.present_modes.is_empty() {
             println!("rejected gpu, unsuitable swapchain ({gpu_name})");
             continue;
