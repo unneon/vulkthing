@@ -9,6 +9,7 @@ use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use std::borrow::Cow;
 use std::collections::HashSet;
 use std::ffi::CStr;
+use std::ops::Deref;
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::EventLoop;
 use winit::platform::run_return::EventLoopExtRunReturn;
@@ -22,6 +23,10 @@ const VULKAN_APP_VERSION: u32 = vk::make_api_version(0, 0, 0, 0);
 const VULKAN_ENGINE_NAME: &CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"Vulkthing\0") };
 const VULKAN_ENGINE_VERSION: u32 = vk::make_api_version(0, 0, 0, 0);
 
+struct VulkanInstance {
+    instance: Instance,
+}
+
 struct QueueDetails {
     graphics_family: u32,
     present_family: u32,
@@ -31,6 +36,42 @@ struct SwapchainDetails {
     capabilities: vk::SurfaceCapabilitiesKHR,
     formats: Vec<vk::SurfaceFormatKHR>,
     present_modes: Vec<vk::PresentModeKHR>,
+}
+
+impl VulkanInstance {
+    fn create(entry: &Entry, window: &winit::window::Window) -> VulkanInstance {
+        // Set metadata of the app and the engine. May be used by the drivers to enable
+        // game-specific and engine-specific optimizations, which won't happen, but let's set it to
+        // something sensible anyway.
+        let app_info = vk::ApplicationInfo::builder()
+            .application_name(VULKAN_APP_NAME)
+            .application_version(VULKAN_APP_VERSION)
+            .engine_name(VULKAN_ENGINE_NAME)
+            .engine_version(VULKAN_ENGINE_VERSION)
+            .api_version(vk::API_VERSION_1_0);
+
+        // Enable Vulkan validation layers. This should be later disabled in non-development builds.
+        let layer_names = [CStr::from_bytes_with_nul(b"VK_LAYER_KHRONOS_validation\0")
+            .unwrap()
+            .as_ptr()];
+
+        // Vulkan doesn't appear to have any interesting extensions at this level, physical device
+        // extensions are the interesting ones with raytracing and other stuff. This is just for
+        // OS-specific windowing system interactions, and enabling debug logging for the validation
+        // layers.
+        let mut extension_names =
+            ash_window::enumerate_required_extensions(window.raw_display_handle())
+                .unwrap()
+                .to_vec();
+        extension_names.push(DebugUtils::name().as_ptr());
+
+        let instance_create_info = vk::InstanceCreateInfo::builder()
+            .application_info(&app_info)
+            .enabled_layer_names(&layer_names)
+            .enabled_extension_names(&extension_names);
+        let instance = unsafe { entry.create_instance(&instance_create_info, None) }.unwrap();
+        VulkanInstance { instance }
+    }
 }
 
 impl QueueDetails {
@@ -139,6 +180,20 @@ impl SwapchainDetails {
     }
 }
 
+impl Deref for VulkanInstance {
+    type Target = Instance;
+
+    fn deref(&self) -> &Instance {
+        &self.instance
+    }
+}
+
+impl Drop for VulkanInstance {
+    fn drop(&mut self) {
+        unsafe { self.instance.destroy_instance(None) };
+    }
+}
+
 fn main() {
     // Create the application window using winit. Use a predefined size for now, though games should
     // run in fullscreen eventually.
@@ -161,27 +216,7 @@ fn main() {
         println!("  {ext:?}");
     }
 
-    // Create a Vulkan instance. Mostly metadata of the app and the engine, as well as required
-    // extensions.
-    let app_info = vk::ApplicationInfo::builder()
-        .application_name(VULKAN_APP_NAME)
-        .application_version(VULKAN_APP_VERSION)
-        .engine_name(VULKAN_ENGINE_NAME)
-        .engine_version(VULKAN_ENGINE_VERSION)
-        .api_version(vk::API_VERSION_1_0);
-    let layer_names = [CStr::from_bytes_with_nul(b"VK_LAYER_KHRONOS_validation\0")
-        .unwrap()
-        .as_ptr()];
-    let mut extension_names =
-        ash_window::enumerate_required_extensions(window.raw_display_handle())
-            .unwrap()
-            .to_vec();
-    extension_names.push(DebugUtils::name().as_ptr());
-    let instance_create_info = vk::InstanceCreateInfo::builder()
-        .application_info(&app_info)
-        .enabled_layer_names(&layer_names)
-        .enabled_extension_names(&extension_names);
-    let instance = unsafe { entry.create_instance(&instance_create_info, None) }.unwrap();
+    let instance = VulkanInstance::create(&entry, &window);
 
     // Set up the callback for debug messages from validation layers. vulkan-tutorial.com also shows
     // how to enable this for creating instances, but ash example doesn't include this.
@@ -269,6 +304,9 @@ fn main() {
         })
         .collect();
     let physical_device_features = vk::PhysicalDeviceFeatures::builder();
+    let layer_names = [CStr::from_bytes_with_nul(b"VK_LAYER_KHRONOS_validation\0")
+        .unwrap()
+        .as_ptr()];
     let device = unsafe {
         instance.create_device(
             physical_device,
@@ -539,7 +577,6 @@ fn main() {
     unsafe { device.destroy_device(None) };
     unsafe { surface.destroy_surface(surface_khr, None) };
     unsafe { debug_utils_loader.destroy_debug_utils_messenger(debug_call_back, None) };
-    unsafe { instance.destroy_instance(None) };
 }
 
 fn make_shader(device: &Device, code: &[u8]) -> vk::ShaderModule {
