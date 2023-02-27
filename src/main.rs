@@ -27,6 +27,11 @@ struct VulkanInstance {
     instance: Instance,
 }
 
+struct VulkanDebug {
+    ext: DebugUtils,
+    messenger: vk::DebugUtilsMessengerEXT,
+}
+
 struct QueueDetails {
     graphics_family: u32,
     present_family: u32,
@@ -71,6 +76,30 @@ impl VulkanInstance {
             .enabled_extension_names(&extension_names);
         let instance = unsafe { entry.create_instance(&instance_create_info, None) }.unwrap();
         VulkanInstance { instance }
+    }
+}
+
+impl VulkanDebug {
+    fn create(entry: &Entry, instance: &VulkanInstance) -> VulkanDebug {
+        // Load the debug extension function pointers. This probably assumes that the extension in
+        // question exists, which we should check?
+        let ext = DebugUtils::new(&entry, &instance);
+
+        // Enable filtering by message severity and type. General and verbose levels seem to produce
+        // too much noise related to physical device selection, so I turned them off.
+        // vulkan-tutorial.com also shows how to enable this for creating instances, but the ash
+        // example doesn't include this.
+        let severity_filter = vk::DebugUtilsMessageSeverityFlagsEXT::ERROR
+            | vk::DebugUtilsMessageSeverityFlagsEXT::WARNING;
+        let type_filter = vk::DebugUtilsMessageTypeFlagsEXT::GENERAL
+            | vk::DebugUtilsMessageTypeFlagsEXT::VALIDATION
+            | vk::DebugUtilsMessageTypeFlagsEXT::PERFORMANCE;
+        let info = vk::DebugUtilsMessengerCreateInfoEXT::builder()
+            .message_severity(severity_filter)
+            .message_type(type_filter)
+            .pfn_user_callback(Some(vulkan_debug_callback));
+        let messenger = unsafe { ext.create_debug_utils_messenger(&info, None) }.unwrap();
+        VulkanDebug { ext, messenger }
     }
 }
 
@@ -194,6 +223,12 @@ impl Drop for VulkanInstance {
     }
 }
 
+impl Drop for VulkanDebug {
+    fn drop(&mut self) {
+        unsafe { self.ext.destroy_debug_utils_messenger(self.messenger, None) };
+    }
+}
+
 fn main() {
     // Create the application window using winit. Use a predefined size for now, though games should
     // run in fullscreen eventually.
@@ -217,25 +252,7 @@ fn main() {
     }
 
     let instance = VulkanInstance::create(&entry, &window);
-
-    // Set up the callback for debug messages from validation layers. vulkan-tutorial.com also shows
-    // how to enable this for creating instances, but ash example doesn't include this.
-    let debug_info = vk::DebugUtilsMessengerCreateInfoEXT::builder()
-        .message_severity(
-            vk::DebugUtilsMessageSeverityFlagsEXT::ERROR
-                | vk::DebugUtilsMessageSeverityFlagsEXT::WARNING
-                | vk::DebugUtilsMessageSeverityFlagsEXT::INFO
-                | vk::DebugUtilsMessageSeverityFlagsEXT::VERBOSE,
-        )
-        .message_type(
-            vk::DebugUtilsMessageTypeFlagsEXT::GENERAL
-                | vk::DebugUtilsMessageTypeFlagsEXT::VALIDATION
-                | vk::DebugUtilsMessageTypeFlagsEXT::PERFORMANCE,
-        )
-        .pfn_user_callback(Some(vulkan_debug_callback));
-    let debug_utils_loader = DebugUtils::new(&entry, &instance);
-    let debug_call_back =
-        unsafe { debug_utils_loader.create_debug_utils_messenger(&debug_info, None) }.unwrap();
+    let _debug = VulkanDebug::create(&entry, &instance);
 
     // Create the KHR extension surface from winit object. This must be done before selecting a
     // physical device to check whether is supports presenting to the display.
@@ -576,7 +593,6 @@ fn main() {
     unsafe { swapchain.destroy_swapchain(swapchain_khr, None) };
     unsafe { device.destroy_device(None) };
     unsafe { surface.destroy_surface(surface_khr, None) };
-    unsafe { debug_utils_loader.destroy_debug_utils_messenger(debug_call_back, None) };
 }
 
 fn make_shader(device: &Device, code: &[u8]) -> vk::ShaderModule {
