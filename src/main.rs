@@ -44,6 +44,12 @@ struct VulkanSurface {
     surface: vk::SurfaceKHR,
 }
 
+struct VulkanPhysicalDevice {
+    device: vk::PhysicalDevice,
+    queues: QueueDetails,
+    swapchain: SwapchainDetails,
+}
+
 struct QueueDetails {
     graphics_family: u32,
     present_family: u32,
@@ -142,6 +148,77 @@ impl VulkanSurface {
             ext: instance.ext.surface.clone(),
             surface,
         }
+    }
+}
+
+impl VulkanPhysicalDevice {
+    fn find(instance: &VulkanInstance, surface: &VulkanSurface) -> VulkanPhysicalDevice {
+        // Select the GPU. For now, just select the first discrete GPU with graphics support. Later,
+        // this should react better to iGPU, dGPU and iGPU+dGPU setups. In more complex setups, it would
+        // be neat if you could start the game on any GPU, display a choice to the user and seamlessly
+        // switch to a new physical device.
+        let mut found = None;
+        for device in unsafe { instance.enumerate_physical_devices() }.unwrap() {
+            let properties = unsafe { instance.get_physical_device_properties(device) };
+            let name = unsafe { CStr::from_ptr(properties.device_name.as_ptr()) }
+                .to_str()
+                .unwrap()
+                .to_owned();
+
+            // The GPU has to have a graphics queue. Otherwise there's no way to do any rendering
+            // operations, so this must be some weird compute-only accelerator or something. This
+            // also checks whether there is a present queue. This could be worked around using two
+            // separate GPUs (or just one for headless benchmarking), but the OS should take care of
+            // handling this sort of stuff between devices, probably?
+            let Some(queues) = QueueDetails::query(&instance, device, &surface).unwrap() else {
+                println!("rejected gpu, no suitable queues ({name})");
+                continue;
+            };
+
+            // Check whether the GPU supports the swapchain extension. This should be implied by the
+            // presence of the present queue, but we can check this explicitly.
+            let extensions =
+                unsafe { instance.enumerate_device_extension_properties(device) }.unwrap();
+            let has_swapchain_extension = extensions.iter().any(|ext| {
+                let ext_name = unsafe { CStr::from_ptr(ext.extension_name.as_ptr()) };
+                ext_name == Swapchain::name()
+            });
+            if !has_swapchain_extension {
+                println!("rejected gpu, no swapchain extension ({name})");
+                continue;
+            }
+
+            // This queries some more details about swapchain support, and apparently this requires
+            // the earlier extension check in order to be correct (not crash?). Also there shouldn't
+            // be devices that support swapchains but no formats or present modes, but let's check
+            // anyway because the tutorial does.
+            let swapchain = SwapchainDetails::query(&instance, device, &surface).unwrap();
+            if swapchain.formats.is_empty() || swapchain.present_modes.is_empty() {
+                println!("rejected gpu, unsuitable swapchain ({name})");
+                continue;
+            }
+
+            // Reject GPUs once we found one already. I've seen debug logs indicating some
+            // Linux-specific sorting is going on, so it sounds like the options should be ordered
+            // sensibly already? Might be a good idea to check on a iGPU+dGPU laptop.
+            if found.is_some() {
+                println!("rejected gpu, one already selected ({name})");
+            }
+
+            // Let's not break, because getting logs about other GPUs could possibly help debug
+            // performance problems related to GPU selection.
+            println!("accepted gpu: {name}");
+            found = Some(VulkanPhysicalDevice {
+                device,
+                queues,
+                swapchain,
+            });
+        }
+
+        let Some(physical_device) = found else {
+            panic!("gpu not found");
+        };
+        physical_device
     }
 }
 
@@ -314,50 +391,14 @@ fn main() {
     let instance = VulkanInstance::create(&entry, &window);
     let _debug = VulkanDebug::create(&instance);
     let surface = VulkanSurface::create(&entry, &instance, &window);
-
-    // Select the GPU. For now, just select the first discrete GPU with graphics support. Later,
-    // this should react better to iGPU, dGPU and iGPU+dGPU setups. In more complex setups, it would
-    // be neat if you could start the game on any GPU, display a choice to the user and seamlessly
-    // switch to a new physical device.
-    let mut found = None;
-    for device in unsafe { instance.enumerate_physical_devices() }.unwrap() {
-        let properties = unsafe { instance.get_physical_device_properties(device) };
-        let gpu_name = unsafe { CStr::from_ptr(properties.device_name.as_ptr()) }
-            .to_str()
-            .unwrap();
-        let Some(queues) = QueueDetails::query(&instance, device, &surface).unwrap() else {
-            println!("rejected gpu, no suitable queues ({gpu_name})");
-            continue;
-        };
-        let extensions = unsafe { instance.enumerate_device_extension_properties(device) }.unwrap();
-        let has_swapchain_extension = extensions.iter().any(|ext| {
-            let ext_name = unsafe { CStr::from_ptr(ext.extension_name.as_ptr()) };
-            ext_name == Swapchain::name()
-        });
-        if !has_swapchain_extension {
-            println!("rejected gpu, no swapchain extension ({gpu_name})");
-            continue;
-        }
-        // This query requires the swapchain extension to be present.
-        let swapchains = SwapchainDetails::query(&instance, device, &surface).unwrap();
-        if swapchains.formats.is_empty() || swapchains.present_modes.is_empty() {
-            println!("rejected gpu, unsuitable swapchain ({gpu_name})");
-            continue;
-        }
-        if found.is_none() {
-            println!("accepted gpu: {gpu_name}");
-            found = Some((device, queues, swapchains));
-        } else {
-            println!("rejected gpu, one already selected ({gpu_name})");
-        }
-    }
-    let Some((physical_device, queues, swapchains)) = found else {
-        panic!("gpu not found");
-    };
+    let physical_device = VulkanPhysicalDevice::find(&instance, &surface);
 
     // Specify physical device extensions, required queues and create them. Probably should pick
     // queues more reasonably?
-    let queue_indices = HashSet::from([queues.graphics_family, queues.present_family]);
+    let queue_indices = HashSet::from([
+        physical_device.queues.graphics_family,
+        physical_device.queues.present_family,
+    ]);
     let queue_creates: Vec<_> = queue_indices
         .iter()
         .map(|queue_index| {
@@ -373,7 +414,7 @@ fn main() {
         .as_ptr()];
     let device = unsafe {
         instance.create_device(
-            physical_device,
+            physical_device.device,
             &vk::DeviceCreateInfo::builder()
                 .queue_create_infos(&queue_creates)
                 .enabled_features(&physical_device_features)
@@ -383,15 +424,17 @@ fn main() {
         )
     }
     .unwrap();
-    let graphics_queue = unsafe { device.get_device_queue(queues.graphics_family, 0) };
-    let present_queue = unsafe { device.get_device_queue(queues.present_family, 0) };
+    let graphics_queue =
+        unsafe { device.get_device_queue(physical_device.queues.graphics_family, 0) };
+    let present_queue =
+        unsafe { device.get_device_queue(physical_device.queues.present_family, 0) };
 
     // Create the swapchain for presenting images to display. Set to prefer triple buffering right
     // now, should be possible to change on laptops or integrated GPUs?
-    let format = swapchains.select_format();
-    let present_mode = swapchains.select_present_mode();
-    let extent = swapchains.select_swap_extent(&window);
-    let image_count = swapchains.select_image_count();
+    let format = physical_device.swapchain.select_format();
+    let present_mode = physical_device.swapchain.select_present_mode();
+    let extent = physical_device.swapchain.select_swap_extent(&window);
+    let image_count = physical_device.swapchain.select_image_count();
     let swapchain_create_info = vk::SwapchainCreateInfoKHR::builder()
         .surface(surface.surface)
         .min_image_count(image_count)
@@ -400,16 +443,20 @@ fn main() {
         .image_extent(extent)
         .image_array_layers(1)
         .image_usage(vk::ImageUsageFlags::COLOR_ATTACHMENT);
-    let queue_family_indices = [queues.graphics_family, queues.present_family];
-    let swapchain_create_info = if queues.graphics_family != queues.present_family {
-        swapchain_create_info
-            .image_sharing_mode(vk::SharingMode::CONCURRENT)
-            .queue_family_indices(&queue_family_indices)
-    } else {
-        swapchain_create_info.image_sharing_mode(vk::SharingMode::EXCLUSIVE)
-    };
+    let queue_family_indices = [
+        physical_device.queues.graphics_family,
+        physical_device.queues.present_family,
+    ];
+    let swapchain_create_info =
+        if physical_device.queues.graphics_family != physical_device.queues.present_family {
+            swapchain_create_info
+                .image_sharing_mode(vk::SharingMode::CONCURRENT)
+                .queue_family_indices(&queue_family_indices)
+        } else {
+            swapchain_create_info.image_sharing_mode(vk::SharingMode::EXCLUSIVE)
+        };
     let swapchain_create_info = swapchain_create_info
-        .pre_transform(swapchains.capabilities.current_transform)
+        .pre_transform(physical_device.swapchain.capabilities.current_transform)
         .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE)
         .present_mode(present_mode)
         .clipped(true)
@@ -564,7 +611,7 @@ fn main() {
 
     let command_pool_info = vk::CommandPoolCreateInfo::builder()
         .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
-        .queue_family_index(queues.graphics_family);
+        .queue_family_index(physical_device.queues.graphics_family);
     let command_pool = unsafe { device.create_command_pool(&command_pool_info, None) }.unwrap();
     let command_buffer_allocate_info = vk::CommandBufferAllocateInfo::builder()
         .command_pool(command_pool)
