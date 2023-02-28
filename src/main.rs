@@ -392,7 +392,6 @@ impl SwapchainDetails {
 
     fn select_image_count(&self) -> u32 {
         let no_image_limit = self.capabilities.max_image_count == 0;
-        dbg!(no_image_limit);
         self.capabilities.min_image_count
             + if no_image_limit
                 || self.capabilities.min_image_count + 1 <= self.capabilities.max_image_count
@@ -459,13 +458,8 @@ fn main() {
         .build(&event_loop)
         .unwrap();
 
-    // Load the Vulkan library, and check what extensions it implements. This should probably use
-    // the dynamically loaded variant instead?
+    // Load the Vulkan library. This should probably use the dynamically loaded variant instead?
     let entry = unsafe { Entry::load() }.unwrap();
-    println!("scanning for vulkan extensions:");
-    for ext in entry.enumerate_instance_extension_properties(None).unwrap() {
-        println!("  {ext:?}");
-    }
 
     let instance = VulkanInstance::create(&entry, &window);
     let _debug = VulkanDebug::create(&instance);
