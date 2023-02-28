@@ -209,6 +209,7 @@ impl VulkanPhysicalDevice {
             // sensibly already? Might be a good idea to check on a iGPU+dGPU laptop.
             if found.is_some() {
                 println!("rejected gpu, one already selected ({name})");
+                continue;
             }
 
             // Let's not break, because getting logs about other GPUs could possibly help debug
