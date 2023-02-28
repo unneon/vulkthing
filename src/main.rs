@@ -454,6 +454,7 @@ fn main() {
             WINDOW_SIZE.1 as f64,
         ))
         .with_resizable(false)
+        .with_decorations(false)
         .build(&event_loop)
         .unwrap();
 
