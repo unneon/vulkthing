@@ -67,6 +67,15 @@ struct VulkanLogicalDevice {
     present_queue: vk::Queue,
 }
 
+struct VulkanSwapchain<'a> {
+    logical_device: &'a VulkanLogicalDevice,
+    ext: Swapchain,
+    swapchain: vk::SwapchainKHR,
+    image_format: vk::Format,
+    extent: vk::Extent2D,
+    image_views: Vec<vk::ImageView>,
+}
+
 impl VulkanInstance {
     fn create(entry: &Entry, window: &winit::window::Window) -> VulkanInstance {
         // Set metadata of the app and the engine. May be used by the drivers to enable
@@ -403,6 +412,97 @@ impl SwapchainDetails {
     }
 }
 
+impl<'a> VulkanSwapchain<'a> {
+    fn create(
+        instance: &VulkanInstance,
+        physical_device: &VulkanPhysicalDevice,
+        logical_device: &'a VulkanLogicalDevice,
+        window: &winit::window::Window,
+        surface: &VulkanSurface,
+    ) -> VulkanSwapchain<'a> {
+        let ext = Swapchain::new(&instance, &logical_device.device);
+
+        // Create the swapchain for presenting images to display. Set to prefer triple buffering
+        // right now, should be possible to change on laptops or integrated GPUs? Also requires
+        // specifying a bunch of display-related parameters, which aren't very interesting as they
+        // were mostly decided on previously.
+        let format = physical_device.swapchain.select_format();
+        let present_mode = physical_device.swapchain.select_present_mode();
+        let extent = physical_device.swapchain.select_swap_extent(&window);
+        let image_count = physical_device.swapchain.select_image_count();
+        let image_format = format.format;
+        let queue_family_indices = [
+            physical_device.queues.graphics_family,
+            physical_device.queues.present_family,
+        ];
+        let create_info = vk::SwapchainCreateInfoKHR::builder()
+            .surface(surface.surface)
+            .min_image_count(image_count)
+            .image_format(image_format)
+            .image_color_space(format.color_space)
+            .image_extent(extent)
+            .image_array_layers(1)
+            .image_usage(vk::ImageUsageFlags::COLOR_ATTACHMENT);
+        let create_info =
+            if physical_device.queues.graphics_family != physical_device.queues.present_family {
+                create_info
+                    .image_sharing_mode(vk::SharingMode::CONCURRENT)
+                    .queue_family_indices(&queue_family_indices)
+            } else {
+                create_info.image_sharing_mode(vk::SharingMode::EXCLUSIVE)
+            };
+        let create_info = create_info
+            .pre_transform(physical_device.swapchain.capabilities.current_transform)
+            .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE)
+            .present_mode(present_mode)
+            .clipped(true)
+            .old_swapchain(vk::SwapchainKHR::null());
+        let swapchain = unsafe { ext.create_swapchain(&create_info, None) }.unwrap();
+        let images = unsafe { ext.get_swapchain_images(swapchain) }.unwrap();
+
+        // Create image views. Not really interesting for now, as I only use normal color settings.
+        let mut image_views = vec![vk::ImageView::null(); images.len()];
+        for i in 0..images.len() {
+            let image_view_create = vk::ImageViewCreateInfo::builder()
+                .image(images[i])
+                .view_type(vk::ImageViewType::TYPE_2D)
+                .format(image_format)
+                .components(vk::ComponentMapping {
+                    r: ComponentSwizzle::IDENTITY,
+                    g: ComponentSwizzle::IDENTITY,
+                    b: ComponentSwizzle::IDENTITY,
+                    a: ComponentSwizzle::IDENTITY,
+                })
+                .subresource_range(vk::ImageSubresourceRange {
+                    aspect_mask: vk::ImageAspectFlags::COLOR,
+                    base_mip_level: 0,
+                    level_count: 1,
+                    base_array_layer: 0,
+                    layer_count: 1,
+                });
+            image_views[i] = unsafe {
+                logical_device
+                    .device
+                    .create_image_view(&image_view_create, None)
+            }
+            .unwrap();
+        }
+
+        VulkanSwapchain {
+            logical_device,
+            ext,
+            swapchain,
+            image_format,
+            extent,
+            image_views,
+        }
+    }
+
+    fn image_count(&self) -> usize {
+        self.image_views.len()
+    }
+}
+
 impl Deref for VulkanInstance {
     type Target = Instance;
 
@@ -443,6 +543,15 @@ impl Drop for VulkanLogicalDevice {
     }
 }
 
+impl Drop for VulkanSwapchain<'_> {
+    fn drop(&mut self) {
+        for image_view in &self.image_views {
+            unsafe { self.logical_device.destroy_image_view(*image_view, None) };
+        }
+        unsafe { self.ext.destroy_swapchain(self.swapchain, None) };
+    }
+}
+
 fn main() {
     // Create the application window using winit. Use a predefined size for now, though games should
     // run in fullscreen eventually.
@@ -466,73 +575,13 @@ fn main() {
     let surface = VulkanSurface::create(&entry, &instance, &window);
     let physical_device = VulkanPhysicalDevice::find(&instance, &surface);
     let logical_device = VulkanLogicalDevice::create(&instance, &physical_device);
-
-    // Create the swapchain for presenting images to display. Set to prefer triple buffering right
-    // now, should be possible to change on laptops or integrated GPUs?
-    let format = physical_device.swapchain.select_format();
-    let present_mode = physical_device.swapchain.select_present_mode();
-    let extent = physical_device.swapchain.select_swap_extent(&window);
-    let image_count = physical_device.swapchain.select_image_count();
-    let swapchain_create_info = vk::SwapchainCreateInfoKHR::builder()
-        .surface(surface.surface)
-        .min_image_count(image_count)
-        .image_format(format.format)
-        .image_color_space(format.color_space)
-        .image_extent(extent)
-        .image_array_layers(1)
-        .image_usage(vk::ImageUsageFlags::COLOR_ATTACHMENT);
-    let queue_family_indices = [
-        physical_device.queues.graphics_family,
-        physical_device.queues.present_family,
-    ];
-    let swapchain_create_info =
-        if physical_device.queues.graphics_family != physical_device.queues.present_family {
-            swapchain_create_info
-                .image_sharing_mode(vk::SharingMode::CONCURRENT)
-                .queue_family_indices(&queue_family_indices)
-        } else {
-            swapchain_create_info.image_sharing_mode(vk::SharingMode::EXCLUSIVE)
-        };
-    let swapchain_create_info = swapchain_create_info
-        .pre_transform(physical_device.swapchain.capabilities.current_transform)
-        .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE)
-        .present_mode(present_mode)
-        .clipped(true)
-        .old_swapchain(vk::SwapchainKHR::null());
-    let swapchain = Swapchain::new(&instance, &logical_device.device);
-    let swapchain_khr =
-        unsafe { swapchain.create_swapchain(&swapchain_create_info, None) }.unwrap();
-    let swapchain_images = unsafe { swapchain.get_swapchain_images(swapchain_khr) }.unwrap();
-    let swapchain_image_format = format.format;
-    let swapchain_extent = extent;
-
-    // Create image views. Not really interesting for now, as I only use normal color settings.
-    let mut swapchain_image_views = vec![vk::ImageView::null(); swapchain_images.len()];
-    for i in 0..swapchain_images.len() {
-        let image_view_create = vk::ImageViewCreateInfo::builder()
-            .image(swapchain_images[i])
-            .view_type(vk::ImageViewType::TYPE_2D)
-            .format(swapchain_image_format)
-            .components(vk::ComponentMapping {
-                r: ComponentSwizzle::IDENTITY,
-                g: ComponentSwizzle::IDENTITY,
-                b: ComponentSwizzle::IDENTITY,
-                a: ComponentSwizzle::IDENTITY,
-            })
-            .subresource_range(vk::ImageSubresourceRange {
-                aspect_mask: vk::ImageAspectFlags::COLOR,
-                base_mip_level: 0,
-                level_count: 1,
-                base_array_layer: 0,
-                layer_count: 1,
-            });
-        swapchain_image_views[i] = unsafe {
-            logical_device
-                .device
-                .create_image_view(&image_view_create, None)
-        }
-        .unwrap();
-    }
+    let swapchain = VulkanSwapchain::create(
+        &instance,
+        &physical_device,
+        &logical_device,
+        &window,
+        &surface,
+    );
 
     let vert_shader = make_shader(
         &logical_device,
@@ -593,7 +642,7 @@ fn main() {
         unsafe { logical_device.create_pipeline_layout(&pipeline_layout_info, None) }.unwrap();
 
     let color_attachment = vk::AttachmentDescription::builder()
-        .format(swapchain_image_format)
+        .format(swapchain.image_format)
         .samples(vk::SampleCountFlags::TYPE_1)
         .load_op(vk::AttachmentLoadOp::CLEAR)
         .store_op(vk::AttachmentStoreOp::STORE)
@@ -645,14 +694,14 @@ fn main() {
     .next()
     .unwrap();
 
-    let mut swapchain_framebuffers = vec![vk::Framebuffer::null(); swapchain_image_views.len()];
-    for i in 0..swapchain_image_views.len() {
-        let attachments = [swapchain_image_views[i]];
+    let mut swapchain_framebuffers = vec![vk::Framebuffer::null(); swapchain.image_count()];
+    for i in 0..swapchain.image_count() {
+        let attachments = [swapchain.image_views[i]];
         let framebuffer_info = vk::FramebufferCreateInfo::builder()
             .render_pass(render_pass)
             .attachments(&attachments)
-            .width(swapchain_extent.width)
-            .height(swapchain_extent.height)
+            .width(swapchain.extent.width)
+            .height(swapchain.extent.height)
             .layers(1);
         let framebuffer =
             unsafe { logical_device.create_framebuffer(&framebuffer_info, None) }.unwrap();
@@ -703,12 +752,10 @@ fn main() {
                     &logical_device,
                     in_flight_fence,
                     &swapchain,
-                    swapchain_khr,
                     image_available_semaphore,
                     command_buffer,
                     render_pass,
                     &swapchain_framebuffers,
-                    swapchain_extent,
                     pipeline,
                     render_finished_semaphore,
                 );
@@ -731,10 +778,6 @@ fn main() {
     unsafe { logical_device.destroy_pipeline_layout(pipeline_layout, None) };
     unsafe { logical_device.destroy_shader_module(frag_shader, None) };
     unsafe { logical_device.destroy_shader_module(vert_shader, None) };
-    for image_view in swapchain_image_views {
-        unsafe { logical_device.destroy_image_view(image_view, None) };
-    }
-    unsafe { swapchain.destroy_swapchain(swapchain_khr, None) };
 }
 
 fn make_shader(device: &Device, code: &[u8]) -> vk::ShaderModule {
@@ -746,13 +789,11 @@ fn make_shader(device: &Device, code: &[u8]) -> vk::ShaderModule {
 fn draw_frame(
     device: &VulkanLogicalDevice,
     in_flight_fence: vk::Fence,
-    swapchain: &Swapchain,
-    swapchain_khr: vk::SwapchainKHR,
+    swapchain: &VulkanSwapchain,
     image_available_semaphore: vk::Semaphore,
     command_buffer: vk::CommandBuffer,
     render_pass: vk::RenderPass,
     swapchain_framebuffers: &[vk::Framebuffer],
-    swapchain_extent: vk::Extent2D,
     pipeline: vk::Pipeline,
     render_finished_semaphore: vk::Semaphore,
 ) {
@@ -760,8 +801,8 @@ fn draw_frame(
     unsafe { device.reset_fences(&[in_flight_fence]) }.unwrap();
     // What is the second value?
     let image_index = unsafe {
-        swapchain.acquire_next_image(
-            swapchain_khr,
+        swapchain.ext.acquire_next_image(
+            swapchain.swapchain,
             u64::MAX,
             image_available_semaphore,
             vk::Fence::null(),
@@ -777,7 +818,7 @@ fn draw_frame(
         image_index,
         render_pass,
         swapchain_framebuffers,
-        swapchain_extent,
+        swapchain.extent,
         pipeline,
     );
 
@@ -792,13 +833,18 @@ fn draw_frame(
     unsafe { device.queue_submit(device.graphics_queue, &[*submit_info], in_flight_fence) }
         .unwrap();
 
-    let present_info_swapchains = [swapchain_khr];
+    let present_info_swapchains = [swapchain.swapchain];
     let present_info_images = [image_index];
     let present_info = vk::PresentInfoKHR::builder()
         .wait_semaphores(&signal_semaphores)
         .swapchains(&present_info_swapchains)
         .image_indices(&present_info_images);
-    unsafe { swapchain.queue_present(device.present_queue, &present_info) }.unwrap();
+    unsafe {
+        swapchain
+            .ext
+            .queue_present(device.present_queue, &present_info)
+    }
+    .unwrap();
 }
 
 fn record_command_buffer(
