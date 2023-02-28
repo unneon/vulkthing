@@ -10,41 +10,42 @@ use std::borrow::Cow;
 use std::collections::HashSet;
 use std::ffi::CStr;
 use std::ops::Deref;
-use std::sync::Arc;
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::EventLoop;
 use winit::platform::run_return::EventLoopExtRunReturn;
 use winit::window::WindowBuilder;
 
 const WINDOW_TITLE: &str = "Vulkthing";
-const WINDOW_SIZE: (usize, usize) = (800, 600);
+const WINDOW_SIZE: (usize, usize) = (1200, 800);
 
 const VULKAN_APP_NAME: &CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"Vulkthing\0") };
 const VULKAN_APP_VERSION: u32 = vk::make_api_version(0, 0, 0, 0);
 const VULKAN_ENGINE_NAME: &CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"Vulkthing\0") };
 const VULKAN_ENGINE_VERSION: u32 = vk::make_api_version(0, 0, 0, 0);
 
-struct VulkanInstance {
+struct VulkanInstance<'a> {
+    entry: &'a Entry,
     instance: Instance,
     ext: VulkanInstanceExts,
 }
 
 struct VulkanInstanceExts {
-    debug: Arc<DebugUtils>,
-    surface: Arc<Surface>,
+    debug: DebugUtils,
+    surface: Surface,
 }
 
-struct VulkanDebug {
-    ext: Arc<DebugUtils>,
+struct VulkanDebug<'a> {
+    instance: &'a VulkanInstance<'a>,
     messenger: vk::DebugUtilsMessengerEXT,
 }
 
-struct VulkanSurface {
-    ext: Arc<Surface>,
+struct VulkanSurface<'a> {
+    instance: &'a VulkanInstance<'a>,
     surface: vk::SurfaceKHR,
 }
 
-struct VulkanPhysicalDevice {
+struct VulkanPhysicalDevice<'a> {
+    instance: &'a VulkanInstance<'a>,
     device: vk::PhysicalDevice,
     queues: QueueDetails,
     swapchain: SwapchainDetails,
@@ -61,14 +62,16 @@ struct SwapchainDetails {
     present_modes: Vec<vk::PresentModeKHR>,
 }
 
-struct VulkanLogicalDevice {
+struct VulkanLogicalDevice<'a> {
+    instance: &'a VulkanInstance<'a>,
+    physical_device: &'a VulkanPhysicalDevice<'a>,
     device: Device,
     graphics_queue: vk::Queue,
     present_queue: vk::Queue,
 }
 
 struct VulkanSwapchain<'a> {
-    logical_device: &'a VulkanLogicalDevice,
+    logical_device: &'a VulkanLogicalDevice<'a>,
     ext: Swapchain,
     swapchain: vk::SwapchainKHR,
     image_format: vk::Format,
@@ -77,20 +80,20 @@ struct VulkanSwapchain<'a> {
 }
 
 struct VulkanPipeline<'a> {
-    logical_device: &'a VulkanLogicalDevice,
+    logical_device: &'a VulkanLogicalDevice<'a>,
     pipeline: vk::Pipeline,
     pipeline_layout: vk::PipelineLayout,
     render_pass: vk::RenderPass,
 }
 
 struct Shader<'a> {
-    logical_device: &'a VulkanLogicalDevice,
+    logical_device: &'a VulkanLogicalDevice<'a>,
     module: vk::ShaderModule,
     stage: vk::PipelineShaderStageCreateInfo,
 }
 
-impl VulkanInstance {
-    fn create(entry: &Entry, window: &winit::window::Window) -> VulkanInstance {
+impl<'a> VulkanInstance<'a> {
+    fn create(entry: &'a Entry, window: &winit::window::Window) -> VulkanInstance<'a> {
         // Set metadata of the app and the engine. May be used by the drivers to enable
         // game-specific and engine-specific optimizations, which won't happen, but let's set it to
         // something sensible anyway.
@@ -102,9 +105,7 @@ impl VulkanInstance {
             .api_version(vk::API_VERSION_1_0);
 
         // Enable Vulkan validation layers. This should be later disabled in non-development builds.
-        let layer_names = [CStr::from_bytes_with_nul(b"VK_LAYER_KHRONOS_validation\0")
-            .unwrap()
-            .as_ptr()];
+        let layer_names = [b"VK_LAYER_KHRONOS_validation\0".as_ptr() as *const i8];
 
         // Vulkan doesn't appear to have any interesting extensions at this level, physical device
         // extensions are the interesting ones with raytracing and other stuff. This is just for
@@ -124,16 +125,20 @@ impl VulkanInstance {
 
         // Load the extension function pointers. The DebugUtils extension was explicitly added to
         // extension_names list, and Surface is implied by enumerate_required_extensions.
-        let debug = Arc::new(DebugUtils::new(&entry, &instance));
-        let surface = Arc::new(Surface::new(&entry, &instance));
+        let debug = DebugUtils::new(&entry, &instance);
+        let surface = Surface::new(&entry, &instance);
         let ext = VulkanInstanceExts { debug, surface };
 
-        VulkanInstance { instance, ext }
+        VulkanInstance {
+            entry,
+            instance,
+            ext,
+        }
     }
 }
 
-impl VulkanDebug {
-    fn create(instance: &VulkanInstance) -> VulkanDebug {
+impl<'a> VulkanDebug<'a> {
+    fn create(instance: &'a VulkanInstance) -> VulkanDebug<'a> {
         // Enable filtering by message severity and type. General and verbose levels seem to produce
         // too much noise related to physical device selection, so I turned them off.
         // vulkan-tutorial.com also shows how to enable this for creating instances, but the ash
@@ -150,21 +155,17 @@ impl VulkanDebug {
         let messenger =
             unsafe { instance.ext.debug.create_debug_utils_messenger(&info, None) }.unwrap();
         VulkanDebug {
-            ext: instance.ext.debug.clone(),
+            instance,
             messenger,
         }
     }
 }
 
-impl VulkanSurface {
-    fn create(
-        entry: &Entry,
-        instance: &VulkanInstance,
-        window: &winit::window::Window,
-    ) -> VulkanSurface {
+impl<'a> VulkanSurface<'a> {
+    fn create(instance: &'a VulkanInstance, window: &winit::window::Window) -> VulkanSurface<'a> {
         let surface = unsafe {
             ash_window::create_surface(
-                &entry,
+                &instance.entry,
                 &instance,
                 window.raw_display_handle(),
                 window.raw_window_handle(),
@@ -172,15 +173,14 @@ impl VulkanSurface {
             )
         }
         .unwrap();
-        VulkanSurface {
-            ext: instance.ext.surface.clone(),
-            surface,
-        }
+        VulkanSurface { instance, surface }
     }
 }
 
-impl VulkanPhysicalDevice {
-    fn find(instance: &VulkanInstance, surface: &VulkanSurface) -> VulkanPhysicalDevice {
+impl<'a> VulkanPhysicalDevice<'a> {
+    fn find_for(surface: &VulkanSurface<'a>) -> VulkanPhysicalDevice<'a> {
+        let instance = surface.instance;
+
         // Select the GPU. For now, just select the first discrete GPU with graphics support. Later,
         // this should react better to iGPU, dGPU and iGPU+dGPU setups. In more complex setups, it would
         // be neat if you could start the game on any GPU, display a choice to the user and seamlessly
@@ -220,7 +220,8 @@ impl VulkanPhysicalDevice {
             // the earlier extension check in order to be correct (not crash?). Also there shouldn't
             // be devices that support swapchains but no formats or present modes, but let's check
             // anyway because the tutorial does.
-            let swapchain = SwapchainDetails::query(&instance, device, &surface).unwrap();
+            let swapchain =
+                unsafe { SwapchainDetails::query(&instance, device, &surface) }.unwrap();
             if swapchain.formats.is_empty() || swapchain.present_modes.is_empty() {
                 println!("rejected gpu, unsuitable swapchain ({name})");
                 continue;
@@ -238,6 +239,7 @@ impl VulkanPhysicalDevice {
             // performance problems related to GPU selection.
             println!("accepted gpu: {name}");
             found = Some(VulkanPhysicalDevice {
+                instance,
                 device,
                 queues,
                 swapchain,
@@ -251,11 +253,10 @@ impl VulkanPhysicalDevice {
     }
 }
 
-impl VulkanLogicalDevice {
-    fn create(
-        instance: &VulkanInstance,
-        physical_device: &VulkanPhysicalDevice,
-    ) -> VulkanLogicalDevice {
+impl<'a> VulkanLogicalDevice<'a> {
+    fn create(physical_device: &'a VulkanPhysicalDevice<'a>) -> VulkanLogicalDevice<'a> {
+        let instance = physical_device.instance;
+
         // Queues from the same family must be created at once, so we need to use a set to eliminate
         // duplicates. If the queue families are the same, we create only a single queue and keep
         // two handles. This needs to be remembered later when setting flags related to memory
@@ -297,6 +298,8 @@ impl VulkanLogicalDevice {
         let present_queue =
             unsafe { device.get_device_queue(physical_device.queues.present_family, 0) };
         VulkanLogicalDevice {
+            instance,
+            physical_device,
             device,
             graphics_queue,
             present_queue,
@@ -343,32 +346,16 @@ impl QueueDetails {
 }
 
 impl SwapchainDetails {
-    fn query(
+    unsafe fn query(
         instance: &VulkanInstance,
         device: vk::PhysicalDevice,
         surface: &VulkanSurface,
     ) -> VkResult<SwapchainDetails> {
-        let capabilities = unsafe {
-            instance
-                .ext
-                .surface
-                .get_physical_device_surface_capabilities(device, surface.surface)
-        }
-        .unwrap();
-        let formats = unsafe {
-            instance
-                .ext
-                .surface
-                .get_physical_device_surface_formats(device, surface.surface)
-        }
-        .unwrap();
-        let present_modes = unsafe {
-            instance
-                .ext
-                .surface
-                .get_physical_device_surface_present_modes(device, surface.surface)
-        }
-        .unwrap();
+        let ext = &instance.ext.surface;
+        let capabilities = ext.get_physical_device_surface_capabilities(device, surface.surface)?;
+        let formats = ext.get_physical_device_surface_formats(device, surface.surface)?;
+        let present_modes =
+            ext.get_physical_device_surface_present_modes(device, surface.surface)?;
         Ok(SwapchainDetails {
             capabilities,
             formats,
@@ -388,11 +375,7 @@ impl SwapchainDetails {
     }
 
     fn select_present_mode(&self) -> vk::PresentModeKHR {
-        self.present_modes
-            .iter()
-            .copied()
-            .find(|m| *m == vk::PresentModeKHR::MAILBOX)
-            .unwrap_or(vk::PresentModeKHR::FIFO)
+        vk::PresentModeKHR::FIFO
     }
 
     fn select_swap_extent(&self, window: &winit::window::Window) -> vk::Extent2D {
@@ -414,25 +397,24 @@ impl SwapchainDetails {
 
     fn select_image_count(&self) -> u32 {
         let no_image_limit = self.capabilities.max_image_count == 0;
-        self.capabilities.min_image_count
-            + if no_image_limit
-                || self.capabilities.min_image_count + 1 <= self.capabilities.max_image_count
-            {
-                1
-            } else {
-                0
-            }
+        let preferred_image_count = self.capabilities.min_image_count + 1;
+        if no_image_limit {
+            preferred_image_count
+        } else {
+            preferred_image_count.min(self.capabilities.max_image_count)
+        }
     }
 }
 
 impl<'a> VulkanSwapchain<'a> {
     fn create(
-        instance: &VulkanInstance,
-        physical_device: &VulkanPhysicalDevice,
-        logical_device: &'a VulkanLogicalDevice,
-        window: &winit::window::Window,
+        logical_device: &'a VulkanLogicalDevice<'a>,
         surface: &VulkanSurface,
+        window: &winit::window::Window,
     ) -> VulkanSwapchain<'a> {
+        assert!(std::ptr::eq(logical_device.instance, surface.instance));
+        let instance = logical_device.instance;
+        let physical_device = logical_device.physical_device;
         let ext = Swapchain::new(&instance, &logical_device.device);
 
         // Create the swapchain for presenting images to display. Set to prefer triple buffering
@@ -664,7 +646,7 @@ impl<'a> Shader<'a> {
     }
 }
 
-impl Deref for VulkanInstance {
+impl Deref for VulkanInstance<'_> {
     type Target = Instance;
 
     fn deref(&self) -> &Instance {
@@ -672,7 +654,7 @@ impl Deref for VulkanInstance {
     }
 }
 
-impl Deref for VulkanLogicalDevice {
+impl Deref for VulkanLogicalDevice<'_> {
     type Target = Device;
 
     fn deref(&self) -> &Device {
@@ -680,25 +662,35 @@ impl Deref for VulkanLogicalDevice {
     }
 }
 
-impl Drop for VulkanInstance {
+impl Drop for VulkanInstance<'_> {
     fn drop(&mut self) {
         unsafe { self.instance.destroy_instance(None) };
     }
 }
 
-impl Drop for VulkanDebug {
+impl Drop for VulkanDebug<'_> {
     fn drop(&mut self) {
-        unsafe { self.ext.destroy_debug_utils_messenger(self.messenger, None) };
+        unsafe {
+            self.instance
+                .ext
+                .debug
+                .destroy_debug_utils_messenger(self.messenger, None)
+        };
     }
 }
 
-impl Drop for VulkanSurface {
+impl Drop for VulkanSurface<'_> {
     fn drop(&mut self) {
-        unsafe { self.ext.destroy_surface(self.surface, None) };
+        unsafe {
+            self.instance
+                .ext
+                .surface
+                .destroy_surface(self.surface, None)
+        };
     }
 }
 
-impl Drop for VulkanLogicalDevice {
+impl Drop for VulkanLogicalDevice<'_> {
     fn drop(&mut self) {
         unsafe { self.device.destroy_device(None) };
     }
@@ -753,16 +745,10 @@ fn main() {
 
     let instance = VulkanInstance::create(&entry, &window);
     let _debug = VulkanDebug::create(&instance);
-    let surface = VulkanSurface::create(&entry, &instance, &window);
-    let physical_device = VulkanPhysicalDevice::find(&instance, &surface);
-    let logical_device = VulkanLogicalDevice::create(&instance, &physical_device);
-    let swapchain = VulkanSwapchain::create(
-        &instance,
-        &physical_device,
-        &logical_device,
-        &window,
-        &surface,
-    );
+    let surface = VulkanSurface::create(&instance, &window);
+    let physical_device = VulkanPhysicalDevice::find_for(&surface);
+    let logical_device = VulkanLogicalDevice::create(&physical_device);
+    let swapchain = VulkanSwapchain::create(&logical_device, &surface, &window);
     let pipeline = VulkanPipeline::create(&swapchain);
 
     let mut swapchain_framebuffers = vec![vk::Framebuffer::null(); swapchain.image_count()];
@@ -905,7 +891,7 @@ fn draw_frame(
 }
 
 fn record_command_buffer(
-    device: &Device,
+    device: &VulkanLogicalDevice,
     command_buffer: vk::CommandBuffer,
     image_index: u32,
     swapchain_framebuffers: &[vk::Framebuffer],
