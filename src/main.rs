@@ -82,7 +82,7 @@ struct VulkanSwapchain<'a> {
 }
 
 struct VulkanPipeline<'a> {
-    logical_device: &'a VulkanLogicalDevice<'a>,
+    swapchain: &'a VulkanSwapchain<'a>,
     pipeline: vk::Pipeline,
     pipeline_layout: vk::PipelineLayout,
     render_pass: vk::RenderPass,
@@ -613,7 +613,7 @@ impl<'a> VulkanPipeline<'a> {
         .unwrap();
 
         VulkanPipeline {
-            logical_device,
+            swapchain,
             pipeline,
             pipeline_layout,
             render_pass,
@@ -709,13 +709,19 @@ impl Drop for VulkanSwapchain<'_> {
 
 impl Drop for VulkanPipeline<'_> {
     fn drop(&mut self) {
-        unsafe { self.logical_device.destroy_pipeline(self.pipeline, None) };
         unsafe {
-            self.logical_device
+            self.swapchain
+                .logical_device
+                .destroy_pipeline(self.pipeline, None)
+        };
+        unsafe {
+            self.swapchain
+                .logical_device
                 .destroy_render_pass(self.render_pass, None)
         };
         unsafe {
-            self.logical_device
+            self.swapchain
+                .logical_device
                 .destroy_pipeline_layout(self.pipeline_layout, None)
         };
     }
@@ -752,20 +758,7 @@ fn main() {
     let logical_device = VulkanLogicalDevice::create(&physical_device);
     let swapchain = VulkanSwapchain::create(&logical_device, &surface, &window);
     let pipeline = VulkanPipeline::create(&swapchain);
-
-    let mut swapchain_framebuffers = vec![vk::Framebuffer::null(); swapchain.image_count()];
-    for i in 0..swapchain.image_count() {
-        let attachments = [swapchain.image_views[i]];
-        let framebuffer_info = vk::FramebufferCreateInfo::builder()
-            .render_pass(pipeline.render_pass)
-            .attachments(&attachments)
-            .width(swapchain.extent.width)
-            .height(swapchain.extent.height)
-            .layers(1);
-        let framebuffer =
-            unsafe { logical_device.create_framebuffer(&framebuffer_info, None) }.unwrap();
-        swapchain_framebuffers[i] = framebuffer;
-    }
+    let framebuffers = create_framebuffers(&pipeline);
 
     let command_pool_info = vk::CommandPoolCreateInfo::builder()
         .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
@@ -815,7 +808,7 @@ fn main() {
                     &swapchain,
                     image_available_semaphores[current_frame],
                     command_buffers[current_frame],
-                    &swapchain_framebuffers,
+                    &framebuffers,
                     &pipeline,
                     render_finished_semaphore[current_frame],
                 );
@@ -837,8 +830,34 @@ fn main() {
         unsafe { logical_device.destroy_semaphore(semaphore, None) };
     }
     unsafe { logical_device.destroy_command_pool(command_pool, None) };
-    for framebuffer in swapchain_framebuffers {
-        unsafe { logical_device.destroy_framebuffer(framebuffer, None) };
+    cleanup_swapchain(&logical_device, &framebuffers);
+}
+
+fn create_framebuffers(pipeline: &VulkanPipeline) -> Vec<vk::Framebuffer> {
+    let mut framebuffers = vec![vk::Framebuffer::null(); pipeline.swapchain.image_count()];
+    for i in 0..pipeline.swapchain.image_count() {
+        let attachments = [pipeline.swapchain.image_views[i]];
+        let framebuffer_info = vk::FramebufferCreateInfo::builder()
+            .render_pass(pipeline.render_pass)
+            .attachments(&attachments)
+            .width(pipeline.swapchain.extent.width)
+            .height(pipeline.swapchain.extent.height)
+            .layers(1);
+        let framebuffer = unsafe {
+            pipeline
+                .swapchain
+                .logical_device
+                .create_framebuffer(&framebuffer_info, None)
+        }
+        .unwrap();
+        framebuffers[i] = framebuffer;
+    }
+    framebuffers
+}
+
+fn cleanup_swapchain(logical_device: &VulkanLogicalDevice, framebuffers: &[vk::Framebuffer]) {
+    for framebuffer in framebuffers {
+        unsafe { logical_device.destroy_framebuffer(*framebuffer, None) };
     }
 }
 
@@ -848,7 +867,7 @@ fn draw_frame(
     swapchain: &VulkanSwapchain,
     image_available_semaphore: vk::Semaphore,
     command_buffer: vk::CommandBuffer,
-    swapchain_framebuffers: &[vk::Framebuffer],
+    framebuffers: &[vk::Framebuffer],
     pipeline: &VulkanPipeline,
     render_finished_semaphore: vk::Semaphore,
 ) {
@@ -871,7 +890,7 @@ fn draw_frame(
         device,
         command_buffer,
         image_index,
-        swapchain_framebuffers,
+        framebuffers,
         swapchain.extent,
         &pipeline,
     );
@@ -905,7 +924,7 @@ fn record_command_buffer(
     device: &VulkanLogicalDevice,
     command_buffer: vk::CommandBuffer,
     image_index: u32,
-    swapchain_framebuffers: &[vk::Framebuffer],
+    framebuffers: &[vk::Framebuffer],
     swapchain_extent: vk::Extent2D,
     pipeline: &VulkanPipeline,
 ) {
@@ -914,7 +933,7 @@ fn record_command_buffer(
 
     let render_pass_info = vk::RenderPassBeginInfo::builder()
         .render_pass(pipeline.render_pass)
-        .framebuffer(swapchain_framebuffers[image_index as usize])
+        .framebuffer(framebuffers[image_index as usize])
         .render_area(vk::Rect2D {
             offset: vk::Offset2D { x: 0, y: 0 },
             extent: swapchain_extent,
