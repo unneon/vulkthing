@@ -23,6 +23,8 @@ const VULKAN_APP_VERSION: u32 = vk::make_api_version(0, 0, 0, 0);
 const VULKAN_ENGINE_NAME: &CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"Vulkthing\0") };
 const VULKAN_ENGINE_VERSION: u32 = vk::make_api_version(0, 0, 0, 0);
 
+const MAX_FRAMES_IN_FLIGHT: usize = 2;
+
 struct VulkanInstance<'a> {
     entry: &'a Entry,
     instance: Instance,
@@ -773,21 +775,23 @@ fn main() {
     let command_buffer_allocate_info = vk::CommandBufferAllocateInfo::builder()
         .command_pool(command_pool)
         .level(vk::CommandBufferLevel::PRIMARY)
-        .command_buffer_count(1);
-    let command_buffer =
-        unsafe { logical_device.allocate_command_buffers(&command_buffer_allocate_info) }
-            .unwrap()
-            .into_iter()
-            .next()
-            .unwrap();
+        .command_buffer_count(MAX_FRAMES_IN_FLIGHT as u32);
+    let command_buffers =
+        unsafe { logical_device.allocate_command_buffers(&command_buffer_allocate_info) }.unwrap();
 
     let semaphore_info = vk::SemaphoreCreateInfo::builder();
     let fence_info = vk::FenceCreateInfo::builder().flags(vk::FenceCreateFlags::SIGNALED);
-    let image_available_semaphore =
-        unsafe { logical_device.create_semaphore(&semaphore_info, None) }.unwrap();
-    let render_finished_semaphore =
-        unsafe { logical_device.create_semaphore(&semaphore_info, None) }.unwrap();
-    let in_flight_fence = unsafe { logical_device.create_fence(&fence_info, None) }.unwrap();
+    let image_available_semaphores: Vec<_> = (0..MAX_FRAMES_IN_FLIGHT)
+        .map(|_| unsafe { logical_device.create_semaphore(&semaphore_info, None) }.unwrap())
+        .collect();
+    let render_finished_semaphore: Vec<_> = (0..MAX_FRAMES_IN_FLIGHT)
+        .map(|_| unsafe { logical_device.create_semaphore(&semaphore_info, None) }.unwrap())
+        .collect();
+    let in_flight_fence: Vec<_> = (0..MAX_FRAMES_IN_FLIGHT)
+        .map(|_| unsafe { logical_device.create_fence(&fence_info, None) }.unwrap())
+        .collect();
+
+    let mut current_frame = 0;
 
     // Run the event loop. Winit delivers events, like key presses. After it finishes delivering
     // some batch of events, it sends a MainEventsCleared event, which means the application should
@@ -807,14 +811,15 @@ fn main() {
                 // render
                 draw_frame(
                     &logical_device,
-                    in_flight_fence,
+                    in_flight_fence[current_frame],
                     &swapchain,
-                    image_available_semaphore,
-                    command_buffer,
+                    image_available_semaphores[current_frame],
+                    command_buffers[current_frame],
                     &swapchain_framebuffers,
                     &pipeline,
-                    render_finished_semaphore,
+                    render_finished_semaphore[current_frame],
                 );
+                current_frame = (current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
             }
             _ => (),
         }
@@ -822,9 +827,15 @@ fn main() {
 
     unsafe { logical_device.device_wait_idle() }.unwrap();
 
-    unsafe { logical_device.destroy_fence(in_flight_fence, None) };
-    unsafe { logical_device.destroy_semaphore(render_finished_semaphore, None) };
-    unsafe { logical_device.destroy_semaphore(image_available_semaphore, None) };
+    for fence in in_flight_fence {
+        unsafe { logical_device.destroy_fence(fence, None) };
+    }
+    for semaphore in render_finished_semaphore {
+        unsafe { logical_device.destroy_semaphore(semaphore, None) };
+    }
+    for semaphore in image_available_semaphores {
+        unsafe { logical_device.destroy_semaphore(semaphore, None) };
+    }
     unsafe { logical_device.destroy_command_pool(command_pool, None) };
     for framebuffer in swapchain_framebuffers {
         unsafe { logical_device.destroy_framebuffer(framebuffer, None) };
