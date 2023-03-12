@@ -758,16 +758,28 @@ impl Drop for Shader<'_> {
 fn main() {
     let vertex_data = [
         Vertex {
-            position: glm::vec2(0., -0.5),
+            position: glm::vec2(-0.5, -0.25),
             color: glm::vec3(1., 1., 1.),
         },
         Vertex {
-            position: glm::vec2(0.5, 0.5),
+            position: glm::vec2(-0.25, 0.25),
             color: glm::vec3(0., 1., 0.),
         },
         Vertex {
-            position: glm::vec2(-0.5, 0.5),
+            position: glm::vec2(-0.75, 0.25),
             color: glm::vec3(0., 0., 1.),
+        },
+        Vertex {
+            position: glm::vec2(0.25, -0.25),
+            color: glm::vec3(0., 0., 1.),
+        },
+        Vertex {
+            position: glm::vec2(0.75, -0.25),
+            color: glm::vec3(0., 1., 0.),
+        },
+        Vertex {
+            position: glm::vec2(0.5, 0.25),
+            color: glm::vec3(1., 0., 0.),
         },
     ];
 
@@ -883,6 +895,7 @@ fn main() {
                     &pipeline,
                     render_finished_semaphore[current_frame],
                     vertex_buffer,
+                    vertex_data.len() as u32,
                 );
                 current_frame = (current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
             }
@@ -985,6 +998,7 @@ fn draw_frame(
     pipeline: &VulkanPipeline,
     render_finished_semaphore: vk::Semaphore,
     vertex_buffer: vk::Buffer,
+    vertex_count: u32,
 ) {
     unsafe { device.wait_for_fences(&[in_flight_fence], true, u64::MAX) }.unwrap();
     unsafe { device.reset_fences(&[in_flight_fence]) }.unwrap();
@@ -1009,6 +1023,7 @@ fn draw_frame(
         swapchain.extent,
         &pipeline,
         vertex_buffer,
+        vertex_count,
     );
 
     let wait_semaphores = [image_available_semaphore];
@@ -1044,6 +1059,7 @@ fn record_command_buffer(
     swapchain_extent: vk::Extent2D,
     pipeline: &VulkanPipeline,
     vertex_buffer: vk::Buffer,
+    vertex_count: u32,
 ) {
     let begin_info = vk::CommandBufferBeginInfo::builder();
     unsafe { device.begin_command_buffer(command_buffer, &begin_info) }.unwrap();
@@ -1096,7 +1112,7 @@ fn record_command_buffer(
     };
     unsafe { device.cmd_set_scissor(command_buffer, 0, &[scissor]) };
 
-    unsafe { device.cmd_draw(command_buffer, 3, 1, 0, 0) };
+    unsafe { device.cmd_draw(command_buffer, vertex_count, 1, 0, 0) };
 
     unsafe { device.cmd_end_render_pass(command_buffer) };
 
