@@ -5,6 +5,7 @@ use ash::extensions::khr::{Surface, Swapchain};
 use ash::prelude::VkResult;
 use ash::vk::ComponentSwizzle;
 use ash::{vk, Device, Entry, Instance};
+use nalgebra_glm as glm;
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use std::borrow::Cow;
 use std::collections::HashSet;
@@ -16,7 +17,7 @@ use winit::platform::run_return::EventLoopExtRunReturn;
 use winit::window::WindowBuilder;
 
 const WINDOW_TITLE: &str = "Vulkthing";
-const WINDOW_SIZE: (usize, usize) = (1200, 800);
+const WINDOW_SIZE: (usize, usize) = (1000, 800);
 
 const VULKAN_APP_NAME: &CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"Vulkthing\0") };
 const VULKAN_APP_VERSION: u32 = vk::make_api_version(0, 0, 0, 0);
@@ -92,6 +93,13 @@ struct Shader<'a> {
     logical_device: &'a VulkanLogicalDevice<'a>,
     module: vk::ShaderModule,
     stage: vk::PipelineShaderStageCreateInfo,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+struct Vertex {
+    position: glm::Vec2,
+    color: glm::Vec3,
 }
 
 impl<'a> VulkanInstance<'a> {
@@ -516,7 +524,11 @@ impl<'a> VulkanPipeline<'a> {
         let shader_stages = [vert_shader.stage, frag_shader.stage];
         let dynamic_state = vk::PipelineDynamicStateCreateInfo::builder()
             .dynamic_states(&[vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR]);
-        let vertex_input = vk::PipelineVertexInputStateCreateInfo::builder();
+        let vertex_binding_descriptions = [Vertex::get_binding_description()];
+        let vertex_attribute_descriptions = get_attribute_descriptions();
+        let vertex_input = vk::PipelineVertexInputStateCreateInfo::builder()
+            .vertex_binding_descriptions(&vertex_binding_descriptions)
+            .vertex_attribute_descriptions(&vertex_attribute_descriptions);
         let input_assembly = vk::PipelineInputAssemblyStateCreateInfo::builder()
             .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
             .primitive_restart_enable(false);
@@ -648,6 +660,16 @@ impl<'a> Shader<'a> {
     }
 }
 
+impl Vertex {
+    fn get_binding_description() -> vk::VertexInputBindingDescription {
+        vk::VertexInputBindingDescription::builder()
+            .binding(0)
+            .stride(std::mem::size_of::<Vertex>() as u32)
+            .input_rate(vk::VertexInputRate::VERTEX)
+            .build()
+    }
+}
+
 impl Deref for VulkanInstance<'_> {
     type Target = Instance;
 
@@ -734,6 +756,21 @@ impl Drop for Shader<'_> {
 }
 
 fn main() {
+    let vertex_data = [
+        Vertex {
+            position: glm::vec2(0., -0.5),
+            color: glm::vec3(1., 1., 1.),
+        },
+        Vertex {
+            position: glm::vec2(0.5, 0.5),
+            color: glm::vec3(0., 1., 0.),
+        },
+        Vertex {
+            position: glm::vec2(-0.5, 0.5),
+            color: glm::vec3(0., 0., 1.),
+        },
+    ];
+
     // Create the application window using winit. Use a predefined size for now, though games should
     // run in fullscreen eventually.
     let mut event_loop = EventLoop::new();
@@ -759,6 +796,40 @@ fn main() {
     let swapchain = VulkanSwapchain::create(&logical_device, &surface, &window);
     let pipeline = VulkanPipeline::create(&swapchain);
     let framebuffers = create_framebuffers(&pipeline);
+
+    let buffer_info = *vk::BufferCreateInfo::builder()
+        .size((std::mem::size_of::<Vertex>() * vertex_data.len()) as u64)
+        .usage(vk::BufferUsageFlags::VERTEX_BUFFER)
+        .sharing_mode(vk::SharingMode::EXCLUSIVE);
+    let vertex_buffer = unsafe { logical_device.create_buffer(&buffer_info, None) }.unwrap();
+    let vb_reqs = unsafe { logical_device.get_buffer_memory_requirements(vertex_buffer) };
+    let memory_type_index = find_vertex_buffer_memory(
+        &physical_device,
+        vb_reqs.memory_type_bits,
+        vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+    );
+    let alloc_info = vk::MemoryAllocateInfo::builder()
+        .allocation_size(vb_reqs.size)
+        .memory_type_index(memory_type_index);
+    let vb_memory = unsafe { logical_device.device.allocate_memory(&alloc_info, None) }.unwrap();
+    unsafe {
+        logical_device
+            .device
+            .bind_buffer_memory(vertex_buffer, vb_memory, 0)
+    }
+    .unwrap();
+    let vb_ptr = unsafe {
+        logical_device.device.map_memory(
+            vb_memory,
+            0,
+            buffer_info.size,
+            vk::MemoryMapFlags::empty(),
+        )
+    }
+    .unwrap();
+    unsafe { std::slice::from_raw_parts_mut(vb_ptr as *mut Vertex, vertex_data.len()) }
+        .copy_from_slice(&vertex_data);
+    unsafe { logical_device.device.unmap_memory(vb_memory) };
 
     let command_pool_info = vk::CommandPoolCreateInfo::builder()
         .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
@@ -811,6 +882,7 @@ fn main() {
                     &framebuffers,
                     &pipeline,
                     render_finished_semaphore[current_frame],
+                    vertex_buffer,
                 );
                 current_frame = (current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
             }
@@ -831,6 +903,8 @@ fn main() {
     }
     unsafe { logical_device.destroy_command_pool(command_pool, None) };
     cleanup_swapchain(&logical_device, &framebuffers);
+    unsafe { logical_device.destroy_buffer(vertex_buffer, None) };
+    unsafe { logical_device.free_memory(vb_memory, None) };
 }
 
 fn create_framebuffers(pipeline: &VulkanPipeline) -> Vec<vk::Framebuffer> {
@@ -855,6 +929,46 @@ fn create_framebuffers(pipeline: &VulkanPipeline) -> Vec<vk::Framebuffer> {
     framebuffers
 }
 
+fn get_attribute_descriptions() -> [vk::VertexInputAttributeDescription; 2] {
+    [
+        vk::VertexInputAttributeDescription {
+            binding: 0,
+            location: 0,
+            format: vk::Format::R32G32_SFLOAT,
+            offset: 0,
+        },
+        vk::VertexInputAttributeDescription {
+            binding: 0,
+            location: 1,
+            format: vk::Format::R32G32B32_SFLOAT,
+            offset: std::mem::size_of::<glm::Vec2>() as u32,
+        },
+    ]
+}
+
+fn find_vertex_buffer_memory(
+    device: &VulkanPhysicalDevice,
+    type_filter: u32,
+    properties: vk::MemoryPropertyFlags,
+) -> u32 {
+    let memory = unsafe {
+        device
+            .instance
+            .get_physical_device_memory_properties(device.device)
+    };
+    for i in 0..memory.memory_type_count {
+        if type_filter & (1 << i) != 0
+            && !(memory.memory_types[i as usize].property_flags & properties).is_empty()
+        {
+            return i;
+        }
+    }
+    panic!(
+        "no good memory type_filter={type_filter} properties={properties:?} {:#?}",
+        properties
+    );
+}
+
 fn cleanup_swapchain(logical_device: &VulkanLogicalDevice, framebuffers: &[vk::Framebuffer]) {
     for framebuffer in framebuffers {
         unsafe { logical_device.destroy_framebuffer(*framebuffer, None) };
@@ -870,6 +984,7 @@ fn draw_frame(
     framebuffers: &[vk::Framebuffer],
     pipeline: &VulkanPipeline,
     render_finished_semaphore: vk::Semaphore,
+    vertex_buffer: vk::Buffer,
 ) {
     unsafe { device.wait_for_fences(&[in_flight_fence], true, u64::MAX) }.unwrap();
     unsafe { device.reset_fences(&[in_flight_fence]) }.unwrap();
@@ -893,6 +1008,7 @@ fn draw_frame(
         framebuffers,
         swapchain.extent,
         &pipeline,
+        vertex_buffer,
     );
 
     let wait_semaphores = [image_available_semaphore];
@@ -927,6 +1043,7 @@ fn record_command_buffer(
     framebuffers: &[vk::Framebuffer],
     swapchain_extent: vk::Extent2D,
     pipeline: &VulkanPipeline,
+    vertex_buffer: vk::Buffer,
 ) {
     let begin_info = vk::CommandBufferBeginInfo::builder();
     unsafe { device.begin_command_buffer(command_buffer, &begin_info) }.unwrap();
@@ -958,6 +1075,10 @@ fn record_command_buffer(
             pipeline.pipeline,
         )
     };
+
+    let buffers = [vertex_buffer];
+    let offsets = [0];
+    unsafe { device.cmd_bind_vertex_buffers(command_buffer, 0, &buffers, &offsets) };
 
     let viewport = vk::Viewport {
         x: 0.,
