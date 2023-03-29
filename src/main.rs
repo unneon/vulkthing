@@ -809,39 +809,26 @@ fn main() {
     let pipeline = VulkanPipeline::create(&swapchain);
     let framebuffers = create_framebuffers(&pipeline);
 
-    let buffer_info = *vk::BufferCreateInfo::builder()
-        .size((std::mem::size_of::<Vertex>() * vertex_data.len()) as u64)
-        .usage(vk::BufferUsageFlags::VERTEX_BUFFER)
-        .sharing_mode(vk::SharingMode::EXCLUSIVE);
-    let vertex_buffer = unsafe { logical_device.create_buffer(&buffer_info, None) }.unwrap();
-    let vb_reqs = unsafe { logical_device.get_buffer_memory_requirements(vertex_buffer) };
-    let memory_type_index = find_vertex_buffer_memory(
-        &physical_device,
-        vb_reqs.memory_type_bits,
+    let vertex_size = std::mem::size_of::<Vertex>();
+    let vertex_buffer_size = vertex_size * vertex_data.len();
+    let (vertex_buffer, vertex_buffer_memory) = create_buffer(
+        &logical_device,
+        vertex_buffer_size,
+        vk::BufferUsageFlags::VERTEX_BUFFER,
         vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
     );
-    let alloc_info = vk::MemoryAllocateInfo::builder()
-        .allocation_size(vb_reqs.size)
-        .memory_type_index(memory_type_index);
-    let vb_memory = unsafe { logical_device.device.allocate_memory(&alloc_info, None) }.unwrap();
-    unsafe {
-        logical_device
-            .device
-            .bind_buffer_memory(vertex_buffer, vb_memory, 0)
-    }
-    .unwrap();
     let vb_ptr = unsafe {
         logical_device.device.map_memory(
-            vb_memory,
+            vertex_buffer_memory,
             0,
-            buffer_info.size,
+            vertex_buffer_size as u64,
             vk::MemoryMapFlags::empty(),
         )
     }
     .unwrap();
     unsafe { std::slice::from_raw_parts_mut(vb_ptr as *mut Vertex, vertex_data.len()) }
         .copy_from_slice(&vertex_data);
-    unsafe { logical_device.device.unmap_memory(vb_memory) };
+    unsafe { logical_device.device.unmap_memory(vertex_buffer_memory) };
 
     let command_pool_info = vk::CommandPoolCreateInfo::builder()
         .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
@@ -917,7 +904,7 @@ fn main() {
     unsafe { logical_device.destroy_command_pool(command_pool, None) };
     cleanup_swapchain(&logical_device, &framebuffers);
     unsafe { logical_device.destroy_buffer(vertex_buffer, None) };
-    unsafe { logical_device.free_memory(vb_memory, None) };
+    unsafe { logical_device.free_memory(vertex_buffer_memory, None) };
 }
 
 fn create_framebuffers(pipeline: &VulkanPipeline) -> Vec<vk::Framebuffer> {
@@ -980,6 +967,31 @@ fn find_vertex_buffer_memory(
         "no good memory type_filter={type_filter} properties={properties:?} {:#?}",
         properties
     );
+}
+
+fn create_buffer(
+    logical_device: &VulkanLogicalDevice,
+    size: usize,
+    usage: vk::BufferUsageFlags,
+    properties: vk::MemoryPropertyFlags,
+) -> (vk::Buffer, vk::DeviceMemory) {
+    let buffer_info = *vk::BufferCreateInfo::builder()
+        .size(size as u64)
+        .usage(usage)
+        .sharing_mode(vk::SharingMode::EXCLUSIVE);
+    let buffer = unsafe { logical_device.create_buffer(&buffer_info, None) }.unwrap();
+    let requirements = unsafe { logical_device.get_buffer_memory_requirements(buffer) };
+    let memory_type_index = find_vertex_buffer_memory(
+        &logical_device.physical_device,
+        requirements.memory_type_bits,
+        properties,
+    );
+    let alloc_info = vk::MemoryAllocateInfo::builder()
+        .allocation_size(requirements.size)
+        .memory_type_index(memory_type_index);
+    let memory = unsafe { logical_device.device.allocate_memory(&alloc_info, None) }.unwrap();
+    unsafe { logical_device.device.bind_buffer_memory(buffer, memory, 0) }.unwrap();
+    (buffer, memory)
 }
 
 fn cleanup_swapchain(logical_device: &VulkanLogicalDevice, framebuffers: &[vk::Framebuffer]) {
