@@ -809,27 +809,6 @@ fn main() {
     let pipeline = VulkanPipeline::create(&swapchain);
     let framebuffers = create_framebuffers(&pipeline);
 
-    let vertex_size = std::mem::size_of::<Vertex>();
-    let vertex_buffer_size = vertex_size * vertex_data.len();
-    let (vertex_buffer, vertex_buffer_memory) = create_buffer(
-        &logical_device,
-        vertex_buffer_size,
-        vk::BufferUsageFlags::VERTEX_BUFFER,
-        vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-    );
-    let vb_ptr = unsafe {
-        logical_device.device.map_memory(
-            vertex_buffer_memory,
-            0,
-            vertex_buffer_size as u64,
-            vk::MemoryMapFlags::empty(),
-        )
-    }
-    .unwrap();
-    unsafe { std::slice::from_raw_parts_mut(vb_ptr as *mut Vertex, vertex_data.len()) }
-        .copy_from_slice(&vertex_data);
-    unsafe { logical_device.device.unmap_memory(vertex_buffer_memory) };
-
     let command_pool_info = vk::CommandPoolCreateInfo::builder()
         .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
         .queue_family_index(physical_device.queues.graphics_family);
@@ -841,6 +820,43 @@ fn main() {
         .command_buffer_count(MAX_FRAMES_IN_FLIGHT as u32);
     let command_buffers =
         unsafe { logical_device.allocate_command_buffers(&command_buffer_allocate_info) }.unwrap();
+
+    let vertex_size = std::mem::size_of::<Vertex>();
+    let vertex_buffer_size = vertex_size * vertex_data.len();
+    let (staging_buffer, staging_buffer_memory) = create_buffer(
+        &logical_device,
+        vertex_buffer_size,
+        vk::BufferUsageFlags::TRANSFER_SRC,
+        vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+    );
+    let (vertex_buffer, vertex_buffer_memory) = create_buffer(
+        &logical_device,
+        vertex_buffer_size,
+        vk::BufferUsageFlags::VERTEX_BUFFER | vk::BufferUsageFlags::TRANSFER_DST,
+        vk::MemoryPropertyFlags::DEVICE_LOCAL,
+    );
+    let staging_ptr = unsafe {
+        logical_device.device.map_memory(
+            staging_buffer_memory,
+            0,
+            vertex_buffer_size as u64,
+            vk::MemoryMapFlags::empty(),
+        )
+    }
+    .unwrap();
+    unsafe { std::slice::from_raw_parts_mut(staging_ptr as *mut Vertex, vertex_data.len()) }
+        .copy_from_slice(&vertex_data);
+    unsafe { logical_device.device.unmap_memory(staging_buffer_memory) };
+    copy_buffer(
+        &logical_device,
+        staging_buffer,
+        vertex_buffer,
+        vertex_buffer_size,
+        command_pool,
+        logical_device.graphics_queue,
+    );
+    unsafe { logical_device.destroy_buffer(staging_buffer, None) };
+    unsafe { logical_device.free_memory(staging_buffer_memory, None) };
 
     let semaphore_info = vk::SemaphoreCreateInfo::builder();
     let fence_info = vk::FenceCreateInfo::builder().flags(vk::FenceCreateFlags::SIGNALED);
@@ -992,6 +1008,51 @@ fn create_buffer(
     let memory = unsafe { logical_device.device.allocate_memory(&alloc_info, None) }.unwrap();
     unsafe { logical_device.device.bind_buffer_memory(buffer, memory, 0) }.unwrap();
     (buffer, memory)
+}
+
+fn copy_buffer(
+    logical_device: &VulkanLogicalDevice,
+    src: vk::Buffer,
+    dst: vk::Buffer,
+    len: usize,
+    command_pool: vk::CommandPool,
+    graphics_queue: vk::Queue,
+) {
+    let command_info = vk::CommandBufferAllocateInfo::builder()
+        .level(vk::CommandBufferLevel::PRIMARY)
+        .command_pool(command_pool)
+        .command_buffer_count(1);
+    let command_buffer = unsafe {
+        logical_device
+            .device
+            .allocate_command_buffers(&command_info)
+    }
+    .unwrap()
+    .into_iter()
+    .next()
+    .unwrap();
+
+    let begin_info =
+        vk::CommandBufferBeginInfo::builder().flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
+    unsafe {
+        logical_device
+            .device
+            .begin_command_buffer(command_buffer, &begin_info)
+    }
+    .unwrap();
+    let copy_region = vk::BufferCopy::builder()
+        .src_offset(0)
+        .dst_offset(0)
+        .size(len as u64);
+    unsafe { logical_device.cmd_copy_buffer(command_buffer, src, dst, &[*copy_region]) };
+    unsafe { logical_device.end_command_buffer(command_buffer) }.unwrap();
+
+    let submit_buffers = [command_buffer];
+    let submit_info = vk::SubmitInfo::builder().command_buffers(&submit_buffers);
+    unsafe { logical_device.queue_submit(graphics_queue, &[*submit_info], vk::Fence::null()) }
+        .unwrap();
+    unsafe { logical_device.queue_wait_idle(graphics_queue) }.unwrap();
+    unsafe { logical_device.free_command_buffers(command_pool, &[command_buffer]) };
 }
 
 fn cleanup_swapchain(logical_device: &VulkanLogicalDevice, framebuffers: &[vk::Framebuffer]) {
