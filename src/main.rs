@@ -758,30 +758,23 @@ impl Drop for Shader<'_> {
 fn main() {
     let vertex_data = [
         Vertex {
-            position: glm::vec2(-0.5, -0.25),
-            color: glm::vec3(1., 1., 1.),
-        },
-        Vertex {
-            position: glm::vec2(-0.25, 0.25),
-            color: glm::vec3(0., 1., 0.),
-        },
-        Vertex {
-            position: glm::vec2(-0.75, 0.25),
-            color: glm::vec3(0., 0., 1.),
-        },
-        Vertex {
-            position: glm::vec2(0.25, -0.25),
-            color: glm::vec3(0., 0., 1.),
-        },
-        Vertex {
-            position: glm::vec2(0.75, -0.25),
-            color: glm::vec3(0., 1., 0.),
-        },
-        Vertex {
-            position: glm::vec2(0.5, 0.25),
+            position: glm::vec2(-0.5, -0.5),
             color: glm::vec3(1., 0., 0.),
         },
+        Vertex {
+            position: glm::vec2(0.5, -0.5),
+            color: glm::vec3(0., 1., 0.),
+        },
+        Vertex {
+            position: glm::vec2(0.5, 0.5),
+            color: glm::vec3(0., 0., 1.),
+        },
+        Vertex {
+            position: glm::vec2(-0.5, 0.5),
+            color: glm::vec3(1., 1., 1.),
+        },
     ];
+    let index_data: [u16; 6] = [0, 1, 2, 2, 3, 0];
 
     // Create the application window using winit. Use a predefined size for now, though games should
     // run in fullscreen eventually.
@@ -821,42 +814,10 @@ fn main() {
     let command_buffers =
         unsafe { logical_device.allocate_command_buffers(&command_buffer_allocate_info) }.unwrap();
 
-    let vertex_size = std::mem::size_of::<Vertex>();
-    let vertex_buffer_size = vertex_size * vertex_data.len();
-    let (staging_buffer, staging_buffer_memory) = create_buffer(
-        &logical_device,
-        vertex_buffer_size,
-        vk::BufferUsageFlags::TRANSFER_SRC,
-        vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-    );
-    let (vertex_buffer, vertex_buffer_memory) = create_buffer(
-        &logical_device,
-        vertex_buffer_size,
-        vk::BufferUsageFlags::VERTEX_BUFFER | vk::BufferUsageFlags::TRANSFER_DST,
-        vk::MemoryPropertyFlags::DEVICE_LOCAL,
-    );
-    let staging_ptr = unsafe {
-        logical_device.device.map_memory(
-            staging_buffer_memory,
-            0,
-            vertex_buffer_size as u64,
-            vk::MemoryMapFlags::empty(),
-        )
-    }
-    .unwrap();
-    unsafe { std::slice::from_raw_parts_mut(staging_ptr as *mut Vertex, vertex_data.len()) }
-        .copy_from_slice(&vertex_data);
-    unsafe { logical_device.device.unmap_memory(staging_buffer_memory) };
-    copy_buffer(
-        &logical_device,
-        staging_buffer,
-        vertex_buffer,
-        vertex_buffer_size,
-        command_pool,
-        logical_device.graphics_queue,
-    );
-    unsafe { logical_device.destroy_buffer(staging_buffer, None) };
-    unsafe { logical_device.free_memory(staging_buffer_memory, None) };
+    let (vertex_buffer, vertex_buffer_memory) =
+        create_vertex_buffer(&vertex_data, &logical_device, command_pool);
+    let (index_buffer, index_buffer_memory) =
+        create_index_buffer(&index_data, &logical_device, command_pool);
 
     let semaphore_info = vk::SemaphoreCreateInfo::builder();
     let fence_info = vk::FenceCreateInfo::builder().flags(vk::FenceCreateFlags::SIGNALED);
@@ -898,7 +859,8 @@ fn main() {
                     &pipeline,
                     render_finished_semaphore[current_frame],
                     vertex_buffer,
-                    vertex_data.len() as u32,
+                    index_buffer,
+                    index_data.len(),
                 );
                 current_frame = (current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
             }
@@ -920,7 +882,9 @@ fn main() {
     unsafe { logical_device.destroy_command_pool(command_pool, None) };
     cleanup_swapchain(&logical_device, &framebuffers);
     unsafe { logical_device.destroy_buffer(vertex_buffer, None) };
+    unsafe { logical_device.destroy_buffer(index_buffer, None) };
     unsafe { logical_device.free_memory(vertex_buffer_memory, None) };
+    unsafe { logical_device.free_memory(index_buffer_memory, None) };
 }
 
 fn create_framebuffers(pipeline: &VulkanPipeline) -> Vec<vk::Framebuffer> {
@@ -1010,6 +974,94 @@ fn create_buffer(
     (buffer, memory)
 }
 
+fn create_vertex_buffer(
+    vertex_data: &[Vertex],
+    logical_device: &VulkanLogicalDevice,
+    command_pool: vk::CommandPool,
+) -> (vk::Buffer, vk::DeviceMemory) {
+    let vertex_size = std::mem::size_of::<Vertex>();
+    let vertex_buffer_size = vertex_size * vertex_data.len();
+    let (staging_buffer, staging_buffer_memory) = create_buffer(
+        &logical_device,
+        vertex_buffer_size,
+        vk::BufferUsageFlags::TRANSFER_SRC,
+        vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+    );
+    let (vertex_buffer, vertex_buffer_memory) = create_buffer(
+        &logical_device,
+        vertex_buffer_size,
+        vk::BufferUsageFlags::VERTEX_BUFFER | vk::BufferUsageFlags::TRANSFER_DST,
+        vk::MemoryPropertyFlags::DEVICE_LOCAL,
+    );
+    let staging_ptr = unsafe {
+        logical_device.device.map_memory(
+            staging_buffer_memory,
+            0,
+            vertex_buffer_size as u64,
+            vk::MemoryMapFlags::empty(),
+        )
+    }
+    .unwrap();
+    unsafe { std::slice::from_raw_parts_mut(staging_ptr as *mut Vertex, vertex_data.len()) }
+        .copy_from_slice(&vertex_data);
+    unsafe { logical_device.device.unmap_memory(staging_buffer_memory) };
+    copy_buffer(
+        &logical_device,
+        staging_buffer,
+        vertex_buffer,
+        vertex_buffer_size,
+        command_pool,
+        logical_device.graphics_queue,
+    );
+    unsafe { logical_device.destroy_buffer(staging_buffer, None) };
+    unsafe { logical_device.free_memory(staging_buffer_memory, None) };
+    (vertex_buffer, vertex_buffer_memory)
+}
+
+fn create_index_buffer(
+    index_data: &[u16],
+    logical_device: &VulkanLogicalDevice,
+    command_pool: vk::CommandPool,
+) -> (vk::Buffer, vk::DeviceMemory) {
+    let index_size = std::mem::size_of_val(&index_data[0]);
+    let index_buffer_size = index_size * index_data.len();
+    let (staging_buffer, staging_buffer_memory) = create_buffer(
+        &logical_device,
+        index_buffer_size,
+        vk::BufferUsageFlags::TRANSFER_SRC,
+        vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+    );
+    let (index_buffer, index_buffer_memory) = create_buffer(
+        &logical_device,
+        index_buffer_size,
+        vk::BufferUsageFlags::INDEX_BUFFER | vk::BufferUsageFlags::TRANSFER_DST,
+        vk::MemoryPropertyFlags::DEVICE_LOCAL,
+    );
+    let staging_ptr = unsafe {
+        logical_device.device.map_memory(
+            staging_buffer_memory,
+            0,
+            index_buffer_size as u64,
+            vk::MemoryMapFlags::empty(),
+        )
+    }
+    .unwrap();
+    unsafe { std::slice::from_raw_parts_mut(staging_ptr as *mut u16, index_data.len()) }
+        .copy_from_slice(&index_data);
+    unsafe { logical_device.device.unmap_memory(staging_buffer_memory) };
+    copy_buffer(
+        &logical_device,
+        staging_buffer,
+        index_buffer,
+        index_buffer_size,
+        command_pool,
+        logical_device.graphics_queue,
+    );
+    unsafe { logical_device.destroy_buffer(staging_buffer, None) };
+    unsafe { logical_device.free_memory(staging_buffer_memory, None) };
+    (index_buffer, index_buffer_memory)
+}
+
 fn copy_buffer(
     logical_device: &VulkanLogicalDevice,
     src: vk::Buffer,
@@ -1071,7 +1123,8 @@ fn draw_frame(
     pipeline: &VulkanPipeline,
     render_finished_semaphore: vk::Semaphore,
     vertex_buffer: vk::Buffer,
-    vertex_count: u32,
+    index_buffer: vk::Buffer,
+    index_count: usize,
 ) {
     unsafe { device.wait_for_fences(&[in_flight_fence], true, u64::MAX) }.unwrap();
     unsafe { device.reset_fences(&[in_flight_fence]) }.unwrap();
@@ -1096,7 +1149,8 @@ fn draw_frame(
         swapchain.extent,
         &pipeline,
         vertex_buffer,
-        vertex_count,
+        index_buffer,
+        index_count,
     );
 
     let wait_semaphores = [image_available_semaphore];
@@ -1132,7 +1186,8 @@ fn record_command_buffer(
     swapchain_extent: vk::Extent2D,
     pipeline: &VulkanPipeline,
     vertex_buffer: vk::Buffer,
-    vertex_count: u32,
+    index_buffer: vk::Buffer,
+    index_count: usize,
 ) {
     let begin_info = vk::CommandBufferBeginInfo::builder();
     unsafe { device.begin_command_buffer(command_buffer, &begin_info) }.unwrap();
@@ -1169,6 +1224,8 @@ fn record_command_buffer(
     let offsets = [0];
     unsafe { device.cmd_bind_vertex_buffers(command_buffer, 0, &buffers, &offsets) };
 
+    unsafe { device.cmd_bind_index_buffer(command_buffer, index_buffer, 0, vk::IndexType::UINT16) };
+
     let viewport = vk::Viewport {
         x: 0.,
         y: 0.,
@@ -1185,7 +1242,7 @@ fn record_command_buffer(
     };
     unsafe { device.cmd_set_scissor(command_buffer, 0, &[scissor]) };
 
-    unsafe { device.cmd_draw(command_buffer, vertex_count, 1, 0, 0) };
+    unsafe { device.cmd_draw_indexed(command_buffer, index_count as u32, 1, 0, 0, 0) };
 
     unsafe { device.cmd_end_render_pass(command_buffer) };
 
