@@ -9,8 +9,10 @@ use nalgebra_glm as glm;
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use std::borrow::Cow;
 use std::collections::HashSet;
+use std::f32::consts::{FRAC_PI_2, FRAC_PI_4};
 use std::ffi::CStr;
 use std::ops::Deref;
+use std::time::Instant;
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::EventLoop;
 use winit::platform::run_return::EventLoopExtRunReturn;
@@ -100,6 +102,14 @@ struct Shader<'a> {
 struct Vertex {
     position: glm::Vec2,
     color: glm::Vec3,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+struct UniformBufferObject {
+    model: glm::Mat4,
+    view: glm::Mat4,
+    proj: glm::Mat4,
 }
 
 impl<'a> VulkanInstance<'a> {
@@ -509,7 +519,10 @@ impl<'a> VulkanSwapchain<'a> {
 }
 
 impl<'a> VulkanPipeline<'a> {
-    fn create(swapchain: &'a VulkanSwapchain) -> VulkanPipeline<'a> {
+    fn create(
+        swapchain: &'a VulkanSwapchain,
+        descriptor_set_layout: vk::DescriptorSetLayout,
+    ) -> VulkanPipeline<'a> {
         let logical_device = swapchain.logical_device;
         let vert_shader = Shader::compile(
             logical_device,
@@ -541,7 +554,7 @@ impl<'a> VulkanPipeline<'a> {
             .polygon_mode(vk::PolygonMode::FILL)
             .line_width(1.)
             .cull_mode(vk::CullModeFlags::BACK)
-            .front_face(vk::FrontFace::CLOCKWISE)
+            .front_face(vk::FrontFace::COUNTER_CLOCKWISE)
             .depth_bias_enable(false)
             .depth_bias_constant_factor(0.)
             .depth_bias_clamp(0.)
@@ -561,8 +574,9 @@ impl<'a> VulkanPipeline<'a> {
             .logic_op_enable(false)
             .logic_op(vk::LogicOp::COPY)
             .attachments(&color_blend_attachments);
+        let set_layouts = [descriptor_set_layout];
         let pipeline_layout_info = vk::PipelineLayoutCreateInfo::builder()
-            .set_layouts(&[])
+            .set_layouts(&set_layouts)
             .push_constant_ranges(&[]);
         let pipeline_layout =
             unsafe { logical_device.create_pipeline_layout(&pipeline_layout_info, None) }.unwrap();
@@ -799,7 +813,18 @@ fn main() {
     let physical_device = VulkanPhysicalDevice::find_for(&surface);
     let logical_device = VulkanLogicalDevice::create(&physical_device);
     let swapchain = VulkanSwapchain::create(&logical_device, &surface, &window);
-    let pipeline = VulkanPipeline::create(&swapchain);
+
+    let ubo_layout_binding = vk::DescriptorSetLayoutBinding::builder()
+        .binding(0)
+        .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+        .descriptor_count(1)
+        .stage_flags(vk::ShaderStageFlags::VERTEX);
+    let layout_bindings = [*ubo_layout_binding];
+    let layout_info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(&layout_bindings);
+    let descriptor_set_layout =
+        unsafe { logical_device.create_descriptor_set_layout(&layout_info, None) }.unwrap();
+
+    let pipeline = VulkanPipeline::create(&swapchain, descriptor_set_layout);
     let framebuffers = create_framebuffers(&pipeline);
 
     let command_pool_info = vk::CommandPoolCreateInfo::builder()
@@ -819,6 +844,62 @@ fn main() {
     let (index_buffer, index_buffer_memory) =
         create_index_buffer(&index_data, &logical_device, command_pool);
 
+    let mut uniform_buffers = Vec::new();
+    let mut uniform_buffer_memories = Vec::new();
+    let mut uniform_buffer_mapped = Vec::new();
+    for _ in 0..MAX_FRAMES_IN_FLIGHT {
+        let buffer_size = std::mem::size_of::<UniformBufferObject>();
+        let (buffer, buffer_memory) = create_buffer(
+            &logical_device,
+            buffer_size,
+            vk::BufferUsageFlags::UNIFORM_BUFFER,
+            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+        );
+        let buffer_mapped = unsafe {
+            logical_device.device.map_memory(
+                buffer_memory,
+                0,
+                buffer_size as u64,
+                vk::MemoryMapFlags::empty(),
+            )
+        }
+        .unwrap() as *mut UniformBufferObject;
+        uniform_buffers.push(buffer);
+        uniform_buffer_memories.push(buffer_memory);
+        uniform_buffer_mapped.push(buffer_mapped);
+    }
+
+    let pool_size = vk::DescriptorPoolSize::builder()
+        .ty(vk::DescriptorType::UNIFORM_BUFFER)
+        .descriptor_count(MAX_FRAMES_IN_FLIGHT as u32);
+    let pool_sizes = [*pool_size];
+    let pool_info = vk::DescriptorPoolCreateInfo::builder()
+        .pool_sizes(&pool_sizes)
+        .max_sets(MAX_FRAMES_IN_FLIGHT as u32);
+    let descriptor_pool =
+        unsafe { logical_device.create_descriptor_pool(&pool_info, None) }.unwrap();
+
+    let layouts = vec![descriptor_set_layout; MAX_FRAMES_IN_FLIGHT];
+    let descriptor_set_alloc_info = vk::DescriptorSetAllocateInfo::builder()
+        .descriptor_pool(descriptor_pool)
+        .set_layouts(&layouts);
+    let descriptor_sets =
+        unsafe { logical_device.allocate_descriptor_sets(&descriptor_set_alloc_info) }.unwrap();
+    for i in 0..MAX_FRAMES_IN_FLIGHT {
+        let buffer_info = vk::DescriptorBufferInfo::builder()
+            .buffer(uniform_buffers[i])
+            .offset(0)
+            .range(std::mem::size_of::<UniformBufferObject>() as u64);
+        let buffer_infos = [*buffer_info];
+        let descriptor_write = vk::WriteDescriptorSet::builder()
+            .dst_set(descriptor_sets[i])
+            .dst_binding(0)
+            .dst_array_element(0)
+            .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+            .buffer_info(&buffer_infos);
+        unsafe { logical_device.update_descriptor_sets(&[*descriptor_write], &[]) };
+    }
+
     let semaphore_info = vk::SemaphoreCreateInfo::builder();
     let fence_info = vk::FenceCreateInfo::builder().flags(vk::FenceCreateFlags::SIGNALED);
     let image_available_semaphores: Vec<_> = (0..MAX_FRAMES_IN_FLIGHT)
@@ -830,6 +911,8 @@ fn main() {
     let in_flight_fence: Vec<_> = (0..MAX_FRAMES_IN_FLIGHT)
         .map(|_| unsafe { logical_device.create_fence(&fence_info, None) }.unwrap())
         .collect();
+
+    let start_time = Instant::now();
 
     let mut current_frame = 0;
 
@@ -861,6 +944,9 @@ fn main() {
                     vertex_buffer,
                     index_buffer,
                     index_data.len(),
+                    start_time,
+                    uniform_buffer_mapped[current_frame],
+                    descriptor_sets[current_frame],
                 );
                 current_frame = (current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
             }
@@ -881,6 +967,14 @@ fn main() {
     }
     unsafe { logical_device.destroy_command_pool(command_pool, None) };
     cleanup_swapchain(&logical_device, &framebuffers);
+    unsafe { logical_device.destroy_descriptor_pool(descriptor_pool, None) };
+    unsafe { logical_device.destroy_descriptor_set_layout(descriptor_set_layout, None) };
+    for buffer in uniform_buffers {
+        unsafe { logical_device.destroy_buffer(buffer, None) };
+    }
+    for memory in uniform_buffer_memories {
+        unsafe { logical_device.free_memory(memory, None) };
+    }
     unsafe { logical_device.destroy_buffer(vertex_buffer, None) };
     unsafe { logical_device.destroy_buffer(index_buffer, None) };
     unsafe { logical_device.free_memory(vertex_buffer_memory, None) };
@@ -1125,6 +1219,9 @@ fn draw_frame(
     vertex_buffer: vk::Buffer,
     index_buffer: vk::Buffer,
     index_count: usize,
+    start_time: Instant,
+    ubo_ptr: *mut UniformBufferObject,
+    descriptor_set: vk::DescriptorSet,
 ) {
     unsafe { device.wait_for_fences(&[in_flight_fence], true, u64::MAX) }.unwrap();
     unsafe { device.reset_fences(&[in_flight_fence]) }.unwrap();
@@ -1151,6 +1248,13 @@ fn draw_frame(
         vertex_buffer,
         index_buffer,
         index_count,
+        descriptor_set,
+    );
+
+    update_uniform_buffer(
+        start_time,
+        ubo_ptr,
+        swapchain.extent.width as f32 / swapchain.extent.height as f32,
     );
 
     let wait_semaphores = [image_available_semaphore];
@@ -1188,6 +1292,7 @@ fn record_command_buffer(
     vertex_buffer: vk::Buffer,
     index_buffer: vk::Buffer,
     index_count: usize,
+    descriptor_set: vk::DescriptorSet,
 ) {
     let begin_info = vk::CommandBufferBeginInfo::builder();
     unsafe { device.begin_command_buffer(command_buffer, &begin_info) }.unwrap();
@@ -1242,11 +1347,38 @@ fn record_command_buffer(
     };
     unsafe { device.cmd_set_scissor(command_buffer, 0, &[scissor]) };
 
+    unsafe {
+        device.cmd_bind_descriptor_sets(
+            command_buffer,
+            vk::PipelineBindPoint::GRAPHICS,
+            pipeline.pipeline_layout,
+            0,
+            &[descriptor_set],
+            &[],
+        )
+    };
+
     unsafe { device.cmd_draw_indexed(command_buffer, index_count as u32, 1, 0, 0, 0) };
 
     unsafe { device.cmd_end_render_pass(command_buffer) };
 
     unsafe { device.end_command_buffer(command_buffer) }.unwrap();
+}
+
+fn update_uniform_buffer(
+    start_time: Instant,
+    ubo_ptr: *mut UniformBufferObject,
+    aspect_ratio: f32,
+) {
+    let current_time = Instant::now();
+    let time = (current_time - start_time).as_secs_f32();
+    let mut ubo = UniformBufferObject {
+        model: glm::rotate(&glm::identity(), time * FRAC_PI_2, &glm::vec3(0., 0., 1.)),
+        view: glm::look_at(&glm::vec3(2., 2., 2.), &glm::zero(), &glm::vec3(0., 0., 1.)),
+        proj: glm::perspective(aspect_ratio, FRAC_PI_4, 0.1, 10.),
+    };
+    ubo.proj[(1, 1)] *= -1.;
+    unsafe { ubo_ptr.write_volatile(ubo) };
 }
 
 unsafe extern "system" fn vulkan_debug_callback(
