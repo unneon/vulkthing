@@ -3,7 +3,6 @@
 use ash::extensions::ext::DebugUtils;
 use ash::extensions::khr::{Surface, Swapchain};
 use ash::prelude::VkResult;
-use ash::vk::ComponentSwizzle;
 use ash::{vk, Device, Entry, Instance};
 use image::RgbaImage;
 use nalgebra_glm as glm;
@@ -103,6 +102,7 @@ struct Shader<'a> {
 struct Vertex {
     position: glm::Vec2,
     color: glm::Vec3,
+    tex_coord: glm::Vec2,
 }
 
 #[repr(C)]
@@ -224,6 +224,12 @@ impl<'a> VulkanPhysicalDevice<'a> {
                 continue;
             };
 
+            let supported_features = unsafe { instance.get_physical_device_features(device) };
+            if supported_features.sampler_anisotropy == 0 {
+                println!("rejected gpu, no sampler anisotropy feature");
+                continue;
+            }
+
             // Check whether the GPU supports the swapchain extension. This should be implied by the
             // presence of the present queue, but we can check this explicitly.
             let extensions =
@@ -296,7 +302,8 @@ impl<'a> VulkanLogicalDevice<'a> {
             })
             .collect();
 
-        let physical_device_features = vk::PhysicalDeviceFeatures::builder();
+        let physical_device_features =
+            vk::PhysicalDeviceFeatures::builder().sampler_anisotropy(true);
 
         // Using validation layers on a device level shouldn't be necessary on newer Vulkan version
         // (since which one?), but it's good to keep it for compatibility.
@@ -479,29 +486,7 @@ impl<'a> VulkanSwapchain<'a> {
         // Create image views. Not really interesting for now, as I only use normal color settings.
         let mut image_views = vec![vk::ImageView::null(); images.len()];
         for i in 0..images.len() {
-            let image_view_create = vk::ImageViewCreateInfo::builder()
-                .image(images[i])
-                .view_type(vk::ImageViewType::TYPE_2D)
-                .format(image_format)
-                .components(vk::ComponentMapping {
-                    r: ComponentSwizzle::IDENTITY,
-                    g: ComponentSwizzle::IDENTITY,
-                    b: ComponentSwizzle::IDENTITY,
-                    a: ComponentSwizzle::IDENTITY,
-                })
-                .subresource_range(vk::ImageSubresourceRange {
-                    aspect_mask: vk::ImageAspectFlags::COLOR,
-                    base_mip_level: 0,
-                    level_count: 1,
-                    base_array_layer: 0,
-                    layer_count: 1,
-                });
-            image_views[i] = unsafe {
-                logical_device
-                    .device
-                    .create_image_view(&image_view_create, None)
-            }
-            .unwrap();
+            image_views[i] = create_image_view(logical_device, images[i], image_format);
         }
 
         VulkanSwapchain {
@@ -775,18 +760,22 @@ fn main() {
         Vertex {
             position: glm::vec2(-0.5, -0.5),
             color: glm::vec3(1., 0., 0.),
+            tex_coord: glm::vec2(1., 0.),
         },
         Vertex {
             position: glm::vec2(0.5, -0.5),
             color: glm::vec3(0., 1., 0.),
+            tex_coord: glm::vec2(0., 0.),
         },
         Vertex {
             position: glm::vec2(0.5, 0.5),
             color: glm::vec3(0., 0., 1.),
+            tex_coord: glm::vec2(0., 1.),
         },
         Vertex {
             position: glm::vec2(-0.5, 0.5),
             color: glm::vec3(1., 1., 1.),
+            tex_coord: glm::vec2(1., 1.),
         },
     ];
     let index_data: [u16; 6] = [0, 1, 2, 2, 3, 0];
@@ -820,7 +809,12 @@ fn main() {
         .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
         .descriptor_count(1)
         .stage_flags(vk::ShaderStageFlags::VERTEX);
-    let layout_bindings = [*ubo_layout_binding];
+    let sampler_layout_binding = vk::DescriptorSetLayoutBinding::builder()
+        .binding(1)
+        .descriptor_count(1)
+        .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+        .stage_flags(vk::ShaderStageFlags::FRAGMENT);
+    let layout_bindings = [*ubo_layout_binding, *sampler_layout_binding];
     let layout_info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(&layout_bindings);
     let descriptor_set_layout =
         unsafe { logical_device.create_descriptor_set_layout(&layout_info, None) }.unwrap();
@@ -842,6 +836,8 @@ fn main() {
 
     let (texture_image, texture_image_memory) =
         create_texture_image(&logical_device, logical_device.graphics_queue, command_pool);
+    let texture_image_view = create_texture_image_view(&logical_device, texture_image);
+    let texture_sampler = create_texture_sampler(&logical_device);
 
     let (vertex_buffer, vertex_buffer_memory) =
         create_vertex_buffer(&vertex_data, &logical_device, command_pool);
@@ -873,10 +869,16 @@ fn main() {
         uniform_buffer_mapped.push(buffer_mapped);
     }
 
-    let pool_size = vk::DescriptorPoolSize::builder()
-        .ty(vk::DescriptorType::UNIFORM_BUFFER)
-        .descriptor_count(MAX_FRAMES_IN_FLIGHT as u32);
-    let pool_sizes = [*pool_size];
+    let pool_sizes = [
+        vk::DescriptorPoolSize {
+            ty: vk::DescriptorType::UNIFORM_BUFFER,
+            descriptor_count: MAX_FRAMES_IN_FLIGHT as u32,
+        },
+        vk::DescriptorPoolSize {
+            ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+            descriptor_count: MAX_FRAMES_IN_FLIGHT as u32,
+        },
+    ];
     let pool_info = vk::DescriptorPoolCreateInfo::builder()
         .pool_sizes(&pool_sizes)
         .max_sets(MAX_FRAMES_IN_FLIGHT as u32);
@@ -895,13 +897,26 @@ fn main() {
             .offset(0)
             .range(std::mem::size_of::<UniformBufferObject>() as u64);
         let buffer_infos = [*buffer_info];
-        let descriptor_write = vk::WriteDescriptorSet::builder()
-            .dst_set(descriptor_sets[i])
-            .dst_binding(0)
-            .dst_array_element(0)
-            .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-            .buffer_info(&buffer_infos);
-        unsafe { logical_device.update_descriptor_sets(&[*descriptor_write], &[]) };
+        let image_info = vk::DescriptorImageInfo::builder()
+            .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+            .image_view(texture_image_view)
+            .sampler(texture_sampler);
+        let image_infos = [*image_info];
+        let descriptor_writes = [
+            *vk::WriteDescriptorSet::builder()
+                .dst_set(descriptor_sets[i])
+                .dst_binding(0)
+                .dst_array_element(0)
+                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+                .buffer_info(&buffer_infos),
+            *vk::WriteDescriptorSet::builder()
+                .dst_set(descriptor_sets[i])
+                .dst_binding(1)
+                .dst_array_element(0)
+                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                .image_info(&image_infos),
+        ];
+        unsafe { logical_device.update_descriptor_sets(&descriptor_writes, &[]) };
     }
 
     let semaphore_info = vk::SemaphoreCreateInfo::builder();
@@ -983,6 +998,8 @@ fn main() {
     unsafe { logical_device.destroy_buffer(index_buffer, None) };
     unsafe { logical_device.free_memory(vertex_buffer_memory, None) };
     unsafe { logical_device.free_memory(index_buffer_memory, None) };
+    unsafe { logical_device.destroy_sampler(texture_sampler, None) };
+    unsafe { logical_device.destroy_image_view(texture_image_view, None) };
     unsafe { logical_device.destroy_image(texture_image, None) };
     unsafe { logical_device.free_memory(texture_image_memory, None) };
 }
@@ -1009,7 +1026,7 @@ fn create_framebuffers(pipeline: &VulkanPipeline) -> Vec<vk::Framebuffer> {
     framebuffers
 }
 
-fn get_attribute_descriptions() -> [vk::VertexInputAttributeDescription; 2] {
+fn get_attribute_descriptions() -> [vk::VertexInputAttributeDescription; 3] {
     [
         vk::VertexInputAttributeDescription {
             binding: 0,
@@ -1022,6 +1039,13 @@ fn get_attribute_descriptions() -> [vk::VertexInputAttributeDescription; 2] {
             location: 1,
             format: vk::Format::R32G32B32_SFLOAT,
             offset: std::mem::size_of::<glm::Vec2>() as u32,
+        },
+        vk::VertexInputAttributeDescription {
+            binding: 0,
+            location: 2,
+            format: vk::Format::R32G32_SFLOAT,
+            offset: std::mem::size_of::<glm::Vec2>() as u32
+                + std::mem::size_of::<glm::Vec3>() as u32,
         },
     ]
 }
@@ -1184,6 +1208,57 @@ fn create_texture_image(
     (texture_image, texture_image_memory)
 }
 
+fn create_image_view(
+    logical_device: &VulkanLogicalDevice,
+    image: vk::Image,
+    format: vk::Format,
+) -> vk::ImageView {
+    let view_info = vk::ImageViewCreateInfo::builder()
+        .image(image)
+        .view_type(vk::ImageViewType::TYPE_2D)
+        .format(format)
+        .subresource_range(vk::ImageSubresourceRange {
+            aspect_mask: vk::ImageAspectFlags::COLOR,
+            base_mip_level: 0,
+            level_count: 1,
+            base_array_layer: 0,
+            layer_count: 1,
+        });
+    unsafe { logical_device.create_image_view(&view_info, None) }.unwrap()
+}
+
+fn create_texture_image_view(
+    logical_device: &VulkanLogicalDevice,
+    texture_image: vk::Image,
+) -> vk::ImageView {
+    create_image_view(logical_device, texture_image, vk::Format::R8G8B8A8_SRGB)
+}
+
+fn create_texture_sampler(logical_device: &VulkanLogicalDevice) -> vk::Sampler {
+    let properties = unsafe {
+        logical_device
+            .instance
+            .get_physical_device_properties(logical_device.physical_device.device)
+    };
+    let sampler_info = vk::SamplerCreateInfo::builder()
+        .mag_filter(vk::Filter::LINEAR)
+        .min_filter(vk::Filter::LINEAR)
+        .address_mode_u(vk::SamplerAddressMode::REPEAT)
+        .address_mode_v(vk::SamplerAddressMode::REPEAT)
+        .address_mode_w(vk::SamplerAddressMode::REPEAT)
+        .anisotropy_enable(true)
+        .max_anisotropy(properties.limits.max_sampler_anisotropy)
+        .border_color(vk::BorderColor::INT_OPAQUE_BLACK)
+        .unnormalized_coordinates(false)
+        .compare_enable(false)
+        .compare_op(vk::CompareOp::ALWAYS)
+        .mipmap_mode(vk::SamplerMipmapMode::LINEAR)
+        .mip_lod_bias(0.)
+        .min_lod(0.)
+        .max_lod(0.);
+    unsafe { logical_device.create_sampler(&sampler_info, None) }.unwrap()
+}
+
 fn create_vertex_buffer(
     vertex_data: &[Vertex],
     logical_device: &VulkanLogicalDevice,
@@ -1233,7 +1308,7 @@ fn transition_image_layout(
     graphics_queue: vk::Queue,
     command_pool: vk::CommandPool,
     image: vk::Image,
-    format: vk::Format,
+    _format: vk::Format,
     old_layout: vk::ImageLayout,
     new_layout: vk::ImageLayout,
 ) {
