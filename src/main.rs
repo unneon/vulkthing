@@ -5,6 +5,7 @@ use ash::extensions::khr::{Surface, Swapchain};
 use ash::prelude::VkResult;
 use ash::vk::ComponentSwizzle;
 use ash::{vk, Device, Entry, Instance};
+use image::RgbaImage;
 use nalgebra_glm as glm;
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use std::borrow::Cow;
@@ -839,6 +840,9 @@ fn main() {
     let command_buffers =
         unsafe { logical_device.allocate_command_buffers(&command_buffer_allocate_info) }.unwrap();
 
+    let (texture_image, texture_image_memory) =
+        create_texture_image(&logical_device, logical_device.graphics_queue, command_pool);
+
     let (vertex_buffer, vertex_buffer_memory) =
         create_vertex_buffer(&vertex_data, &logical_device, command_pool);
     let (index_buffer, index_buffer_memory) =
@@ -979,6 +983,8 @@ fn main() {
     unsafe { logical_device.destroy_buffer(index_buffer, None) };
     unsafe { logical_device.free_memory(vertex_buffer_memory, None) };
     unsafe { logical_device.free_memory(index_buffer_memory, None) };
+    unsafe { logical_device.destroy_image(texture_image, None) };
+    unsafe { logical_device.free_memory(texture_image_memory, None) };
 }
 
 fn create_framebuffers(pipeline: &VulkanPipeline) -> Vec<vk::Framebuffer> {
@@ -1020,7 +1026,7 @@ fn get_attribute_descriptions() -> [vk::VertexInputAttributeDescription; 2] {
     ]
 }
 
-fn find_vertex_buffer_memory(
+fn find_memory_type(
     device: &VulkanPhysicalDevice,
     type_filter: u32,
     properties: vk::MemoryPropertyFlags,
@@ -1055,7 +1061,7 @@ fn create_buffer(
         .sharing_mode(vk::SharingMode::EXCLUSIVE);
     let buffer = unsafe { logical_device.create_buffer(&buffer_info, None) }.unwrap();
     let requirements = unsafe { logical_device.get_buffer_memory_requirements(buffer) };
-    let memory_type_index = find_vertex_buffer_memory(
+    let memory_type_index = find_memory_type(
         &logical_device.physical_device,
         requirements.memory_type_bits,
         properties,
@@ -1066,6 +1072,116 @@ fn create_buffer(
     let memory = unsafe { logical_device.device.allocate_memory(&alloc_info, None) }.unwrap();
     unsafe { logical_device.device.bind_buffer_memory(buffer, memory, 0) }.unwrap();
     (buffer, memory)
+}
+
+fn create_image(
+    logical_device: &VulkanLogicalDevice,
+    data: &RgbaImage,
+    tiling: vk::ImageTiling,
+    usage: vk::ImageUsageFlags,
+    memory: vk::MemoryPropertyFlags,
+) -> (vk::Image, vk::DeviceMemory) {
+    let image_info = vk::ImageCreateInfo::builder()
+        .image_type(vk::ImageType::TYPE_2D)
+        .extent(vk::Extent3D {
+            width: data.width(),
+            height: data.height(),
+            depth: 1,
+        })
+        .mip_levels(1)
+        .array_layers(1)
+        .format(vk::Format::R8G8B8A8_SRGB)
+        .tiling(tiling)
+        .initial_layout(vk::ImageLayout::UNDEFINED)
+        .usage(usage)
+        .sharing_mode(vk::SharingMode::EXCLUSIVE)
+        .samples(vk::SampleCountFlags::TYPE_1);
+    let image = unsafe { logical_device.create_image(&image_info, None) }.unwrap();
+
+    let requirements = unsafe { logical_device.get_image_memory_requirements(image) };
+    let memory_type = find_memory_type(
+        logical_device.physical_device,
+        requirements.memory_type_bits,
+        memory,
+    );
+    let alloc_info = vk::MemoryAllocateInfo::builder()
+        .allocation_size(requirements.size)
+        .memory_type_index(memory_type);
+    let image_memory = unsafe { logical_device.allocate_memory(&alloc_info, None) }.unwrap();
+    unsafe { logical_device.bind_image_memory(image, image_memory, 0) }.unwrap();
+
+    (image, image_memory)
+}
+
+fn create_texture_image(
+    logical_device: &VulkanLogicalDevice,
+    graphics_queue: vk::Queue,
+    command_pool: vk::CommandPool,
+) -> (vk::Image, vk::DeviceMemory) {
+    let image = image::open("assets/statue.jpg").unwrap().to_rgba8();
+    let pixel_count = image.width() as usize * image.height() as usize;
+    let image_size = pixel_count * 4;
+
+    let (staging_buffer, staging_buffer_memory) = create_buffer(
+        logical_device,
+        image_size,
+        vk::BufferUsageFlags::TRANSFER_SRC,
+        vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+    );
+    let staging_ptr = unsafe {
+        logical_device.map_memory(
+            staging_buffer_memory,
+            0,
+            image_size as u64,
+            vk::MemoryMapFlags::empty(),
+        )
+    }
+    .unwrap();
+    unsafe {
+        std::ptr::copy_nonoverlapping(image.as_ptr(), staging_ptr as *mut u8, image_size);
+    }
+    unsafe { logical_device.unmap_memory(staging_buffer_memory) };
+
+    let (texture_image, texture_image_memory) = create_image(
+        logical_device,
+        &image,
+        vk::ImageTiling::OPTIMAL,
+        vk::ImageUsageFlags::TRANSFER_DST | vk::ImageUsageFlags::SAMPLED,
+        vk::MemoryPropertyFlags::DEVICE_LOCAL,
+    );
+
+    transition_image_layout(
+        logical_device,
+        graphics_queue,
+        command_pool,
+        texture_image,
+        vk::Format::R8G8B8A8_SRGB,
+        vk::ImageLayout::UNDEFINED,
+        vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+    );
+    copy_buffer_to_image(
+        logical_device,
+        graphics_queue,
+        command_pool,
+        staging_buffer,
+        texture_image,
+        image.width() as usize,
+        image.height() as usize,
+    );
+    transition_image_layout(
+        logical_device,
+        graphics_queue,
+        command_pool,
+        texture_image,
+        vk::Format::R8G8B8A8_SRGB,
+        vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+        vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+    );
+
+    unsafe { logical_device.destroy_buffer(staging_buffer, None) };
+    unsafe { logical_device.free_memory(staging_buffer_memory, None) };
+
+    (texture_image, texture_image_memory)
 }
 
 fn create_vertex_buffer(
@@ -1110,6 +1226,118 @@ fn create_vertex_buffer(
     unsafe { logical_device.destroy_buffer(staging_buffer, None) };
     unsafe { logical_device.free_memory(staging_buffer_memory, None) };
     (vertex_buffer, vertex_buffer_memory)
+}
+
+fn transition_image_layout(
+    logical_device: &VulkanLogicalDevice,
+    graphics_queue: vk::Queue,
+    command_pool: vk::CommandPool,
+    image: vk::Image,
+    format: vk::Format,
+    old_layout: vk::ImageLayout,
+    new_layout: vk::ImageLayout,
+) {
+    single_time_commands(
+        logical_device,
+        graphics_queue,
+        command_pool,
+        move |command_buffer| {
+            let barrier = vk::ImageMemoryBarrier::builder()
+                .old_layout(old_layout)
+                .new_layout(new_layout)
+                .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+                .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+                .image(image)
+                .subresource_range(vk::ImageSubresourceRange {
+                    aspect_mask: vk::ImageAspectFlags::COLOR,
+                    base_mip_level: 0,
+                    level_count: 1,
+                    base_array_layer: 0,
+                    layer_count: 1,
+                });
+            let (barrier, source_stage, destination_stage) = if old_layout
+                == vk::ImageLayout::UNDEFINED
+                && new_layout == vk::ImageLayout::TRANSFER_DST_OPTIMAL
+            {
+                (
+                    barrier
+                        .src_access_mask(vk::AccessFlags::empty())
+                        .dst_access_mask(vk::AccessFlags::TRANSFER_WRITE),
+                    vk::PipelineStageFlags::TOP_OF_PIPE,
+                    vk::PipelineStageFlags::TRANSFER,
+                )
+            } else if old_layout == vk::ImageLayout::TRANSFER_DST_OPTIMAL
+                && new_layout == vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL
+            {
+                (
+                    barrier
+                        .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
+                        .dst_access_mask(vk::AccessFlags::SHADER_READ),
+                    vk::PipelineStageFlags::TRANSFER,
+                    vk::PipelineStageFlags::FRAGMENT_SHADER,
+                )
+            } else {
+                panic!("unsupported layout transition");
+            };
+
+            unsafe {
+                logical_device.cmd_pipeline_barrier(
+                    command_buffer,
+                    source_stage,
+                    destination_stage,
+                    vk::DependencyFlags::empty(),
+                    &[],
+                    &[],
+                    &[*barrier],
+                )
+            };
+        },
+    );
+}
+
+fn copy_buffer_to_image(
+    logical_device: &VulkanLogicalDevice,
+    graphics_queue: vk::Queue,
+    command_pool: vk::CommandPool,
+    buffer: vk::Buffer,
+    image: vk::Image,
+    width: usize,
+    height: usize,
+) {
+    single_time_commands(
+        logical_device,
+        graphics_queue,
+        command_pool,
+        move |command_buffer| {
+            let region = vk::BufferImageCopy {
+                buffer_offset: 0,
+                buffer_row_length: 0,
+                buffer_image_height: 0,
+                image_subresource: vk::ImageSubresourceLayers {
+                    aspect_mask: vk::ImageAspectFlags::COLOR,
+                    mip_level: 0,
+                    base_array_layer: 0,
+                    layer_count: 1,
+                },
+                image_offset: vk::Offset3D { x: 0, y: 0, z: 0 },
+                image_extent: vk::Extent3D {
+                    width: width as u32,
+                    height: height as u32,
+                    depth: 1,
+                },
+            };
+
+            unsafe {
+                logical_device.cmd_copy_buffer_to_image(
+                    command_buffer,
+                    buffer,
+                    image,
+                    vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                    &[region],
+                )
+            };
+        },
+    );
 }
 
 fn create_index_buffer(
@@ -1164,6 +1392,26 @@ fn copy_buffer(
     command_pool: vk::CommandPool,
     graphics_queue: vk::Queue,
 ) {
+    single_time_commands(
+        logical_device,
+        graphics_queue,
+        command_pool,
+        move |command_buffer| {
+            let copy_region = vk::BufferCopy::builder()
+                .src_offset(0)
+                .dst_offset(0)
+                .size(len as u64);
+            unsafe { logical_device.cmd_copy_buffer(command_buffer, src, dst, &[*copy_region]) };
+        },
+    );
+}
+
+fn single_time_commands<R>(
+    logical_device: &VulkanLogicalDevice,
+    queue: vk::Queue,
+    command_pool: vk::CommandPool,
+    f: impl FnOnce(vk::CommandBuffer) -> R,
+) -> R {
     let command_info = vk::CommandBufferAllocateInfo::builder()
         .level(vk::CommandBufferLevel::PRIMARY)
         .command_pool(command_pool)
@@ -1186,19 +1434,18 @@ fn copy_buffer(
             .begin_command_buffer(command_buffer, &begin_info)
     }
     .unwrap();
-    let copy_region = vk::BufferCopy::builder()
-        .src_offset(0)
-        .dst_offset(0)
-        .size(len as u64);
-    unsafe { logical_device.cmd_copy_buffer(command_buffer, src, dst, &[*copy_region]) };
+
+    let result = f(command_buffer);
+
     unsafe { logical_device.end_command_buffer(command_buffer) }.unwrap();
 
     let submit_buffers = [command_buffer];
     let submit_info = vk::SubmitInfo::builder().command_buffers(&submit_buffers);
-    unsafe { logical_device.queue_submit(graphics_queue, &[*submit_info], vk::Fence::null()) }
-        .unwrap();
-    unsafe { logical_device.queue_wait_idle(graphics_queue) }.unwrap();
+    unsafe { logical_device.queue_submit(queue, &[*submit_info], vk::Fence::null()) }.unwrap();
+    unsafe { logical_device.queue_wait_idle(queue) }.unwrap();
     unsafe { logical_device.free_command_buffers(command_pool, &[command_buffer]) };
+
+    result
 }
 
 fn cleanup_swapchain(logical_device: &VulkanLogicalDevice, framebuffers: &[vk::Framebuffer]) {
