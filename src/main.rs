@@ -8,7 +8,7 @@ use nalgebra_glm as glm;
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use std::borrow::Cow;
 use std::collections::HashSet;
-use std::f32::consts::{FRAC_PI_2, FRAC_PI_4};
+use std::f32::consts::{FRAC_PI_4, PI};
 use std::ffi::CStr;
 use std::ops::Deref;
 use std::time::Instant;
@@ -18,7 +18,7 @@ use winit::platform::run_return::EventLoopExtRunReturn;
 use winit::window::WindowBuilder;
 
 const WINDOW_TITLE: &str = "Vulkthing";
-const WINDOW_SIZE: (usize, usize) = (1000, 800);
+const WINDOW_SIZE: (usize, usize) = (1920, 1080);
 
 const VULKAN_APP_NAME: &CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"Vulkthing\0") };
 const VULKAN_APP_VERSION: u32 = vk::make_api_version(0, 0, 0, 0);
@@ -402,7 +402,7 @@ impl SwapchainDetails {
     }
 
     fn select_present_mode(&self) -> vk::PresentModeKHR {
-        vk::PresentModeKHR::FIFO
+        vk::PresentModeKHR::MAILBOX
     }
 
     fn select_swap_extent(&self, window: &winit::window::Window) -> vk::Extent2D {
@@ -794,49 +794,31 @@ impl Drop for Shader<'_> {
 }
 
 fn main() {
-    let vertex_data = [
-        Vertex {
-            position: glm::vec3(-0.5, -0.5, 0.),
-            color: glm::vec3(1., 0., 0.),
-            tex_coord: glm::vec2(1., 0.),
-        },
-        Vertex {
-            position: glm::vec3(0.5, -0.5, 0.),
-            color: glm::vec3(0., 1., 0.),
-            tex_coord: glm::vec2(0., 0.),
-        },
-        Vertex {
-            position: glm::vec3(0.5, 0.5, 0.),
-            color: glm::vec3(0., 0., 1.),
-            tex_coord: glm::vec2(0., 1.),
-        },
-        Vertex {
-            position: glm::vec3(-0.5, 0.5, 0.),
-            color: glm::vec3(1., 1., 1.),
-            tex_coord: glm::vec2(1., 1.),
-        },
-        Vertex {
-            position: glm::vec3(-0.5, -0.5, -0.5),
-            color: glm::vec3(1., 0., 0.),
-            tex_coord: glm::vec2(1., 0.),
-        },
-        Vertex {
-            position: glm::vec3(0.5, -0.5, -0.5),
-            color: glm::vec3(0., 1., 0.),
-            tex_coord: glm::vec2(0., 0.),
-        },
-        Vertex {
-            position: glm::vec3(0.5, 0.5, -0.5),
-            color: glm::vec3(0., 0., 1.),
-            tex_coord: glm::vec2(0., 1.),
-        },
-        Vertex {
-            position: glm::vec3(-0.5, 0.5, -0.5),
-            color: glm::vec3(1., 1., 1.),
-            tex_coord: glm::vec2(1., 1.),
-        },
-    ];
-    let index_data = [0, 1, 2, 2, 3, 0, 4, 5, 6, 6, 7, 4];
+    let models = tobj::load_obj("assets/viking-room.obj", &Default::default())
+        .unwrap()
+        .0;
+    let mut vertex_data = Vec::new();
+    let mut index_data = Vec::new();
+    for model in models {
+        for index in model.mesh.indices {
+            let pos_offset = (3 * index) as usize;
+            let tex_coord_offset = (2 * index) as usize;
+            let vertex = Vertex {
+                position: glm::vec3(
+                    model.mesh.positions[pos_offset],
+                    model.mesh.positions[pos_offset + 1],
+                    model.mesh.positions[pos_offset + 2],
+                ),
+                color: glm::vec3(1., 1., 1.),
+                tex_coord: glm::vec2(
+                    model.mesh.texcoords[tex_coord_offset],
+                    1.0 - model.mesh.texcoords[tex_coord_offset + 1],
+                ),
+            };
+            vertex_data.push(vertex);
+            index_data.push(index_data.len() as u32);
+        }
+    }
 
     // Create the application window using winit. Use a predefined size for now, though games should
     // run in fullscreen eventually.
@@ -1289,7 +1271,7 @@ fn create_texture_image(
     graphics_queue: vk::Queue,
     command_pool: vk::CommandPool,
 ) -> (vk::Image, vk::DeviceMemory) {
-    let image = image::open("assets/statue.jpg").unwrap().to_rgba8();
+    let image = image::open("assets/viking-room.png").unwrap().to_rgba8();
     let pixel_count = image.width() as usize * image.height() as usize;
     let image_size = pixel_count * 4;
 
@@ -1593,7 +1575,7 @@ fn copy_buffer_to_image(
 }
 
 fn create_index_buffer(
-    index_data: &[u16],
+    index_data: &[u32],
     logical_device: &VulkanLogicalDevice,
     command_pool: vk::CommandPool,
 ) -> (vk::Buffer, vk::DeviceMemory) {
@@ -1620,7 +1602,7 @@ fn create_index_buffer(
         )
     }
     .unwrap();
-    unsafe { std::slice::from_raw_parts_mut(staging_ptr as *mut u16, index_data.len()) }
+    unsafe { std::slice::from_raw_parts_mut(staging_ptr as *mut u32, index_data.len()) }
         .copy_from_slice(&index_data);
     unsafe { logical_device.device.unmap_memory(staging_buffer_memory) };
     copy_buffer(
@@ -1845,7 +1827,7 @@ fn record_command_buffer(
     let offsets = [0];
     unsafe { device.cmd_bind_vertex_buffers(command_buffer, 0, &buffers, &offsets) };
 
-    unsafe { device.cmd_bind_index_buffer(command_buffer, index_buffer, 0, vk::IndexType::UINT16) };
+    unsafe { device.cmd_bind_index_buffer(command_buffer, index_buffer, 0, vk::IndexType::UINT32) };
 
     let viewport = vk::Viewport {
         x: 0.,
@@ -1889,7 +1871,7 @@ fn update_uniform_buffer(
     let current_time = Instant::now();
     let time = (current_time - start_time).as_secs_f32();
     let mut ubo = UniformBufferObject {
-        model: glm::rotate(&glm::identity(), time * FRAC_PI_2, &glm::vec3(0., 0., 1.)),
+        model: glm::rotate(&glm::identity(), time * PI / 16., &glm::vec3(0., 0., 1.)),
         view: glm::look_at(&glm::vec3(2., 2., 2.), &glm::zero(), &glm::vec3(0., 0., 1.)),
         proj: glm::perspective_rh_zo(aspect_ratio, FRAC_PI_4, 0.1, 10.),
     };
