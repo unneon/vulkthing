@@ -7,9 +7,10 @@ use ash::{vk, Device, Entry, Instance};
 use nalgebra_glm as glm;
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use std::borrow::Cow;
-use std::collections::HashSet;
+use std::collections::{hash_map, HashMap, HashSet};
 use std::f32::consts::{FRAC_PI_4, PI};
 use std::ffi::CStr;
+use std::hash::{Hash, Hasher};
 use std::ops::Deref;
 use std::time::Instant;
 use winit::event::{Event, WindowEvent};
@@ -708,6 +709,23 @@ impl Vertex {
     }
 }
 
+impl Eq for Vertex {}
+
+impl Hash for Vertex {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        let p = self as *const Vertex as *const [u8; std::mem::size_of::<Vertex>()];
+        p.hash(state);
+    }
+}
+
+impl PartialEq for Vertex {
+    fn eq(&self, other: &Self) -> bool {
+        let p1 = self as *const Vertex as *const [u8; std::mem::size_of::<Vertex>()];
+        let p2 = other as *const Vertex as *const [u8; std::mem::size_of::<Vertex>()];
+        unsafe { *p1 == *p2 }
+    }
+}
+
 impl Deref for VulkanInstance<'_> {
     type Target = Instance;
 
@@ -797,6 +815,7 @@ fn main() {
     let models = tobj::load_obj("assets/viking-room.obj", &Default::default())
         .unwrap()
         .0;
+    let mut unique_vertices = HashMap::new();
     let mut vertex_data = Vec::new();
     let mut index_data = Vec::new();
     for model in models {
@@ -815,8 +834,16 @@ fn main() {
                     1.0 - model.mesh.texcoords[tex_coord_offset + 1],
                 ),
             };
-            vertex_data.push(vertex);
-            index_data.push(index_data.len() as u32);
+            let index = match unique_vertices.entry(vertex) {
+                hash_map::Entry::Occupied(e) => *e.get(),
+                hash_map::Entry::Vacant(e) => {
+                    let index = vertex_data.len();
+                    e.insert(index);
+                    vertex_data.push(vertex);
+                    index
+                }
+            };
+            index_data.push(index as u32);
         }
     }
 
