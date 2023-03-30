@@ -514,6 +514,7 @@ impl<'a> VulkanPipeline<'a> {
     fn create(
         swapchain: &'a VulkanSwapchain,
         descriptor_set_layout: vk::DescriptorSetLayout,
+        msaa_samples: vk::SampleCountFlags,
     ) -> VulkanPipeline<'a> {
         let logical_device = swapchain.logical_device;
         let vert_shader = Shader::compile(
@@ -553,7 +554,7 @@ impl<'a> VulkanPipeline<'a> {
             .depth_bias_slope_factor(0.);
         let multisampling = vk::PipelineMultisampleStateCreateInfo::builder()
             .sample_shading_enable(false)
-            .rasterization_samples(vk::SampleCountFlags::TYPE_1)
+            .rasterization_samples(msaa_samples)
             .min_sample_shading(1.)
             .sample_mask(&[])
             .alpha_to_coverage_enable(false)
@@ -575,20 +576,20 @@ impl<'a> VulkanPipeline<'a> {
 
         let color_attachment = vk::AttachmentDescription::builder()
             .format(swapchain.image_format)
-            .samples(vk::SampleCountFlags::TYPE_1)
+            .samples(msaa_samples)
             .load_op(vk::AttachmentLoadOp::CLEAR)
             .store_op(vk::AttachmentStoreOp::STORE)
             .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
             .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
             .initial_layout(vk::ImageLayout::UNDEFINED)
-            .final_layout(vk::ImageLayout::PRESENT_SRC_KHR);
+            .final_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL);
         let color_attachment_ref = vk::AttachmentReference::builder()
             .attachment(0)
             .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL);
         let color_attachments = [*color_attachment_ref];
         let depth_attachment = *vk::AttachmentDescription::builder()
             .format(find_depth_format(logical_device.physical_device))
-            .samples(vk::SampleCountFlags::TYPE_1)
+            .samples(msaa_samples)
             .load_op(vk::AttachmentLoadOp::CLEAR)
             .store_op(vk::AttachmentStoreOp::DONT_CARE)
             .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
@@ -598,10 +599,24 @@ impl<'a> VulkanPipeline<'a> {
         let depth_attachment_ref = vk::AttachmentReference::builder()
             .attachment(1)
             .layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+        let color_attachment_resolve = *vk::AttachmentDescription::builder()
+            .format(swapchain.image_format)
+            .samples(vk::SampleCountFlags::TYPE_1)
+            .load_op(vk::AttachmentLoadOp::DONT_CARE)
+            .store_op(vk::AttachmentStoreOp::STORE)
+            .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
+            .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
+            .initial_layout(vk::ImageLayout::UNDEFINED)
+            .final_layout(vk::ImageLayout::PRESENT_SRC_KHR);
+        let color_attachment_resolve_ref = *vk::AttachmentReference::builder()
+            .attachment(2)
+            .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL);
+        let resolve_attachments = [color_attachment_resolve_ref];
         let subpass = vk::SubpassDescription::builder()
             .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
             .color_attachments(&color_attachments)
-            .depth_stencil_attachment(&depth_attachment_ref);
+            .depth_stencil_attachment(&depth_attachment_ref)
+            .resolve_attachments(&resolve_attachments);
         let dependency = vk::SubpassDependency::builder()
             .src_subpass(vk::SUBPASS_EXTERNAL)
             .dst_subpass(0)
@@ -618,7 +633,11 @@ impl<'a> VulkanPipeline<'a> {
                 vk::AccessFlags::COLOR_ATTACHMENT_WRITE
                     | vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE,
             );
-        let attachments = [*color_attachment, depth_attachment];
+        let attachments = [
+            *color_attachment,
+            depth_attachment,
+            color_attachment_resolve,
+        ];
         let subpasses = [*subpass];
         let dependencies = [*dependency];
         let render_pass_info = vk::RenderPassCreateInfo::builder()
@@ -887,7 +906,9 @@ fn main() {
     let descriptor_set_layout =
         unsafe { logical_device.create_descriptor_set_layout(&layout_info, None) }.unwrap();
 
-    let pipeline = VulkanPipeline::create(&swapchain, descriptor_set_layout);
+    let msaa_samples = get_max_usable_sample_count(&physical_device);
+
+    let pipeline = VulkanPipeline::create(&swapchain, descriptor_set_layout, msaa_samples);
 
     let command_pool_info = vk::CommandPoolCreateInfo::builder()
         .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
@@ -901,9 +922,16 @@ fn main() {
     let command_buffers =
         unsafe { logical_device.allocate_command_buffers(&command_buffer_allocate_info) }.unwrap();
 
-    let (depth_image, depth_image_memory, depth_image_view) =
-        create_depth_resources(&swapchain, logical_device.graphics_queue, command_pool);
-    let framebuffers = create_framebuffers(&pipeline, depth_image_view);
+    let (color_image, color_image_memory, color_image_view) =
+        create_color_resources(&swapchain, msaa_samples);
+
+    let (depth_image, depth_image_memory, depth_image_view) = create_depth_resources(
+        &swapchain,
+        logical_device.graphics_queue,
+        command_pool,
+        msaa_samples,
+    );
+    let framebuffers = create_framebuffers(&pipeline, depth_image_view, color_image_view);
 
     let (texture_image, texture_image_memory, mip_levels) =
         create_texture_image(&logical_device, logical_device.graphics_queue, command_pool);
@@ -1062,6 +1090,9 @@ fn main() {
         depth_image,
         depth_image_memory,
         depth_image_view,
+        color_image,
+        color_image_memory,
+        color_image_view,
     );
     unsafe { logical_device.destroy_descriptor_pool(descriptor_pool, None) };
     unsafe { logical_device.destroy_descriptor_set_layout(descriptor_set_layout, None) };
@@ -1084,10 +1115,15 @@ fn main() {
 fn create_framebuffers(
     pipeline: &VulkanPipeline,
     depth_image_view: vk::ImageView,
+    color_image_view: vk::ImageView,
 ) -> Vec<vk::Framebuffer> {
     let mut framebuffers = vec![vk::Framebuffer::null(); pipeline.swapchain.image_count()];
     for i in 0..pipeline.swapchain.image_count() {
-        let attachments = [pipeline.swapchain.image_views[i], depth_image_view];
+        let attachments = [
+            color_image_view,
+            depth_image_view,
+            pipeline.swapchain.image_views[i],
+        ];
         let framebuffer_info = vk::FramebufferCreateInfo::builder()
             .render_pass(pipeline.render_pass)
             .attachments(&attachments)
@@ -1183,6 +1219,7 @@ fn create_image(
     width: usize,
     height: usize,
     mip_levels: usize,
+    samples: vk::SampleCountFlags,
     format: vk::Format,
     tiling: vk::ImageTiling,
     usage: vk::ImageUsageFlags,
@@ -1202,7 +1239,7 @@ fn create_image(
         .initial_layout(vk::ImageLayout::UNDEFINED)
         .usage(usage)
         .sharing_mode(vk::SharingMode::EXCLUSIVE)
-        .samples(vk::SampleCountFlags::TYPE_1);
+        .samples(samples);
     let image = unsafe { logical_device.create_image(&image_info, None) }.unwrap();
 
     let requirements = unsafe { logical_device.get_image_memory_requirements(image) };
@@ -1245,6 +1282,32 @@ fn find_supported_format(
     panic!("no supported format");
 }
 
+fn create_color_resources(
+    swapchain: &VulkanSwapchain,
+    msaa_samples: vk::SampleCountFlags,
+) -> (vk::Image, vk::DeviceMemory, vk::ImageView) {
+    let format = swapchain.image_format;
+    let (image, image_memory) = create_image(
+        swapchain.logical_device,
+        swapchain.extent.width as usize,
+        swapchain.extent.height as usize,
+        1,
+        msaa_samples,
+        format,
+        vk::ImageTiling::OPTIMAL,
+        vk::ImageUsageFlags::TRANSIENT_ATTACHMENT | vk::ImageUsageFlags::COLOR_ATTACHMENT,
+        vk::MemoryPropertyFlags::DEVICE_LOCAL,
+    );
+    let image_view = create_image_view(
+        swapchain.logical_device,
+        image,
+        format,
+        vk::ImageAspectFlags::COLOR,
+        1,
+    );
+    (image, image_memory, image_view)
+}
+
 fn find_depth_format(physical_device: &VulkanPhysicalDevice) -> vk::Format {
     find_supported_format(
         &[
@@ -1266,6 +1329,7 @@ fn create_depth_resources(
     swapchain: &VulkanSwapchain,
     graphics_queue: vk::Queue,
     command_pool: vk::CommandPool,
+    msaa_samples: vk::SampleCountFlags,
 ) -> (vk::Image, vk::DeviceMemory, vk::ImageView) {
     let format = find_depth_format(swapchain.logical_device.physical_device);
     let (image, image_memory) = create_image(
@@ -1273,6 +1337,7 @@ fn create_depth_resources(
         swapchain.extent.width as usize,
         swapchain.extent.height as usize,
         1,
+        msaa_samples,
         format,
         vk::ImageTiling::OPTIMAL,
         vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
@@ -1333,9 +1398,12 @@ fn create_texture_image(
         image.width() as usize,
         image.height() as usize,
         mip_levels,
+        vk::SampleCountFlags::TYPE_1,
         vk::Format::R8G8B8A8_SRGB,
         vk::ImageTiling::OPTIMAL,
-        vk::ImageUsageFlags::TRANSFER_DST | vk::ImageUsageFlags::SAMPLED,
+        vk::ImageUsageFlags::TRANSFER_SRC
+            | vk::ImageUsageFlags::TRANSFER_DST
+            | vk::ImageUsageFlags::SAMPLED,
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
     );
 
@@ -1806,6 +1874,35 @@ fn create_index_buffer(
     (index_buffer, index_buffer_memory)
 }
 
+fn get_max_usable_sample_count(physical_device: &VulkanPhysicalDevice) -> vk::SampleCountFlags {
+    let properties = unsafe {
+        physical_device
+            .instance
+            .get_physical_device_properties(physical_device.device)
+    };
+    let counts = properties.limits.framebuffer_color_sample_counts
+        & properties.limits.framebuffer_depth_sample_counts;
+    if counts.contains(vk::SampleCountFlags::TYPE_64) {
+        return vk::SampleCountFlags::TYPE_64;
+    }
+    if counts.contains(vk::SampleCountFlags::TYPE_32) {
+        return vk::SampleCountFlags::TYPE_32;
+    }
+    if counts.contains(vk::SampleCountFlags::TYPE_16) {
+        return vk::SampleCountFlags::TYPE_16;
+    }
+    if counts.contains(vk::SampleCountFlags::TYPE_8) {
+        return vk::SampleCountFlags::TYPE_8;
+    }
+    if counts.contains(vk::SampleCountFlags::TYPE_4) {
+        return vk::SampleCountFlags::TYPE_4;
+    }
+    if counts.contains(vk::SampleCountFlags::TYPE_2) {
+        return vk::SampleCountFlags::TYPE_2;
+    }
+    vk::SampleCountFlags::TYPE_1
+}
+
 fn copy_buffer(
     logical_device: &VulkanLogicalDevice,
     src: vk::Buffer,
@@ -1876,7 +1973,13 @@ fn cleanup_swapchain(
     depth_image: vk::Image,
     depth_image_memory: vk::DeviceMemory,
     depth_image_view: vk::ImageView,
+    color_image: vk::Image,
+    color_image_memory: vk::DeviceMemory,
+    color_image_view: vk::ImageView,
 ) {
+    unsafe { logical_device.destroy_image_view(color_image_view, None) };
+    unsafe { logical_device.destroy_image(color_image, None) };
+    unsafe { logical_device.free_memory(color_image_memory, None) };
     unsafe { logical_device.destroy_image_view(depth_image_view, None) };
     unsafe { logical_device.destroy_image(depth_image, None) };
     unsafe { logical_device.free_memory(depth_image_memory, None) };
