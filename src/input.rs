@@ -5,6 +5,8 @@ pub struct InputState {
     right_pressed: bool,
     forward_pressed: bool,
     backward_pressed: bool,
+    mouse_dx: f32,
+    mouse_dy: f32,
 }
 
 impl InputState {
@@ -14,6 +16,8 @@ impl InputState {
             right_pressed: false,
             forward_pressed: false,
             backward_pressed: false,
+            mouse_dx: 0.,
+            mouse_dy: 0.,
         }
     }
 
@@ -31,6 +35,16 @@ impl InputState {
                 _ => (),
             },
         }
+    }
+
+    pub fn apply_mouse(&mut self, delta: (f64, f64)) {
+        self.mouse_dx = delta.0 as f32;
+        self.mouse_dy = delta.1 as f32;
+    }
+
+    pub fn reset_after_frame(&mut self) {
+        self.mouse_dx = 0.;
+        self.mouse_dy = 0.;
     }
 
     pub fn movement_horizontal(&self) -> f32 {
@@ -53,5 +67,9 @@ impl InputState {
             sum += 1.;
         }
         sum
+    }
+
+    pub fn camera_yaw(&self) -> f32 {
+        self.mouse_dx
     }
 }

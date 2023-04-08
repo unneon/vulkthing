@@ -1,6 +1,7 @@
 mod debug;
 mod shader;
 
+use crate::camera::Camera;
 use crate::input::InputState;
 use crate::model::{Model, Vertex};
 use crate::renderer::debug::VulkanDebug;
@@ -19,7 +20,7 @@ use std::ffi::CStr;
 use std::hash::{Hash, Hasher};
 use std::ops::Deref;
 use std::time::Instant;
-use winit::event::{Event, StartCause, WindowEvent};
+use winit::event::{DeviceEvent, Event, StartCause, WindowEvent};
 use winit::platform::run_return::EventLoopExtRunReturn;
 
 const VULKAN_APP_NAME: &CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"Vulkthing\0") };
@@ -902,7 +903,10 @@ pub fn run_renderer(mut window: Window, model: Model) {
 
     let mut current_frame = 0;
     let mut input_state = InputState::new();
-    let mut camera_position = glm::vec3(0., -2., 0.);
+    let mut camera = Camera {
+        position: glm::vec3(0., -2., 0.),
+        yaw: 0.,
+    };
     let mut last_update = Instant::now();
 
     // Run the event loop. Winit delivers events, like key presses. After it finishes delivering
@@ -924,6 +928,10 @@ pub fn run_renderer(mut window: Window, model: Model) {
                 WindowEvent::CloseRequested => control_flow.set_exit(),
                 _ => (),
             },
+            Event::DeviceEvent { event, .. } => match event {
+                DeviceEvent::MouseMotion { delta } => input_state.apply_mouse(delta),
+                _ => (),
+            },
             // This is an indication that it's now allowed to create a graphics context, but the
             // limitation only applies on some platforms (Android).
             Event::Resumed => (),
@@ -931,8 +939,8 @@ pub fn run_renderer(mut window: Window, model: Model) {
                 let curr_update = Instant::now();
                 let delta_time = (curr_update - last_update).as_secs_f32();
                 last_update = curr_update;
-                camera_position.x += delta_time * input_state.movement_horizontal();
-                camera_position.y += delta_time * input_state.movement_depth();
+                camera.apply_input(&input_state, delta_time);
+                input_state.reset_after_frame();
                 draw_frame(
                     &logical_device,
                     in_flight_fence[current_frame],
@@ -947,7 +955,7 @@ pub fn run_renderer(mut window: Window, model: Model) {
                     model.indices.len(),
                     uniform_buffer_mapped[current_frame],
                     descriptor_sets[current_frame],
-                    &camera_position,
+                    &camera,
                 );
                 current_frame = (current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
             }
@@ -1888,7 +1896,7 @@ fn draw_frame(
     index_count: usize,
     ubo_ptr: *mut UniformBufferObject,
     descriptor_set: vk::DescriptorSet,
-    camera_position: &glm::Vec3,
+    camera: &Camera,
 ) {
     unsafe { device.wait_for_fences(&[in_flight_fence], true, u64::MAX) }.unwrap();
     unsafe { device.reset_fences(&[in_flight_fence]) }.unwrap();
@@ -1921,7 +1929,7 @@ fn draw_frame(
     update_uniform_buffer(
         ubo_ptr,
         swapchain.extent.width as f32 / swapchain.extent.height as f32,
-        camera_position,
+        camera,
     );
 
     let wait_semaphores = [image_available_semaphore];
@@ -2040,14 +2048,10 @@ fn record_command_buffer(
     unsafe { device.end_command_buffer(command_buffer) }.unwrap();
 }
 
-fn update_uniform_buffer(
-    ubo_ptr: *mut UniformBufferObject,
-    aspect_ratio: f32,
-    camera_position: &glm::Vec3,
-) {
+fn update_uniform_buffer(ubo_ptr: *mut UniformBufferObject, aspect_ratio: f32, camera: &Camera) {
     let mut ubo = UniformBufferObject {
         model: glm::identity(),
-        view: glm::look_at(camera_position, &glm::zero(), &glm::vec3(0., 0., 1.)),
+        view: camera.view_matrix(),
         proj: glm::perspective_rh_zo(aspect_ratio, FRAC_PI_4, 0.1, 10.),
     };
     ubo.proj[(1, 1)] *= -1.;
