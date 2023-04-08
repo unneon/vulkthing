@@ -1,4 +1,6 @@
 #![feature(const_cstr_methods)]
+#![feature(const_option)]
+#![feature(const_result_drop)]
 #![feature(once_cell)]
 
 mod camera;

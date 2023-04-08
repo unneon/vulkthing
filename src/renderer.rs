@@ -23,9 +23,9 @@ use std::time::Instant;
 use winit::event::{DeviceEvent, Event, StartCause, WindowEvent};
 use winit::platform::run_return::EventLoopExtRunReturn;
 
-const VULKAN_APP_NAME: &CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"Vulkthing\0") };
+const VULKAN_APP_NAME: &CStr = CStr::from_bytes_with_nul(b"Vulkthing\0").ok().unwrap();
 const VULKAN_APP_VERSION: u32 = vk::make_api_version(0, 0, 0, 0);
-const VULKAN_ENGINE_NAME: &CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"Vulkthing\0") };
+const VULKAN_ENGINE_NAME: &CStr = CStr::from_bytes_with_nul(b"Vulkthing\0").ok().unwrap();
 const VULKAN_ENGINE_VERSION: u32 = vk::make_api_version(0, 0, 0, 0);
 
 const MAX_FRAMES_IN_FLIGHT: usize = 2;
