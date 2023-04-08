@@ -896,9 +896,6 @@ pub fn run_renderer(mut window: Window, model: Model) {
 
     unsafe { logical_device.device_wait_idle() }.unwrap();
 
-    drop(window.window);
-    drop(window.event_loop);
-
     drop(sync);
     unsafe { logical_device.destroy_descriptor_pool(descriptor_pool, None) };
     for buffer in uniform_buffers {
