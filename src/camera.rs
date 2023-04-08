@@ -14,7 +14,7 @@ impl Camera {
         self.position += (right_direction * input.movement_horizontal()
             + front_direction * input.movement_depth())
             * delta_time;
-        self.yaw += input.camera_yaw() * delta_time;
+        self.yaw += input.camera_yaw() * 0.01;
     }
 
     pub fn view_matrix(&self) -> Mat4 {
