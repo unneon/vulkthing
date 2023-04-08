@@ -772,7 +772,7 @@ pub fn run_renderer(mut window: Window, model: Model) {
     // Load the Vulkan library. This should probably use the dynamically loaded variant instead?
     let entry = unsafe { Entry::load() }.unwrap();
     let instance = VulkanInstance::create(&entry, &window);
-    let _debug = VulkanDebug::create(&instance);
+    let debug = VulkanDebug::create(&instance);
     let surface = VulkanSurface::create(&instance, &window);
     let physical_device = VulkanPhysicalDevice::find_for(&surface);
     let logical_device = VulkanLogicalDevice::create(&physical_device);
@@ -896,34 +896,44 @@ pub fn run_renderer(mut window: Window, model: Model) {
 
     unsafe { logical_device.device_wait_idle() }.unwrap();
 
+    drop(window.window);
+    drop(window.event_loop);
+
     drop(sync);
-    unsafe { logical_device.destroy_command_pool(command_pool, None) };
-    cleanup_swapchain(
-        &logical_device,
-        &framebuffers,
-        depth_image,
-        depth_image_memory,
-        depth_image_view,
-        color_image,
-        color_image_memory,
-        color_image_view,
-    );
     unsafe { logical_device.destroy_descriptor_pool(descriptor_pool, None) };
-    unsafe { logical_device.destroy_descriptor_set_layout(descriptor_set_layout, None) };
     for buffer in uniform_buffers {
         unsafe { logical_device.destroy_buffer(buffer, None) };
     }
     for memory in uniform_buffer_memories {
         unsafe { logical_device.free_memory(memory, None) };
     }
-    unsafe { logical_device.destroy_buffer(vertex_buffer, None) };
     unsafe { logical_device.destroy_buffer(index_buffer, None) };
-    unsafe { logical_device.free_memory(vertex_buffer_memory, None) };
     unsafe { logical_device.free_memory(index_buffer_memory, None) };
+    unsafe { logical_device.destroy_buffer(vertex_buffer, None) };
+    unsafe { logical_device.free_memory(vertex_buffer_memory, None) };
     unsafe { logical_device.destroy_sampler(texture_sampler, None) };
     unsafe { logical_device.destroy_image_view(texture_image_view, None) };
     unsafe { logical_device.destroy_image(texture_image, None) };
     unsafe { logical_device.free_memory(texture_image_memory, None) };
+    for framebuffer in &framebuffers {
+        unsafe { logical_device.destroy_framebuffer(*framebuffer, None) };
+    }
+    unsafe { logical_device.destroy_image_view(depth_image_view, None) };
+    unsafe { logical_device.destroy_image(depth_image, None) };
+    unsafe { logical_device.free_memory(depth_image_memory, None) };
+    unsafe { logical_device.destroy_image_view(color_image_view, None) };
+    unsafe { logical_device.destroy_image(color_image, None) };
+    unsafe { logical_device.free_memory(color_image_memory, None) };
+    unsafe { logical_device.destroy_command_pool(command_pool, None) };
+    drop(pipeline);
+    unsafe { logical_device.destroy_descriptor_set_layout(descriptor_set_layout, None) };
+    drop(swapchain);
+    drop(logical_device);
+    drop(physical_device);
+    drop(surface);
+    drop(debug);
+    drop(instance);
+    drop(entry);
 }
 
 fn create_framebuffers(
@@ -1929,27 +1939,6 @@ fn single_time_commands<R>(
     unsafe { logical_device.free_command_buffers(command_pool, &[command_buffer]) };
 
     result
-}
-
-fn cleanup_swapchain(
-    logical_device: &VulkanLogicalDevice,
-    framebuffers: &[vk::Framebuffer],
-    depth_image: vk::Image,
-    depth_image_memory: vk::DeviceMemory,
-    depth_image_view: vk::ImageView,
-    color_image: vk::Image,
-    color_image_memory: vk::DeviceMemory,
-    color_image_view: vk::ImageView,
-) {
-    unsafe { logical_device.destroy_image_view(color_image_view, None) };
-    unsafe { logical_device.destroy_image(color_image, None) };
-    unsafe { logical_device.free_memory(color_image_memory, None) };
-    unsafe { logical_device.destroy_image_view(depth_image_view, None) };
-    unsafe { logical_device.destroy_image(depth_image, None) };
-    unsafe { logical_device.free_memory(depth_image_memory, None) };
-    for framebuffer in framebuffers {
-        unsafe { logical_device.destroy_framebuffer(*framebuffer, None) };
-    }
 }
 
 fn draw_frame(
