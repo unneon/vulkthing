@@ -798,8 +798,12 @@ pub fn run_renderer(mut window: Window, model: Model) {
     );
     let framebuffers = create_framebuffers(&pipeline, depth_image_view, color_image_view);
 
-    let (texture_image, texture_image_memory, mip_levels) =
-        create_texture_image(&logical_device, logical_device.graphics_queue, command_pool);
+    let (texture_image, texture_image_memory, mip_levels) = create_texture_image(
+        model.texture_path,
+        &logical_device,
+        logical_device.graphics_queue,
+        command_pool,
+    );
     let texture_image_view = create_texture_image_view(&logical_device, texture_image, mip_levels);
     let texture_sampler = create_texture_sampler(&logical_device, mip_levels);
 
@@ -1222,11 +1226,12 @@ fn create_depth_resources(
 }
 
 fn create_texture_image(
+    path: &str,
     logical_device: &VulkanLogicalDevice,
     graphics_queue: vk::Queue,
     command_pool: vk::CommandPool,
 ) -> (vk::Image, vk::DeviceMemory, usize) {
-    let image = image::open("assets/viking-room.png").unwrap().to_rgba8();
+    let image = image::open(path).unwrap().to_rgba8();
     let pixel_count = image.width() as usize * image.height() as usize;
     let image_size = pixel_count * 4;
     let mip_levels = (image.width().max(image.height()) as f32).log2().floor() as usize + 1;

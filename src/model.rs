@@ -1,5 +1,5 @@
 use nalgebra_glm as glm;
-use std::collections::{hash_map, HashMap};
+use tobj::LoadOptions;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
@@ -11,23 +11,44 @@ pub struct Vertex {
 pub struct Model {
     pub vertices: Vec<Vertex>,
     pub indices: Vec<u32>,
+    pub texture_path: &'static str,
 }
 
+const MODEL_PATH: &str = "assets/czudec-pkp.obj";
+const TEXTURE_PATH: &str = "assets/czudec-pkp.jpg";
+
 pub fn load_model() -> Model {
-    let models = tobj::load_obj("assets/viking-room.obj", &Default::default())
-        .unwrap()
-        .0;
+    let load_options = LoadOptions {
+        // Faces can sometimes be given as arbitrary (convex?) polygons, but we only render
+        // triangles so let's get the loader to split them up for us.
+        triangulate: true,
+        // Some models use separate sets of indices for vertices and texture coordinates. The Rust
+        // version of the tutorial didn't include this, but it probably should have.
+        single_index: true,
+        ..Default::default()
+    };
+    let models = tobj::load_obj(MODEL_PATH, &load_options).unwrap().0;
+    let (mut vertices, indices) = flatten_models(&models);
+    scale_mesh(&mut vertices);
+    let texture_path = TEXTURE_PATH;
+    Model {
+        vertices,
+        indices,
+        texture_path,
+    }
+}
+
+fn flatten_models(models: &[tobj::Model]) -> (Vec<Vertex>, Vec<u32>) {
     // OBJ format supports quite complex models with many materials and meshes, but temporarily
     // let's just throw all of it into a single vertex buffer.
-    let mut unique_vertices = HashMap::new();
     let mut vertices = Vec::new();
     let mut indices = Vec::new();
     for model in models {
-        for index in model.mesh.indices {
+        for index in &model.mesh.indices {
             // Position vectors and texture coordinate vectors are stored as unpacked arrays of
             // floats.
-            let offset_pos = (3 * index) as usize;
-            let offset_tex = (2 * index) as usize;
+            let offset_pos = (3 * *index) as usize;
+            let offset_tex = (2 * *index) as usize;
             let position = glm::vec3(
                 model.mesh.positions[offset_pos],
                 model.mesh.positions[offset_pos + 1],
@@ -40,17 +61,23 @@ pub fn load_model() -> Model {
                 1.0 - model.mesh.texcoords[offset_tex + 1],
             );
             let vertex = Vertex { position, tex };
-            let index = match unique_vertices.entry(vertex) {
-                hash_map::Entry::Occupied(e) => *e.get(),
-                hash_map::Entry::Vacant(e) => {
-                    let index = vertices.len();
-                    e.insert(index);
-                    vertices.push(vertex);
-                    index
-                }
-            };
+            let index = vertices.len();
+            vertices.push(vertex);
             indices.push(index as u32);
         }
     }
-    Model { vertices, indices }
+    (vertices, indices)
+}
+
+fn scale_mesh(vertices: &mut [Vertex]) {
+    let mut min = glm::vec3(f32::INFINITY, f32::INFINITY, f32::INFINITY);
+    let mut max = glm::vec3(f32::NEG_INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY);
+    for vertex in vertices.iter_mut() {
+        min = glm::min2(&min, &vertex.position);
+        max = glm::max2(&max, &vertex.position);
+    }
+    for vertex in vertices.iter_mut() {
+        vertex.position =
+            ((vertex.position - min).component_div(&(max - min)) * 2.).add_scalar(-1.);
+    }
 }
