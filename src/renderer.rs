@@ -2,6 +2,7 @@ mod shader;
 
 use crate::model::{Model, Vertex};
 use crate::renderer::shader::Shader;
+use crate::window::Window;
 use ash::extensions::ext::DebugUtils;
 use ash::extensions::khr::{Surface, Swapchain};
 use ash::prelude::VkResult;
@@ -16,12 +17,7 @@ use std::hash::{Hash, Hasher};
 use std::ops::Deref;
 use std::time::Instant;
 use winit::event::{Event, WindowEvent};
-use winit::event_loop::EventLoop;
 use winit::platform::run_return::EventLoopExtRunReturn;
-use winit::window::WindowBuilder;
-
-const WINDOW_TITLE: &str = "Vulkthing";
-const WINDOW_SIZE: (usize, usize) = (1920, 1080);
 
 const VULKAN_APP_NAME: &CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"Vulkthing\0") };
 const VULKAN_APP_VERSION: u32 = vk::make_api_version(0, 0, 0, 0);
@@ -102,7 +98,7 @@ struct UniformBufferObject {
 }
 
 impl<'a> VulkanInstance<'a> {
-    fn create(entry: &'a Entry, window: &winit::window::Window) -> VulkanInstance<'a> {
+    fn create(entry: &'a Entry, window: &Window) -> VulkanInstance<'a> {
         // Set metadata of the app and the engine. May be used by the drivers to enable
         // game-specific and engine-specific optimizations, which won't happen, but let's set it to
         // something sensible anyway.
@@ -121,7 +117,7 @@ impl<'a> VulkanInstance<'a> {
         // OS-specific windowing system interactions, and enabling debug logging for the validation
         // layers.
         let mut extension_names =
-            ash_window::enumerate_required_extensions(window.raw_display_handle())
+            ash_window::enumerate_required_extensions(window.window.raw_display_handle())
                 .unwrap()
                 .to_vec();
         extension_names.push(DebugUtils::name().as_ptr());
@@ -171,13 +167,13 @@ impl<'a> VulkanDebug<'a> {
 }
 
 impl<'a> VulkanSurface<'a> {
-    fn create(instance: &'a VulkanInstance, window: &winit::window::Window) -> VulkanSurface<'a> {
+    fn create(instance: &'a VulkanInstance, window: &Window) -> VulkanSurface<'a> {
         let surface = unsafe {
             ash_window::create_surface(
                 &instance.entry,
                 &instance,
-                window.raw_display_handle(),
-                window.raw_window_handle(),
+                window.window.raw_display_handle(),
+                window.window.raw_window_handle(),
                 None,
             )
         }
@@ -394,11 +390,11 @@ impl SwapchainDetails {
         vk::PresentModeKHR::MAILBOX
     }
 
-    fn select_swap_extent(&self, window: &winit::window::Window) -> vk::Extent2D {
+    fn select_swap_extent(&self, window: &Window) -> vk::Extent2D {
         if self.capabilities.current_extent.width != u32::MAX {
             return self.capabilities.current_extent;
         }
-        let window_size = window.inner_size();
+        let window_size = window.window.inner_size();
         vk::Extent2D {
             width: window_size.width.clamp(
                 self.capabilities.min_image_extent.width,
@@ -426,7 +422,7 @@ impl<'a> VulkanSwapchain<'a> {
     fn create(
         logical_device: &'a VulkanLogicalDevice<'a>,
         surface: &VulkanSurface,
-        window: &winit::window::Window,
+        window: &Window,
     ) -> VulkanSwapchain<'a> {
         assert!(std::ptr::eq(logical_device.instance, surface.instance));
         let instance = logical_device.instance;
@@ -786,21 +782,7 @@ impl Drop for VulkanPipeline<'_> {
     }
 }
 
-pub fn run_renderer(model: &Model) {
-    // Create the application window using winit. Use a predefined size for now, though games should
-    // run in fullscreen eventually.
-    let mut event_loop = EventLoop::new();
-    let window = WindowBuilder::new()
-        .with_title(WINDOW_TITLE)
-        .with_inner_size(winit::dpi::LogicalSize::new(
-            WINDOW_SIZE.0 as f64,
-            WINDOW_SIZE.1 as f64,
-        ))
-        .with_resizable(false)
-        .with_decorations(false)
-        .build(&event_loop)
-        .unwrap();
-
+pub fn run_renderer(mut window: Window, model: Model) {
     // Load the Vulkan library. This should probably use the dynamically loaded variant instead?
     let entry = unsafe { Entry::load() }.unwrap();
 
@@ -961,7 +943,7 @@ pub fn run_renderer(model: &Model) {
     // system, for example if the window size changes. For games, initially I'll render at both
     // events, but this probably needs to be changed to alter framebuffer size if the window is
     // resized?
-    event_loop.run_return(|event, _, control_flow| {
+    window.event_loop.run_return(|event, _, control_flow| {
         control_flow.set_poll();
         match event {
             Event::WindowEvent {
