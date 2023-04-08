@@ -88,6 +88,13 @@ struct VulkanPipeline<'a> {
     render_pass: vk::RenderPass,
 }
 
+struct VulkanSync<'a> {
+    logical_device: &'a VulkanLogicalDevice<'a>,
+    image_available: [vk::Semaphore; MAX_FRAMES_IN_FLIGHT],
+    render_finished: [vk::Semaphore; MAX_FRAMES_IN_FLIGHT],
+    in_flight: [vk::Fence; MAX_FRAMES_IN_FLIGHT],
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 struct UniformBufferObject {
@@ -747,47 +754,34 @@ impl Drop for VulkanPipeline<'_> {
     }
 }
 
+impl Drop for VulkanSync<'_> {
+    fn drop(&mut self) {
+        for fence in self.in_flight {
+            unsafe { self.logical_device.destroy_fence(fence, None) };
+        }
+        for semaphore in self.render_finished {
+            unsafe { self.logical_device.destroy_semaphore(semaphore, None) };
+        }
+        for semaphore in self.image_available {
+            unsafe { self.logical_device.destroy_semaphore(semaphore, None) };
+        }
+    }
+}
+
 pub fn run_renderer(mut window: Window, model: Model) {
     // Load the Vulkan library. This should probably use the dynamically loaded variant instead?
     let entry = unsafe { Entry::load() }.unwrap();
-
     let instance = VulkanInstance::create(&entry, &window);
     let _debug = VulkanDebug::create(&instance);
     let surface = VulkanSurface::create(&instance, &window);
     let physical_device = VulkanPhysicalDevice::find_for(&surface);
     let logical_device = VulkanLogicalDevice::create(&physical_device);
     let swapchain = VulkanSwapchain::create(&logical_device, &surface, &window);
-
-    let ubo_layout_binding = vk::DescriptorSetLayoutBinding::builder()
-        .binding(0)
-        .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-        .descriptor_count(1)
-        .stage_flags(vk::ShaderStageFlags::VERTEX);
-    let sampler_layout_binding = vk::DescriptorSetLayoutBinding::builder()
-        .binding(1)
-        .descriptor_count(1)
-        .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-        .stage_flags(vk::ShaderStageFlags::FRAGMENT);
-    let layout_bindings = [*ubo_layout_binding, *sampler_layout_binding];
-    let layout_info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(&layout_bindings);
-    let descriptor_set_layout =
-        unsafe { logical_device.create_descriptor_set_layout(&layout_info, None) }.unwrap();
-
+    let descriptor_set_layout = create_descriptor_set_layout(&logical_device);
     let msaa_samples = get_max_usable_sample_count(&physical_device);
-
     let pipeline = VulkanPipeline::create(&swapchain, descriptor_set_layout, msaa_samples);
-
-    let command_pool_info = vk::CommandPoolCreateInfo::builder()
-        .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
-        .queue_family_index(physical_device.queues.graphics_family);
-    let command_pool =
-        unsafe { logical_device.create_command_pool(&command_pool_info, None) }.unwrap();
-    let command_buffer_allocate_info = vk::CommandBufferAllocateInfo::builder()
-        .command_pool(command_pool)
-        .level(vk::CommandBufferLevel::PRIMARY)
-        .command_buffer_count(MAX_FRAMES_IN_FLIGHT as u32);
-    let command_buffers =
-        unsafe { logical_device.allocate_command_buffers(&command_buffer_allocate_info) }.unwrap();
+    let command_pool = create_command_pool(&logical_device);
+    let command_buffers = create_command_buffers(command_pool, &logical_device);
 
     let (color_image, color_image_memory, color_image_view) =
         create_color_resources(&swapchain, msaa_samples);
@@ -814,92 +808,20 @@ pub fn run_renderer(mut window: Window, model: Model) {
     let (index_buffer, index_buffer_memory) =
         create_index_buffer(&model.indices, &logical_device, command_pool);
 
-    let mut uniform_buffers = Vec::new();
-    let mut uniform_buffer_memories = Vec::new();
-    let mut uniform_buffer_mapped = Vec::new();
-    for _ in 0..MAX_FRAMES_IN_FLIGHT {
-        let buffer_size = std::mem::size_of::<UniformBufferObject>();
-        let (buffer, buffer_memory) = create_buffer(
-            &logical_device,
-            buffer_size,
-            vk::BufferUsageFlags::UNIFORM_BUFFER,
-            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-        );
-        let buffer_mapped = unsafe {
-            logical_device.device.map_memory(
-                buffer_memory,
-                0,
-                buffer_size as u64,
-                vk::MemoryMapFlags::empty(),
-            )
-        }
-        .unwrap() as *mut UniformBufferObject;
-        uniform_buffers.push(buffer);
-        uniform_buffer_memories.push(buffer_memory);
-        uniform_buffer_mapped.push(buffer_mapped);
-    }
+    let (uniform_buffers, uniform_buffer_memories, uniform_buffer_mapped) =
+        create_uniform_buffer(&logical_device);
 
-    let pool_sizes = [
-        vk::DescriptorPoolSize {
-            ty: vk::DescriptorType::UNIFORM_BUFFER,
-            descriptor_count: MAX_FRAMES_IN_FLIGHT as u32,
-        },
-        vk::DescriptorPoolSize {
-            ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-            descriptor_count: MAX_FRAMES_IN_FLIGHT as u32,
-        },
-    ];
-    let pool_info = vk::DescriptorPoolCreateInfo::builder()
-        .pool_sizes(&pool_sizes)
-        .max_sets(MAX_FRAMES_IN_FLIGHT as u32);
-    let descriptor_pool =
-        unsafe { logical_device.create_descriptor_pool(&pool_info, None) }.unwrap();
+    let descriptor_pool = create_descriptor_pool(&logical_device);
+    let descriptor_sets = create_descriptor_sets(
+        descriptor_set_layout,
+        descriptor_pool,
+        &uniform_buffers,
+        texture_image_view,
+        texture_sampler,
+        &logical_device,
+    );
 
-    let layouts = vec![descriptor_set_layout; MAX_FRAMES_IN_FLIGHT];
-    let descriptor_set_alloc_info = vk::DescriptorSetAllocateInfo::builder()
-        .descriptor_pool(descriptor_pool)
-        .set_layouts(&layouts);
-    let descriptor_sets =
-        unsafe { logical_device.allocate_descriptor_sets(&descriptor_set_alloc_info) }.unwrap();
-    for i in 0..MAX_FRAMES_IN_FLIGHT {
-        let buffer_info = vk::DescriptorBufferInfo::builder()
-            .buffer(uniform_buffers[i])
-            .offset(0)
-            .range(std::mem::size_of::<UniformBufferObject>() as u64);
-        let buffer_infos = [*buffer_info];
-        let image_info = vk::DescriptorImageInfo::builder()
-            .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-            .image_view(texture_image_view)
-            .sampler(texture_sampler);
-        let image_infos = [*image_info];
-        let descriptor_writes = [
-            *vk::WriteDescriptorSet::builder()
-                .dst_set(descriptor_sets[i])
-                .dst_binding(0)
-                .dst_array_element(0)
-                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-                .buffer_info(&buffer_infos),
-            *vk::WriteDescriptorSet::builder()
-                .dst_set(descriptor_sets[i])
-                .dst_binding(1)
-                .dst_array_element(0)
-                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-                .image_info(&image_infos),
-        ];
-        unsafe { logical_device.update_descriptor_sets(&descriptor_writes, &[]) };
-    }
-
-    let semaphore_info = vk::SemaphoreCreateInfo::builder();
-    let fence_info = vk::FenceCreateInfo::builder().flags(vk::FenceCreateFlags::SIGNALED);
-    let image_available_semaphores: Vec<_> = (0..MAX_FRAMES_IN_FLIGHT)
-        .map(|_| unsafe { logical_device.create_semaphore(&semaphore_info, None) }.unwrap())
-        .collect();
-    let render_finished_semaphore: Vec<_> = (0..MAX_FRAMES_IN_FLIGHT)
-        .map(|_| unsafe { logical_device.create_semaphore(&semaphore_info, None) }.unwrap())
-        .collect();
-    let in_flight_fence: Vec<_> = (0..MAX_FRAMES_IN_FLIGHT)
-        .map(|_| unsafe { logical_device.create_fence(&fence_info, None) }.unwrap())
-        .collect();
+    let sync = create_sync(&logical_device);
 
     let mut current_frame = 0;
     let mut input_state = InputState::new();
@@ -943,13 +865,13 @@ pub fn run_renderer(mut window: Window, model: Model) {
                 input_state.reset_after_frame();
                 draw_frame(
                     &logical_device,
-                    in_flight_fence[current_frame],
+                    sync.in_flight[current_frame],
                     &swapchain,
-                    image_available_semaphores[current_frame],
+                    sync.image_available[current_frame],
                     command_buffers[current_frame],
                     &framebuffers,
                     &pipeline,
-                    render_finished_semaphore[current_frame],
+                    sync.render_finished[current_frame],
                     vertex_buffer,
                     index_buffer,
                     model.indices.len(),
@@ -974,15 +896,7 @@ pub fn run_renderer(mut window: Window, model: Model) {
 
     unsafe { logical_device.device_wait_idle() }.unwrap();
 
-    for fence in in_flight_fence {
-        unsafe { logical_device.destroy_fence(fence, None) };
-    }
-    for semaphore in render_finished_semaphore {
-        unsafe { logical_device.destroy_semaphore(semaphore, None) };
-    }
-    for semaphore in image_available_semaphores {
-        unsafe { logical_device.destroy_semaphore(semaphore, None) };
-    }
+    drop(sync);
     unsafe { logical_device.destroy_command_pool(command_pool, None) };
     cleanup_swapchain(
         &logical_device,
@@ -1774,6 +1688,138 @@ fn create_index_buffer(
     (index_buffer, index_buffer_memory)
 }
 
+fn create_uniform_buffer(
+    logical_device: &VulkanLogicalDevice,
+) -> (
+    Vec<vk::Buffer>,
+    Vec<vk::DeviceMemory>,
+    Vec<*mut UniformBufferObject>,
+) {
+    let mut buffers = Vec::new();
+    let mut memories = Vec::new();
+    let mut mappings = Vec::new();
+    for _ in 0..MAX_FRAMES_IN_FLIGHT {
+        let buffer_size = std::mem::size_of::<UniformBufferObject>();
+        let (buffer, memory) = create_buffer(
+            &logical_device,
+            buffer_size,
+            vk::BufferUsageFlags::UNIFORM_BUFFER,
+            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+        );
+        let mapping = unsafe {
+            logical_device.device.map_memory(
+                memory,
+                0,
+                buffer_size as u64,
+                vk::MemoryMapFlags::empty(),
+            )
+        }
+        .unwrap() as *mut UniformBufferObject;
+        buffers.push(buffer);
+        memories.push(memory);
+        mappings.push(mapping);
+    }
+    (buffers, memories, mappings)
+}
+
+fn create_descriptor_set_layout(logical_device: &VulkanLogicalDevice) -> vk::DescriptorSetLayout {
+    let ubo_layout_binding = vk::DescriptorSetLayoutBinding::builder()
+        .binding(0)
+        .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+        .descriptor_count(1)
+        .stage_flags(vk::ShaderStageFlags::VERTEX);
+    let sampler_layout_binding = vk::DescriptorSetLayoutBinding::builder()
+        .binding(1)
+        .descriptor_count(1)
+        .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+        .stage_flags(vk::ShaderStageFlags::FRAGMENT);
+    let layout_bindings = [*ubo_layout_binding, *sampler_layout_binding];
+    let layout_info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(&layout_bindings);
+    unsafe { logical_device.create_descriptor_set_layout(&layout_info, None) }.unwrap()
+}
+
+fn create_descriptor_pool(logical_device: &VulkanLogicalDevice) -> vk::DescriptorPool {
+    let pool_sizes = [
+        vk::DescriptorPoolSize {
+            ty: vk::DescriptorType::UNIFORM_BUFFER,
+            descriptor_count: MAX_FRAMES_IN_FLIGHT as u32,
+        },
+        vk::DescriptorPoolSize {
+            ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+            descriptor_count: MAX_FRAMES_IN_FLIGHT as u32,
+        },
+    ];
+    let pool_info = vk::DescriptorPoolCreateInfo::builder()
+        .pool_sizes(&pool_sizes)
+        .max_sets(MAX_FRAMES_IN_FLIGHT as u32);
+    unsafe { logical_device.create_descriptor_pool(&pool_info, None) }.unwrap()
+}
+
+fn create_descriptor_sets(
+    layout: vk::DescriptorSetLayout,
+    pool: vk::DescriptorPool,
+    uniform_buffers: &[vk::Buffer],
+    texture_image_view: vk::ImageView,
+    texture_sampler: vk::Sampler,
+    logical_device: &VulkanLogicalDevice,
+) -> Vec<vk::DescriptorSet> {
+    let layouts = vec![layout; MAX_FRAMES_IN_FLIGHT];
+    let descriptor_set_alloc_info = vk::DescriptorSetAllocateInfo::builder()
+        .descriptor_pool(pool)
+        .set_layouts(&layouts);
+    let descriptor_sets =
+        unsafe { logical_device.allocate_descriptor_sets(&descriptor_set_alloc_info) }.unwrap();
+    for i in 0..MAX_FRAMES_IN_FLIGHT {
+        let buffer_info = vk::DescriptorBufferInfo::builder()
+            .buffer(uniform_buffers[i])
+            .offset(0)
+            .range(std::mem::size_of::<UniformBufferObject>() as u64);
+        let buffer_infos = [*buffer_info];
+        let image_info = vk::DescriptorImageInfo::builder()
+            .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+            .image_view(texture_image_view)
+            .sampler(texture_sampler);
+        let image_infos = [*image_info];
+        let descriptor_writes = [
+            *vk::WriteDescriptorSet::builder()
+                .dst_set(descriptor_sets[i])
+                .dst_binding(0)
+                .dst_array_element(0)
+                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+                .buffer_info(&buffer_infos),
+            *vk::WriteDescriptorSet::builder()
+                .dst_set(descriptor_sets[i])
+                .dst_binding(1)
+                .dst_array_element(0)
+                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                .image_info(&image_infos),
+        ];
+        unsafe { logical_device.update_descriptor_sets(&descriptor_writes, &[]) };
+    }
+    descriptor_sets
+}
+
+fn create_sync<'a>(logical_device: &'a VulkanLogicalDevice<'a>) -> VulkanSync<'a> {
+    let semaphore_info = vk::SemaphoreCreateInfo::builder();
+    let fence_info = vk::FenceCreateInfo::builder().flags(vk::FenceCreateFlags::SIGNALED);
+    let mut image_available: [vk::Semaphore; MAX_FRAMES_IN_FLIGHT] = Default::default();
+    let mut render_finished: [vk::Semaphore; MAX_FRAMES_IN_FLIGHT] = Default::default();
+    let mut in_flight: [vk::Fence; MAX_FRAMES_IN_FLIGHT] = Default::default();
+    for i in 0..MAX_FRAMES_IN_FLIGHT {
+        image_available[i] =
+            unsafe { logical_device.create_semaphore(&semaphore_info, None) }.unwrap();
+        render_finished[i] =
+            unsafe { logical_device.create_semaphore(&semaphore_info, None) }.unwrap();
+        in_flight[i] = unsafe { logical_device.create_fence(&fence_info, None) }.unwrap();
+    }
+    VulkanSync {
+        logical_device,
+        image_available,
+        render_finished,
+        in_flight,
+    }
+}
+
 fn get_max_usable_sample_count(physical_device: &VulkanPhysicalDevice) -> vk::SampleCountFlags {
     let properties = unsafe {
         physical_device
@@ -1801,6 +1847,24 @@ fn get_max_usable_sample_count(physical_device: &VulkanPhysicalDevice) -> vk::Sa
         return vk::SampleCountFlags::TYPE_2;
     }
     vk::SampleCountFlags::TYPE_1
+}
+
+fn create_command_pool(logical_device: &VulkanLogicalDevice) -> vk::CommandPool {
+    let command_pool_info = vk::CommandPoolCreateInfo::builder()
+        .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
+        .queue_family_index(logical_device.physical_device.queues.graphics_family);
+    unsafe { logical_device.create_command_pool(&command_pool_info, None) }.unwrap()
+}
+
+fn create_command_buffers(
+    command_pool: vk::CommandPool,
+    logical_device: &VulkanLogicalDevice,
+) -> Vec<vk::CommandBuffer> {
+    let command_buffer_allocate_info = vk::CommandBufferAllocateInfo::builder()
+        .command_pool(command_pool)
+        .level(vk::CommandBufferLevel::PRIMARY)
+        .command_buffer_count(MAX_FRAMES_IN_FLIGHT as u32);
+    unsafe { logical_device.allocate_command_buffers(&command_buffer_allocate_info) }.unwrap()
 }
 
 fn copy_buffer(
