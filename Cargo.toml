@@ -7,6 +7,7 @@ edition = "2021"
 ash = "0.37"
 ash-window = "0.12"
 image = { version = "0.24", features = ["png"], default-features = false }
+log = "0.4"
 nalgebra-glm = "0.18"
 raw-window-handle = "0.5"
 tobj = { version = "3.2", default-features = false }

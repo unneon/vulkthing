@@ -1,15 +1,17 @@
+mod debug;
 mod shader;
 
 use crate::model::{Model, Vertex};
+use crate::renderer::debug::VulkanDebug;
 use crate::renderer::shader::Shader;
 use crate::window::Window;
 use ash::extensions::ext::DebugUtils;
 use ash::extensions::khr::{Surface, Swapchain};
 use ash::prelude::VkResult;
 use ash::{vk, Device, Entry, Instance};
+use log::{info, warn};
 use nalgebra_glm as glm;
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
-use std::borrow::Cow;
 use std::collections::HashSet;
 use std::f32::consts::{FRAC_PI_4, PI};
 use std::ffi::CStr;
@@ -35,11 +37,6 @@ struct VulkanInstance<'a> {
 struct VulkanInstanceExts {
     debug: DebugUtils,
     surface: Surface,
-}
-
-struct VulkanDebug<'a> {
-    instance: &'a VulkanInstance<'a>,
-    messenger: vk::DebugUtilsMessengerEXT,
 }
 
 struct VulkanSurface<'a> {
@@ -142,30 +139,6 @@ impl<'a> VulkanInstance<'a> {
     }
 }
 
-impl<'a> VulkanDebug<'a> {
-    fn create(instance: &'a VulkanInstance) -> VulkanDebug<'a> {
-        // Enable filtering by message severity and type. General and verbose levels seem to produce
-        // too much noise related to physical device selection, so I turned them off.
-        // vulkan-tutorial.com also shows how to enable this for creating instances, but the ash
-        // example doesn't include this.
-        let severity_filter = vk::DebugUtilsMessageSeverityFlagsEXT::ERROR
-            | vk::DebugUtilsMessageSeverityFlagsEXT::WARNING;
-        let type_filter = vk::DebugUtilsMessageTypeFlagsEXT::GENERAL
-            | vk::DebugUtilsMessageTypeFlagsEXT::VALIDATION
-            | vk::DebugUtilsMessageTypeFlagsEXT::PERFORMANCE;
-        let info = vk::DebugUtilsMessengerCreateInfoEXT::builder()
-            .message_severity(severity_filter)
-            .message_type(type_filter)
-            .pfn_user_callback(Some(vulkan_debug_callback));
-        let messenger =
-            unsafe { instance.ext.debug.create_debug_utils_messenger(&info, None) }.unwrap();
-        VulkanDebug {
-            instance,
-            messenger,
-        }
-    }
-}
-
 impl<'a> VulkanSurface<'a> {
     fn create(instance: &'a VulkanInstance, window: &Window) -> VulkanSurface<'a> {
         let surface = unsafe {
@@ -204,13 +177,13 @@ impl<'a> VulkanPhysicalDevice<'a> {
             // separate GPUs (or just one for headless benchmarking), but the OS should take care of
             // handling this sort of stuff between devices, probably?
             let Some(queues) = QueueDetails::query(&instance, device, &surface).unwrap() else {
-                println!("rejected gpu, no suitable queues ({name})");
+                warn!("physical device rejected, no suitable queues, \x1B[1mname\x1B[0m: {name}");
                 continue;
             };
 
             let supported_features = unsafe { instance.get_physical_device_features(device) };
             if supported_features.sampler_anisotropy == 0 {
-                println!("rejected gpu, no sampler anisotropy feature");
+                warn!("physical device rejected, no sampler anisotropy feature, \x1B[1mname\x1B[0m: {name}");
                 continue;
             }
 
@@ -223,7 +196,9 @@ impl<'a> VulkanPhysicalDevice<'a> {
                 ext_name == Swapchain::name()
             });
             if !has_swapchain_extension {
-                println!("rejected gpu, no swapchain extension ({name})");
+                warn!(
+                    "physical device rejected, no swapchain extension, \x1B[1mname\x1B[0m: {name}"
+                );
                 continue;
             }
 
@@ -234,7 +209,7 @@ impl<'a> VulkanPhysicalDevice<'a> {
             let swapchain =
                 unsafe { SwapchainDetails::query(&instance, device, &surface) }.unwrap();
             if swapchain.formats.is_empty() || swapchain.present_modes.is_empty() {
-                println!("rejected gpu, unsuitable swapchain ({name})");
+                warn!("physical device rejected, unsuitable swapchain, \x1B[1mname\x1B[0m: {name}");
                 continue;
             }
 
@@ -242,13 +217,12 @@ impl<'a> VulkanPhysicalDevice<'a> {
             // Linux-specific sorting is going on, so it sounds like the options should be ordered
             // sensibly already? Might be a good idea to check on a iGPU+dGPU laptop.
             if found.is_some() {
-                println!("rejected gpu, one already selected ({name})");
                 continue;
             }
 
             // Let's not break, because getting logs about other GPUs could possibly help debug
             // performance problems related to GPU selection.
-            println!("accepted gpu: {name}");
+            info!("physical device selected, \x1B[1mname\x1B[0m: {name}");
             found = Some(VulkanPhysicalDevice {
                 instance,
                 device,
@@ -722,17 +696,6 @@ impl Deref for VulkanLogicalDevice<'_> {
 impl Drop for VulkanInstance<'_> {
     fn drop(&mut self) {
         unsafe { self.instance.destroy_instance(None) };
-    }
-}
-
-impl Drop for VulkanDebug<'_> {
-    fn drop(&mut self) {
-        unsafe {
-            self.instance
-                .ext
-                .debug
-                .destroy_debug_utils_messenger(self.messenger, None)
-        };
     }
 }
 
@@ -2063,28 +2026,4 @@ fn update_uniform_buffer(
     };
     ubo.proj[(1, 1)] *= -1.;
     unsafe { ubo_ptr.write_volatile(ubo) };
-}
-
-unsafe extern "system" fn vulkan_debug_callback(
-    message_severity: vk::DebugUtilsMessageSeverityFlagsEXT,
-    message_type: vk::DebugUtilsMessageTypeFlagsEXT,
-    p_callback_data: *const vk::DebugUtilsMessengerCallbackDataEXT,
-    _user_data: *mut std::os::raw::c_void,
-) -> vk::Bool32 {
-    let callback_data = *p_callback_data;
-    let message_id_number = callback_data.message_id_number;
-    let message_id_name = if callback_data.p_message_id_name.is_null() {
-        Cow::from("")
-    } else {
-        CStr::from_ptr(callback_data.p_message_id_name).to_string_lossy()
-    };
-    let message = if callback_data.p_message.is_null() {
-        Cow::from("")
-    } else {
-        CStr::from_ptr(callback_data.p_message).to_string_lossy()
-    };
-    println!(
-        "{message_severity:?}:\n{message_type:?} [{message_id_name} ({message_id_number})] : {message}\n",
-    );
-    vk::FALSE
 }

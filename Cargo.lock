@@ -900,6 +900,7 @@ dependencies = [
  "ash",
  "ash-window",
  "image",
+ "log",
  "nalgebra-glm",
  "raw-window-handle",
  "tobj",
