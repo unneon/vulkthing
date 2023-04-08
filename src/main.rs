@@ -15,6 +15,9 @@ use crate::model::load_model;
 use crate::renderer::run_renderer;
 use crate::window::create_window;
 
+const MOVEMENT_SPEED: f32 = 2.;
+const CAMERA_SENSITIVITY: f32 = 0.01;
+
 fn main() {
     initialize_logger();
     let window = create_window();

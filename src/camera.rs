@@ -1,6 +1,7 @@
 use crate::input::InputState;
+use crate::{CAMERA_SENSITIVITY, MOVEMENT_SPEED};
 use nalgebra_glm as glm;
-use nalgebra_glm::{Mat4, Vec3};
+use nalgebra_glm::{vec3, Mat4, Vec3};
 
 pub struct Camera {
     pub position: Vec3,
@@ -9,20 +10,30 @@ pub struct Camera {
 
 impl Camera {
     pub fn apply_input(&mut self, input: &InputState, delta_time: f32) {
-        let front_direction = self.view_direction();
-        let right_direction = glm::vec3(front_direction.y, -front_direction.x, 0.);
-        self.position += (right_direction * input.movement_horizontal()
-            + front_direction * input.movement_depth())
-            * delta_time;
-        self.yaw += input.camera_yaw() * 0.01;
+        let front = self.walk_direction();
+        let up = vec3(0., 0., 1.);
+        let right = glm::cross(&front, &up);
+        self.position +=
+            normalize_or_zero(right * input.movement_horizontal() + front * input.movement_depth())
+                * MOVEMENT_SPEED
+                * delta_time;
+        self.yaw += input.camera_yaw() * CAMERA_SENSITIVITY;
     }
 
     pub fn view_matrix(&self) -> Mat4 {
-        let view_center = self.position + self.view_direction();
-        glm::look_at(&self.position, &view_center, &glm::vec3(0., 0., 1.))
+        let view_center = self.position + self.walk_direction();
+        glm::look_at(&self.position, &view_center, &vec3(0., 0., 1.))
     }
 
-    fn view_direction(&self) -> Vec3 {
-        glm::vec3(self.yaw.sin(), self.yaw.cos(), 0.)
+    fn walk_direction(&self) -> Vec3 {
+        vec3(self.yaw.cos(), -self.yaw.sin(), 0.)
+    }
+}
+
+fn normalize_or_zero(vec: Vec3) -> Vec3 {
+    if let Some(normalized) = vec.try_normalize(1.0e-6) {
+        normalized
+    } else {
+        glm::zero()
     }
 }

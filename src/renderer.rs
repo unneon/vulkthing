@@ -904,7 +904,7 @@ pub fn run_renderer(mut window: Window, model: Model) {
     let mut current_frame = 0;
     let mut input_state = InputState::new();
     let mut camera = Camera {
-        position: glm::vec3(0., -2., 0.),
+        position: glm::vec3(-2., 0., 0.),
         yaw: 0.,
     };
     let mut last_update = Instant::now();
