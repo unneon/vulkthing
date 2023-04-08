@@ -5,6 +5,7 @@ use tobj::LoadOptions;
 #[derive(Clone, Copy, Debug)]
 pub struct Vertex {
     pub position: glm::Vec3,
+    pub normal: glm::Vec3,
     pub tex: glm::Vec2,
 }
 
@@ -54,17 +55,30 @@ fn flatten_models(models: &[tobj::Model]) -> (Vec<Vertex>, Vec<u32>) {
                 model.mesh.positions[offset_pos + 1],
                 model.mesh.positions[offset_pos + 2],
             );
+            // Will be computed from triangle positions later.
+            let normal = glm::zero();
             // Coordinate system in OBJ assumes that 0 is the bottom of the image, but Vulkan uses
             // an orientation where 0 is the top of the image.
             let tex = glm::vec2(
                 model.mesh.texcoords[offset_tex],
                 1.0 - model.mesh.texcoords[offset_tex + 1],
             );
-            let vertex = Vertex { position, tex };
+            let vertex = Vertex {
+                position,
+                normal,
+                tex,
+            };
             let index = vertices.len();
             vertices.push(vertex);
             indices.push(index as u32);
         }
+    }
+    for [v1, v2, v3] in vertices.array_chunks_mut() {
+        let normal =
+            glm::cross(&(v2.position - v1.position), &(v3.position - v1.position)).normalize();
+        v1.normal = normal;
+        v2.normal = normal;
+        v3.normal = normal;
     }
     (vertices, indices)
 }

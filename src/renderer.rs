@@ -363,7 +363,7 @@ impl SwapchainDetails {
     }
 
     fn select_present_mode(&self) -> vk::PresentModeKHR {
-        vk::PresentModeKHR::MAILBOX
+        vk::PresentModeKHR::FIFO
     }
 
     fn select_swap_extent(&self, window: &Window) -> vk::Extent2D {
@@ -1042,7 +1042,7 @@ fn create_framebuffers(
     framebuffers
 }
 
-fn get_attribute_descriptions() -> [vk::VertexInputAttributeDescription; 2] {
+fn get_attribute_descriptions() -> [vk::VertexInputAttributeDescription; 3] {
     [
         vk::VertexInputAttributeDescription {
             binding: 0,
@@ -1053,8 +1053,14 @@ fn get_attribute_descriptions() -> [vk::VertexInputAttributeDescription; 2] {
         vk::VertexInputAttributeDescription {
             binding: 0,
             location: 1,
-            format: vk::Format::R32G32_SFLOAT,
+            format: vk::Format::R32G32B32_SFLOAT,
             offset: std::mem::size_of::<glm::Vec3>() as u32,
+        },
+        vk::VertexInputAttributeDescription {
+            binding: 0,
+            location: 2,
+            format: vk::Format::R32G32_SFLOAT,
+            offset: std::mem::size_of::<glm::Vec3>() as u32 * 2,
         },
     ]
 }

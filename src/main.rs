@@ -1,3 +1,4 @@
+#![feature(array_chunks)]
 #![feature(const_cstr_methods)]
 #![feature(const_option)]
 #![feature(const_result_drop)]
