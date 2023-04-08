@@ -1,6 +1,7 @@
 mod debug;
 mod shader;
 
+use crate::input::InputState;
 use crate::model::{Model, Vertex};
 use crate::renderer::debug::VulkanDebug;
 use crate::renderer::shader::Shader;
@@ -13,12 +14,12 @@ use log::{info, warn};
 use nalgebra_glm as glm;
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use std::collections::HashSet;
-use std::f32::consts::{FRAC_PI_4, PI};
+use std::f32::consts::FRAC_PI_4;
 use std::ffi::CStr;
 use std::hash::{Hash, Hasher};
 use std::ops::Deref;
 use std::time::Instant;
-use winit::event::{Event, WindowEvent};
+use winit::event::{Event, StartCause, WindowEvent};
 use winit::platform::run_return::EventLoopExtRunReturn;
 
 const VULKAN_APP_NAME: &CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"Vulkthing\0") };
@@ -899,9 +900,10 @@ pub fn run_renderer(mut window: Window, model: Model) {
         .map(|_| unsafe { logical_device.create_fence(&fence_info, None) }.unwrap())
         .collect();
 
-    let start_time = Instant::now();
-
     let mut current_frame = 0;
+    let mut input_state = InputState::new();
+    let mut camera_position = glm::vec3(0., -2., 0.);
+    let mut last_update = Instant::now();
 
     // Run the event loop. Winit delivers events, like key presses. After it finishes delivering
     // some batch of events, it sends a MainEventsCleared event, which means the application should
@@ -911,14 +913,26 @@ pub fn run_renderer(mut window: Window, model: Model) {
     // events, but this probably needs to be changed to alter framebuffer size if the window is
     // resized?
     window.event_loop.run_return(|event, _, control_flow| {
-        control_flow.set_poll();
         match event {
-            Event::WindowEvent {
-                event: WindowEvent::CloseRequested,
-                ..
-            } => control_flow.set_exit(),
-            Event::MainEventsCleared | Event::RedrawRequested(_) => {
-                // render
+            Event::NewEvents(StartCause::Init) => (),
+            // Can be used for collecting frame timing information later. Specifically, this makes
+            // it possible to measure frame times accounting for things like having multiple input
+            // events before a redraw request.
+            Event::NewEvents(StartCause::Poll) => (),
+            Event::WindowEvent { event, .. } => match event {
+                WindowEvent::KeyboardInput { input, .. } => input_state.apply_keyboard(input),
+                WindowEvent::CloseRequested => control_flow.set_exit(),
+                _ => (),
+            },
+            // This is an indication that it's now allowed to create a graphics context, but the
+            // limitation only applies on some platforms (Android).
+            Event::Resumed => (),
+            Event::MainEventsCleared => {
+                let curr_update = Instant::now();
+                let delta_time = (curr_update - last_update).as_secs_f32();
+                last_update = curr_update;
+                camera_position.x += delta_time * input_state.movement_horizontal();
+                camera_position.y += delta_time * input_state.movement_depth();
                 draw_frame(
                     &logical_device,
                     in_flight_fence[current_frame],
@@ -931,12 +945,21 @@ pub fn run_renderer(mut window: Window, model: Model) {
                     vertex_buffer,
                     index_buffer,
                     model.indices.len(),
-                    start_time,
                     uniform_buffer_mapped[current_frame],
                     descriptor_sets[current_frame],
+                    &camera_position,
                 );
                 current_frame = (current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
             }
+            // This event is only sent after MainEventsCleared, during which we render
+            // unconditionally.
+            Event::RedrawRequested(_) => (),
+            // This happens after redraws of all windows are finished, which isn't really applicable
+            // to games.
+            Event::RedrawEventsCleared => (),
+            // Eventually, I should change this from a run_return invocation to normal run, and
+            // handle all the Vulkan resource teardown during this event.
+            Event::LoopDestroyed => (),
             _ => (),
         }
     });
@@ -1863,9 +1886,9 @@ fn draw_frame(
     vertex_buffer: vk::Buffer,
     index_buffer: vk::Buffer,
     index_count: usize,
-    start_time: Instant,
     ubo_ptr: *mut UniformBufferObject,
     descriptor_set: vk::DescriptorSet,
+    camera_position: &glm::Vec3,
 ) {
     unsafe { device.wait_for_fences(&[in_flight_fence], true, u64::MAX) }.unwrap();
     unsafe { device.reset_fences(&[in_flight_fence]) }.unwrap();
@@ -1896,9 +1919,9 @@ fn draw_frame(
     );
 
     update_uniform_buffer(
-        start_time,
         ubo_ptr,
         swapchain.extent.width as f32 / swapchain.extent.height as f32,
+        camera_position,
     );
 
     let wait_semaphores = [image_available_semaphore];
@@ -2018,15 +2041,13 @@ fn record_command_buffer(
 }
 
 fn update_uniform_buffer(
-    start_time: Instant,
     ubo_ptr: *mut UniformBufferObject,
     aspect_ratio: f32,
+    camera_position: &glm::Vec3,
 ) {
-    let current_time = Instant::now();
-    let time = (current_time - start_time).as_secs_f32();
     let mut ubo = UniformBufferObject {
-        model: glm::rotate(&glm::identity(), time * PI / 16., &glm::vec3(0., 0., 1.)),
-        view: glm::look_at(&glm::vec3(2., 2., 2.), &glm::zero(), &glm::vec3(0., 0., 1.)),
+        model: glm::identity(),
+        view: glm::look_at(camera_position, &glm::zero(), &glm::vec3(0., 0., 1.)),
         proj: glm::perspective_rh_zo(aspect_ratio, FRAC_PI_4, 0.1, 10.),
     };
     ubo.proj[(1, 1)] *= -1.;

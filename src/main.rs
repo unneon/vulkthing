@@ -1,6 +1,7 @@
 #![feature(const_cstr_methods)]
 #![feature(once_cell)]
 
+mod input;
 mod logger;
 mod model;
 mod renderer;
