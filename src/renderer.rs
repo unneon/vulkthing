@@ -184,15 +184,18 @@ impl Renderer {
         let image_available = self.sync.image_available[self.flight_index];
         let render_finished = self.sync.render_finished[self.flight_index];
 
-        let submit_info = *vk::SubmitInfo::builder()
-            .wait_semaphores(&[image_available])
+        let wait_semaphores = [image_available];
+        let command_buffers = [command_buffer];
+        let signal_semaphores = [render_finished];
+        let submit_info = vk::SubmitInfo::builder()
+            .wait_semaphores(&wait_semaphores)
             .wait_dst_stage_mask(&[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT])
-            .command_buffers(&[command_buffer])
-            .signal_semaphores(&[render_finished]);
+            .command_buffers(&command_buffers)
+            .signal_semaphores(&signal_semaphores);
         unsafe {
             self.logical_device.queue_submit(
                 self.queues.graphics,
-                &[submit_info],
+                &[*submit_info],
                 self.sync.in_flight[self.flight_index],
             )
         }
@@ -202,10 +205,13 @@ impl Renderer {
     fn submit_present(&self, image_index: u32) {
         let render_finished = self.sync.render_finished[self.flight_index];
 
-        let present_info = *vk::PresentInfoKHR::builder()
-            .wait_semaphores(&[render_finished])
-            .swapchains(&[self.swapchain])
-            .image_indices(&[image_index]);
+        let wait_semaphores = [render_finished];
+        let swapchains = [self.swapchain];
+        let image_indices = [image_index];
+        let present_info = vk::PresentInfoKHR::builder()
+            .wait_semaphores(&wait_semaphores)
+            .swapchains(&swapchains)
+            .image_indices(&image_indices);
         unsafe {
             self.swapchain_extension
                 .queue_present(self.queues.present, &present_info)
