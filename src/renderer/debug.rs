@@ -1,14 +1,14 @@
-use crate::renderer::VulkanInstance;
-use ash::vk;
+use ash::extensions::ext::DebugUtils;
+use ash::{vk, Instance};
 use std::ffi::CStr;
 
 pub struct VulkanDebug<'a> {
-    instance: &'a VulkanInstance<'a>,
+    debug_extension: &'a DebugUtils,
     messenger: vk::DebugUtilsMessengerEXT,
 }
 
 impl<'a> VulkanDebug<'a> {
-    pub(super) fn create(instance: &'a VulkanInstance) -> VulkanDebug<'a> {
+    pub(super) fn create(debug_extension: &'a DebugUtils) -> VulkanDebug<'a> {
         // Enable filtering by message severity and type. General and verbose levels seem to produce
         // too much noise related to physical device selection, so I turned them off.
         // vulkan-tutorial.com also shows how to enable this for creating instances, but the ash
@@ -23,9 +23,9 @@ impl<'a> VulkanDebug<'a> {
             .message_type(type_filter)
             .pfn_user_callback(Some(callback));
         let messenger =
-            unsafe { instance.ext.debug.create_debug_utils_messenger(&info, None) }.unwrap();
+            unsafe { debug_extension.create_debug_utils_messenger(&info, None) }.unwrap();
         VulkanDebug {
-            instance,
+            debug_extension,
             messenger,
         }
     }
@@ -34,9 +34,7 @@ impl<'a> VulkanDebug<'a> {
 impl Drop for VulkanDebug<'_> {
     fn drop(&mut self) {
         unsafe {
-            self.instance
-                .ext
-                .debug
+            self.debug_extension
                 .destroy_debug_utils_messenger(self.messenger, None)
         };
     }

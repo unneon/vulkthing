@@ -7,6 +7,7 @@ use crate::model::{Model, Vertex};
 use crate::renderer::debug::VulkanDebug;
 use crate::renderer::shader::Shader;
 use crate::window::Window;
+use crate::{VULKAN_APP_NAME, VULKAN_APP_VERSION, VULKAN_ENGINE_NAME, VULKAN_ENGINE_VERSION};
 use ash::extensions::ext::DebugUtils;
 use ash::extensions::khr::{Surface, Swapchain};
 use ash::prelude::VkResult;
@@ -23,31 +24,15 @@ use std::time::Instant;
 use winit::event::{DeviceEvent, Event, StartCause, WindowEvent};
 use winit::platform::run_return::EventLoopExtRunReturn;
 
-const VULKAN_APP_NAME: &CStr = CStr::from_bytes_with_nul(b"Vulkthing\0").ok().unwrap();
-const VULKAN_APP_VERSION: u32 = vk::make_api_version(0, 0, 0, 0);
-const VULKAN_ENGINE_NAME: &CStr = CStr::from_bytes_with_nul(b"Vulkthing\0").ok().unwrap();
-const VULKAN_ENGINE_VERSION: u32 = vk::make_api_version(0, 0, 0, 0);
-
 const MAX_FRAMES_IN_FLIGHT: usize = 2;
 
-struct VulkanInstance<'a> {
-    entry: &'a Entry,
-    instance: Instance,
-    ext: VulkanInstanceExts,
-}
-
-struct VulkanInstanceExts {
-    debug: DebugUtils,
-    surface: Surface,
-}
-
 struct VulkanSurface<'a> {
-    instance: &'a VulkanInstance<'a>,
+    surface_extension: &'a Surface,
     surface: vk::SurfaceKHR,
 }
 
 struct VulkanPhysicalDevice<'a> {
-    instance: &'a VulkanInstance<'a>,
+    instance: &'a Instance,
     device: vk::PhysicalDevice,
     queues: QueueDetails,
     swapchain: SwapchainDetails,
@@ -65,7 +50,7 @@ struct SwapchainDetails {
 }
 
 struct VulkanLogicalDevice<'a> {
-    instance: &'a VulkanInstance<'a>,
+    instance: &'a Instance,
     physical_device: &'a VulkanPhysicalDevice<'a>,
     device: Device,
     graphics_queue: vk::Queue,
@@ -88,13 +73,6 @@ struct VulkanPipeline<'a> {
     render_pass: vk::RenderPass,
 }
 
-struct VulkanSync<'a> {
-    logical_device: &'a VulkanLogicalDevice<'a>,
-    image_available: [vk::Semaphore; MAX_FRAMES_IN_FLIGHT],
-    render_finished: [vk::Semaphore; MAX_FRAMES_IN_FLIGHT],
-    in_flight: [vk::Fence; MAX_FRAMES_IN_FLIGHT],
-}
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 struct UniformBufferObject {
@@ -103,56 +81,16 @@ struct UniformBufferObject {
     proj: glm::Mat4,
 }
 
-impl<'a> VulkanInstance<'a> {
-    fn create(entry: &'a Entry, window: &Window) -> VulkanInstance<'a> {
-        // Set metadata of the app and the engine. May be used by the drivers to enable
-        // game-specific and engine-specific optimizations, which won't happen, but let's set it to
-        // something sensible anyway.
-        let app_info = vk::ApplicationInfo::builder()
-            .application_name(VULKAN_APP_NAME)
-            .application_version(VULKAN_APP_VERSION)
-            .engine_name(VULKAN_ENGINE_NAME)
-            .engine_version(VULKAN_ENGINE_VERSION)
-            .api_version(vk::API_VERSION_1_0);
-
-        // Enable Vulkan validation layers. This should be later disabled in non-development builds.
-        let layer_names = [b"VK_LAYER_KHRONOS_validation\0".as_ptr() as *const i8];
-
-        // Vulkan doesn't appear to have any interesting extensions at this level, physical device
-        // extensions are the interesting ones with raytracing and other stuff. This is just for
-        // OS-specific windowing system interactions, and enabling debug logging for the validation
-        // layers.
-        let mut extension_names =
-            ash_window::enumerate_required_extensions(window.window.raw_display_handle())
-                .unwrap()
-                .to_vec();
-        extension_names.push(DebugUtils::name().as_ptr());
-
-        let instance_create_info = vk::InstanceCreateInfo::builder()
-            .application_info(&app_info)
-            .enabled_layer_names(&layer_names)
-            .enabled_extension_names(&extension_names);
-        let instance = unsafe { entry.create_instance(&instance_create_info, None) }.unwrap();
-
-        // Load the extension function pointers. The DebugUtils extension was explicitly added to
-        // extension_names list, and Surface is implied by enumerate_required_extensions.
-        let debug = DebugUtils::new(&entry, &instance);
-        let surface = Surface::new(&entry, &instance);
-        let ext = VulkanInstanceExts { debug, surface };
-
-        VulkanInstance {
-            entry,
-            instance,
-            ext,
-        }
-    }
-}
-
 impl<'a> VulkanSurface<'a> {
-    fn create(instance: &'a VulkanInstance, window: &Window) -> VulkanSurface<'a> {
+    fn create(
+        entry: &Entry,
+        instance: &Instance,
+        surface_extension: &'a Surface,
+        window: &Window,
+    ) -> VulkanSurface<'a> {
         let surface = unsafe {
             ash_window::create_surface(
-                &instance.entry,
+                &entry,
                 &instance,
                 window.window.raw_display_handle(),
                 window.window.raw_window_handle(),
@@ -160,14 +98,19 @@ impl<'a> VulkanSurface<'a> {
             )
         }
         .unwrap();
-        VulkanSurface { instance, surface }
+        VulkanSurface {
+            surface_extension,
+            surface,
+        }
     }
 }
 
 impl<'a> VulkanPhysicalDevice<'a> {
-    fn find_for(surface: &VulkanSurface<'a>) -> VulkanPhysicalDevice<'a> {
-        let instance = surface.instance;
-
+    fn find_for(
+        instance: &'a Instance,
+        surface_extension: &Surface,
+        surface: &VulkanSurface<'a>,
+    ) -> VulkanPhysicalDevice<'a> {
         // Select the GPU. For now, just select the first discrete GPU with graphics support. Later,
         // this should react better to iGPU, dGPU and iGPU+dGPU setups. In more complex setups, it would
         // be neat if you could start the game on any GPU, display a choice to the user and seamlessly
@@ -185,7 +128,7 @@ impl<'a> VulkanPhysicalDevice<'a> {
             // also checks whether there is a present queue. This could be worked around using two
             // separate GPUs (or just one for headless benchmarking), but the OS should take care of
             // handling this sort of stuff between devices, probably?
-            let Some(queues) = QueueDetails::query(&instance, device, &surface).unwrap() else {
+            let Some(queues) = QueueDetails::query(instance, surface_extension, device, &surface).unwrap() else {
                 warn!("physical device rejected, no suitable queues, \x1B[1mname\x1B[0m: {name}");
                 continue;
             };
@@ -216,7 +159,8 @@ impl<'a> VulkanPhysicalDevice<'a> {
             // be devices that support swapchains but no formats or present modes, but let's check
             // anyway because the tutorial does.
             let swapchain =
-                unsafe { SwapchainDetails::query(&instance, device, &surface) }.unwrap();
+                unsafe { SwapchainDetails::query(instance, surface_extension, device, &surface) }
+                    .unwrap();
             if swapchain.formats.is_empty() || swapchain.present_modes.is_empty() {
                 warn!("physical device rejected, unsuitable swapchain, \x1B[1mname\x1B[0m: {name}");
                 continue;
@@ -304,7 +248,8 @@ impl<'a> VulkanLogicalDevice<'a> {
 
 impl QueueDetails {
     fn query(
-        instance: &VulkanInstance,
+        instance: &Instance,
+        surface_extension: &Surface,
         device: vk::PhysicalDevice,
         surface: &VulkanSurface,
     ) -> VkResult<Option<QueueDetails>> {
@@ -316,7 +261,7 @@ impl QueueDetails {
         let Some(graphics_family) = QueueDetails::find_queue(&queues, |_, q| q.queue_flags.contains(vk::QueueFlags::GRAPHICS)) else {
             return Ok(None);
         };
-        let Some(present_family) = QueueDetails::find_queue(&queues, |i, _| unsafe { instance.ext.surface.get_physical_device_surface_support(device, i, surface.surface) }
+        let Some(present_family) = QueueDetails::find_queue(&queues, |i, _| unsafe { surface_extension.get_physical_device_surface_support(device, i, surface.surface) }
             .unwrap()) else {
             return Ok(None);
         };
@@ -342,15 +287,17 @@ impl QueueDetails {
 
 impl SwapchainDetails {
     unsafe fn query(
-        instance: &VulkanInstance,
+        instance: &Instance,
+        surface_extension: &Surface,
         device: vk::PhysicalDevice,
         surface: &VulkanSurface,
     ) -> VkResult<SwapchainDetails> {
-        let ext = &instance.ext.surface;
-        let capabilities = ext.get_physical_device_surface_capabilities(device, surface.surface)?;
-        let formats = ext.get_physical_device_surface_formats(device, surface.surface)?;
+        let capabilities =
+            surface_extension.get_physical_device_surface_capabilities(device, surface.surface)?;
+        let formats =
+            surface_extension.get_physical_device_surface_formats(device, surface.surface)?;
         let present_modes =
-            ext.get_physical_device_surface_present_modes(device, surface.surface)?;
+            surface_extension.get_physical_device_surface_present_modes(device, surface.surface)?;
         Ok(SwapchainDetails {
             capabilities,
             formats,
@@ -407,7 +354,6 @@ impl<'a> VulkanSwapchain<'a> {
         surface: &VulkanSurface,
         window: &Window,
     ) -> VulkanSwapchain<'a> {
-        assert!(std::ptr::eq(logical_device.instance, surface.instance));
         let instance = logical_device.instance;
         let physical_device = logical_device.physical_device;
         let ext = Swapchain::new(&instance, &logical_device.device);
@@ -686,14 +632,6 @@ impl PartialEq for Vertex {
     }
 }
 
-impl Deref for VulkanInstance<'_> {
-    type Target = Instance;
-
-    fn deref(&self) -> &Instance {
-        &self.instance
-    }
-}
-
 impl Deref for VulkanLogicalDevice<'_> {
     type Target = Device;
 
@@ -702,20 +640,9 @@ impl Deref for VulkanLogicalDevice<'_> {
     }
 }
 
-impl Drop for VulkanInstance<'_> {
-    fn drop(&mut self) {
-        unsafe { self.instance.destroy_instance(None) };
-    }
-}
-
 impl Drop for VulkanSurface<'_> {
     fn drop(&mut self) {
-        unsafe {
-            self.instance
-                .ext
-                .surface
-                .destroy_surface(self.surface, None)
-        };
+        unsafe { self.surface_extension.destroy_surface(self.surface, None) };
     }
 }
 
@@ -754,27 +681,132 @@ impl Drop for VulkanPipeline<'_> {
     }
 }
 
-impl Drop for VulkanSync<'_> {
-    fn drop(&mut self) {
-        for fence in self.in_flight {
-            unsafe { self.logical_device.destroy_fence(fence, None) };
-        }
-        for semaphore in self.render_finished {
-            unsafe { self.logical_device.destroy_semaphore(semaphore, None) };
-        }
-        for semaphore in self.image_available {
-            unsafe { self.logical_device.destroy_semaphore(semaphore, None) };
+pub struct Renderer {
+    entry: Entry,
+    instance: Instance,
+    // extensions: VulkanExtensions,
+    // debug_messenger: vk::DebugUtilsMessengerEXT,
+    // surface: vk::SurfaceKHR,
+    // physical_device: vk::PhysicalDevice,
+    // queue_families: QueueFamilies,
+    // logical_device: Device,
+    // queues: Queues,
+    // swapchain: vk::SwapchainKHR,
+    // swapchain_format: vk::Format,
+    // swapchain_extent: vk::Extent2D,
+    // swapchain_image_views: Vec<vk::ImageView>,
+    // descriptor_set_layout: vk::DescriptorSetLayout,
+    // msaa_samples: vk::SampleCountFlags,
+    // pipeline: vk::Pipeline,
+    // pipeline_layout: vk::PipelineLayout,
+    // pipeline_render_pass: vk::RenderPass,
+    // command_pool: vk::CommandPool,
+    // command_buffers: [vk::CommandBuffer; MAX_FRAMES_IN_FLIGHT],
+    // color: ImageResources,
+    // depth: ImageResources,
+    // framebuffers: [vk::Framebuffer; MAX_FRAMES_IN_FLIGHT],
+    // texture: ImageResources,
+    // texture_mipmaps: usize,
+    // texture_sampler: vk::Sampler,
+    // vertex_buffer: vk::Buffer,
+    // vertex_buffer_memory: vk::DeviceMemory,
+    // index_buffer: vk::Buffer,
+    // index_buffer_memory: vk::DeviceMemory,
+    // uniform_buffers: [vk::Buffer; MAX_FRAMES_IN_FLIGHT],
+    // uniform_buffer_memories: [vk::DeviceMemory; MAX_FRAMES_IN_FLIGHT],
+    // descriptor_pool: vk::DescriptorPool,
+    // descriptor_set: vk::DescriptorSet,
+    // sync: Synchronization,
+    // frame_flight_index: usize,
+}
+
+pub struct VulkanExtensions {
+    debug: DebugUtils,
+    surface: Surface,
+    swapchain: Swapchain,
+}
+
+pub struct QueueFamilies {
+    graphics: u32,
+    present: u32,
+}
+
+pub struct Queues {
+    graphics: vk::Queue,
+    present: vk::Queue,
+}
+
+pub struct ImageResources {
+    image: vk::Image,
+    memory: vk::DeviceMemory,
+    view: vk::ImageView,
+}
+
+struct Synchronization {
+    image_available: [vk::Semaphore; MAX_FRAMES_IN_FLIGHT],
+    render_finished: [vk::Semaphore; MAX_FRAMES_IN_FLIGHT],
+    in_flight: [vk::Fence; MAX_FRAMES_IN_FLIGHT],
+}
+
+impl Renderer {
+    pub fn new(window: &Window) -> Renderer {
+        let entry = unsafe { Entry::load() }.unwrap();
+        let instance = create_instance(&entry, window);
+        Renderer {
+            entry,
+            instance,
+            // extensions,
+            // debug_messenger: vk::DebugUtilsMessengerEXT,
+            // surface: vk::SurfaceKHR,
+            // physical_device: vk::PhysicalDevice,
+            // queue_families: QueueFamilies,
+            // logical_device: Device,
+            // queues: Queues,
+            // swapchain: vk::SwapchainKHR,
+            // swapchain_format: vk::Format,
+            // swapchain_extent: vk::Extent2D,
+            // swapchain_image_views: Vec<vk::ImageView>,
+            // descriptor_set_layout: vk::DescriptorSetLayout,
+            // msaa_samples: vk::SampleCountFlags,
+            // pipeline: vk::Pipeline,
+            // pipeline_layout: vk::PipelineLayout,
+            // pipeline_render_pass: vk::RenderPass,
+            // command_pool: vk::CommandPool,
+            // command_buffers: [vk::CommandBuffer; MAX_FRAMES_IN_FLIGHT],
+            // color: ImageResources,
+            // depth: ImageResources,
+            // framebuffers: [vk::Framebuffer; MAX_FRAMES_IN_FLIGHT],
+            // texture: ImageResources,
+            // texture_mipmaps: usize,
+            // texture_sampler: vk::Sampler,
+            // vertex_buffer: vk::Buffer,
+            // vertex_buffer_memory: vk::DeviceMemory,
+            // index_buffer: vk::Buffer,
+            // index_buffer_memory: vk::DeviceMemory,
+            // uniform_buffers: [vk::Buffer; MAX_FRAMES_IN_FLIGHT],
+            // uniform_buffer_memories: [vk::DeviceMemory; MAX_FRAMES_IN_FLIGHT],
+            // descriptor_pool: vk::DescriptorPool,
+            // descriptor_set: vk::DescriptorSet,
+            // sync: Synchronization,
+            // frame_flight_index: usize,
         }
     }
 }
 
 pub fn run_renderer(mut window: Window, model: Model) {
-    // Load the Vulkan library. This should probably use the dynamically loaded variant instead?
-    let entry = unsafe { Entry::load() }.unwrap();
-    let instance = VulkanInstance::create(&entry, &window);
-    let debug = VulkanDebug::create(&instance);
-    let surface = VulkanSurface::create(&instance, &window);
-    let physical_device = VulkanPhysicalDevice::find_for(&surface);
+    let mut renderer = Renderer::new(&window);
+
+    let debug_extension = DebugUtils::new(&renderer.entry, &renderer.instance);
+    let debug = VulkanDebug::create(&debug_extension);
+    let surface_extension = Surface::new(&renderer.entry, &renderer.instance);
+    let surface = VulkanSurface::create(
+        &renderer.entry,
+        &renderer.instance,
+        &surface_extension,
+        &window,
+    );
+    let physical_device =
+        VulkanPhysicalDevice::find_for(&renderer.instance, &surface_extension, &surface);
     let logical_device = VulkanLogicalDevice::create(&physical_device);
     let swapchain = VulkanSwapchain::create(&logical_device, &surface, &window);
     let descriptor_set_layout = create_descriptor_set_layout(&logical_device);
@@ -896,7 +928,15 @@ pub fn run_renderer(mut window: Window, model: Model) {
 
     unsafe { logical_device.device_wait_idle() }.unwrap();
 
-    drop(sync);
+    for fence in sync.in_flight {
+        unsafe { logical_device.destroy_fence(fence, None) };
+    }
+    for semaphore in sync.render_finished {
+        unsafe { logical_device.destroy_semaphore(semaphore, None) };
+    }
+    for semaphore in sync.image_available {
+        unsafe { logical_device.destroy_semaphore(semaphore, None) };
+    }
     unsafe { logical_device.destroy_descriptor_pool(descriptor_pool, None) };
     for buffer in uniform_buffers {
         unsafe { logical_device.destroy_buffer(buffer, None) };
@@ -929,8 +969,39 @@ pub fn run_renderer(mut window: Window, model: Model) {
     drop(physical_device);
     drop(surface);
     drop(debug);
-    drop(instance);
-    drop(entry);
+    unsafe { renderer.instance.destroy_instance(None) };
+    drop(renderer);
+}
+
+fn create_instance(entry: &Entry, window: &Window) -> Instance {
+    // Set metadata of the app and the engine. May be used by the drivers to enable game-specific
+    // and engine-specific optimizations, which won't happen, but let's set it to something sensible
+    // anyway.
+    let app_info = vk::ApplicationInfo::builder()
+        .application_name(VULKAN_APP_NAME)
+        .application_version(VULKAN_APP_VERSION)
+        .engine_name(VULKAN_ENGINE_NAME)
+        .engine_version(VULKAN_ENGINE_VERSION)
+        .api_version(vk::API_VERSION_1_0);
+
+    // Enable Vulkan validation layers. This should be later disabled in non-development builds.
+    let layer_names = [b"VK_LAYER_KHRONOS_validation\0".as_ptr() as *const i8];
+
+    // Vulkan doesn't appear to have any interesting extensions at this level, physical device
+    // extensions are the interesting ones with raytracing and other stuff. This is just for
+    // OS-specific windowing system interactions, and enabling debug logging for the validation
+    // layers.
+    let mut extension_names =
+        ash_window::enumerate_required_extensions(window.window.raw_display_handle())
+            .unwrap()
+            .to_vec();
+    extension_names.push(DebugUtils::name().as_ptr());
+
+    let instance_create_info = vk::InstanceCreateInfo::builder()
+        .application_info(&app_info)
+        .enabled_layer_names(&layer_names)
+        .enabled_extension_names(&extension_names);
+    unsafe { entry.create_instance(&instance_create_info, None) }.unwrap()
 }
 
 fn create_framebuffers(
@@ -1806,7 +1877,7 @@ fn create_descriptor_sets(
     descriptor_sets
 }
 
-fn create_sync<'a>(logical_device: &'a VulkanLogicalDevice<'a>) -> VulkanSync<'a> {
+fn create_sync<'a>(logical_device: &VulkanLogicalDevice) -> Synchronization {
     let semaphore_info = vk::SemaphoreCreateInfo::builder();
     let fence_info = vk::FenceCreateInfo::builder().flags(vk::FenceCreateFlags::SIGNALED);
     let mut image_available: [vk::Semaphore; MAX_FRAMES_IN_FLIGHT] = Default::default();
@@ -1819,8 +1890,7 @@ fn create_sync<'a>(logical_device: &'a VulkanLogicalDevice<'a>) -> VulkanSync<'a
             unsafe { logical_device.create_semaphore(&semaphore_info, None) }.unwrap();
         in_flight[i] = unsafe { logical_device.create_fence(&fence_info, None) }.unwrap();
     }
-    VulkanSync {
-        logical_device,
+    Synchronization {
         image_available,
         render_finished,
         in_flight,
