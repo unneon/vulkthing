@@ -22,18 +22,12 @@ impl InputState {
     }
 
     pub fn apply_keyboard(&mut self, input: KeyboardInput) {
-        match input {
-            KeyboardInput {
-                state,
-                virtual_keycode,
-                ..
-            } => match virtual_keycode {
-                Some(VirtualKeyCode::W) => self.forward_pressed = state == ElementState::Pressed,
-                Some(VirtualKeyCode::A) => self.left_pressed = state == ElementState::Pressed,
-                Some(VirtualKeyCode::S) => self.backward_pressed = state == ElementState::Pressed,
-                Some(VirtualKeyCode::D) => self.right_pressed = state == ElementState::Pressed,
-                _ => (),
-            },
+        match input.virtual_keycode {
+            Some(VirtualKeyCode::W) => self.forward_pressed = input.state == ElementState::Pressed,
+            Some(VirtualKeyCode::A) => self.left_pressed = input.state == ElementState::Pressed,
+            Some(VirtualKeyCode::S) => self.backward_pressed = input.state == ElementState::Pressed,
+            Some(VirtualKeyCode::D) => self.right_pressed = input.state == ElementState::Pressed,
+            _ => (),
         }
     }
 

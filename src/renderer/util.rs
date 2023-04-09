@@ -616,13 +616,11 @@ pub fn select_format(
     for format in candidates {
         let props =
             unsafe { instance.get_physical_device_format_properties(physical_device, *format) };
-        if tiling == vk::ImageTiling::LINEAR
-            && (props.linear_tiling_features & features) == features
-        {
-            return *format;
-        } else if tiling == vk::ImageTiling::OPTIMAL
-            && (props.optimal_tiling_features & features) == features
-        {
+        let matching_linear = tiling == vk::ImageTiling::LINEAR
+            && (props.linear_tiling_features & features) == features;
+        let matching_optimal = tiling == vk::ImageTiling::OPTIMAL
+            && (props.optimal_tiling_features & features) == features;
+        if matching_linear || matching_optimal {
             return *format;
         }
     }

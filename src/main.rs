@@ -5,6 +5,9 @@
 #![feature(generic_const_exprs)]
 #![feature(maybe_uninit_write_slice)]
 #![allow(incomplete_features)]
+#![allow(clippy::collapsible_match)]
+#![allow(clippy::single_match)]
+#![allow(clippy::too_many_arguments)]
 
 mod camera;
 mod input;

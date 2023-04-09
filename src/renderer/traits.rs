@@ -12,8 +12,8 @@ pub trait VertexOps {
         assert_eq!(Self::ATTRIBUTE_COUNT, Self::ATTRIBUTE_SIZES.len());
         let mut offset = 0;
         let mut descriptions = [Default::default(); Self::ATTRIBUTE_COUNT];
-        for i in 0..Self::ATTRIBUTE_COUNT {
-            descriptions[i] = vk::VertexInputAttributeDescription {
+        for (i, description) in descriptions.iter_mut().enumerate() {
+            *description = vk::VertexInputAttributeDescription {
                 binding,
                 location: i as u32,
                 format: Self::ATTRIBUTE_FORMATS[i],

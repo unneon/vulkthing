@@ -99,7 +99,7 @@ pub fn select_device(
 }
 
 fn find_graphics_queue(queues: &[vk::QueueFamilyProperties]) -> Option<u32> {
-    find_queue(&queues, |_, q| {
+    find_queue(queues, |_, q| {
         q.queue_flags.contains(vk::QueueFlags::GRAPHICS)
     })
 }
@@ -110,7 +110,7 @@ fn find_present_queue(
     device: vk::PhysicalDevice,
     surface: vk::SurfaceKHR,
 ) -> Option<u32> {
-    find_queue(&queues, |i, _| {
+    find_queue(queues, |i, _| {
         unsafe { surface_extension.get_physical_device_surface_support(device, i, surface) }
             .unwrap()
     })
