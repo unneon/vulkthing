@@ -20,7 +20,7 @@ use winit::dpi::PhysicalSize;
 impl Renderer {
     pub fn new(window: &Window, model: &Model) -> Renderer {
         let entry = unsafe { Entry::load() }.unwrap();
-        let instance = create_instance(&entry, window);
+        let instance = create_instance(window, &entry);
         let extensions = VulkanExtensions {
             debug: DebugUtils::new(&entry, &instance),
             surface: Surface::new(&entry, &instance),
@@ -48,33 +48,33 @@ impl Renderer {
             select_swapchain_extent(surface_capabilities, window.window.inner_size());
         let swapchain_present_mode = select_swapchain_present_mode(&present_modes);
         let swapchain = create_swapchain(
-            swapchain_image_count,
             swapchain_format,
             swapchain_extent,
             swapchain_present_mode,
-            &queue_families,
-            surface_capabilities,
-            surface,
+            swapchain_image_count,
             &swapchain_extension,
+            surface,
+            surface_capabilities,
+            &queue_families,
         );
         let swapchain_image_views = create_swapchain_image_views(
-            swapchain_format,
             swapchain,
+            swapchain_format,
             &logical_device,
             &swapchain_extension,
         );
         let descriptor_set_layout = create_descriptor_set_layout(&logical_device);
         let msaa_samples = util::find_max_msaa_samples(&instance, physical_device);
         let (pipeline, pipeline_layout, pipeline_render_pass) = create_pipeline(
-            swapchain_format,
             descriptor_set_layout,
+            swapchain_format,
             msaa_samples,
-            physical_device,
             &instance,
+            physical_device,
             &logical_device,
         );
         let command_pool = create_command_pool(&queue_families, &logical_device);
-        let command_buffers = create_command_buffers(command_pool, &logical_device);
+        let command_buffers = create_command_buffers(&logical_device, command_pool);
 
         let color = create_color_resources(
             swapchain_format,
@@ -87,21 +87,21 @@ impl Renderer {
 
         let depth = create_depth_resources(
             swapchain_extent,
+            msaa_samples,
+            &instance,
+            physical_device,
+            &logical_device,
             queues.graphics,
             command_pool,
-            msaa_samples,
-            physical_device,
-            &instance,
-            &logical_device,
         );
         let framebuffers = create_framebuffers(
             pipeline_render_pass,
-            &logical_device,
-            depth.view,
-            color.view,
             swapchain_image_count,
             &swapchain_image_views,
             swapchain_extent,
+            depth.view,
+            color.view,
+            &logical_device,
         );
 
         let (texture, texture_mipmaps) = util::load_texture(
@@ -113,27 +113,27 @@ impl Renderer {
             command_pool,
         );
         let texture_sampler =
-            create_texture_sampler(&logical_device, texture_mipmaps, &instance, physical_device);
+            create_texture_sampler(texture_mipmaps, &instance, physical_device, &logical_device);
 
         let (vertex_buffer, vertex_buffer_memory) = create_vertex_buffer(
             &model.vertices,
-            &logical_device,
-            command_pool,
             &instance,
             physical_device,
+            &logical_device,
             queues.graphics,
+            command_pool,
         );
         let (index_buffer, index_buffer_memory) = create_index_buffer(
             &model.indices,
-            &logical_device,
-            command_pool,
             &instance,
             physical_device,
+            &logical_device,
             queues.graphics,
+            command_pool,
         );
 
         let (uniform_buffers, uniform_buffer_memories, uniform_buffer_mapped) =
-            create_uniform_buffer(&logical_device, &instance, physical_device);
+            create_uniform_buffer(&instance, physical_device, &logical_device);
 
         let descriptor_pool = create_descriptor_pool(&logical_device);
         let descriptor_sets = create_descriptor_sets(
@@ -236,18 +236,18 @@ impl Renderer {
         let swapchain_extent = select_swapchain_extent(surface_capabilities, window_size);
         let swapchain_present_mode = select_swapchain_present_mode(&present_modes);
         let swapchain = create_swapchain(
-            swapchain_image_count,
             swapchain_format,
             swapchain_extent,
             swapchain_present_mode,
-            &self.queue_families,
-            surface_capabilities,
-            self.surface,
+            swapchain_image_count,
             &self.swapchain_extension,
+            self.surface,
+            surface_capabilities,
+            &self.queue_families,
         );
         let swapchain_image_views = create_swapchain_image_views(
-            swapchain_format,
             swapchain,
+            swapchain_format,
             &self.logical_device,
             &self.swapchain_extension,
         );
@@ -261,21 +261,21 @@ impl Renderer {
         );
         let depth = create_depth_resources(
             swapchain_extent,
+            self.msaa_samples,
+            &self.instance,
+            self.physical_device,
+            &self.logical_device,
             self.queues.graphics,
             self.command_pool,
-            self.msaa_samples,
-            self.physical_device,
-            &self.instance,
-            &self.logical_device,
         );
         let framebuffers = create_framebuffers(
             self.pipeline_render_pass,
-            &self.logical_device,
-            depth.view,
-            color.view,
             swapchain_image_count,
             &swapchain_image_views,
             swapchain_extent,
+            depth.view,
+            color.view,
+            &self.logical_device,
         );
 
         // Doing the assignments at the end guarantees any operation won't fail in the middle, and
@@ -364,7 +364,7 @@ impl Drop for Renderer {
     }
 }
 
-fn create_instance(entry: &Entry, window: &Window) -> Instance {
+fn create_instance(window: &Window, entry: &Entry) -> Instance {
     // Set metadata of the app and the engine. May be used by the drivers to enable game-specific
     // and engine-specific optimizations, which won't happen, but let's set it to something sensible
     // anyway.
@@ -507,14 +507,14 @@ fn select_swapchain_present_mode(_available: &[vk::PresentModeKHR]) -> vk::Prese
 }
 
 fn create_swapchain(
-    image_count: usize,
     format: vk::SurfaceFormatKHR,
     extent: vk::Extent2D,
     present_mode: vk::PresentModeKHR,
-    queue_families: &QueueFamilies,
-    surface_capabilities: vk::SurfaceCapabilitiesKHR,
-    surface: vk::SurfaceKHR,
+    image_count: usize,
     extension: &Swapchain,
+    surface: vk::SurfaceKHR,
+    surface_capabilities: vk::SurfaceCapabilitiesKHR,
+    queue_families: &QueueFamilies,
 ) -> vk::SwapchainKHR {
     // Create the swapchain for presenting images to display. Set to prefer triple buffering
     // right now, should be possible to change on laptops or integrated GPUs? Also requires
@@ -546,8 +546,8 @@ fn create_swapchain(
 }
 
 fn create_swapchain_image_views(
-    format: vk::SurfaceFormatKHR,
     swapchain: vk::SwapchainKHR,
+    format: vk::SurfaceFormatKHR,
     logical_device: &Device,
     extension: &Swapchain,
 ) -> Vec<vk::ImageView> {
@@ -583,11 +583,11 @@ fn create_descriptor_set_layout(logical_device: &Device) -> vk::DescriptorSetLay
 }
 
 fn create_pipeline(
-    swapchain_image_format: vk::SurfaceFormatKHR,
     descriptor_set_layout: vk::DescriptorSetLayout,
+    swapchain_image_format: vk::SurfaceFormatKHR,
     msaa_samples: vk::SampleCountFlags,
-    physical_device: vk::PhysicalDevice,
     instance: &Instance,
+    physical_device: vk::PhysicalDevice,
     logical_device: &Device,
 ) -> (vk::Pipeline, vk::PipelineLayout, vk::RenderPass) {
     let vert_shader = Shader::compile(
@@ -664,7 +664,7 @@ fn create_pipeline(
         .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL);
     let color_attachments = [*color_attachment_ref];
     let depth_attachment = *vk::AttachmentDescription::builder()
-        .format(select_depth_format(physical_device, instance))
+        .format(select_depth_format(instance, physical_device))
         .samples(msaa_samples)
         .load_op(vk::AttachmentLoadOp::CLEAR)
         .store_op(vk::AttachmentStoreOp::DONT_CARE)
@@ -766,8 +766,8 @@ fn create_command_pool(queue_families: &QueueFamilies, logical_device: &Device) 
 }
 
 fn create_command_buffers(
-    command_pool: vk::CommandPool,
     logical_device: &Device,
+    command_pool: vk::CommandPool,
 ) -> [vk::CommandBuffer; FRAMES_IN_FLIGHT] {
     let command_buffer_allocate_info = vk::CommandBufferAllocateInfo::builder()
         .command_pool(command_pool)
@@ -816,14 +816,14 @@ fn create_color_resources(
 
 fn create_depth_resources(
     swapchain_extent: vk::Extent2D,
+    msaa_samples: vk::SampleCountFlags,
+    instance: &Instance,
+    physical_device: vk::PhysicalDevice,
+    logical_device: &Device,
     graphics_queue: vk::Queue,
     command_pool: vk::CommandPool,
-    msaa_samples: vk::SampleCountFlags,
-    physical_device: vk::PhysicalDevice,
-    instance: &Instance,
-    logical_device: &Device,
 ) -> ImageResources {
-    let format = select_depth_format(physical_device, instance);
+    let format = select_depth_format(instance, physical_device);
     let (image, memory) = util::create_image(
         format,
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
@@ -863,7 +863,7 @@ fn create_depth_resources(
     }
 }
 
-fn select_depth_format(physical_device: vk::PhysicalDevice, instance: &Instance) -> vk::Format {
+fn select_depth_format(instance: &Instance, physical_device: vk::PhysicalDevice) -> vk::Format {
     util::select_format(
         &[
             vk::Format::D32_SFLOAT,
@@ -879,12 +879,12 @@ fn select_depth_format(physical_device: vk::PhysicalDevice, instance: &Instance)
 
 fn create_framebuffers(
     pipeline_render_pass: vk::RenderPass,
-    logical_device: &Device,
-    depth_image_view: vk::ImageView,
-    color_image_view: vk::ImageView,
     swapchain_image_count: usize,
     swapchain_image_views: &[vk::ImageView],
     swapchain_extent: vk::Extent2D,
+    depth_image_view: vk::ImageView,
+    color_image_view: vk::ImageView,
+    logical_device: &Device,
 ) -> Vec<vk::Framebuffer> {
     let mut framebuffers = vec![vk::Framebuffer::null(); swapchain_image_count];
     for i in 0..swapchain_image_count {
@@ -903,10 +903,10 @@ fn create_framebuffers(
 }
 
 fn create_texture_sampler(
-    logical_device: &Device,
     mip_levels: usize,
     instance: &Instance,
     physical_device: vk::PhysicalDevice,
+    logical_device: &Device,
 ) -> vk::Sampler {
     let properties = unsafe { instance.get_physical_device_properties(physical_device) };
     let sampler_info = vk::SamplerCreateInfo::builder()
@@ -930,11 +930,11 @@ fn create_texture_sampler(
 
 fn create_vertex_buffer(
     vertex_data: &[Vertex],
-    logical_device: &Device,
-    command_pool: vk::CommandPool,
     instance: &Instance,
     physical_device: vk::PhysicalDevice,
+    logical_device: &Device,
     graphics_queue: vk::Queue,
+    command_pool: vk::CommandPool,
 ) -> (vk::Buffer, vk::DeviceMemory) {
     let vertex_size = std::mem::size_of::<Vertex>();
     let vertex_count = vertex_data.len();
@@ -973,11 +973,11 @@ fn create_vertex_buffer(
 
 fn create_index_buffer(
     index_data: &[u32],
-    logical_device: &Device,
-    command_pool: vk::CommandPool,
     instance: &Instance,
     physical_device: vk::PhysicalDevice,
+    logical_device: &Device,
     graphics_queue: vk::Queue,
+    command_pool: vk::CommandPool,
 ) -> (vk::Buffer, vk::DeviceMemory) {
     let index_size = std::mem::size_of_val(&index_data[0]);
     let index_buffer_size = index_size * index_data.len();
@@ -1014,9 +1014,9 @@ fn create_index_buffer(
 }
 
 fn create_uniform_buffer(
-    logical_device: &Device,
     instance: &Instance,
     physical_device: vk::PhysicalDevice,
+    logical_device: &Device,
 ) -> (
     [vk::Buffer; FRAMES_IN_FLIGHT],
     [vk::DeviceMemory; FRAMES_IN_FLIGHT],
