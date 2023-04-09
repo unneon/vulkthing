@@ -26,11 +26,6 @@ use winit::platform::run_return::EventLoopExtRunReturn;
 
 const MAX_FRAMES_IN_FLIGHT: usize = 2;
 
-struct VulkanSurface<'a> {
-    surface_extension: &'a Surface,
-    surface: vk::SurfaceKHR,
-}
-
 struct VulkanPhysicalDevice<'a> {
     instance: &'a Instance,
     device: vk::PhysicalDevice,
@@ -81,35 +76,11 @@ struct UniformBufferObject {
     proj: glm::Mat4,
 }
 
-impl<'a> VulkanSurface<'a> {
-    fn create(
-        entry: &Entry,
-        instance: &Instance,
-        surface_extension: &'a Surface,
-        window: &Window,
-    ) -> VulkanSurface<'a> {
-        let surface = unsafe {
-            ash_window::create_surface(
-                &entry,
-                &instance,
-                window.window.raw_display_handle(),
-                window.window.raw_window_handle(),
-                None,
-            )
-        }
-        .unwrap();
-        VulkanSurface {
-            surface_extension,
-            surface,
-        }
-    }
-}
-
 impl<'a> VulkanPhysicalDevice<'a> {
     fn find_for(
         instance: &'a Instance,
         surface_extension: &Surface,
-        surface: &VulkanSurface<'a>,
+        surface: vk::SurfaceKHR,
     ) -> VulkanPhysicalDevice<'a> {
         // Select the GPU. For now, just select the first discrete GPU with graphics support. Later,
         // this should react better to iGPU, dGPU and iGPU+dGPU setups. In more complex setups, it would
@@ -128,7 +99,7 @@ impl<'a> VulkanPhysicalDevice<'a> {
             // also checks whether there is a present queue. This could be worked around using two
             // separate GPUs (or just one for headless benchmarking), but the OS should take care of
             // handling this sort of stuff between devices, probably?
-            let Some(queues) = QueueDetails::query(instance, surface_extension, device, &surface).unwrap() else {
+            let Some(queues) = QueueDetails::query(instance, surface_extension, device, surface).unwrap() else {
                 warn!("physical device rejected, no suitable queues, \x1B[1mname\x1B[0m: {name}");
                 continue;
             };
@@ -159,7 +130,7 @@ impl<'a> VulkanPhysicalDevice<'a> {
             // be devices that support swapchains but no formats or present modes, but let's check
             // anyway because the tutorial does.
             let swapchain =
-                unsafe { SwapchainDetails::query(surface_extension, device, &surface) }.unwrap();
+                unsafe { SwapchainDetails::query(surface_extension, device, surface) }.unwrap();
             if swapchain.formats.is_empty() || swapchain.present_modes.is_empty() {
                 warn!("physical device rejected, unsuitable swapchain, \x1B[1mname\x1B[0m: {name}");
                 continue;
@@ -250,7 +221,7 @@ impl QueueDetails {
         instance: &Instance,
         surface_extension: &Surface,
         device: vk::PhysicalDevice,
-        surface: &VulkanSurface,
+        surface: vk::SurfaceKHR,
     ) -> VkResult<Option<QueueDetails>> {
         // Find the first queue that supports a given operation and return it. Not sure what to do
         // when there are multiple queues that support an operation? Also, graphics queue being
@@ -260,7 +231,7 @@ impl QueueDetails {
         let Some(graphics_family) = QueueDetails::find_queue(&queues, |_, q| q.queue_flags.contains(vk::QueueFlags::GRAPHICS)) else {
             return Ok(None);
         };
-        let Some(present_family) = QueueDetails::find_queue(&queues, |i, _| unsafe { surface_extension.get_physical_device_surface_support(device, i, surface.surface) }
+        let Some(present_family) = QueueDetails::find_queue(&queues, |i, _| unsafe { surface_extension.get_physical_device_surface_support(device, i, surface) }
             .unwrap()) else {
             return Ok(None);
         };
@@ -288,14 +259,13 @@ impl SwapchainDetails {
     unsafe fn query(
         surface_extension: &Surface,
         device: vk::PhysicalDevice,
-        surface: &VulkanSurface,
+        surface: vk::SurfaceKHR,
     ) -> VkResult<SwapchainDetails> {
         let capabilities =
-            surface_extension.get_physical_device_surface_capabilities(device, surface.surface)?;
-        let formats =
-            surface_extension.get_physical_device_surface_formats(device, surface.surface)?;
+            surface_extension.get_physical_device_surface_capabilities(device, surface)?;
+        let formats = surface_extension.get_physical_device_surface_formats(device, surface)?;
         let present_modes =
-            surface_extension.get_physical_device_surface_present_modes(device, surface.surface)?;
+            surface_extension.get_physical_device_surface_present_modes(device, surface)?;
         Ok(SwapchainDetails {
             capabilities,
             formats,
@@ -349,7 +319,7 @@ impl SwapchainDetails {
 impl<'a> VulkanSwapchain<'a> {
     fn create(
         logical_device: &'a VulkanLogicalDevice<'a>,
-        surface: &VulkanSurface,
+        surface: vk::SurfaceKHR,
         window: &Window,
     ) -> VulkanSwapchain<'a> {
         let instance = logical_device.instance;
@@ -370,7 +340,7 @@ impl<'a> VulkanSwapchain<'a> {
             physical_device.queues.present_family,
         ];
         let create_info = vk::SwapchainCreateInfoKHR::builder()
-            .surface(surface.surface)
+            .surface(surface)
             .min_image_count(image_count)
             .image_format(image_format)
             .image_color_space(format.color_space)
@@ -638,12 +608,6 @@ impl Deref for VulkanLogicalDevice<'_> {
     }
 }
 
-impl Drop for VulkanSurface<'_> {
-    fn drop(&mut self) {
-        unsafe { self.surface_extension.destroy_surface(self.surface, None) };
-    }
-}
-
 impl Drop for VulkanLogicalDevice<'_> {
     fn drop(&mut self) {
         unsafe { self.device.destroy_device(None) };
@@ -684,7 +648,7 @@ pub struct Renderer {
     instance: Instance,
     extensions: VulkanExtensions,
     debug_messenger: vk::DebugUtilsMessengerEXT,
-    // surface: vk::SurfaceKHR,
+    surface: vk::SurfaceKHR,
     // physical_device: vk::PhysicalDevice,
     // queue_families: QueueFamilies,
     // logical_device: Device,
@@ -755,12 +719,13 @@ impl Renderer {
             surface: Surface::new(&entry, &instance),
         };
         let debug_messenger = create_debug_messenger(&extensions.debug);
+        let surface = create_surface(window, &entry, &instance);
         Renderer {
             entry,
             instance,
             extensions,
             debug_messenger,
-            // surface: vk::SurfaceKHR,
+            surface,
             // physical_device: vk::PhysicalDevice,
             // queue_families: QueueFamilies,
             // logical_device: Device,
@@ -799,16 +764,13 @@ impl Renderer {
 pub fn run_renderer(mut window: Window, model: Model) {
     let renderer = Renderer::new(&window);
 
-    let surface = VulkanSurface::create(
-        &renderer.entry,
+    let physical_device = VulkanPhysicalDevice::find_for(
         &renderer.instance,
         &renderer.extensions.surface,
-        &window,
+        renderer.surface,
     );
-    let physical_device =
-        VulkanPhysicalDevice::find_for(&renderer.instance, &renderer.extensions.surface, &surface);
     let logical_device = VulkanLogicalDevice::create(&physical_device);
-    let swapchain = VulkanSwapchain::create(&logical_device, &surface, &window);
+    let swapchain = VulkanSwapchain::create(&logical_device, renderer.surface, &window);
     let descriptor_set_layout = create_descriptor_set_layout(&logical_device);
     let msaa_samples = get_max_usable_sample_count(&physical_device);
     let pipeline = VulkanPipeline::create(&swapchain, descriptor_set_layout, msaa_samples);
@@ -967,7 +929,12 @@ pub fn run_renderer(mut window: Window, model: Model) {
     drop(swapchain);
     drop(logical_device);
     drop(physical_device);
-    drop(surface);
+    unsafe {
+        renderer
+            .extensions
+            .surface
+            .destroy_surface(renderer.surface, None)
+    };
     unsafe {
         renderer
             .extensions
@@ -1007,6 +974,19 @@ fn create_instance(entry: &Entry, window: &Window) -> Instance {
         .enabled_layer_names(&layer_names)
         .enabled_extension_names(&extension_names);
     unsafe { entry.create_instance(&instance_create_info, None) }.unwrap()
+}
+
+fn create_surface(window: &Window, entry: &Entry, instance: &Instance) -> vk::SurfaceKHR {
+    unsafe {
+        ash_window::create_surface(
+            &entry,
+            &instance,
+            window.window.raw_display_handle(),
+            window.window.raw_window_handle(),
+            None,
+        )
+    }
+    .unwrap()
 }
 
 fn create_framebuffers(
