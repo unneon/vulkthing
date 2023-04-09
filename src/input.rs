@@ -5,8 +5,15 @@ pub struct InputState {
     right_pressed: bool,
     forward_pressed: bool,
     backward_pressed: bool,
+    jump: Click,
     mouse_dx: f32,
     mouse_dy: f32,
+}
+
+#[derive(Default)]
+struct Click {
+    queued_count: usize,
+    pressed: bool,
 }
 
 impl InputState {
@@ -16,6 +23,7 @@ impl InputState {
             right_pressed: false,
             forward_pressed: false,
             backward_pressed: false,
+            jump: Click::default(),
             mouse_dx: 0.,
             mouse_dy: 0.,
         }
@@ -27,6 +35,7 @@ impl InputState {
             Some(VirtualKeyCode::A) => self.left_pressed = input.state == ElementState::Pressed,
             Some(VirtualKeyCode::S) => self.backward_pressed = input.state == ElementState::Pressed,
             Some(VirtualKeyCode::D) => self.right_pressed = input.state == ElementState::Pressed,
+            Some(VirtualKeyCode::Space) => self.jump.apply(input.state),
             _ => (),
         }
     }
@@ -39,6 +48,7 @@ impl InputState {
     pub fn reset_after_frame(&mut self) {
         self.mouse_dx = 0.;
         self.mouse_dy = 0.;
+        self.jump.queued_count = 0;
     }
 
     pub fn movement_horizontal(&self) -> f32 {
@@ -63,11 +73,26 @@ impl InputState {
         sum
     }
 
+    pub fn movement_jumps(&self) -> usize {
+        self.jump.queued_count
+    }
+
     pub fn camera_yaw(&self) -> f32 {
         self.mouse_dx
     }
 
     pub fn camera_pitch(&self) -> f32 {
         self.mouse_dy
+    }
+}
+
+impl Click {
+    fn apply(&mut self, state: ElementState) {
+        if state == ElementState::Pressed && !self.pressed {
+            self.queued_count += 1;
+            self.pressed = true;
+        } else if state == ElementState::Released && self.pressed {
+            self.pressed = false;
+        }
     }
 }

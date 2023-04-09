@@ -42,6 +42,7 @@ fn main() {
     let mut input_state = InputState::new();
     let mut camera = Camera {
         position: glm::vec3(-2., 0., 0.),
+        velocity: glm::vec3(0., 0., 0.),
         yaw: 0.,
         pitch: 0.,
     };

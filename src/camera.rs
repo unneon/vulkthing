@@ -6,6 +6,7 @@ use std::f32::consts::FRAC_PI_2;
 
 pub struct Camera {
     pub position: Vec3,
+    pub velocity: Vec3,
     pub yaw: f32,
     pub pitch: f32,
 }
@@ -17,6 +18,15 @@ impl Camera {
         let front = self.walk_direction();
         let up = vec3(0., 0., 1.);
         let right = glm::cross(&front, &up);
+        if input.movement_jumps() > 0 && self.position.z == 0. {
+            self.velocity.z = 4.;
+        }
+        self.velocity.z -= 9.807 * delta_time;
+        self.position += self.velocity * delta_time;
+        if self.position.z < 0. {
+            self.position.z = 0.;
+            self.velocity.z = 0.;
+        }
         self.position +=
             normalize_or_zero(right * input.movement_horizontal() + front * input.movement_depth())
                 * MOVEMENT_SPEED
