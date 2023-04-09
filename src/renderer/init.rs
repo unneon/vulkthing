@@ -13,6 +13,7 @@ use ash::extensions::khr::{Surface, Swapchain};
 use ash::{vk, Device, Entry, Instance};
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use std::collections::HashSet;
+use std::ffi::CString;
 use std::mem::MaybeUninit;
 
 impl Renderer {
@@ -264,11 +265,25 @@ fn create_instance(entry: &Entry, window: &Window) -> Instance {
     // Set metadata of the app and the engine. May be used by the drivers to enable game-specific
     // and engine-specific optimizations, which won't happen, but let's set it to something sensible
     // anyway.
+    let app_name = CString::new(VULKAN_APP_NAME).unwrap();
+    let app_version = vk::make_api_version(
+        0,
+        VULKAN_APP_VERSION.0,
+        VULKAN_APP_VERSION.1,
+        VULKAN_APP_VERSION.2,
+    );
+    let engine_name = CString::new(VULKAN_ENGINE_NAME).unwrap();
+    let engine_version = vk::make_api_version(
+        0,
+        VULKAN_ENGINE_VERSION.0,
+        VULKAN_ENGINE_VERSION.1,
+        VULKAN_ENGINE_VERSION.2,
+    );
     let app_info = vk::ApplicationInfo::builder()
-        .application_name(VULKAN_APP_NAME)
-        .application_version(VULKAN_APP_VERSION)
-        .engine_name(VULKAN_ENGINE_NAME)
-        .engine_version(VULKAN_ENGINE_VERSION)
+        .application_name(&app_name)
+        .application_version(app_version)
+        .engine_name(&engine_name)
+        .engine_version(engine_version)
         .api_version(vk::API_VERSION_1_0);
 
     // Enable Vulkan validation layers. This should be later disabled in non-development builds.
