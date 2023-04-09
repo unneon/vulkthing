@@ -203,55 +203,48 @@ impl ImageResources {
 
 impl Drop for Renderer {
     fn drop(&mut self) {
+        let dev = &self.logical_device;
         unsafe {
-            self.logical_device.device_wait_idle().unwrap();
+            dev.device_wait_idle().unwrap();
 
             for fence in self.sync.in_flight {
-                self.logical_device.destroy_fence(fence, None)
+                dev.destroy_fence(fence, None);
             }
             for semaphore in self.sync.render_finished {
-                self.logical_device.destroy_semaphore(semaphore, None)
+                dev.destroy_semaphore(semaphore, None);
             }
             for semaphore in self.sync.image_available {
-                self.logical_device.destroy_semaphore(semaphore, None)
+                dev.destroy_semaphore(semaphore, None);
             }
-            self.logical_device
-                .destroy_descriptor_pool(self.descriptor_pool, None);
+            dev.destroy_descriptor_pool(self.descriptor_pool, None);
             for buffer in self.uniform_buffers {
-                self.logical_device.destroy_buffer(buffer, None)
+                dev.destroy_buffer(buffer, None);
             }
             for memory in self.uniform_buffer_memories {
-                self.logical_device.free_memory(memory, None)
+                dev.free_memory(memory, None);
             }
-            self.logical_device.destroy_buffer(self.index_buffer, None);
-            self.logical_device
-                .free_memory(self.index_buffer_memory, None);
-            self.logical_device.destroy_buffer(self.vertex_buffer, None);
-            self.logical_device
-                .free_memory(self.vertex_buffer_memory, None);
-            self.logical_device
-                .destroy_sampler(self.texture_sampler, None);
-            self.texture.destroy(&self.logical_device);
+            dev.destroy_buffer(self.index_buffer, None);
+            dev.free_memory(self.index_buffer_memory, None);
+            dev.destroy_buffer(self.vertex_buffer, None);
+            dev.free_memory(self.vertex_buffer_memory, None);
+            dev.destroy_sampler(self.texture_sampler, None);
+            self.texture.destroy(&dev);
             for framebuffer in &self.framebuffers {
-                self.logical_device.destroy_framebuffer(*framebuffer, None);
+                dev.destroy_framebuffer(*framebuffer, None);
             }
-            self.depth.destroy(&self.logical_device);
-            self.color.destroy(&self.logical_device);
-            self.logical_device
-                .destroy_command_pool(self.command_pool, None);
-            self.logical_device.destroy_pipeline(self.pipeline, None);
-            self.logical_device
-                .destroy_render_pass(self.pipeline_render_pass, None);
-            self.logical_device
-                .destroy_pipeline_layout(self.pipeline_layout, None);
-            self.logical_device
-                .destroy_descriptor_set_layout(self.descriptor_set_layout, None);
+            self.depth.destroy(&dev);
+            self.color.destroy(&dev);
+            dev.destroy_command_pool(self.command_pool, None);
+            dev.destroy_pipeline(self.pipeline, None);
+            dev.destroy_render_pass(self.pipeline_render_pass, None);
+            dev.destroy_pipeline_layout(self.pipeline_layout, None);
+            dev.destroy_descriptor_set_layout(self.descriptor_set_layout, None);
             for image_view in &self.swapchain_image_views {
-                self.logical_device.destroy_image_view(*image_view, None);
+                dev.destroy_image_view(*image_view, None);
             }
             self.swapchain_extension
                 .destroy_swapchain(self.swapchain, None);
-            self.logical_device.destroy_device(None);
+            dev.destroy_device(None);
             self.extensions.surface.destroy_surface(self.surface, None);
             self.extensions
                 .debug
