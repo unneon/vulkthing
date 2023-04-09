@@ -3,6 +3,7 @@ use ash::{vk, Instance};
 use log::{info, warn};
 use std::ffi::CStr;
 
+#[derive(Clone)]
 pub struct DeviceInfo {
     pub physical_device: vk::PhysicalDevice,
     pub queue_families: QueueFamilies,
@@ -11,6 +12,7 @@ pub struct DeviceInfo {
     pub present_modes: Vec<vk::PresentModeKHR>,
 }
 
+#[derive(Clone)]
 pub struct QueueFamilies {
     pub graphics: u32,
     pub present: u32,

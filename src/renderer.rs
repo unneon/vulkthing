@@ -39,194 +39,6 @@ struct UniformBufferObject {
     proj: glm::Mat4,
 }
 
-fn select_present_mode() -> vk::PresentModeKHR {
-    vk::PresentModeKHR::FIFO
-}
-
-impl VulkanPipeline {
-    fn create(
-        swapchain_image_format: vk::SurfaceFormatKHR,
-        descriptor_set_layout: vk::DescriptorSetLayout,
-        msaa_samples: vk::SampleCountFlags,
-        physical_device: vk::PhysicalDevice,
-        instance: &Instance,
-        logical_device: &Device,
-    ) -> VulkanPipeline {
-        let vert_shader = Shader::compile(
-            logical_device,
-            include_bytes!("../shaders/triangle-vert.spv"),
-            vk::ShaderStageFlags::VERTEX,
-        );
-        let frag_shader = Shader::compile(
-            logical_device,
-            include_bytes!("../shaders/triangle-frag.spv"),
-            vk::ShaderStageFlags::FRAGMENT,
-        );
-        let shader_stages = [vert_shader.stage_info, frag_shader.stage_info];
-        let dynamic_state = vk::PipelineDynamicStateCreateInfo::builder()
-            .dynamic_states(&[vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR]);
-        let vertex_binding_descriptions = [Vertex::get_binding_description()];
-        let vertex_attribute_descriptions = get_attribute_descriptions();
-        let vertex_input = vk::PipelineVertexInputStateCreateInfo::builder()
-            .vertex_binding_descriptions(&vertex_binding_descriptions)
-            .vertex_attribute_descriptions(&vertex_attribute_descriptions);
-        let input_assembly = vk::PipelineInputAssemblyStateCreateInfo::builder()
-            .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
-            .primitive_restart_enable(false);
-        let viewport_state = vk::PipelineViewportStateCreateInfo::builder()
-            .viewport_count(1)
-            .scissor_count(1);
-        let rasterizer = vk::PipelineRasterizationStateCreateInfo::builder()
-            .depth_clamp_enable(false)
-            .rasterizer_discard_enable(false)
-            .polygon_mode(vk::PolygonMode::FILL)
-            .line_width(1.)
-            .cull_mode(vk::CullModeFlags::BACK)
-            .front_face(vk::FrontFace::COUNTER_CLOCKWISE)
-            .depth_bias_enable(false)
-            .depth_bias_constant_factor(0.)
-            .depth_bias_clamp(0.)
-            .depth_bias_slope_factor(0.);
-        let multisampling = vk::PipelineMultisampleStateCreateInfo::builder()
-            .sample_shading_enable(false)
-            .rasterization_samples(msaa_samples)
-            .min_sample_shading(1.)
-            .sample_mask(&[])
-            .alpha_to_coverage_enable(false)
-            .alpha_to_one_enable(false);
-        let color_blend_attachment = vk::PipelineColorBlendAttachmentState::builder()
-            .color_write_mask(vk::ColorComponentFlags::RGBA)
-            .blend_enable(false);
-        let color_blend_attachments = [*color_blend_attachment];
-        let color_blending = vk::PipelineColorBlendStateCreateInfo::builder()
-            .logic_op_enable(false)
-            .logic_op(vk::LogicOp::COPY)
-            .attachments(&color_blend_attachments);
-        let set_layouts = [descriptor_set_layout];
-        let pipeline_layout_info = vk::PipelineLayoutCreateInfo::builder()
-            .set_layouts(&set_layouts)
-            .push_constant_ranges(&[]);
-        let pipeline_layout =
-            unsafe { logical_device.create_pipeline_layout(&pipeline_layout_info, None) }.unwrap();
-
-        let color_attachment = vk::AttachmentDescription::builder()
-            .format(swapchain_image_format.format)
-            .samples(msaa_samples)
-            .load_op(vk::AttachmentLoadOp::CLEAR)
-            .store_op(vk::AttachmentStoreOp::STORE)
-            .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
-            .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
-            .initial_layout(vk::ImageLayout::UNDEFINED)
-            .final_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL);
-        let color_attachment_ref = vk::AttachmentReference::builder()
-            .attachment(0)
-            .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL);
-        let color_attachments = [*color_attachment_ref];
-        let depth_attachment = *vk::AttachmentDescription::builder()
-            .format(find_depth_format(physical_device, instance))
-            .samples(msaa_samples)
-            .load_op(vk::AttachmentLoadOp::CLEAR)
-            .store_op(vk::AttachmentStoreOp::DONT_CARE)
-            .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
-            .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
-            .initial_layout(vk::ImageLayout::UNDEFINED)
-            .final_layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
-        let depth_attachment_ref = vk::AttachmentReference::builder()
-            .attachment(1)
-            .layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
-        let color_attachment_resolve = *vk::AttachmentDescription::builder()
-            .format(swapchain_image_format.format)
-            .samples(vk::SampleCountFlags::TYPE_1)
-            .load_op(vk::AttachmentLoadOp::DONT_CARE)
-            .store_op(vk::AttachmentStoreOp::STORE)
-            .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
-            .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
-            .initial_layout(vk::ImageLayout::UNDEFINED)
-            .final_layout(vk::ImageLayout::PRESENT_SRC_KHR);
-        let color_attachment_resolve_ref = *vk::AttachmentReference::builder()
-            .attachment(2)
-            .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL);
-        let resolve_attachments = [color_attachment_resolve_ref];
-        let subpass = vk::SubpassDescription::builder()
-            .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
-            .color_attachments(&color_attachments)
-            .depth_stencil_attachment(&depth_attachment_ref)
-            .resolve_attachments(&resolve_attachments);
-        let dependency = vk::SubpassDependency::builder()
-            .src_subpass(vk::SUBPASS_EXTERNAL)
-            .dst_subpass(0)
-            .src_stage_mask(
-                vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT
-                    | vk::PipelineStageFlags::EARLY_FRAGMENT_TESTS,
-            )
-            .src_access_mask(vk::AccessFlags::empty())
-            .dst_stage_mask(
-                vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT
-                    | vk::PipelineStageFlags::EARLY_FRAGMENT_TESTS,
-            )
-            .dst_access_mask(
-                vk::AccessFlags::COLOR_ATTACHMENT_WRITE
-                    | vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE,
-            );
-        let attachments = [
-            *color_attachment,
-            depth_attachment,
-            color_attachment_resolve,
-        ];
-        let subpasses = [*subpass];
-        let dependencies = [*dependency];
-        let render_pass_info = vk::RenderPassCreateInfo::builder()
-            .attachments(&attachments)
-            .subpasses(&subpasses)
-            .dependencies(&dependencies);
-        let render_pass =
-            unsafe { logical_device.create_render_pass(&render_pass_info, None) }.unwrap();
-
-        let depth_stencil = vk::PipelineDepthStencilStateCreateInfo::builder()
-            .depth_test_enable(true)
-            .depth_write_enable(true)
-            .depth_compare_op(vk::CompareOp::LESS)
-            .depth_bounds_test_enable(false)
-            .min_depth_bounds(0.)
-            .max_depth_bounds(1.)
-            .stencil_test_enable(false)
-            .front(vk::StencilOpState::default())
-            .back(vk::StencilOpState::default());
-
-        let pipeline_info = vk::GraphicsPipelineCreateInfo::builder()
-            .stages(&shader_stages)
-            .vertex_input_state(&vertex_input)
-            .input_assembly_state(&input_assembly)
-            .viewport_state(&viewport_state)
-            .rasterization_state(&rasterizer)
-            .multisample_state(&multisampling)
-            .color_blend_state(&color_blending)
-            .depth_stencil_state(&depth_stencil)
-            .dynamic_state(&dynamic_state)
-            .layout(pipeline_layout)
-            .render_pass(render_pass)
-            .subpass(0);
-        let pipeline = unsafe {
-            logical_device.create_graphics_pipelines(
-                vk::PipelineCache::null(),
-                &[*pipeline_info],
-                None,
-            )
-        }
-        .unwrap()
-        .into_iter()
-        .next()
-        .unwrap();
-
-        VulkanPipeline {
-            pipeline,
-            pipeline_layout,
-            render_pass,
-            logical_device: logical_device.clone(),
-        }
-    }
-}
-
 impl Vertex {
     fn get_binding_description() -> vk::VertexInputBindingDescription {
         vk::VertexInputBindingDescription::builder()
@@ -255,17 +67,7 @@ impl PartialEq for Vertex {
 }
 
 impl Drop for VulkanPipeline {
-    fn drop(&mut self) {
-        unsafe { self.logical_device.destroy_pipeline(self.pipeline, None) };
-        unsafe {
-            self.logical_device
-                .destroy_render_pass(self.render_pass, None)
-        };
-        unsafe {
-            self.logical_device
-                .destroy_pipeline_layout(self.pipeline_layout, None)
-        };
-    }
+    fn drop(&mut self) {}
 }
 
 pub struct Renderer {
@@ -287,29 +89,30 @@ pub struct Renderer {
     swapchain_extent: vk::Extent2D,
     swapchain: vk::SwapchainKHR,
     swapchain_image_views: Vec<vk::ImageView>,
-    // descriptor_set_layout: vk::DescriptorSetLayout,
-    // msaa_samples: vk::SampleCountFlags,
-    // pipeline: vk::Pipeline,
-    // pipeline_layout: vk::PipelineLayout,
-    // pipeline_render_pass: vk::RenderPass,
-    // command_pool: vk::CommandPool,
-    // command_buffers: [vk::CommandBuffer; MAX_FRAMES_IN_FLIGHT],
-    // color: ImageResources,
-    // depth: ImageResources,
-    // framebuffers: [vk::Framebuffer; MAX_FRAMES_IN_FLIGHT],
-    // texture: ImageResources,
-    // texture_mipmaps: usize,
-    // texture_sampler: vk::Sampler,
-    // vertex_buffer: vk::Buffer,
-    // vertex_buffer_memory: vk::DeviceMemory,
-    // index_buffer: vk::Buffer,
-    // index_buffer_memory: vk::DeviceMemory,
-    // uniform_buffers: [vk::Buffer; MAX_FRAMES_IN_FLIGHT],
-    // uniform_buffer_memories: [vk::DeviceMemory; MAX_FRAMES_IN_FLIGHT],
-    // descriptor_pool: vk::DescriptorPool,
-    // descriptor_set: vk::DescriptorSet,
-    // sync: Synchronization,
-    // frame_flight_index: usize,
+    descriptor_set_layout: vk::DescriptorSetLayout,
+    msaa_samples: vk::SampleCountFlags,
+    pipeline: vk::Pipeline,
+    pipeline_layout: vk::PipelineLayout,
+    pipeline_render_pass: vk::RenderPass,
+    command_pool: vk::CommandPool,
+    command_buffers: [vk::CommandBuffer; MAX_FRAMES_IN_FLIGHT],
+    color: ImageResources,
+    depth: ImageResources,
+    framebuffers: Vec<vk::Framebuffer>,
+    texture: ImageResources,
+    texture_mipmaps: usize,
+    texture_sampler: vk::Sampler,
+    vertex_buffer: vk::Buffer,
+    vertex_buffer_memory: vk::DeviceMemory,
+    index_buffer: vk::Buffer,
+    index_buffer_memory: vk::DeviceMemory,
+    uniform_buffers: [vk::Buffer; MAX_FRAMES_IN_FLIGHT],
+    uniform_buffer_memories: [vk::DeviceMemory; MAX_FRAMES_IN_FLIGHT],
+    uniform_buffer_mapped: [*mut UniformBufferObject; MAX_FRAMES_IN_FLIGHT],
+    descriptor_pool: vk::DescriptorPool,
+    descriptor_sets: [vk::DescriptorSet; MAX_FRAMES_IN_FLIGHT],
+    sync: Synchronization,
+    frame_flight_index: usize,
 }
 
 pub struct VulkanExtensions {
@@ -335,7 +138,7 @@ struct Synchronization {
 }
 
 impl Renderer {
-    pub fn new(window: &Window) -> Renderer {
+    pub fn new(window: &Window, model: &Model) -> Renderer {
         let entry = unsafe { Entry::load() }.unwrap();
         let instance = create_instance(&entry, window);
         let extensions = VulkanExtensions {
@@ -345,19 +148,24 @@ impl Renderer {
         let debug_messenger = create_debug_messenger(&extensions.debug);
         let surface = create_surface(window, &entry, &instance);
         let device_info = select_device(&instance, &extensions.surface, surface);
-        let logical_device = create_logical_device(
-            &device_info.queue_families,
-            &instance,
-            device_info.physical_device,
-        );
-        let graphics_queue =
-            unsafe { logical_device.get_device_queue(device_info.queue_families.graphics, 0) };
-        let present_queue =
-            unsafe { logical_device.get_device_queue(device_info.queue_families.present, 0) };
+        let DeviceInfo {
+            physical_device,
+            queue_families,
+            surface_capabilities,
+            surface_formats,
+            present_modes,
+        } = device_info.clone();
+        let logical_device = create_logical_device(&queue_families, &instance, physical_device);
+        let graphics_queue = unsafe { logical_device.get_device_queue(queue_families.graphics, 0) };
+        let present_queue = unsafe { logical_device.get_device_queue(queue_families.present, 0) };
+        let queues = Queues {
+            graphics: graphics_queue,
+            present: present_queue,
+        };
         let swapchain_extension = Swapchain::new(&instance, &logical_device);
-        let swapchain_image_count = select_swapchain_image_count(device_info.surface_capabilities);
-        let swapchain_format = select_swapchain_format(&device_info.surface_formats);
-        let swapchain_extent = select_swapchain_extent(device_info.surface_capabilities, window);
+        let swapchain_image_count = select_swapchain_image_count(surface_capabilities);
+        let swapchain_format = select_swapchain_format(&surface_formats);
+        let swapchain_extent = select_swapchain_extent(surface_capabilities, window);
         let swapchain = create_swapchain(
             swapchain_image_count,
             swapchain_format,
@@ -372,151 +180,233 @@ impl Renderer {
             &logical_device,
             &swapchain_extension,
         );
+        let descriptor_set_layout = create_descriptor_set_layout(&logical_device);
+        let msaa_samples = get_max_usable_sample_count(physical_device, &instance);
+        let (pipeline, pipeline_layout, pipeline_render_pass) = create_pipeline(
+            swapchain_format,
+            descriptor_set_layout,
+            msaa_samples,
+            physical_device,
+            &instance,
+            &logical_device,
+        );
+        let command_pool = create_command_pool(&queue_families, &logical_device);
+        let command_buffers = create_command_buffers(command_pool, &logical_device);
+
+        let color = create_color_resources(
+            swapchain_format,
+            swapchain_extent,
+            msaa_samples,
+            &instance,
+            physical_device,
+            &logical_device,
+        );
+
+        let depth = create_depth_resources(
+            swapchain_extent,
+            queues.graphics,
+            command_pool,
+            msaa_samples,
+            physical_device,
+            &instance,
+            &logical_device,
+        );
+        let framebuffers = create_framebuffers(
+            pipeline_render_pass,
+            &logical_device,
+            depth.view,
+            color.view,
+            swapchain_image_count,
+            &swapchain_image_views,
+            swapchain_extent,
+        );
+
+        let (texture, texture_mipmaps) = create_texture(
+            model.texture_path,
+            &logical_device,
+            queues.graphics,
+            command_pool,
+            &instance,
+            physical_device,
+        );
+        let texture_sampler =
+            create_texture_sampler(&logical_device, texture_mipmaps, &instance, physical_device);
+
+        let (vertex_buffer, vertex_buffer_memory) = create_vertex_buffer(
+            &model.vertices,
+            &logical_device,
+            command_pool,
+            &instance,
+            physical_device,
+            queues.graphics,
+        );
+        let (index_buffer, index_buffer_memory) = create_index_buffer(
+            &model.indices,
+            &logical_device,
+            command_pool,
+            &instance,
+            physical_device,
+            queues.graphics,
+        );
+
+        let (uniform_buffers, uniform_buffer_memories, uniform_buffer_mapped) =
+            create_uniform_buffer(&logical_device, &instance, physical_device);
+
+        let descriptor_pool = create_descriptor_pool(&logical_device);
+        let descriptor_sets = create_descriptor_sets(
+            descriptor_set_layout,
+            descriptor_pool,
+            &uniform_buffers,
+            texture.view,
+            texture_sampler,
+            &logical_device,
+        );
+        let sync = create_sync(&logical_device);
         Renderer {
             entry,
             instance,
             extensions,
             debug_messenger,
             surface,
-            physical_device: device_info.physical_device,
-            queue_families: device_info.queue_families,
-            surface_capabilities: device_info.surface_capabilities,
-            surface_formats: device_info.surface_formats,
-            present_modes: device_info.present_modes,
+            physical_device,
+            queue_families,
+            surface_capabilities,
+            surface_formats,
+            present_modes,
             logical_device,
-            queues: Queues {
-                graphics: graphics_queue,
-                present: present_queue,
-            },
+            queues,
             swapchain_extension,
             swapchain_image_count,
             swapchain_format,
             swapchain_extent,
             swapchain,
             swapchain_image_views,
-            // descriptor_set_layout: vk::DescriptorSetLayout,
-            // msaa_samples: vk::SampleCountFlags,
-            // pipeline: vk::Pipeline,
-            // pipeline_layout: vk::PipelineLayout,
-            // pipeline_render_pass: vk::RenderPass,
-            // command_pool: vk::CommandPool,
-            // command_buffers: [vk::CommandBuffer; MAX_FRAMES_IN_FLIGHT],
-            // color: ImageResources,
-            // depth: ImageResources,
-            // framebuffers: [vk::Framebuffer; MAX_FRAMES_IN_FLIGHT],
-            // texture: ImageResources,
-            // texture_mipmaps: usize,
-            // texture_sampler: vk::Sampler,
-            // vertex_buffer: vk::Buffer,
-            // vertex_buffer_memory: vk::DeviceMemory,
-            // index_buffer: vk::Buffer,
-            // index_buffer_memory: vk::DeviceMemory,
-            // uniform_buffers: [vk::Buffer; MAX_FRAMES_IN_FLIGHT],
-            // uniform_buffer_memories: [vk::DeviceMemory; MAX_FRAMES_IN_FLIGHT],
-            // descriptor_pool: vk::DescriptorPool,
-            // descriptor_set: vk::DescriptorSet,
-            // sync: Synchronization,
-            // frame_flight_index: usize,
+            descriptor_set_layout,
+            msaa_samples,
+            pipeline,
+            pipeline_layout,
+            pipeline_render_pass,
+            command_pool,
+            command_buffers,
+            color,
+            depth,
+            framebuffers,
+            texture,
+            texture_mipmaps,
+            texture_sampler,
+            vertex_buffer,
+            vertex_buffer_memory,
+            index_buffer,
+            index_buffer_memory,
+            uniform_buffers,
+            uniform_buffer_memories,
+            uniform_buffer_mapped,
+            descriptor_pool,
+            descriptor_sets,
+            sync,
+            frame_flight_index: 0,
+        }
+    }
+
+    fn draw_frame(&mut self, model: &Model, camera: &Camera) {
+        draw_frame(
+            &self.logical_device,
+            self.sync.in_flight[self.frame_flight_index],
+            self.swapchain,
+            &self.swapchain_extension,
+            self.swapchain_extent,
+            self.sync.image_available[self.frame_flight_index],
+            self.command_buffers[self.frame_flight_index],
+            &self.framebuffers,
+            self.pipeline,
+            self.pipeline_render_pass,
+            self.pipeline_layout,
+            self.sync.render_finished[self.frame_flight_index],
+            self.vertex_buffer,
+            self.index_buffer,
+            model.indices.len(),
+            self.uniform_buffer_mapped[self.frame_flight_index],
+            self.descriptor_sets[self.frame_flight_index],
+            &camera,
+            self.queues.graphics,
+            self.queues.present,
+        );
+        self.frame_flight_index = (self.frame_flight_index + 1) % MAX_FRAMES_IN_FLIGHT;
+    }
+}
+
+impl Drop for Renderer {
+    fn drop(&mut self) {
+        unsafe {
+            self.logical_device.device_wait_idle().unwrap();
+
+            for fence in self.sync.in_flight {
+                self.logical_device.destroy_fence(fence, None)
+            }
+            for semaphore in self.sync.render_finished {
+                self.logical_device.destroy_semaphore(semaphore, None)
+            }
+            for semaphore in self.sync.image_available {
+                self.logical_device.destroy_semaphore(semaphore, None)
+            }
+            self.logical_device
+                .destroy_descriptor_pool(self.descriptor_pool, None);
+            for buffer in self.uniform_buffers {
+                self.logical_device.destroy_buffer(buffer, None)
+            }
+            for memory in self.uniform_buffer_memories {
+                self.logical_device.free_memory(memory, None)
+            }
+            self.logical_device.destroy_buffer(self.index_buffer, None);
+            self.logical_device
+                .free_memory(self.index_buffer_memory, None);
+            self.logical_device.destroy_buffer(self.vertex_buffer, None);
+            self.logical_device
+                .free_memory(self.vertex_buffer_memory, None);
+            self.logical_device
+                .destroy_sampler(self.texture_sampler, None);
+            self.logical_device
+                .destroy_image_view(self.texture.view, None);
+            self.logical_device.destroy_image(self.texture.image, None);
+            self.logical_device.free_memory(self.texture.memory, None);
+            for framebuffer in &self.framebuffers {
+                self.logical_device.destroy_framebuffer(*framebuffer, None);
+            }
+            self.logical_device
+                .destroy_image_view(self.depth.view, None);
+            self.logical_device.destroy_image(self.depth.image, None);
+            self.logical_device.free_memory(self.depth.memory, None);
+            self.logical_device
+                .destroy_image_view(self.color.view, None);
+            self.logical_device.destroy_image(self.color.image, None);
+            self.logical_device.free_memory(self.color.memory, None);
+            self.logical_device
+                .destroy_command_pool(self.command_pool, None);
+            self.logical_device.destroy_pipeline(self.pipeline, None);
+            self.logical_device
+                .destroy_render_pass(self.pipeline_render_pass, None);
+            self.logical_device
+                .destroy_pipeline_layout(self.pipeline_layout, None);
+            self.logical_device
+                .destroy_descriptor_set_layout(self.descriptor_set_layout, None);
+            for image_view in &self.swapchain_image_views {
+                self.logical_device.destroy_image_view(*image_view, None);
+            }
+            self.swapchain_extension
+                .destroy_swapchain(self.swapchain, None);
+            self.logical_device.destroy_device(None);
+            self.extensions.surface.destroy_surface(self.surface, None);
+            self.extensions
+                .debug
+                .destroy_debug_utils_messenger(self.debug_messenger, None);
+            self.instance.destroy_instance(None);
         }
     }
 }
 
 pub fn run_renderer(mut window: Window, model: Model) {
-    let renderer = Renderer::new(&window);
+    let mut renderer = Renderer::new(&window, &model);
 
-    let descriptor_set_layout = create_descriptor_set_layout(&renderer.logical_device);
-    let msaa_samples = get_max_usable_sample_count(renderer.physical_device, &renderer.instance);
-    let pipeline = VulkanPipeline::create(
-        renderer.swapchain_format,
-        descriptor_set_layout,
-        msaa_samples,
-        renderer.physical_device,
-        &renderer.instance,
-        &renderer.logical_device,
-    );
-    let command_pool = create_command_pool(&renderer.queue_families, &renderer.logical_device);
-    let command_buffers = create_command_buffers(command_pool, &renderer.logical_device);
-
-    let (color_image, color_image_memory, color_image_view) = create_color_resources(
-        renderer.swapchain_format,
-        renderer.swapchain_extent,
-        msaa_samples,
-        &renderer.instance,
-        renderer.physical_device,
-        &renderer.logical_device,
-    );
-
-    let (depth_image, depth_image_memory, depth_image_view) = create_depth_resources(
-        renderer.swapchain_extent,
-        renderer.queues.graphics,
-        command_pool,
-        msaa_samples,
-        renderer.physical_device,
-        &renderer.instance,
-        &renderer.logical_device,
-    );
-    let framebuffers = create_framebuffers(
-        &pipeline,
-        depth_image_view,
-        color_image_view,
-        renderer.swapchain_image_count,
-        &renderer.swapchain_image_views,
-        renderer.swapchain_extent,
-    );
-
-    let (texture_image, texture_image_memory, mip_levels) = create_texture_image(
-        model.texture_path,
-        &renderer.logical_device,
-        renderer.queues.graphics,
-        command_pool,
-        &renderer.instance,
-        renderer.physical_device,
-    );
-    let texture_image_view =
-        create_texture_image_view(&renderer.logical_device, texture_image, mip_levels);
-    let texture_sampler = create_texture_sampler(
-        &renderer.logical_device,
-        mip_levels,
-        &renderer.instance,
-        renderer.physical_device,
-    );
-
-    let (vertex_buffer, vertex_buffer_memory) = create_vertex_buffer(
-        &model.vertices,
-        &renderer.logical_device,
-        command_pool,
-        &renderer.instance,
-        renderer.physical_device,
-        renderer.queues.graphics,
-    );
-    let (index_buffer, index_buffer_memory) = create_index_buffer(
-        &model.indices,
-        &renderer.logical_device,
-        command_pool,
-        &renderer.instance,
-        renderer.physical_device,
-        renderer.queues.graphics,
-    );
-
-    let (uniform_buffers, uniform_buffer_memories, uniform_buffer_mapped) = create_uniform_buffer(
-        &renderer.logical_device,
-        &renderer.instance,
-        renderer.physical_device,
-    );
-
-    let descriptor_pool = create_descriptor_pool(&renderer.logical_device);
-    let descriptor_sets = create_descriptor_sets(
-        descriptor_set_layout,
-        descriptor_pool,
-        &uniform_buffers,
-        texture_image_view,
-        texture_sampler,
-        &renderer.logical_device,
-    );
-
-    let sync = create_sync(&renderer.logical_device);
-
-    let mut current_frame = 0;
     let mut input_state = InputState::new();
     let mut camera = Camera {
         position: glm::vec3(-2., 0., 0.),
@@ -556,27 +446,7 @@ pub fn run_renderer(mut window: Window, model: Model) {
                 last_update = curr_update;
                 camera.apply_input(&input_state, delta_time);
                 input_state.reset_after_frame();
-                draw_frame(
-                    &renderer.logical_device,
-                    sync.in_flight[current_frame],
-                    renderer.swapchain,
-                    &renderer.swapchain_extension,
-                    renderer.swapchain_extent,
-                    sync.image_available[current_frame],
-                    command_buffers[current_frame],
-                    &framebuffers,
-                    &pipeline,
-                    sync.render_finished[current_frame],
-                    vertex_buffer,
-                    index_buffer,
-                    model.indices.len(),
-                    uniform_buffer_mapped[current_frame],
-                    descriptor_sets[current_frame],
-                    &camera,
-                    renderer.queues.graphics,
-                    renderer.queues.present,
-                );
-                current_frame = (current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
+                renderer.draw_frame(&model, &camera);
             }
             // This event is only sent after MainEventsCleared, during which we render
             // unconditionally.
@@ -590,123 +460,6 @@ pub fn run_renderer(mut window: Window, model: Model) {
             _ => (),
         }
     });
-
-    unsafe { renderer.logical_device.device_wait_idle() }.unwrap();
-
-    for fence in sync.in_flight {
-        unsafe { renderer.logical_device.destroy_fence(fence, None) };
-    }
-    for semaphore in sync.render_finished {
-        unsafe { renderer.logical_device.destroy_semaphore(semaphore, None) };
-    }
-    for semaphore in sync.image_available {
-        unsafe { renderer.logical_device.destroy_semaphore(semaphore, None) };
-    }
-    unsafe {
-        renderer
-            .logical_device
-            .destroy_descriptor_pool(descriptor_pool, None)
-    };
-    for buffer in uniform_buffers {
-        unsafe { renderer.logical_device.destroy_buffer(buffer, None) };
-    }
-    for memory in uniform_buffer_memories {
-        unsafe { renderer.logical_device.free_memory(memory, None) };
-    }
-    unsafe { renderer.logical_device.destroy_buffer(index_buffer, None) };
-    unsafe {
-        renderer
-            .logical_device
-            .free_memory(index_buffer_memory, None)
-    };
-    unsafe { renderer.logical_device.destroy_buffer(vertex_buffer, None) };
-    unsafe {
-        renderer
-            .logical_device
-            .free_memory(vertex_buffer_memory, None)
-    };
-    unsafe {
-        renderer
-            .logical_device
-            .destroy_sampler(texture_sampler, None)
-    };
-    unsafe {
-        renderer
-            .logical_device
-            .destroy_image_view(texture_image_view, None)
-    };
-    unsafe { renderer.logical_device.destroy_image(texture_image, None) };
-    unsafe {
-        renderer
-            .logical_device
-            .free_memory(texture_image_memory, None)
-    };
-    for framebuffer in &framebuffers {
-        unsafe {
-            renderer
-                .logical_device
-                .destroy_framebuffer(*framebuffer, None)
-        };
-    }
-    unsafe {
-        renderer
-            .logical_device
-            .destroy_image_view(depth_image_view, None)
-    };
-    unsafe { renderer.logical_device.destroy_image(depth_image, None) };
-    unsafe {
-        renderer
-            .logical_device
-            .free_memory(depth_image_memory, None)
-    };
-    unsafe {
-        renderer
-            .logical_device
-            .destroy_image_view(color_image_view, None)
-    };
-    unsafe { renderer.logical_device.destroy_image(color_image, None) };
-    unsafe {
-        renderer
-            .logical_device
-            .free_memory(color_image_memory, None)
-    };
-    unsafe {
-        renderer
-            .logical_device
-            .destroy_command_pool(command_pool, None)
-    };
-    drop(pipeline);
-    unsafe {
-        renderer
-            .logical_device
-            .destroy_descriptor_set_layout(descriptor_set_layout, None)
-    };
-    for image_view in &renderer.swapchain_image_views {
-        unsafe {
-            renderer
-                .logical_device
-                .destroy_image_view(*image_view, None)
-        };
-    }
-    unsafe {
-        renderer
-            .swapchain_extension
-            .destroy_swapchain(renderer.swapchain, None)
-    };
-    unsafe { renderer.logical_device.destroy_device(None) };
-    unsafe {
-        renderer
-            .extensions
-            .surface
-            .destroy_surface(renderer.surface, None)
-    };
-    unsafe {
-        renderer
-            .extensions
-            .debug
-            .destroy_debug_utils_messenger(renderer.debug_messenger, None)
-    };
-    unsafe { renderer.instance.destroy_instance(None) };
 }
 
 fn create_instance(entry: &Entry, window: &Window) -> Instance {
@@ -868,10 +621,14 @@ fn create_swapchain(
     let create_info = create_info
         .pre_transform(device_info.surface_capabilities.current_transform)
         .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE)
-        .present_mode(select_present_mode())
+        .present_mode(select_swapchain_present_mode())
         .clipped(true)
         .old_swapchain(vk::SwapchainKHR::null());
     unsafe { extension.create_swapchain(&create_info, None) }.unwrap()
+}
+
+fn select_swapchain_present_mode() -> vk::PresentModeKHR {
+    vk::PresentModeKHR::FIFO
 }
 
 fn create_swapchain_image_views(
@@ -895,8 +652,182 @@ fn create_swapchain_image_views(
     image_views
 }
 
+fn create_pipeline(
+    swapchain_image_format: vk::SurfaceFormatKHR,
+    descriptor_set_layout: vk::DescriptorSetLayout,
+    msaa_samples: vk::SampleCountFlags,
+    physical_device: vk::PhysicalDevice,
+    instance: &Instance,
+    logical_device: &Device,
+) -> (vk::Pipeline, vk::PipelineLayout, vk::RenderPass) {
+    let vert_shader = Shader::compile(
+        logical_device,
+        include_bytes!("../shaders/triangle-vert.spv"),
+        vk::ShaderStageFlags::VERTEX,
+    );
+    let frag_shader = Shader::compile(
+        logical_device,
+        include_bytes!("../shaders/triangle-frag.spv"),
+        vk::ShaderStageFlags::FRAGMENT,
+    );
+    let shader_stages = [vert_shader.stage_info, frag_shader.stage_info];
+    let dynamic_state = vk::PipelineDynamicStateCreateInfo::builder()
+        .dynamic_states(&[vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR]);
+    let vertex_binding_descriptions = [Vertex::get_binding_description()];
+    let vertex_attribute_descriptions = get_attribute_descriptions();
+    let vertex_input = vk::PipelineVertexInputStateCreateInfo::builder()
+        .vertex_binding_descriptions(&vertex_binding_descriptions)
+        .vertex_attribute_descriptions(&vertex_attribute_descriptions);
+    let input_assembly = vk::PipelineInputAssemblyStateCreateInfo::builder()
+        .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
+        .primitive_restart_enable(false);
+    let viewport_state = vk::PipelineViewportStateCreateInfo::builder()
+        .viewport_count(1)
+        .scissor_count(1);
+    let rasterizer = vk::PipelineRasterizationStateCreateInfo::builder()
+        .depth_clamp_enable(false)
+        .rasterizer_discard_enable(false)
+        .polygon_mode(vk::PolygonMode::FILL)
+        .line_width(1.)
+        .cull_mode(vk::CullModeFlags::BACK)
+        .front_face(vk::FrontFace::COUNTER_CLOCKWISE)
+        .depth_bias_enable(false)
+        .depth_bias_constant_factor(0.)
+        .depth_bias_clamp(0.)
+        .depth_bias_slope_factor(0.);
+    let multisampling = vk::PipelineMultisampleStateCreateInfo::builder()
+        .sample_shading_enable(false)
+        .rasterization_samples(msaa_samples)
+        .min_sample_shading(1.)
+        .sample_mask(&[])
+        .alpha_to_coverage_enable(false)
+        .alpha_to_one_enable(false);
+    let color_blend_attachment = vk::PipelineColorBlendAttachmentState::builder()
+        .color_write_mask(vk::ColorComponentFlags::RGBA)
+        .blend_enable(false);
+    let color_blend_attachments = [*color_blend_attachment];
+    let color_blending = vk::PipelineColorBlendStateCreateInfo::builder()
+        .logic_op_enable(false)
+        .logic_op(vk::LogicOp::COPY)
+        .attachments(&color_blend_attachments);
+    let set_layouts = [descriptor_set_layout];
+    let pipeline_layout_info = vk::PipelineLayoutCreateInfo::builder()
+        .set_layouts(&set_layouts)
+        .push_constant_ranges(&[]);
+    let pipeline_layout =
+        unsafe { logical_device.create_pipeline_layout(&pipeline_layout_info, None) }.unwrap();
+
+    let color_attachment = vk::AttachmentDescription::builder()
+        .format(swapchain_image_format.format)
+        .samples(msaa_samples)
+        .load_op(vk::AttachmentLoadOp::CLEAR)
+        .store_op(vk::AttachmentStoreOp::STORE)
+        .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
+        .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
+        .initial_layout(vk::ImageLayout::UNDEFINED)
+        .final_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL);
+    let color_attachment_ref = vk::AttachmentReference::builder()
+        .attachment(0)
+        .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL);
+    let color_attachments = [*color_attachment_ref];
+    let depth_attachment = *vk::AttachmentDescription::builder()
+        .format(find_depth_format(physical_device, instance))
+        .samples(msaa_samples)
+        .load_op(vk::AttachmentLoadOp::CLEAR)
+        .store_op(vk::AttachmentStoreOp::DONT_CARE)
+        .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
+        .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
+        .initial_layout(vk::ImageLayout::UNDEFINED)
+        .final_layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+    let depth_attachment_ref = vk::AttachmentReference::builder()
+        .attachment(1)
+        .layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+    let color_attachment_resolve = *vk::AttachmentDescription::builder()
+        .format(swapchain_image_format.format)
+        .samples(vk::SampleCountFlags::TYPE_1)
+        .load_op(vk::AttachmentLoadOp::DONT_CARE)
+        .store_op(vk::AttachmentStoreOp::STORE)
+        .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
+        .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
+        .initial_layout(vk::ImageLayout::UNDEFINED)
+        .final_layout(vk::ImageLayout::PRESENT_SRC_KHR);
+    let color_attachment_resolve_ref = *vk::AttachmentReference::builder()
+        .attachment(2)
+        .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL);
+    let resolve_attachments = [color_attachment_resolve_ref];
+    let subpass = vk::SubpassDescription::builder()
+        .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
+        .color_attachments(&color_attachments)
+        .depth_stencil_attachment(&depth_attachment_ref)
+        .resolve_attachments(&resolve_attachments);
+    let dependency = vk::SubpassDependency::builder()
+        .src_subpass(vk::SUBPASS_EXTERNAL)
+        .dst_subpass(0)
+        .src_stage_mask(
+            vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT
+                | vk::PipelineStageFlags::EARLY_FRAGMENT_TESTS,
+        )
+        .src_access_mask(vk::AccessFlags::empty())
+        .dst_stage_mask(
+            vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT
+                | vk::PipelineStageFlags::EARLY_FRAGMENT_TESTS,
+        )
+        .dst_access_mask(
+            vk::AccessFlags::COLOR_ATTACHMENT_WRITE
+                | vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE,
+        );
+    let attachments = [
+        *color_attachment,
+        depth_attachment,
+        color_attachment_resolve,
+    ];
+    let subpasses = [*subpass];
+    let dependencies = [*dependency];
+    let render_pass_info = vk::RenderPassCreateInfo::builder()
+        .attachments(&attachments)
+        .subpasses(&subpasses)
+        .dependencies(&dependencies);
+    let render_pass =
+        unsafe { logical_device.create_render_pass(&render_pass_info, None) }.unwrap();
+
+    let depth_stencil = vk::PipelineDepthStencilStateCreateInfo::builder()
+        .depth_test_enable(true)
+        .depth_write_enable(true)
+        .depth_compare_op(vk::CompareOp::LESS)
+        .depth_bounds_test_enable(false)
+        .min_depth_bounds(0.)
+        .max_depth_bounds(1.)
+        .stencil_test_enable(false)
+        .front(vk::StencilOpState::default())
+        .back(vk::StencilOpState::default());
+
+    let pipeline_info = vk::GraphicsPipelineCreateInfo::builder()
+        .stages(&shader_stages)
+        .vertex_input_state(&vertex_input)
+        .input_assembly_state(&input_assembly)
+        .viewport_state(&viewport_state)
+        .rasterization_state(&rasterizer)
+        .multisample_state(&multisampling)
+        .color_blend_state(&color_blending)
+        .depth_stencil_state(&depth_stencil)
+        .dynamic_state(&dynamic_state)
+        .layout(pipeline_layout)
+        .render_pass(render_pass)
+        .subpass(0);
+    let pipeline = unsafe {
+        logical_device.create_graphics_pipelines(vk::PipelineCache::null(), &[*pipeline_info], None)
+    }
+    .unwrap()
+    .into_iter()
+    .next()
+    .unwrap();
+
+    (pipeline, pipeline_layout, render_pass)
+}
+
 fn create_framebuffers(
-    pipeline: &VulkanPipeline,
+    pipeline_render_pass: vk::RenderPass,
+    logical_device: &Device,
     depth_image_view: vk::ImageView,
     color_image_view: vk::ImageView,
     swapchain_image_count: usize,
@@ -907,17 +838,13 @@ fn create_framebuffers(
     for i in 0..swapchain_image_count {
         let attachments = [color_image_view, depth_image_view, swapchain_image_views[i]];
         let framebuffer_info = vk::FramebufferCreateInfo::builder()
-            .render_pass(pipeline.render_pass)
+            .render_pass(pipeline_render_pass)
             .attachments(&attachments)
             .width(swapchain_extent.width)
             .height(swapchain_extent.height)
             .layers(1);
-        let framebuffer = unsafe {
-            pipeline
-                .logical_device
-                .create_framebuffer(&framebuffer_info, None)
-        }
-        .unwrap();
+        let framebuffer =
+            unsafe { logical_device.create_framebuffer(&framebuffer_info, None) }.unwrap();
         framebuffers[i] = framebuffer;
     }
     framebuffers
@@ -1070,8 +997,8 @@ fn create_color_resources(
     instance: &Instance,
     physical_device: vk::PhysicalDevice,
     logical_device: &Device,
-) -> (vk::Image, vk::DeviceMemory, vk::ImageView) {
-    let (image, image_memory) = create_image(
+) -> ImageResources {
+    let (image, memory) = create_image(
         instance,
         physical_device,
         logical_device,
@@ -1084,14 +1011,18 @@ fn create_color_resources(
         vk::ImageUsageFlags::TRANSIENT_ATTACHMENT | vk::ImageUsageFlags::COLOR_ATTACHMENT,
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
     );
-    let image_view = create_image_view(
+    let view = create_image_view(
         logical_device,
         image,
         swapchain_format.format,
         vk::ImageAspectFlags::COLOR,
         1,
     );
-    (image, image_memory, image_view)
+    ImageResources {
+        image,
+        memory,
+        view,
+    }
 }
 
 fn find_depth_format(physical_device: vk::PhysicalDevice, instance: &Instance) -> vk::Format {
@@ -1120,9 +1051,9 @@ fn create_depth_resources(
     physical_device: vk::PhysicalDevice,
     instance: &Instance,
     logical_device: &Device,
-) -> (vk::Image, vk::DeviceMemory, vk::ImageView) {
+) -> ImageResources {
     let format = find_depth_format(physical_device, instance);
-    let (image, image_memory) = create_image(
+    let (image, memory) = create_image(
         instance,
         physical_device,
         logical_device,
@@ -1135,7 +1066,7 @@ fn create_depth_resources(
         vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
     );
-    let image_view = create_image_view(
+    let view = create_image_view(
         logical_device,
         image,
         format,
@@ -1152,21 +1083,27 @@ fn create_depth_resources(
         vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
         1,
     );
-    (image, image_memory, image_view)
+    ImageResources {
+        image,
+        memory,
+        view,
+    }
 }
 
-fn create_texture_image(
+fn create_texture(
     path: &str,
     logical_device: &Device,
     graphics_queue: vk::Queue,
     command_pool: vk::CommandPool,
     instance: &Instance,
     physical_device: vk::PhysicalDevice,
-) -> (vk::Image, vk::DeviceMemory, usize) {
+) -> (ImageResources, usize) {
     let image = image::open(path).unwrap().to_rgba8();
-    let pixel_count = image.width() as usize * image.height() as usize;
+    let image_width = image.width() as usize;
+    let image_height = image.height() as usize;
+    let pixel_count = image_width * image_height;
     let image_size = pixel_count * 4;
-    let mip_levels = (image.width().max(image.height()) as f32).log2().floor() as usize + 1;
+    let mip_levels = (image_width.max(image_height) as f64).log2().floor() as usize + 1;
 
     let (staging_buffer, staging_buffer_memory) = create_buffer(
         logical_device,
@@ -1190,12 +1127,12 @@ fn create_texture_image(
     }
     unsafe { logical_device.unmap_memory(staging_buffer_memory) };
 
-    let (texture_image, texture_image_memory) = create_image(
+    let (image, memory) = create_image(
         instance,
         physical_device,
         logical_device,
-        image.width() as usize,
-        image.height() as usize,
+        image_width,
+        image_height,
         mip_levels,
         vk::SampleCountFlags::TYPE_1,
         vk::Format::R8G8B8A8_SRGB,
@@ -1210,7 +1147,7 @@ fn create_texture_image(
         logical_device,
         graphics_queue,
         command_pool,
-        texture_image,
+        image,
         vk::Format::R8G8B8A8_SRGB,
         vk::ImageLayout::UNDEFINED,
         vk::ImageLayout::TRANSFER_DST_OPTIMAL,
@@ -1221,15 +1158,15 @@ fn create_texture_image(
         graphics_queue,
         command_pool,
         staging_buffer,
-        texture_image,
-        image.width() as usize,
-        image.height() as usize,
+        image,
+        image_width,
+        image_height,
     );
     generate_mipmaps(
-        texture_image,
+        image,
         vk::Format::R8G8B8A8_SRGB,
-        image.width() as usize,
-        image.height() as usize,
+        image_width,
+        image_height,
         mip_levels,
         logical_device,
         graphics_queue,
@@ -1241,7 +1178,21 @@ fn create_texture_image(
     unsafe { logical_device.destroy_buffer(staging_buffer, None) };
     unsafe { logical_device.free_memory(staging_buffer_memory, None) };
 
-    (texture_image, texture_image_memory, mip_levels)
+    let view = create_image_view(
+        logical_device,
+        image,
+        vk::Format::R8G8B8A8_SRGB,
+        vk::ImageAspectFlags::COLOR,
+        mip_levels,
+    );
+
+    let texture = ImageResources {
+        image,
+        memory,
+        view,
+    };
+
+    (texture, mip_levels)
 }
 
 fn generate_mipmaps(
@@ -1410,20 +1361,6 @@ fn create_image_view(
             layer_count: 1,
         });
     unsafe { logical_device.create_image_view(&view_info, None) }.unwrap()
-}
-
-fn create_texture_image_view(
-    logical_device: &Device,
-    texture_image: vk::Image,
-    mip_levels: usize,
-) -> vk::ImageView {
-    create_image_view(
-        logical_device,
-        texture_image,
-        vk::Format::R8G8B8A8_SRGB,
-        vk::ImageAspectFlags::COLOR,
-        mip_levels,
-    )
 }
 
 fn create_texture_sampler(
@@ -1694,14 +1631,14 @@ fn create_uniform_buffer(
     instance: &Instance,
     physical_device: vk::PhysicalDevice,
 ) -> (
-    Vec<vk::Buffer>,
-    Vec<vk::DeviceMemory>,
-    Vec<*mut UniformBufferObject>,
+    [vk::Buffer; MAX_FRAMES_IN_FLIGHT],
+    [vk::DeviceMemory; MAX_FRAMES_IN_FLIGHT],
+    [*mut UniformBufferObject; MAX_FRAMES_IN_FLIGHT],
 ) {
-    let mut buffers = Vec::new();
-    let mut memories = Vec::new();
-    let mut mappings = Vec::new();
-    for _ in 0..MAX_FRAMES_IN_FLIGHT {
+    let mut buffers = [vk::Buffer::null(); MAX_FRAMES_IN_FLIGHT];
+    let mut memories = [vk::DeviceMemory::null(); MAX_FRAMES_IN_FLIGHT];
+    let mut mappings = [std::ptr::null_mut(); MAX_FRAMES_IN_FLIGHT];
+    for i in 0..MAX_FRAMES_IN_FLIGHT {
         let buffer_size = std::mem::size_of::<UniformBufferObject>();
         let (buffer, memory) = create_buffer(
             &logical_device,
@@ -1715,9 +1652,9 @@ fn create_uniform_buffer(
             logical_device.map_memory(memory, 0, buffer_size as u64, vk::MemoryMapFlags::empty())
         }
         .unwrap() as *mut UniformBufferObject;
-        buffers.push(buffer);
-        memories.push(memory);
-        mappings.push(mapping);
+        buffers[i] = buffer;
+        memories[i] = memory;
+        mappings[i] = mapping;
     }
     (buffers, memories, mappings)
 }
@@ -1762,13 +1699,16 @@ fn create_descriptor_sets(
     texture_image_view: vk::ImageView,
     texture_sampler: vk::Sampler,
     logical_device: &Device,
-) -> Vec<vk::DescriptorSet> {
+) -> [vk::DescriptorSet; MAX_FRAMES_IN_FLIGHT] {
     let layouts = vec![layout; MAX_FRAMES_IN_FLIGHT];
     let descriptor_set_alloc_info = vk::DescriptorSetAllocateInfo::builder()
         .descriptor_pool(pool)
         .set_layouts(&layouts);
-    let descriptor_sets =
-        unsafe { logical_device.allocate_descriptor_sets(&descriptor_set_alloc_info) }.unwrap();
+    let descriptor_sets: [vk::DescriptorSet; 2] =
+        unsafe { logical_device.allocate_descriptor_sets(&descriptor_set_alloc_info) }
+            .unwrap()
+            .try_into()
+            .unwrap();
     for i in 0..MAX_FRAMES_IN_FLIGHT {
         let buffer_info = vk::DescriptorBufferInfo::builder()
             .buffer(uniform_buffers[i])
@@ -1857,12 +1797,15 @@ fn create_command_pool(queue_families: &QueueFamilies, logical_device: &Device) 
 fn create_command_buffers(
     command_pool: vk::CommandPool,
     logical_device: &Device,
-) -> Vec<vk::CommandBuffer> {
+) -> [vk::CommandBuffer; MAX_FRAMES_IN_FLIGHT] {
     let command_buffer_allocate_info = vk::CommandBufferAllocateInfo::builder()
         .command_pool(command_pool)
         .level(vk::CommandBufferLevel::PRIMARY)
         .command_buffer_count(MAX_FRAMES_IN_FLIGHT as u32);
-    unsafe { logical_device.allocate_command_buffers(&command_buffer_allocate_info) }.unwrap()
+    unsafe { logical_device.allocate_command_buffers(&command_buffer_allocate_info) }
+        .unwrap()
+        .try_into()
+        .unwrap()
 }
 
 fn copy_buffer(
@@ -1929,7 +1872,9 @@ fn draw_frame(
     image_available_semaphore: vk::Semaphore,
     command_buffer: vk::CommandBuffer,
     framebuffers: &[vk::Framebuffer],
-    pipeline: &VulkanPipeline,
+    pipeline: vk::Pipeline,
+    pipeline_render_pass: vk::RenderPass,
+    pipeline_layout: vk::PipelineLayout,
     render_finished_semaphore: vk::Semaphore,
     vertex_buffer: vk::Buffer,
     index_buffer: vk::Buffer,
@@ -1961,7 +1906,9 @@ fn draw_frame(
         image_index,
         framebuffers,
         swapchain_extent,
-        &pipeline,
+        pipeline,
+        pipeline_render_pass,
+        pipeline_layout,
         vertex_buffer,
         index_buffer,
         index_count,
@@ -1999,7 +1946,9 @@ fn record_command_buffer(
     image_index: u32,
     framebuffers: &[vk::Framebuffer],
     swapchain_extent: vk::Extent2D,
-    pipeline: &VulkanPipeline,
+    pipeline: vk::Pipeline,
+    pipeline_render_pass: vk::RenderPass,
+    pipeline_layout: vk::PipelineLayout,
     vertex_buffer: vk::Buffer,
     index_buffer: vk::Buffer,
     index_count: usize,
@@ -2009,7 +1958,7 @@ fn record_command_buffer(
     unsafe { device.begin_command_buffer(command_buffer, &begin_info) }.unwrap();
 
     let render_pass_info = vk::RenderPassBeginInfo::builder()
-        .render_pass(pipeline.render_pass)
+        .render_pass(pipeline_render_pass)
         .framebuffer(framebuffers[image_index as usize])
         .render_area(vk::Rect2D {
             offset: vk::Offset2D { x: 0, y: 0 },
@@ -2036,13 +1985,7 @@ fn record_command_buffer(
         )
     };
 
-    unsafe {
-        device.cmd_bind_pipeline(
-            command_buffer,
-            vk::PipelineBindPoint::GRAPHICS,
-            pipeline.pipeline,
-        )
-    };
+    unsafe { device.cmd_bind_pipeline(command_buffer, vk::PipelineBindPoint::GRAPHICS, pipeline) };
 
     let buffers = [vertex_buffer];
     let offsets = [0];
@@ -2070,7 +2013,7 @@ fn record_command_buffer(
         device.cmd_bind_descriptor_sets(
             command_buffer,
             vk::PipelineBindPoint::GRAPHICS,
-            pipeline.pipeline_layout,
+            pipeline_layout,
             0,
             &[descriptor_set],
             &[],
