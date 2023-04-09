@@ -1,12 +1,12 @@
 use winit::event_loop::EventLoop;
-use winit::window::{CursorGrabMode, Window as WinitWindow, WindowBuilder};
+use winit::window::{CursorGrabMode, Fullscreen, WindowBuilder};
 
 const TITLE: &str = "Vulkthing";
-const INITIAL_SIZE: (usize, usize) = (1920, 1080);
+const INITIAL_SIZE: (usize, usize) = (640, 360);
 
 pub struct Window {
     pub event_loop: EventLoop<()>,
-    pub window: WinitWindow,
+    pub window: winit::window::Window,
 }
 
 pub fn create_window() -> Window {
@@ -19,8 +19,9 @@ pub fn create_window() -> Window {
             INITIAL_SIZE.0 as f64,
             INITIAL_SIZE.1 as f64,
         ))
-        .with_resizable(false)
+        .with_resizable(true)
         .with_decorations(false)
+        .with_fullscreen(Some(Fullscreen::Borderless(None)))
         .build(&event_loop)
         .unwrap();
     window.set_cursor_grab(CursorGrabMode::Locked).unwrap();

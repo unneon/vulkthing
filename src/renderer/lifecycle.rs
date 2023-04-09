@@ -15,6 +15,7 @@ use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use std::collections::HashSet;
 use std::ffi::CString;
 use std::mem::MaybeUninit;
+use winit::dpi::PhysicalSize;
 
 impl Renderer {
     pub fn new(window: &Window, model: &Model) -> Renderer {
@@ -43,7 +44,8 @@ impl Renderer {
         let swapchain_extension = Swapchain::new(&instance, &logical_device);
         let swapchain_image_count = select_swapchain_image_count(surface_capabilities);
         let swapchain_format = select_swapchain_format(&surface_formats);
-        let swapchain_extent = select_swapchain_extent(surface_capabilities, window);
+        let swapchain_extent =
+            select_swapchain_extent(surface_capabilities, window.window.inner_size());
         let swapchain_present_mode = select_swapchain_present_mode(&present_modes);
         let swapchain = create_swapchain(
             swapchain_image_count,
@@ -189,10 +191,127 @@ impl Renderer {
             flight_index: 0,
         }
     }
+
+    pub fn recreate_swapchain(&mut self, window_size: PhysicalSize<u32>) {
+        // First, wait for the GPU work to end. It's possible to pass an old swapchain while
+        // creating the new one which results in a faster (?) transition, but in the interest of
+        // simplicity let's skip that for now.
+        unsafe { self.logical_device.device_wait_idle() }.unwrap();
+
+        // This destroys swapchain resources including the framebuffer, but we should also consider
+        // surface information obtained during physical device selection as outdated. These can
+        // contain not only things like image formats, but also some sizes.
+        self.cleanup_swapchain();
+
+        // Query the surface information again.
+        let surface_capabilities = unsafe {
+            self.extensions
+                .surface
+                .get_physical_device_surface_capabilities(self.physical_device, self.surface)
+        }
+        .unwrap();
+        let surface_formats = unsafe {
+            self.extensions
+                .surface
+                .get_physical_device_surface_formats(self.physical_device, self.surface)
+        }
+        .unwrap();
+        let present_modes = unsafe {
+            self.extensions
+                .surface
+                .get_physical_device_surface_present_modes(self.physical_device, self.surface)
+        }
+        .unwrap();
+        assert!(!surface_formats.is_empty());
+        assert!(!present_modes.is_empty());
+
+        let swapchain_image_count = select_swapchain_image_count(surface_capabilities);
+
+        // Make sure the swapchain format is the same, if it weren't we'd need to recreate the
+        // graphics pipeline too.
+        let swapchain_format = select_swapchain_format(&surface_formats);
+        assert_eq!(swapchain_format, self.swapchain_format);
+
+        // Repeat creating the swapchain, except not using any Renderer members that heavily depend
+        // on the swapchain (such as depth and color buffers).
+        let swapchain_extent = select_swapchain_extent(surface_capabilities, window_size);
+        let swapchain_present_mode = select_swapchain_present_mode(&present_modes);
+        let swapchain = create_swapchain(
+            swapchain_image_count,
+            swapchain_format,
+            swapchain_extent,
+            swapchain_present_mode,
+            &self.queue_families,
+            surface_capabilities,
+            self.surface,
+            &self.swapchain_extension,
+        );
+        let swapchain_image_views = create_swapchain_image_views(
+            swapchain_format,
+            swapchain,
+            &self.logical_device,
+            &self.swapchain_extension,
+        );
+        let color = create_color_resources(
+            swapchain_format,
+            swapchain_extent,
+            self.msaa_samples,
+            &self.instance,
+            self.physical_device,
+            &self.logical_device,
+        );
+        let depth = create_depth_resources(
+            swapchain_extent,
+            self.queues.graphics,
+            self.command_pool,
+            self.msaa_samples,
+            self.physical_device,
+            &self.instance,
+            &self.logical_device,
+        );
+        let framebuffers = create_framebuffers(
+            self.pipeline_render_pass,
+            &self.logical_device,
+            depth.view,
+            color.view,
+            swapchain_image_count,
+            &swapchain_image_views,
+            swapchain_extent,
+        );
+
+        // Doing the assignments at the end guarantees any operation won't fail in the middle, and
+        // makes it possible to easily compare new values to old ones.
+        self.surface_capabilities = surface_capabilities;
+        self.surface_formats = surface_formats;
+        self.present_modes = present_modes;
+        self.swapchain_image_count = swapchain_image_count;
+        self.swapchain_format = swapchain_format;
+        self.swapchain_extent = swapchain_extent;
+        self.swapchain = swapchain;
+        self.swapchain_image_views = swapchain_image_views;
+        self.color = color;
+        self.depth = depth;
+        self.framebuffers = framebuffers;
+    }
+
+    pub fn cleanup_swapchain(&mut self) {
+        self.depth.cleanup(&self.logical_device);
+        self.color.cleanup(&self.logical_device);
+        unsafe {
+            for framebuffer in &self.framebuffers {
+                self.logical_device.destroy_framebuffer(*framebuffer, None);
+            }
+            for image_view in &self.swapchain_image_views {
+                self.logical_device.destroy_image_view(*image_view, None);
+            }
+            self.swapchain_extension
+                .destroy_swapchain(self.swapchain, None);
+        }
+    }
 }
 
 impl ImageResources {
-    fn destroy(&self, logical_device: &Device) {
+    fn cleanup(&self, logical_device: &Device) {
         unsafe {
             logical_device.destroy_image_view(self.view, None);
             logical_device.destroy_image(self.image, None);
@@ -203,10 +322,9 @@ impl ImageResources {
 
 impl Drop for Renderer {
     fn drop(&mut self) {
-        let dev = &self.logical_device;
         unsafe {
+            let dev = &self.logical_device;
             dev.device_wait_idle().unwrap();
-
             for fence in self.sync.in_flight {
                 dev.destroy_fence(fence, None);
             }
@@ -228,23 +346,16 @@ impl Drop for Renderer {
             dev.destroy_buffer(self.vertex_buffer, None);
             dev.free_memory(self.vertex_buffer_memory, None);
             dev.destroy_sampler(self.texture_sampler, None);
-            self.texture.destroy(&dev);
-            for framebuffer in &self.framebuffers {
-                dev.destroy_framebuffer(*framebuffer, None);
-            }
-            self.depth.destroy(&dev);
-            self.color.destroy(&dev);
+            self.texture.cleanup(&self.logical_device);
             dev.destroy_command_pool(self.command_pool, None);
             dev.destroy_pipeline(self.pipeline, None);
             dev.destroy_render_pass(self.pipeline_render_pass, None);
             dev.destroy_pipeline_layout(self.pipeline_layout, None);
             dev.destroy_descriptor_set_layout(self.descriptor_set_layout, None);
-            for image_view in &self.swapchain_image_views {
-                dev.destroy_image_view(*image_view, None);
-            }
-            self.swapchain_extension
-                .destroy_swapchain(self.swapchain, None);
-            dev.destroy_device(None);
+        }
+        self.cleanup_swapchain();
+        unsafe {
+            self.logical_device.destroy_device(None);
             self.extensions.surface.destroy_surface(self.surface, None);
             self.extensions
                 .debug
@@ -375,12 +486,11 @@ fn select_swapchain_format(formats: &[vk::SurfaceFormatKHR]) -> vk::SurfaceForma
 
 pub fn select_swapchain_extent(
     capabilities: vk::SurfaceCapabilitiesKHR,
-    window: &Window,
+    window_size: PhysicalSize<u32>,
 ) -> vk::Extent2D {
     if capabilities.current_extent.width != u32::MAX {
         return capabilities.current_extent;
     }
-    let window_size = window.window.inner_size();
     vk::Extent2D {
         width: window_size.width.clamp(
             capabilities.min_image_extent.width,

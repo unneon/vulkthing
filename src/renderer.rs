@@ -1,7 +1,7 @@
 mod debug;
 mod device;
 pub mod gpu_data;
-mod init;
+mod lifecycle;
 mod shader;
 mod traits;
 mod util;
@@ -13,6 +13,7 @@ use ash::extensions::khr::Swapchain;
 use ash::{vk, Device, Entry, Instance};
 use nalgebra_glm as glm;
 use std::f32::consts::FRAC_PI_4;
+use winit::dpi::PhysicalSize;
 
 #[allow(dead_code)]
 pub struct Renderer {
@@ -70,8 +71,10 @@ struct Synchronization {
 const FRAMES_IN_FLIGHT: usize = 2;
 
 impl Renderer {
-    pub fn draw_frame(&mut self, camera: &Camera) {
-        let image_index = unsafe { self.prepare_command_buffer() };
+    pub fn draw_frame(&mut self, camera: &Camera, window_size: PhysicalSize<u32>) {
+        let Some(image_index) = (unsafe { self.prepare_command_buffer(window_size) }) else {
+            return;
+        };
         unsafe { self.record_command_buffer(image_index) };
         self.update_uniform_buffer(camera);
         self.submit_graphics();
@@ -80,25 +83,31 @@ impl Renderer {
         self.flight_index = (self.flight_index + 1) % FRAMES_IN_FLIGHT;
     }
 
-    unsafe fn prepare_command_buffer(&self) -> u32 {
+    unsafe fn prepare_command_buffer(&mut self, window_size: PhysicalSize<u32>) -> Option<u32> {
         let dev = &self.logical_device;
         let command_buffer = self.command_buffers[self.flight_index];
         let image_available = self.sync.image_available[self.flight_index];
         let in_flight = self.sync.in_flight[self.flight_index];
 
         dev.wait_for_fences(&[in_flight], true, u64::MAX).unwrap();
+
+        let acquire_result = self.swapchain_extension.acquire_next_image(
+            self.swapchain,
+            u64::MAX,
+            image_available,
+            vk::Fence::null(),
+        );
+        if acquire_result == Err(vk::Result::ERROR_OUT_OF_DATE_KHR) {
+            self.recreate_swapchain(window_size);
+            return None;
+        }
+        let (image_index, _is_suboptimal) = acquire_result.unwrap();
+
         dev.reset_fences(&[in_flight]).unwrap();
-
-        let image_index = self
-            .swapchain_extension
-            .acquire_next_image(self.swapchain, u64::MAX, image_available, vk::Fence::null())
-            .unwrap()
-            .0;
-
         dev.reset_command_buffer(command_buffer, vk::CommandBufferResetFlags::empty())
             .unwrap();
 
-        image_index
+        Some(image_index)
     }
 
     unsafe fn record_command_buffer(&self, image_index: u32) {

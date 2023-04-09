@@ -59,6 +59,7 @@ fn main() {
             Event::NewEvents(StartCause::Poll) => (),
             Event::WindowEvent { event, .. } => match event {
                 WindowEvent::KeyboardInput { input, .. } => input_state.apply_keyboard(input),
+                WindowEvent::Resized(new_size) => renderer.recreate_swapchain(new_size),
                 WindowEvent::CloseRequested => control_flow.set_exit(),
                 _ => (),
             },
@@ -75,7 +76,7 @@ fn main() {
                 last_update = curr_update;
                 camera.apply_input(&input_state, delta_time);
                 input_state.reset_after_frame();
-                renderer.draw_frame(&camera);
+                renderer.draw_frame(&camera, window.window.inner_size());
             }
             // This event is only sent after MainEventsCleared, during which we render
             // unconditionally.
