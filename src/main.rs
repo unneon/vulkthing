@@ -22,7 +22,6 @@ use crate::window::create_window;
 use nalgebra_glm as glm;
 use std::time::Instant;
 use winit::event::{DeviceEvent, Event, StartCause, WindowEvent};
-use winit::platform::run_return::EventLoopExtRunReturn;
 
 const VULKAN_APP_NAME: &str = "Vulkthing";
 const VULKAN_APP_VERSION: (u32, u32, u32) = (0, 0, 0);
@@ -34,7 +33,7 @@ const CAMERA_SENSITIVITY: f32 = 0.01;
 
 fn main() {
     initialize_logger();
-    let mut window = create_window();
+    let window = create_window();
     let model = load_model();
     let mut renderer = Renderer::new(&window, &model);
     let mut input_state = InputState::new();
@@ -51,7 +50,7 @@ fn main() {
     // system, for example if the window size changes. For games, initially I'll render at both
     // events, but this probably needs to be changed to alter framebuffer size if the window is
     // resized?
-    window.event_loop.run_return(|event, _, control_flow| {
+    window.event_loop.run(move |event, _, control_flow| {
         match event {
             Event::NewEvents(StartCause::Init) => (),
             // Can be used for collecting frame timing information later. Specifically, this makes
