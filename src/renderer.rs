@@ -51,6 +51,11 @@ pub struct Renderer {
     vertex_count: usize,
     index_buffer: vk::Buffer,
     index_buffer_memory: vk::DeviceMemory,
+    light_vb: vk::Buffer,
+    light_vbm: vk::DeviceMemory,
+    light_vc: usize,
+    light_ib: vk::Buffer,
+    light_ibm: vk::DeviceMemory,
     uniform_buffers: [vk::Buffer; FRAMES_IN_FLIGHT],
     uniform_buffer_memories: [vk::DeviceMemory; FRAMES_IN_FLIGHT],
     uniform_buffer_mapped: [*mut UniformBufferObject; FRAMES_IN_FLIGHT],
@@ -139,10 +144,6 @@ impl Renderer {
 
         dev.cmd_bind_pipeline(buf, vk::PipelineBindPoint::GRAPHICS, self.pipeline);
 
-        dev.cmd_bind_vertex_buffers(buf, 0, &[self.vertex_buffer], &[0]);
-
-        dev.cmd_bind_index_buffer(buf, self.index_buffer, 0, vk::IndexType::UINT32);
-
         let viewport = vk::Viewport {
             x: 0.,
             y: 0.,
@@ -168,7 +169,13 @@ impl Renderer {
             &[],
         );
 
+        dev.cmd_bind_vertex_buffers(buf, 0, &[self.vertex_buffer], &[0]);
+        dev.cmd_bind_index_buffer(buf, self.index_buffer, 0, vk::IndexType::UINT32);
         dev.cmd_draw_indexed(buf, self.vertex_count as u32, 1, 0, 0, 0);
+
+        dev.cmd_bind_vertex_buffers(buf, 0, &[self.light_vb], &[0]);
+        dev.cmd_bind_index_buffer(buf, self.light_ib, 0, vk::IndexType::UINT32);
+        dev.cmd_draw_indexed(buf, self.light_vc as u32, 1, 0, 0, 0);
 
         dev.cmd_end_render_pass(buf);
 

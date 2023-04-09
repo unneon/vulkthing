@@ -18,7 +18,7 @@ use std::mem::MaybeUninit;
 use winit::dpi::PhysicalSize;
 
 impl Renderer {
-    pub fn new(window: &Window, model: &Model) -> Renderer {
+    pub fn new(window: &Window, main_model: &Model, light_model: &Model) -> Renderer {
         let entry = unsafe { Entry::load() }.unwrap();
         let instance = create_instance(window, &entry);
         let extensions = VulkanExtensions {
@@ -105,7 +105,7 @@ impl Renderer {
         );
 
         let (texture, texture_mipmaps) = util::load_texture(
-            model.texture_path,
+            main_model.texture_path,
             &instance,
             physical_device,
             &logical_device,
@@ -116,7 +116,7 @@ impl Renderer {
             create_texture_sampler(texture_mipmaps, &instance, physical_device, &logical_device);
 
         let (vertex_buffer, vertex_buffer_memory) = create_vertex_buffer(
-            &model.vertices,
+            &main_model.vertices,
             &instance,
             physical_device,
             &logical_device,
@@ -124,7 +124,23 @@ impl Renderer {
             command_pool,
         );
         let (index_buffer, index_buffer_memory) = create_index_buffer(
-            &model.indices,
+            &main_model.indices,
+            &instance,
+            physical_device,
+            &logical_device,
+            queues.graphics,
+            command_pool,
+        );
+        let (light_vb, light_vbm) = create_vertex_buffer(
+            &light_model.vertices,
+            &instance,
+            physical_device,
+            &logical_device,
+            queues.graphics,
+            command_pool,
+        );
+        let (light_ib, light_ibm) = create_index_buffer(
+            &light_model.indices,
             &instance,
             physical_device,
             &logical_device,
@@ -178,9 +194,14 @@ impl Renderer {
             texture_sampler,
             vertex_buffer,
             vertex_buffer_memory,
-            vertex_count: model.vertices.len(),
+            vertex_count: main_model.vertices.len(),
             index_buffer,
             index_buffer_memory,
+            light_vb,
+            light_vbm,
+            light_vc: light_model.vertices.len(),
+            light_ib,
+            light_ibm,
             uniform_buffers,
             uniform_buffer_memories,
             uniform_buffer_mapped,
@@ -344,6 +365,10 @@ impl Drop for Renderer {
             dev.free_memory(self.index_buffer_memory, None);
             dev.destroy_buffer(self.vertex_buffer, None);
             dev.free_memory(self.vertex_buffer_memory, None);
+            dev.destroy_buffer(self.light_ib, None);
+            dev.free_memory(self.light_ibm, None);
+            dev.destroy_buffer(self.light_vb, None);
+            dev.free_memory(self.light_vbm, None);
             dev.destroy_sampler(self.texture_sampler, None);
             self.texture.cleanup(&self.logical_device);
             dev.destroy_command_pool(self.command_pool, None);

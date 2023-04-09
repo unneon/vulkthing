@@ -8,10 +8,9 @@ pub struct Model {
     pub texture_path: &'static str,
 }
 
-const MODEL_PATH: &str = "assets/czudec-pkp.obj";
 const TEXTURE_PATH: &str = "assets/czudec-pkp.jpg";
 
-pub fn load_model() -> Model {
+pub fn load_model(path: &str) -> Model {
     let load_options = LoadOptions {
         // Faces can sometimes be given as arbitrary (convex?) polygons, but we only render
         // triangles so let's get the loader to split them up for us.
@@ -21,7 +20,7 @@ pub fn load_model() -> Model {
         single_index: true,
         ..Default::default()
     };
-    let models = tobj::load_obj(MODEL_PATH, &load_options).unwrap().0;
+    let models = tobj::load_obj(path, &load_options).unwrap().0;
     let (mut vertices, indices) = flatten_models(&models);
     scale_mesh(&mut vertices);
     let texture_path = TEXTURE_PATH;
@@ -52,10 +51,14 @@ fn flatten_models(models: &[tobj::Model]) -> (Vec<Vertex>, Vec<u32>) {
             let normal = glm::zero();
             // Coordinate system in OBJ assumes that 0 is the bottom of the image, but Vulkan uses
             // an orientation where 0 is the top of the image.
-            let tex = glm::vec2(
-                model.mesh.texcoords[offset_tex],
-                1.0 - model.mesh.texcoords[offset_tex + 1],
-            );
+            let tex = if model.mesh.texcoords.is_empty() {
+                glm::vec2(0., 0.)
+            } else {
+                glm::vec2(
+                    model.mesh.texcoords[offset_tex],
+                    1.0 - model.mesh.texcoords[offset_tex + 1],
+                )
+            };
             let vertex = Vertex {
                 position,
                 normal,
