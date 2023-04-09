@@ -1,23 +1,22 @@
 mod debug;
+mod device;
 mod shader;
 
 use crate::camera::Camera;
 use crate::input::InputState;
 use crate::model::{Model, Vertex};
 use crate::renderer::debug::create_debug_messenger;
+use crate::renderer::device::{select_device, QueueFamilies};
 use crate::renderer::shader::Shader;
 use crate::window::Window;
 use crate::{VULKAN_APP_NAME, VULKAN_APP_VERSION, VULKAN_ENGINE_NAME, VULKAN_ENGINE_VERSION};
 use ash::extensions::ext::DebugUtils;
 use ash::extensions::khr::{Surface, Swapchain};
-use ash::prelude::VkResult;
 use ash::{vk, Device, Entry, Instance};
-use log::{info, warn};
 use nalgebra_glm as glm;
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use std::collections::HashSet;
 use std::f32::consts::FRAC_PI_4;
-use std::ffi::CStr;
 use std::hash::{Hash, Hasher};
 use std::ops::Deref;
 use std::time::Instant;
@@ -26,27 +25,9 @@ use winit::platform::run_return::EventLoopExtRunReturn;
 
 const MAX_FRAMES_IN_FLIGHT: usize = 2;
 
-struct VulkanPhysicalDevice<'a> {
-    instance: &'a Instance,
-    device: vk::PhysicalDevice,
-    queues: QueueDetails,
-    swapchain: SwapchainDetails,
-}
-
-struct QueueDetails {
-    graphics_family: u32,
-    present_family: u32,
-}
-
-struct SwapchainDetails {
-    capabilities: vk::SurfaceCapabilitiesKHR,
-    formats: Vec<vk::SurfaceFormatKHR>,
-    present_modes: Vec<vk::PresentModeKHR>,
-}
-
 struct VulkanLogicalDevice<'a> {
     instance: &'a Instance,
-    physical_device: &'a VulkanPhysicalDevice<'a>,
+    physical_device: vk::PhysicalDevice,
     device: Device,
     graphics_queue: vk::Queue,
     present_queue: vk::Queue,
@@ -76,103 +57,17 @@ struct UniformBufferObject {
     proj: glm::Mat4,
 }
 
-impl<'a> VulkanPhysicalDevice<'a> {
-    fn find_for(
-        instance: &'a Instance,
-        surface_extension: &Surface,
-        surface: vk::SurfaceKHR,
-    ) -> VulkanPhysicalDevice<'a> {
-        // Select the GPU. For now, just select the first discrete GPU with graphics support. Later,
-        // this should react better to iGPU, dGPU and iGPU+dGPU setups. In more complex setups, it would
-        // be neat if you could start the game on any GPU, display a choice to the user and seamlessly
-        // switch to a new physical device.
-        let mut found = None;
-        for device in unsafe { instance.enumerate_physical_devices() }.unwrap() {
-            let properties = unsafe { instance.get_physical_device_properties(device) };
-            let name = unsafe { CStr::from_ptr(properties.device_name.as_ptr()) }
-                .to_str()
-                .unwrap()
-                .to_owned();
-
-            // The GPU has to have a graphics queue. Otherwise there's no way to do any rendering
-            // operations, so this must be some weird compute-only accelerator or something. This
-            // also checks whether there is a present queue. This could be worked around using two
-            // separate GPUs (or just one for headless benchmarking), but the OS should take care of
-            // handling this sort of stuff between devices, probably?
-            let Some(queues) = QueueDetails::query(instance, surface_extension, device, surface).unwrap() else {
-                warn!("physical device rejected, no suitable queues, \x1B[1mname\x1B[0m: {name}");
-                continue;
-            };
-
-            let supported_features = unsafe { instance.get_physical_device_features(device) };
-            if supported_features.sampler_anisotropy == 0 {
-                warn!("physical device rejected, no sampler anisotropy feature, \x1B[1mname\x1B[0m: {name}");
-                continue;
-            }
-
-            // Check whether the GPU supports the swapchain extension. This should be implied by the
-            // presence of the present queue, but we can check this explicitly.
-            let extensions =
-                unsafe { instance.enumerate_device_extension_properties(device) }.unwrap();
-            let has_swapchain_extension = extensions.iter().any(|ext| {
-                let ext_name = unsafe { CStr::from_ptr(ext.extension_name.as_ptr()) };
-                ext_name == Swapchain::name()
-            });
-            if !has_swapchain_extension {
-                warn!(
-                    "physical device rejected, no swapchain extension, \x1B[1mname\x1B[0m: {name}"
-                );
-                continue;
-            }
-
-            // This queries some more details about swapchain support, and apparently this requires
-            // the earlier extension check in order to be correct (not crash?). Also there shouldn't
-            // be devices that support swapchains but no formats or present modes, but let's check
-            // anyway because the tutorial does.
-            let swapchain =
-                unsafe { SwapchainDetails::query(surface_extension, device, surface) }.unwrap();
-            if swapchain.formats.is_empty() || swapchain.present_modes.is_empty() {
-                warn!("physical device rejected, unsuitable swapchain, \x1B[1mname\x1B[0m: {name}");
-                continue;
-            }
-
-            // Reject GPUs once we found one already. I've seen debug logs indicating some
-            // Linux-specific sorting is going on, so it sounds like the options should be ordered
-            // sensibly already? Might be a good idea to check on a iGPU+dGPU laptop.
-            if found.is_some() {
-                continue;
-            }
-
-            // Let's not break, because getting logs about other GPUs could possibly help debug
-            // performance problems related to GPU selection.
-            info!("physical device selected, \x1B[1mname\x1B[0m: {name}");
-            found = Some(VulkanPhysicalDevice {
-                instance,
-                device,
-                queues,
-                swapchain,
-            });
-        }
-
-        let Some(physical_device) = found else {
-            panic!("gpu not found");
-        };
-        physical_device
-    }
-}
-
 impl<'a> VulkanLogicalDevice<'a> {
-    fn create(physical_device: &'a VulkanPhysicalDevice<'a>) -> VulkanLogicalDevice<'a> {
-        let instance = physical_device.instance;
-
+    fn create(
+        instance: &'a Instance,
+        physical_device: vk::PhysicalDevice,
+        queue_families: &QueueFamilies,
+    ) -> Self {
         // Queues from the same family must be created at once, so we need to use a set to eliminate
         // duplicates. If the queue families are the same, we create only a single queue and keep
         // two handles. This needs to be remembered later when setting flags related to memory
         // access being exclusive to the queue or concurrent from many queues.
-        let queue_indices = HashSet::from([
-            physical_device.queues.graphics_family,
-            physical_device.queues.present_family,
-        ]);
+        let queue_indices = HashSet::from([queue_families.graphics, queue_families.present]);
         let queue_creates: Vec<_> = queue_indices
             .iter()
             .map(|queue_index| {
@@ -192,7 +87,7 @@ impl<'a> VulkanLogicalDevice<'a> {
 
         let device = unsafe {
             instance.create_device(
-                physical_device.device,
+                physical_device,
                 &vk::DeviceCreateInfo::builder()
                     .queue_create_infos(&queue_creates)
                     .enabled_features(&physical_device_features)
@@ -202,10 +97,8 @@ impl<'a> VulkanLogicalDevice<'a> {
             )
         }
         .unwrap();
-        let graphics_queue =
-            unsafe { device.get_device_queue(physical_device.queues.graphics_family, 0) };
-        let present_queue =
-            unsafe { device.get_device_queue(physical_device.queues.present_family, 0) };
+        let graphics_queue = unsafe { device.get_device_queue(queue_families.graphics, 0) };
+        let present_queue = unsafe { device.get_device_queue(queue_families.present, 0) };
         VulkanLogicalDevice {
             instance,
             physical_device,
@@ -216,128 +109,70 @@ impl<'a> VulkanLogicalDevice<'a> {
     }
 }
 
-impl QueueDetails {
-    fn query(
-        instance: &Instance,
-        surface_extension: &Surface,
-        device: vk::PhysicalDevice,
-        surface: vk::SurfaceKHR,
-    ) -> VkResult<Option<QueueDetails>> {
-        // Find the first queue that supports a given operation and return it. Not sure what to do
-        // when there are multiple queues that support an operation? Also, graphics queue being
-        // distinct from present queue is supposed to be somewhat rare, so not sure where can I test
-        // it.
-        let queues = unsafe { instance.get_physical_device_queue_family_properties(device) };
-        let Some(graphics_family) = QueueDetails::find_queue(&queues, |_, q| q.queue_flags.contains(vk::QueueFlags::GRAPHICS)) else {
-            return Ok(None);
-        };
-        let Some(present_family) = QueueDetails::find_queue(&queues, |i, _| unsafe { surface_extension.get_physical_device_surface_support(device, i, surface) }
-            .unwrap()) else {
-            return Ok(None);
-        };
-        Ok(Some(QueueDetails {
-            graphics_family,
-            present_family,
-        }))
-    }
+fn select_format(formats: &[vk::SurfaceFormatKHR]) -> vk::SurfaceFormatKHR {
+    formats
+        .iter()
+        .find(|f| {
+            f.format == vk::Format::B8G8R8A8_SRGB
+                && f.color_space == vk::ColorSpaceKHR::SRGB_NONLINEAR
+        })
+        .unwrap_or(&formats[0])
+        .clone()
+}
 
-    fn find_queue(
-        queues: &[vk::QueueFamilyProperties],
-        p: impl Fn(u32, &vk::QueueFamilyProperties) -> bool,
-    ) -> Option<u32> {
-        for (index, queue) in queues.iter().enumerate() {
-            let index = index as u32;
-            if p(index, queue) {
-                return Some(index);
-            }
-        }
-        None
+fn select_present_mode() -> vk::PresentModeKHR {
+    vk::PresentModeKHR::FIFO
+}
+
+fn select_swap_extent(capabilities: vk::SurfaceCapabilitiesKHR, window: &Window) -> vk::Extent2D {
+    if capabilities.current_extent.width != u32::MAX {
+        return capabilities.current_extent;
+    }
+    let window_size = window.window.inner_size();
+    vk::Extent2D {
+        width: window_size.width.clamp(
+            capabilities.min_image_extent.width,
+            capabilities.max_image_extent.width,
+        ),
+        height: window_size.height.clamp(
+            capabilities.min_image_extent.height,
+            capabilities.max_image_extent.height,
+        ),
     }
 }
 
-impl SwapchainDetails {
-    unsafe fn query(
-        surface_extension: &Surface,
-        device: vk::PhysicalDevice,
-        surface: vk::SurfaceKHR,
-    ) -> VkResult<SwapchainDetails> {
-        let capabilities =
-            surface_extension.get_physical_device_surface_capabilities(device, surface)?;
-        let formats = surface_extension.get_physical_device_surface_formats(device, surface)?;
-        let present_modes =
-            surface_extension.get_physical_device_surface_present_modes(device, surface)?;
-        Ok(SwapchainDetails {
-            capabilities,
-            formats,
-            present_modes,
-        })
-    }
-
-    fn select_format(&self) -> vk::SurfaceFormatKHR {
-        self.formats
-            .iter()
-            .find(|f| {
-                f.format == vk::Format::B8G8R8A8_SRGB
-                    && f.color_space == vk::ColorSpaceKHR::SRGB_NONLINEAR
-            })
-            .unwrap_or(&self.formats[0])
-            .clone()
-    }
-
-    fn select_present_mode(&self) -> vk::PresentModeKHR {
-        vk::PresentModeKHR::FIFO
-    }
-
-    fn select_swap_extent(&self, window: &Window) -> vk::Extent2D {
-        if self.capabilities.current_extent.width != u32::MAX {
-            return self.capabilities.current_extent;
-        }
-        let window_size = window.window.inner_size();
-        vk::Extent2D {
-            width: window_size.width.clamp(
-                self.capabilities.min_image_extent.width,
-                self.capabilities.max_image_extent.width,
-            ),
-            height: window_size.height.clamp(
-                self.capabilities.min_image_extent.height,
-                self.capabilities.max_image_extent.height,
-            ),
-        }
-    }
-
-    fn select_image_count(&self) -> u32 {
-        let no_image_limit = self.capabilities.max_image_count == 0;
-        let preferred_image_count = self.capabilities.min_image_count + 1;
-        if no_image_limit {
-            preferred_image_count
-        } else {
-            preferred_image_count.min(self.capabilities.max_image_count)
-        }
+fn select_image_count(capabilities: vk::SurfaceCapabilitiesKHR) -> u32 {
+    let no_image_limit = capabilities.max_image_count == 0;
+    let preferred_image_count = capabilities.min_image_count + 1;
+    if no_image_limit {
+        preferred_image_count
+    } else {
+        preferred_image_count.min(capabilities.max_image_count)
     }
 }
 
 impl<'a> VulkanSwapchain<'a> {
     fn create(
+        renderer: &Renderer,
         logical_device: &'a VulkanLogicalDevice<'a>,
         surface: vk::SurfaceKHR,
         window: &Window,
     ) -> VulkanSwapchain<'a> {
         let instance = logical_device.instance;
-        let physical_device = logical_device.physical_device;
         let ext = Swapchain::new(&instance, &logical_device.device);
 
         // Create the swapchain for presenting images to display. Set to prefer triple buffering
         // right now, should be possible to change on laptops or integrated GPUs? Also requires
         // specifying a bunch of display-related parameters, which aren't very interesting as they
         // were mostly decided on previously.
-        let format = physical_device.swapchain.select_format();
-        let present_mode = physical_device.swapchain.select_present_mode();
-        let extent = physical_device.swapchain.select_swap_extent(&window);
-        let image_count = physical_device.swapchain.select_image_count();
+        let format = select_format(&renderer.surface_formats);
+        let present_mode = select_present_mode();
+        let extent = select_swap_extent(renderer.surface_capabilities, window);
+        let image_count = select_image_count(renderer.surface_capabilities);
         let image_format = format.format;
         let queue_family_indices = [
-            physical_device.queues.graphics_family,
-            physical_device.queues.present_family,
+            renderer.queue_families.graphics,
+            renderer.queue_families.present,
         ];
         let create_info = vk::SwapchainCreateInfoKHR::builder()
             .surface(surface)
@@ -347,16 +182,15 @@ impl<'a> VulkanSwapchain<'a> {
             .image_extent(extent)
             .image_array_layers(1)
             .image_usage(vk::ImageUsageFlags::COLOR_ATTACHMENT);
-        let create_info =
-            if physical_device.queues.graphics_family != physical_device.queues.present_family {
-                create_info
-                    .image_sharing_mode(vk::SharingMode::CONCURRENT)
-                    .queue_family_indices(&queue_family_indices)
-            } else {
-                create_info.image_sharing_mode(vk::SharingMode::EXCLUSIVE)
-            };
+        let create_info = if renderer.queue_families.graphics != renderer.queue_families.present {
+            create_info
+                .image_sharing_mode(vk::SharingMode::CONCURRENT)
+                .queue_family_indices(&queue_family_indices)
+        } else {
+            create_info.image_sharing_mode(vk::SharingMode::EXCLUSIVE)
+        };
         let create_info = create_info
-            .pre_transform(physical_device.swapchain.capabilities.current_transform)
+            .pre_transform(renderer.surface_capabilities.current_transform)
             .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE)
             .present_mode(present_mode)
             .clipped(true)
@@ -469,7 +303,10 @@ impl<'a> VulkanPipeline<'a> {
             .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL);
         let color_attachments = [*color_attachment_ref];
         let depth_attachment = *vk::AttachmentDescription::builder()
-            .format(find_depth_format(logical_device.physical_device))
+            .format(find_depth_format(
+                logical_device.physical_device,
+                logical_device.instance,
+            ))
             .samples(msaa_samples)
             .load_op(vk::AttachmentLoadOp::CLEAR)
             .store_op(vk::AttachmentStoreOp::DONT_CARE)
@@ -649,8 +486,11 @@ pub struct Renderer {
     extensions: VulkanExtensions,
     debug_messenger: vk::DebugUtilsMessengerEXT,
     surface: vk::SurfaceKHR,
-    // physical_device: vk::PhysicalDevice,
-    // queue_families: QueueFamilies,
+    physical_device: vk::PhysicalDevice,
+    queue_families: QueueFamilies,
+    surface_capabilities: vk::SurfaceCapabilitiesKHR,
+    surface_formats: Vec<vk::SurfaceFormatKHR>,
+    present_modes: Vec<vk::PresentModeKHR>,
     // logical_device: Device,
     // queues: Queues,
     // swapchain_extension: Swapchain,
@@ -688,11 +528,6 @@ pub struct VulkanExtensions {
     surface: Surface,
 }
 
-pub struct QueueFamilies {
-    graphics: u32,
-    present: u32,
-}
-
 pub struct Queues {
     graphics: vk::Queue,
     present: vk::Queue,
@@ -720,14 +555,18 @@ impl Renderer {
         };
         let debug_messenger = create_debug_messenger(&extensions.debug);
         let surface = create_surface(window, &entry, &instance);
+        let device_info = select_device(&instance, &extensions.surface, surface);
         Renderer {
             entry,
             instance,
             extensions,
             debug_messenger,
             surface,
-            // physical_device: vk::PhysicalDevice,
-            // queue_families: QueueFamilies,
+            physical_device: device_info.physical_device,
+            queue_families: device_info.queue_families,
+            surface_capabilities: device_info.surface_capabilities,
+            surface_formats: device_info.surface_formats,
+            present_modes: device_info.present_modes,
             // logical_device: Device,
             // queues: Queues,
             // swapchain: vk::SwapchainKHR,
@@ -764,17 +603,16 @@ impl Renderer {
 pub fn run_renderer(mut window: Window, model: Model) {
     let renderer = Renderer::new(&window);
 
-    let physical_device = VulkanPhysicalDevice::find_for(
+    let logical_device = VulkanLogicalDevice::create(
         &renderer.instance,
-        &renderer.extensions.surface,
-        renderer.surface,
+        renderer.physical_device,
+        &renderer.queue_families,
     );
-    let logical_device = VulkanLogicalDevice::create(&physical_device);
-    let swapchain = VulkanSwapchain::create(&logical_device, renderer.surface, &window);
+    let swapchain = VulkanSwapchain::create(&renderer, &logical_device, renderer.surface, &window);
     let descriptor_set_layout = create_descriptor_set_layout(&logical_device);
-    let msaa_samples = get_max_usable_sample_count(&physical_device);
+    let msaa_samples = get_max_usable_sample_count(renderer.physical_device, &renderer.instance);
     let pipeline = VulkanPipeline::create(&swapchain, descriptor_set_layout, msaa_samples);
-    let command_pool = create_command_pool(&logical_device);
+    let command_pool = create_command_pool(&renderer.queue_families, &logical_device);
     let command_buffers = create_command_buffers(command_pool, &logical_device);
 
     let (color_image, color_image_memory, color_image_view) =
@@ -928,7 +766,6 @@ pub fn run_renderer(mut window: Window, model: Model) {
     unsafe { logical_device.destroy_descriptor_set_layout(descriptor_set_layout, None) };
     drop(swapchain);
     drop(logical_device);
-    drop(physical_device);
     unsafe {
         renderer
             .extensions
@@ -942,7 +779,6 @@ pub fn run_renderer(mut window: Window, model: Model) {
             .destroy_debug_utils_messenger(renderer.debug_messenger, None)
     };
     unsafe { renderer.instance.destroy_instance(None) };
-    drop(renderer);
 }
 
 fn create_instance(entry: &Entry, window: &Window) -> Instance {
@@ -1043,15 +879,12 @@ fn get_attribute_descriptions() -> [vk::VertexInputAttributeDescription; 3] {
 }
 
 fn find_memory_type(
-    device: &VulkanPhysicalDevice,
+    instance: &Instance,
+    device: vk::PhysicalDevice,
     type_filter: u32,
     properties: vk::MemoryPropertyFlags,
 ) -> u32 {
-    let memory = unsafe {
-        device
-            .instance
-            .get_physical_device_memory_properties(device.device)
-    };
+    let memory = unsafe { instance.get_physical_device_memory_properties(device) };
     for i in 0..memory.memory_type_count {
         if type_filter & (1 << i) != 0
             && !(memory.memory_types[i as usize].property_flags & properties).is_empty()
@@ -1078,7 +911,8 @@ fn create_buffer(
     let buffer = unsafe { logical_device.create_buffer(&buffer_info, None) }.unwrap();
     let requirements = unsafe { logical_device.get_buffer_memory_requirements(buffer) };
     let memory_type_index = find_memory_type(
-        &logical_device.physical_device,
+        logical_device.instance,
+        logical_device.physical_device,
         requirements.memory_type_bits,
         properties,
     );
@@ -1120,6 +954,7 @@ fn create_image(
 
     let requirements = unsafe { logical_device.get_image_memory_requirements(image) };
     let memory_type = find_memory_type(
+        logical_device.instance,
         logical_device.physical_device,
         requirements.memory_type_bits,
         memory,
@@ -1137,14 +972,12 @@ fn find_supported_format(
     candidates: &[vk::Format],
     tiling: vk::ImageTiling,
     features: vk::FormatFeatureFlags,
-    physical_device: &VulkanPhysicalDevice,
+    physical_device: vk::PhysicalDevice,
+    instance: &Instance,
 ) -> vk::Format {
     for format in candidates {
-        let props = unsafe {
-            physical_device
-                .instance
-                .get_physical_device_format_properties(physical_device.device, *format)
-        };
+        let props =
+            unsafe { instance.get_physical_device_format_properties(physical_device, *format) };
         if tiling == vk::ImageTiling::LINEAR
             && (props.linear_tiling_features & features) == features
         {
@@ -1184,7 +1017,7 @@ fn create_color_resources(
     (image, image_memory, image_view)
 }
 
-fn find_depth_format(physical_device: &VulkanPhysicalDevice) -> vk::Format {
+fn find_depth_format(physical_device: vk::PhysicalDevice, instance: &Instance) -> vk::Format {
     find_supported_format(
         &[
             vk::Format::D32_SFLOAT,
@@ -1194,6 +1027,7 @@ fn find_depth_format(physical_device: &VulkanPhysicalDevice) -> vk::Format {
         vk::ImageTiling::OPTIMAL,
         vk::FormatFeatureFlags::DEPTH_STENCIL_ATTACHMENT,
         physical_device,
+        instance,
     )
 }
 
@@ -1207,7 +1041,10 @@ fn create_depth_resources(
     command_pool: vk::CommandPool,
     msaa_samples: vk::SampleCountFlags,
 ) -> (vk::Image, vk::DeviceMemory, vk::ImageView) {
-    let format = find_depth_format(swapchain.logical_device.physical_device);
+    let format = find_depth_format(
+        swapchain.logical_device.physical_device,
+        swapchain.logical_device.instance,
+    );
     let (image, image_memory) = create_image(
         swapchain.logical_device,
         swapchain.extent.width as usize,
@@ -1333,7 +1170,7 @@ fn generate_mipmaps(
     let format_properties = unsafe {
         logical_device
             .instance
-            .get_physical_device_format_properties(logical_device.physical_device.device, format)
+            .get_physical_device_format_properties(logical_device.physical_device, format)
     };
     assert!(format_properties
         .optimal_tiling_features
@@ -1507,7 +1344,7 @@ fn create_texture_sampler(logical_device: &VulkanLogicalDevice, mip_levels: usiz
     let properties = unsafe {
         logical_device
             .instance
-            .get_physical_device_properties(logical_device.physical_device.device)
+            .get_physical_device_properties(logical_device.physical_device)
     };
     let sampler_info = vk::SamplerCreateInfo::builder()
         .mag_filter(vk::Filter::LINEAR)
@@ -1882,12 +1719,11 @@ fn create_sync<'a>(logical_device: &VulkanLogicalDevice) -> Synchronization {
     }
 }
 
-fn get_max_usable_sample_count(physical_device: &VulkanPhysicalDevice) -> vk::SampleCountFlags {
-    let properties = unsafe {
-        physical_device
-            .instance
-            .get_physical_device_properties(physical_device.device)
-    };
+fn get_max_usable_sample_count(
+    physical_device: vk::PhysicalDevice,
+    instance: &Instance,
+) -> vk::SampleCountFlags {
+    let properties = unsafe { instance.get_physical_device_properties(physical_device) };
     let counts = properties.limits.framebuffer_color_sample_counts
         & properties.limits.framebuffer_depth_sample_counts;
     if counts.contains(vk::SampleCountFlags::TYPE_64) {
@@ -1911,10 +1747,13 @@ fn get_max_usable_sample_count(physical_device: &VulkanPhysicalDevice) -> vk::Sa
     vk::SampleCountFlags::TYPE_1
 }
 
-fn create_command_pool(logical_device: &VulkanLogicalDevice) -> vk::CommandPool {
+fn create_command_pool(
+    queue_families: &QueueFamilies,
+    logical_device: &VulkanLogicalDevice,
+) -> vk::CommandPool {
     let command_pool_info = vk::CommandPoolCreateInfo::builder()
         .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
-        .queue_family_index(logical_device.physical_device.queues.graphics_family);
+        .queue_family_index(queue_families.graphics);
     unsafe { logical_device.create_command_pool(&command_pool_info, None) }.unwrap()
 }
 
