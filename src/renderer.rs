@@ -4,7 +4,7 @@ mod shader;
 use crate::camera::Camera;
 use crate::input::InputState;
 use crate::model::{Model, Vertex};
-use crate::renderer::debug::VulkanDebug;
+use crate::renderer::debug::create_debug_messenger;
 use crate::renderer::shader::Shader;
 use crate::window::Window;
 use crate::{VULKAN_APP_NAME, VULKAN_APP_VERSION, VULKAN_ENGINE_NAME, VULKAN_ENGINE_VERSION};
@@ -159,8 +159,7 @@ impl<'a> VulkanPhysicalDevice<'a> {
             // be devices that support swapchains but no formats or present modes, but let's check
             // anyway because the tutorial does.
             let swapchain =
-                unsafe { SwapchainDetails::query(instance, surface_extension, device, &surface) }
-                    .unwrap();
+                unsafe { SwapchainDetails::query(surface_extension, device, &surface) }.unwrap();
             if swapchain.formats.is_empty() || swapchain.present_modes.is_empty() {
                 warn!("physical device rejected, unsuitable swapchain, \x1B[1mname\x1B[0m: {name}");
                 continue;
@@ -287,7 +286,6 @@ impl QueueDetails {
 
 impl SwapchainDetails {
     unsafe fn query(
-        instance: &Instance,
         surface_extension: &Surface,
         device: vk::PhysicalDevice,
         surface: &VulkanSurface,
@@ -684,13 +682,14 @@ impl Drop for VulkanPipeline<'_> {
 pub struct Renderer {
     entry: Entry,
     instance: Instance,
-    // extensions: VulkanExtensions,
-    // debug_messenger: vk::DebugUtilsMessengerEXT,
+    extensions: VulkanExtensions,
+    debug_messenger: vk::DebugUtilsMessengerEXT,
     // surface: vk::SurfaceKHR,
     // physical_device: vk::PhysicalDevice,
     // queue_families: QueueFamilies,
     // logical_device: Device,
     // queues: Queues,
+    // swapchain_extension: Swapchain,
     // swapchain: vk::SwapchainKHR,
     // swapchain_format: vk::Format,
     // swapchain_extent: vk::Extent2D,
@@ -723,7 +722,6 @@ pub struct Renderer {
 pub struct VulkanExtensions {
     debug: DebugUtils,
     surface: Surface,
-    swapchain: Swapchain,
 }
 
 pub struct QueueFamilies {
@@ -752,11 +750,16 @@ impl Renderer {
     pub fn new(window: &Window) -> Renderer {
         let entry = unsafe { Entry::load() }.unwrap();
         let instance = create_instance(&entry, window);
+        let extensions = VulkanExtensions {
+            debug: DebugUtils::new(&entry, &instance),
+            surface: Surface::new(&entry, &instance),
+        };
+        let debug_messenger = create_debug_messenger(&extensions.debug);
         Renderer {
             entry,
             instance,
-            // extensions,
-            // debug_messenger: vk::DebugUtilsMessengerEXT,
+            extensions,
+            debug_messenger,
             // surface: vk::SurfaceKHR,
             // physical_device: vk::PhysicalDevice,
             // queue_families: QueueFamilies,
@@ -794,19 +797,16 @@ impl Renderer {
 }
 
 pub fn run_renderer(mut window: Window, model: Model) {
-    let mut renderer = Renderer::new(&window);
+    let renderer = Renderer::new(&window);
 
-    let debug_extension = DebugUtils::new(&renderer.entry, &renderer.instance);
-    let debug = VulkanDebug::create(&debug_extension);
-    let surface_extension = Surface::new(&renderer.entry, &renderer.instance);
     let surface = VulkanSurface::create(
         &renderer.entry,
         &renderer.instance,
-        &surface_extension,
+        &renderer.extensions.surface,
         &window,
     );
     let physical_device =
-        VulkanPhysicalDevice::find_for(&renderer.instance, &surface_extension, &surface);
+        VulkanPhysicalDevice::find_for(&renderer.instance, &renderer.extensions.surface, &surface);
     let logical_device = VulkanLogicalDevice::create(&physical_device);
     let swapchain = VulkanSwapchain::create(&logical_device, &surface, &window);
     let descriptor_set_layout = create_descriptor_set_layout(&logical_device);
@@ -968,7 +968,12 @@ pub fn run_renderer(mut window: Window, model: Model) {
     drop(logical_device);
     drop(physical_device);
     drop(surface);
-    drop(debug);
+    unsafe {
+        renderer
+            .extensions
+            .debug
+            .destroy_debug_utils_messenger(renderer.debug_messenger, None)
+    };
     unsafe { renderer.instance.destroy_instance(None) };
     drop(renderer);
 }

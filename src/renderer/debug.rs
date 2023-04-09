@@ -1,43 +1,22 @@
 use ash::extensions::ext::DebugUtils;
-use ash::{vk, Instance};
+use ash::vk;
 use std::ffi::CStr;
 
-pub struct VulkanDebug<'a> {
-    debug_extension: &'a DebugUtils,
-    messenger: vk::DebugUtilsMessengerEXT,
-}
-
-impl<'a> VulkanDebug<'a> {
-    pub(super) fn create(debug_extension: &'a DebugUtils) -> VulkanDebug<'a> {
-        // Enable filtering by message severity and type. General and verbose levels seem to produce
-        // too much noise related to physical device selection, so I turned them off.
-        // vulkan-tutorial.com also shows how to enable this for creating instances, but the ash
-        // example doesn't include this.
-        let severity_filter = vk::DebugUtilsMessageSeverityFlagsEXT::ERROR
-            | vk::DebugUtilsMessageSeverityFlagsEXT::WARNING;
-        let type_filter = vk::DebugUtilsMessageTypeFlagsEXT::GENERAL
-            | vk::DebugUtilsMessageTypeFlagsEXT::VALIDATION
-            | vk::DebugUtilsMessageTypeFlagsEXT::PERFORMANCE;
-        let info = vk::DebugUtilsMessengerCreateInfoEXT::builder()
-            .message_severity(severity_filter)
-            .message_type(type_filter)
-            .pfn_user_callback(Some(callback));
-        let messenger =
-            unsafe { debug_extension.create_debug_utils_messenger(&info, None) }.unwrap();
-        VulkanDebug {
-            debug_extension,
-            messenger,
-        }
-    }
-}
-
-impl Drop for VulkanDebug<'_> {
-    fn drop(&mut self) {
-        unsafe {
-            self.debug_extension
-                .destroy_debug_utils_messenger(self.messenger, None)
-        };
-    }
+pub fn create_debug_messenger(debug_extension: &DebugUtils) -> vk::DebugUtilsMessengerEXT {
+    // Enable filtering by message severity and type. General and verbose levels seem to produce
+    // too much noise related to physical device selection, so I turned them off.
+    // vulkan-tutorial.com also shows how to enable this for creating instances, but the ash
+    // example doesn't include this.
+    let severity_filter = vk::DebugUtilsMessageSeverityFlagsEXT::ERROR
+        | vk::DebugUtilsMessageSeverityFlagsEXT::WARNING;
+    let type_filter = vk::DebugUtilsMessageTypeFlagsEXT::GENERAL
+        | vk::DebugUtilsMessageTypeFlagsEXT::VALIDATION
+        | vk::DebugUtilsMessageTypeFlagsEXT::PERFORMANCE;
+    let info = vk::DebugUtilsMessengerCreateInfoEXT::builder()
+        .message_severity(severity_filter)
+        .message_type(type_filter)
+        .pfn_user_callback(Some(callback));
+    unsafe { debug_extension.create_debug_utils_messenger(&info, None) }.unwrap()
 }
 
 unsafe extern "system" fn callback(
