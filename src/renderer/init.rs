@@ -176,6 +176,7 @@ impl Renderer {
             texture_sampler,
             vertex_buffer,
             vertex_buffer_memory,
+            vertex_count: model.vertices.len(),
             index_buffer,
             index_buffer_memory,
             uniform_buffers,
@@ -184,7 +185,7 @@ impl Renderer {
             descriptor_pool,
             descriptor_sets,
             sync,
-            frame_flight_index: 0,
+            flight_index: 0,
         }
     }
 }

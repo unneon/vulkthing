@@ -78,7 +78,7 @@ fn main() {
                 last_update = curr_update;
                 camera.apply_input(&input_state, delta_time);
                 input_state.reset_after_frame();
-                renderer.draw_frame(&model, &camera);
+                renderer.draw_frame(&camera);
             }
             // This event is only sent after MainEventsCleared, during which we render
             // unconditionally.

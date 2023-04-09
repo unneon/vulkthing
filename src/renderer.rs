@@ -7,7 +7,6 @@ mod traits;
 mod util;
 
 use crate::camera::Camera;
-use crate::model::Model;
 use crate::renderer::device::QueueFamilies;
 use crate::renderer::gpu_data::UniformBufferObject;
 use ash::extensions::khr::Swapchain;
@@ -50,6 +49,7 @@ pub struct Renderer {
     texture_sampler: vk::Sampler,
     vertex_buffer: vk::Buffer,
     vertex_buffer_memory: vk::DeviceMemory,
+    vertex_count: usize,
     index_buffer: vk::Buffer,
     index_buffer_memory: vk::DeviceMemory,
     uniform_buffers: [vk::Buffer; FRAMES_IN_FLIGHT],
@@ -58,7 +58,7 @@ pub struct Renderer {
     descriptor_pool: vk::DescriptorPool,
     descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
     sync: Synchronization,
-    frame_flight_index: usize,
+    flight_index: usize,
 }
 
 struct Synchronization {
@@ -70,203 +70,146 @@ struct Synchronization {
 const FRAMES_IN_FLIGHT: usize = 2;
 
 impl Renderer {
-    pub fn draw_frame(&mut self, model: &Model, camera: &Camera) {
-        draw_frame(
-            &self.logical_device,
-            self.sync.in_flight[self.frame_flight_index],
-            self.swapchain,
-            &self.swapchain_extension,
-            self.swapchain_extent,
-            self.sync.image_available[self.frame_flight_index],
-            self.command_buffers[self.frame_flight_index],
-            &self.framebuffers,
-            self.pipeline,
-            self.pipeline_render_pass,
-            self.pipeline_layout,
-            self.sync.render_finished[self.frame_flight_index],
-            self.vertex_buffer,
-            self.index_buffer,
-            model.indices.len(),
-            self.uniform_buffer_mapped[self.frame_flight_index],
-            self.descriptor_sets[self.frame_flight_index],
-            &camera,
-            self.queues.graphics,
-            self.queues.present,
-        );
-        self.frame_flight_index = (self.frame_flight_index + 1) % FRAMES_IN_FLIGHT;
+    pub fn draw_frame(&mut self, camera: &Camera) {
+        let image_index = unsafe { self.prepare_command_buffer() };
+        unsafe { self.record_command_buffer(image_index) };
+        self.update_uniform_buffer(camera);
+        self.submit_graphics();
+        self.submit_present(image_index);
+
+        self.flight_index = (self.flight_index + 1) % FRAMES_IN_FLIGHT;
     }
-}
 
-fn draw_frame(
-    device: &Device,
-    in_flight_fence: vk::Fence,
-    swapchain: vk::SwapchainKHR,
-    swapchain_extension: &Swapchain,
-    swapchain_extent: vk::Extent2D,
-    image_available_semaphore: vk::Semaphore,
-    command_buffer: vk::CommandBuffer,
-    framebuffers: &[vk::Framebuffer],
-    pipeline: vk::Pipeline,
-    pipeline_render_pass: vk::RenderPass,
-    pipeline_layout: vk::PipelineLayout,
-    render_finished_semaphore: vk::Semaphore,
-    vertex_buffer: vk::Buffer,
-    index_buffer: vk::Buffer,
-    index_count: usize,
-    ubo_ptr: *mut UniformBufferObject,
-    descriptor_set: vk::DescriptorSet,
-    camera: &Camera,
-    graphics_queue: vk::Queue,
-    present_queue: vk::Queue,
-) {
-    unsafe { device.wait_for_fences(&[in_flight_fence], true, u64::MAX) }.unwrap();
-    unsafe { device.reset_fences(&[in_flight_fence]) }.unwrap();
-    // What is the second value?
-    let image_index = unsafe {
-        swapchain_extension.acquire_next_image(
-            swapchain,
-            u64::MAX,
-            image_available_semaphore,
-            vk::Fence::null(),
-        )
+    unsafe fn prepare_command_buffer(&self) -> u32 {
+        let dev = &self.logical_device;
+        let command_buffer = self.command_buffers[self.flight_index];
+        let image_available = self.sync.image_available[self.flight_index];
+        let in_flight = self.sync.in_flight[self.flight_index];
+
+        dev.wait_for_fences(&[in_flight], true, u64::MAX).unwrap();
+        dev.reset_fences(&[in_flight]).unwrap();
+
+        let image_index = self
+            .swapchain_extension
+            .acquire_next_image(self.swapchain, u64::MAX, image_available, vk::Fence::null())
+            .unwrap()
+            .0;
+
+        dev.reset_command_buffer(command_buffer, vk::CommandBufferResetFlags::empty())
+            .unwrap();
+
+        image_index
     }
-    .unwrap()
-    .0;
-    unsafe { device.reset_command_buffer(command_buffer, vk::CommandBufferResetFlags::empty()) }
-        .unwrap();
-    record_command_buffer(
-        device,
-        command_buffer,
-        image_index,
-        framebuffers,
-        swapchain_extent,
-        pipeline,
-        pipeline_render_pass,
-        pipeline_layout,
-        vertex_buffer,
-        index_buffer,
-        index_count,
-        descriptor_set,
-    );
 
-    update_uniform_buffer(
-        ubo_ptr,
-        swapchain_extent.width as f32 / swapchain_extent.height as f32,
-        camera,
-    );
+    unsafe fn record_command_buffer(&self, image_index: u32) {
+        let dev = &self.logical_device;
+        let buf = self.command_buffers[self.flight_index];
 
-    let wait_semaphores = [image_available_semaphore];
-    let command_buffers = [command_buffer];
-    let signal_semaphores = [render_finished_semaphore];
-    let submit_info = vk::SubmitInfo::builder()
-        .wait_semaphores(&wait_semaphores)
-        .wait_dst_stage_mask(&[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT])
-        .command_buffers(&command_buffers)
-        .signal_semaphores(&signal_semaphores);
-    unsafe { device.queue_submit(graphics_queue, &[*submit_info], in_flight_fence) }.unwrap();
+        dev.begin_command_buffer(buf, &vk::CommandBufferBeginInfo::builder())
+            .unwrap();
 
-    let present_info_swapchains = [swapchain];
-    let present_info_images = [image_index];
-    let present_info = vk::PresentInfoKHR::builder()
-        .wait_semaphores(&signal_semaphores)
-        .swapchains(&present_info_swapchains)
-        .image_indices(&present_info_images);
-    unsafe { swapchain_extension.queue_present(present_queue, &present_info) }.unwrap();
-}
+        let render_pass_info = vk::RenderPassBeginInfo::builder()
+            .render_pass(self.pipeline_render_pass)
+            .framebuffer(self.framebuffers[image_index as usize])
+            .render_area(vk::Rect2D {
+                offset: vk::Offset2D { x: 0, y: 0 },
+                extent: self.swapchain_extent,
+            })
+            .clear_values(&[
+                vk::ClearValue {
+                    color: vk::ClearColorValue {
+                        float32: [0., 0., 0., 0.],
+                    },
+                },
+                vk::ClearValue {
+                    depth_stencil: vk::ClearDepthStencilValue {
+                        depth: 1.,
+                        stencil: 0,
+                    },
+                },
+            ]);
+        dev.cmd_begin_render_pass(buf, &render_pass_info, vk::SubpassContents::INLINE);
 
-fn record_command_buffer(
-    device: &Device,
-    command_buffer: vk::CommandBuffer,
-    image_index: u32,
-    framebuffers: &[vk::Framebuffer],
-    swapchain_extent: vk::Extent2D,
-    pipeline: vk::Pipeline,
-    pipeline_render_pass: vk::RenderPass,
-    pipeline_layout: vk::PipelineLayout,
-    vertex_buffer: vk::Buffer,
-    index_buffer: vk::Buffer,
-    index_count: usize,
-    descriptor_set: vk::DescriptorSet,
-) {
-    let begin_info = vk::CommandBufferBeginInfo::builder();
-    unsafe { device.begin_command_buffer(command_buffer, &begin_info) }.unwrap();
+        dev.cmd_bind_pipeline(buf, vk::PipelineBindPoint::GRAPHICS, self.pipeline);
 
-    let render_pass_info = vk::RenderPassBeginInfo::builder()
-        .render_pass(pipeline_render_pass)
-        .framebuffer(framebuffers[image_index as usize])
-        .render_area(vk::Rect2D {
+        dev.cmd_bind_vertex_buffers(buf, 0, &[self.vertex_buffer], &[0]);
+
+        dev.cmd_bind_index_buffer(buf, self.index_buffer, 0, vk::IndexType::UINT32);
+
+        let viewport = vk::Viewport {
+            x: 0.,
+            y: 0.,
+            width: self.swapchain_extent.width as f32,
+            height: self.swapchain_extent.height as f32,
+            min_depth: 0.,
+            max_depth: 1.,
+        };
+        dev.cmd_set_viewport(buf, 0, &[viewport]);
+
+        let scissor = vk::Rect2D {
             offset: vk::Offset2D { x: 0, y: 0 },
-            extent: swapchain_extent,
-        })
-        .clear_values(&[
-            vk::ClearValue {
-                color: vk::ClearColorValue {
-                    float32: [0., 0., 0., 0.],
-                },
-            },
-            vk::ClearValue {
-                depth_stencil: vk::ClearDepthStencilValue {
-                    depth: 1.,
-                    stencil: 0,
-                },
-            },
-        ]);
-    unsafe {
-        device.cmd_begin_render_pass(
-            command_buffer,
-            &render_pass_info,
-            vk::SubpassContents::INLINE,
-        )
-    };
+            extent: self.swapchain_extent,
+        };
+        dev.cmd_set_scissor(buf, 0, &[scissor]);
 
-    unsafe { device.cmd_bind_pipeline(command_buffer, vk::PipelineBindPoint::GRAPHICS, pipeline) };
-
-    let buffers = [vertex_buffer];
-    let offsets = [0];
-    unsafe { device.cmd_bind_vertex_buffers(command_buffer, 0, &buffers, &offsets) };
-
-    unsafe { device.cmd_bind_index_buffer(command_buffer, index_buffer, 0, vk::IndexType::UINT32) };
-
-    let viewport = vk::Viewport {
-        x: 0.,
-        y: 0.,
-        width: swapchain_extent.width as f32,
-        height: swapchain_extent.height as f32,
-        min_depth: 0.,
-        max_depth: 1.,
-    };
-    unsafe { device.cmd_set_viewport(command_buffer, 0, &[viewport]) };
-
-    let scissor = vk::Rect2D {
-        offset: vk::Offset2D { x: 0, y: 0 },
-        extent: swapchain_extent,
-    };
-    unsafe { device.cmd_set_scissor(command_buffer, 0, &[scissor]) };
-
-    unsafe {
-        device.cmd_bind_descriptor_sets(
-            command_buffer,
+        dev.cmd_bind_descriptor_sets(
+            buf,
             vk::PipelineBindPoint::GRAPHICS,
-            pipeline_layout,
+            self.pipeline_layout,
             0,
-            &[descriptor_set],
+            &[self.descriptor_sets[self.flight_index]],
             &[],
-        )
-    };
+        );
 
-    unsafe { device.cmd_draw_indexed(command_buffer, index_count as u32, 1, 0, 0, 0) };
+        dev.cmd_draw_indexed(buf, self.vertex_count as u32, 1, 0, 0, 0);
 
-    unsafe { device.cmd_end_render_pass(command_buffer) };
+        dev.cmd_end_render_pass(buf);
 
-    unsafe { device.end_command_buffer(command_buffer) }.unwrap();
-}
+        dev.end_command_buffer(buf).unwrap();
+    }
 
-fn update_uniform_buffer(ubo_ptr: *mut UniformBufferObject, aspect_ratio: f32, camera: &Camera) {
-    let mut ubo = UniformBufferObject {
-        model: glm::identity(),
-        view: camera.view_matrix(),
-        proj: glm::perspective_rh_zo(aspect_ratio, FRAC_PI_4, 0.1, 10.),
-    };
-    ubo.proj[(1, 1)] *= -1.;
-    unsafe { ubo_ptr.write_volatile(ubo) };
+    fn update_uniform_buffer(&self, camera: &Camera) {
+        let aspect_ratio = self.swapchain_extent.width as f32 / self.swapchain_extent.height as f32;
+        let mut ubo = UniformBufferObject {
+            model: glm::identity(),
+            view: camera.view_matrix(),
+            proj: glm::perspective_rh_zo(aspect_ratio, FRAC_PI_4, 0.1, 10.),
+        };
+        ubo.proj[(1, 1)] *= -1.;
+        unsafe { self.uniform_buffer_mapped[self.flight_index].write_volatile(ubo) };
+    }
+
+    fn submit_graphics(&self) {
+        let command_buffer = self.command_buffers[self.flight_index];
+        let image_available = self.sync.image_available[self.flight_index];
+        let render_finished = self.sync.render_finished[self.flight_index];
+
+        let submit_info = *vk::SubmitInfo::builder()
+            .wait_semaphores(&[image_available])
+            .wait_dst_stage_mask(&[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT])
+            .command_buffers(&[command_buffer])
+            .signal_semaphores(&[render_finished]);
+        unsafe {
+            self.logical_device.queue_submit(
+                self.queues.graphics,
+                &[submit_info],
+                self.sync.in_flight[self.flight_index],
+            )
+        }
+        .unwrap();
+    }
+
+    fn submit_present(&self, image_index: u32) {
+        let render_finished = self.sync.render_finished[self.flight_index];
+
+        let present_info = *vk::PresentInfoKHR::builder()
+            .wait_semaphores(&[render_finished])
+            .swapchains(&[self.swapchain])
+            .image_indices(&[image_index]);
+        unsafe {
+            self.swapchain_extension
+                .queue_present(self.queues.present, &present_info)
+        }
+        .unwrap();
+    }
 }
