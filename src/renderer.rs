@@ -24,13 +24,6 @@ use winit::platform::run_return::EventLoopExtRunReturn;
 
 const MAX_FRAMES_IN_FLIGHT: usize = 2;
 
-struct VulkanPipeline {
-    pipeline: vk::Pipeline,
-    pipeline_layout: vk::PipelineLayout,
-    render_pass: vk::RenderPass,
-    logical_device: Device,
-}
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 struct UniformBufferObject {
@@ -64,10 +57,6 @@ impl PartialEq for Vertex {
         let p2 = other as *const Vertex as *const [u8; std::mem::size_of::<Vertex>()];
         unsafe { *p1 == *p2 }
     }
-}
-
-impl Drop for VulkanPipeline {
-    fn drop(&mut self) {}
 }
 
 pub struct Renderer {
