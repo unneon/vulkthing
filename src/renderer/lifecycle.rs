@@ -150,12 +150,22 @@ impl Renderer {
 
         let (uniform_buffers, uniform_buffer_memories, uniform_buffer_mapped) =
             create_uniform_buffer(&instance, physical_device, &logical_device);
+        let (light_ub, light_ubm, light_ubp) =
+            create_uniform_buffer(&instance, physical_device, &logical_device);
 
         let descriptor_pool = create_descriptor_pool(&logical_device);
         let descriptor_sets = create_descriptor_sets(
             descriptor_set_layout,
             descriptor_pool,
             &uniform_buffers,
+            texture.view,
+            texture_sampler,
+            &logical_device,
+        );
+        let light_ds = create_descriptor_sets(
+            descriptor_set_layout,
+            descriptor_pool,
+            &light_ub,
             texture.view,
             texture_sampler,
             &logical_device,
@@ -205,8 +215,12 @@ impl Renderer {
             uniform_buffers,
             uniform_buffer_memories,
             uniform_buffer_mapped,
+            light_ub,
+            light_ubm,
+            light_ubp,
             descriptor_pool,
             descriptor_sets,
+            light_ds,
             sync,
             flight_index: 0,
         }
@@ -359,6 +373,12 @@ impl Drop for Renderer {
                 dev.destroy_buffer(buffer, None);
             }
             for memory in self.uniform_buffer_memories {
+                dev.free_memory(memory, None);
+            }
+            for buffer in self.light_ub {
+                dev.destroy_buffer(buffer, None);
+            }
+            for memory in self.light_ubm {
                 dev.free_memory(memory, None);
             }
             dev.destroy_buffer(self.index_buffer, None);
@@ -1075,16 +1095,16 @@ fn create_descriptor_pool(logical_device: &Device) -> vk::DescriptorPool {
     let pool_sizes = [
         vk::DescriptorPoolSize {
             ty: vk::DescriptorType::UNIFORM_BUFFER,
-            descriptor_count: FRAMES_IN_FLIGHT as u32,
+            descriptor_count: 2 * FRAMES_IN_FLIGHT as u32,
         },
         vk::DescriptorPoolSize {
             ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-            descriptor_count: FRAMES_IN_FLIGHT as u32,
+            descriptor_count: 2 * FRAMES_IN_FLIGHT as u32,
         },
     ];
     let pool_info = vk::DescriptorPoolCreateInfo::builder()
         .pool_sizes(&pool_sizes)
-        .max_sets(FRAMES_IN_FLIGHT as u32);
+        .max_sets(2 * FRAMES_IN_FLIGHT as u32);
     unsafe { logical_device.create_descriptor_pool(&pool_info, None) }.unwrap()
 }
 
