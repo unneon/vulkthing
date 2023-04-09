@@ -17,10 +17,10 @@ pub fn create_buffer(
     let buffer = unsafe { logical_device.create_buffer(&buffer_info, None) }.unwrap();
     let requirements = unsafe { logical_device.get_buffer_memory_requirements(buffer) };
     let memory_type_index = find_memory_type(
+        properties,
+        requirements.memory_type_bits,
         instance,
         physical_device,
-        requirements.memory_type_bits,
-        properties,
     );
     let memory_info = vk::MemoryAllocateInfo::builder()
         .allocation_size(requirements.size)
@@ -62,10 +62,10 @@ pub fn create_image(
 
     let requirements = unsafe { logical_device.get_image_memory_requirements(image) };
     let memory_type = find_memory_type(
+        memory,
+        requirements.memory_type_bits,
         instance,
         physical_device,
-        requirements.memory_type_bits,
-        memory,
     );
     let alloc_info = vk::MemoryAllocateInfo::builder()
         .allocation_size(requirements.size)
@@ -97,32 +97,20 @@ pub fn create_image_view(
     unsafe { logical_device.create_image_view(&view_info, None) }.unwrap()
 }
 
-pub fn create_texture(
+pub fn load_texture(
     path: &str,
+    instance: &Instance,
+    physical_device: vk::PhysicalDevice,
     logical_device: &Device,
     graphics_queue: vk::Queue,
     command_pool: vk::CommandPool,
-    instance: &Instance,
-    physical_device: vk::PhysicalDevice,
 ) -> (ImageResources, usize) {
-    let image = image::open(path).unwrap().to_rgba8();
-    let image_width = image.width() as usize;
-    let image_height = image.height() as usize;
+    let image_cpu = image::open(path).unwrap().to_rgba8();
+    let image_width = image_cpu.width() as usize;
+    let image_height = image_cpu.height() as usize;
     let pixel_count = image_width * image_height;
     let image_size = pixel_count * 4;
     let mip_levels = (image_width.max(image_height) as f64).log2().floor() as usize + 1;
-
-    let (staging_buffer, staging_memory) = create_buffer(
-        vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-        vk::BufferUsageFlags::TRANSFER_SRC | vk::BufferUsageFlags::TRANSFER_DST,
-        image_size,
-        instance,
-        physical_device,
-        logical_device,
-    );
-    with_mapped_slice(staging_memory, image_size, logical_device, |mapped| {
-        MaybeUninit::write_slice(mapped, &image);
-    });
 
     let (image, memory) = create_image(
         vk::Format::R8G8B8A8_SRGB,
@@ -139,41 +127,52 @@ pub fn create_texture(
         physical_device,
         logical_device,
     );
-
     transition_image_layout(
-        logical_device,
-        graphics_queue,
-        command_pool,
         image,
-        vk::Format::R8G8B8A8_SRGB,
         vk::ImageLayout::UNDEFINED,
         vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+        vk::Format::R8G8B8A8_SRGB,
         mip_levels,
-    );
-    copy_buffer_to_image(
         logical_device,
         graphics_queue,
         command_pool,
+    );
+
+    let (staging_buffer, staging_memory) = create_buffer(
+        vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+        vk::BufferUsageFlags::TRANSFER_SRC | vk::BufferUsageFlags::TRANSFER_DST,
+        image_size,
+        instance,
+        physical_device,
+        logical_device,
+    );
+    with_mapped_slice(staging_memory, image_size, logical_device, |mapped| {
+        MaybeUninit::write_slice(mapped, &image_cpu);
+    });
+    copy_buffer_to_image(
         staging_buffer,
         image,
         image_width,
         image_height,
+        logical_device,
+        graphics_queue,
+        command_pool,
     );
+    unsafe { logical_device.destroy_buffer(staging_buffer, None) };
+    unsafe { logical_device.free_memory(staging_memory, None) };
+
     generate_mipmaps(
         image,
         vk::Format::R8G8B8A8_SRGB,
         image_width,
         image_height,
         mip_levels,
+        instance,
+        physical_device,
         logical_device,
         graphics_queue,
         command_pool,
-        instance,
-        physical_device,
     );
-
-    unsafe { logical_device.destroy_buffer(staging_buffer, None) };
-    unsafe { logical_device.free_memory(staging_memory, None) };
 
     let view = create_image_view(
         image,
@@ -182,27 +181,25 @@ pub fn create_texture(
         mip_levels,
         logical_device,
     );
-
     let texture = ImageResources {
         image,
         memory,
         view,
     };
-
     (texture, mip_levels)
 }
 
 pub fn transition_image_layout(
+    image: vk::Image,
+    old_layout: vk::ImageLayout,
+    new_layout: vk::ImageLayout,
+    format: vk::Format,
+    mip_levels: usize,
     logical_device: &Device,
     graphics_queue: vk::Queue,
     command_pool: vk::CommandPool,
-    image: vk::Image,
-    format: vk::Format,
-    old_layout: vk::ImageLayout,
-    new_layout: vk::ImageLayout,
-    mip_levels: usize,
 ) {
-    single_time_commands(
+    onetime_commands(
         logical_device,
         graphics_queue,
         command_pool,
@@ -283,15 +280,15 @@ pub fn transition_image_layout(
 }
 
 fn copy_buffer_to_image(
-    logical_device: &Device,
-    graphics_queue: vk::Queue,
-    command_pool: vk::CommandPool,
     buffer: vk::Buffer,
     image: vk::Image,
     width: usize,
     height: usize,
+    logical_device: &Device,
+    graphics_queue: vk::Queue,
+    command_pool: vk::CommandPool,
 ) {
-    single_time_commands(
+    onetime_commands(
         logical_device,
         graphics_queue,
         command_pool,
@@ -333,11 +330,11 @@ fn generate_mipmaps(
     tex_width: usize,
     tex_height: usize,
     mip_levels: usize,
+    instance: &Instance,
+    physical_device: vk::PhysicalDevice,
     logical_device: &Device,
     graphics_queue: vk::Queue,
     command_pool: vk::CommandPool,
-    instance: &Instance,
-    physical_device: vk::PhysicalDevice,
 ) {
     let format_properties =
         unsafe { instance.get_physical_device_format_properties(physical_device, format) };
@@ -345,7 +342,7 @@ fn generate_mipmaps(
         .optimal_tiling_features
         .contains(vk::FormatFeatureFlags::SAMPLED_IMAGE_FILTER_LINEAR));
 
-    single_time_commands(
+    onetime_commands(
         logical_device,
         graphics_queue,
         command_pool,
@@ -475,14 +472,14 @@ fn generate_mipmaps(
 }
 
 pub fn copy_buffer(
-    logical_device: &Device,
     src: vk::Buffer,
     dst: vk::Buffer,
     len: usize,
-    command_pool: vk::CommandPool,
+    logical_device: &Device,
     graphics_queue: vk::Queue,
+    command_pool: vk::CommandPool,
 ) {
-    single_time_commands(
+    onetime_commands(
         logical_device,
         graphics_queue,
         command_pool,
@@ -516,7 +513,7 @@ pub fn with_mapped_slice<T, R>(
     result
 }
 
-fn single_time_commands<R>(
+fn onetime_commands<R>(
     logical_device: &Device,
     queue: vk::Queue,
     command_pool: vk::CommandPool,
@@ -550,8 +547,8 @@ fn single_time_commands<R>(
 }
 
 pub fn find_max_msaa_samples(
-    physical_device: vk::PhysicalDevice,
     instance: &Instance,
+    physical_device: vk::PhysicalDevice,
 ) -> vk::SampleCountFlags {
     let best_order = [
         vk::SampleCountFlags::TYPE_64,
@@ -573,10 +570,10 @@ pub fn find_max_msaa_samples(
 }
 
 fn find_memory_type(
+    properties: vk::MemoryPropertyFlags,
+    type_filter: u32,
     instance: &Instance,
     device: vk::PhysicalDevice,
-    type_filter: u32,
-    properties: vk::MemoryPropertyFlags,
 ) -> u32 {
     let memory = unsafe { instance.get_physical_device_memory_properties(device) };
     for i in 0..memory.memory_type_count {
@@ -594,10 +591,10 @@ fn find_memory_type(
 
 pub fn select_format(
     candidates: &[vk::Format],
-    tiling: vk::ImageTiling,
     features: vk::FormatFeatureFlags,
-    physical_device: vk::PhysicalDevice,
+    tiling: vk::ImageTiling,
     instance: &Instance,
+    physical_device: vk::PhysicalDevice,
 ) -> vk::Format {
     for format in candidates {
         let props =

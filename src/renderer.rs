@@ -140,7 +140,7 @@ impl Renderer {
             &swapchain_extension,
         );
         let descriptor_set_layout = create_descriptor_set_layout(&logical_device);
-        let msaa_samples = util::find_max_msaa_samples(physical_device, &instance);
+        let msaa_samples = util::find_max_msaa_samples(&instance, physical_device);
         let (pipeline, pipeline_layout, pipeline_render_pass) = create_pipeline(
             swapchain_format,
             descriptor_set_layout,
@@ -180,13 +180,13 @@ impl Renderer {
             swapchain_extent,
         );
 
-        let (texture, texture_mipmaps) = util::create_texture(
+        let (texture, texture_mipmaps) = util::load_texture(
             model.texture_path,
+            &instance,
+            physical_device,
             &logical_device,
             queues.graphics,
             command_pool,
-            &instance,
-            physical_device,
         );
         let texture_sampler =
             create_texture_sampler(&logical_device, texture_mipmaps, &instance, physical_device);
@@ -825,10 +825,10 @@ fn select_depth_format(physical_device: vk::PhysicalDevice, instance: &Instance)
             vk::Format::D32_SFLOAT_S8_UINT,
             vk::Format::D24_UNORM_S8_UINT,
         ],
-        vk::ImageTiling::OPTIMAL,
         vk::FormatFeatureFlags::DEPTH_STENCIL_ATTACHMENT,
-        physical_device,
+        vk::ImageTiling::OPTIMAL,
         instance,
+        physical_device,
     )
 }
 
@@ -862,15 +862,17 @@ fn create_depth_resources(
         1,
         logical_device,
     );
+    // This is apparently done by the render pass anyway, but the tutorial leaves it in to show how
+    // to do this explicitly.
     util::transition_image_layout(
+        image,
+        vk::ImageLayout::UNDEFINED,
+        vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+        format,
+        1,
         logical_device,
         graphics_queue,
         command_pool,
-        image,
-        format,
-        vk::ImageLayout::UNDEFINED,
-        vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-        1,
     );
     ImageResources {
         image,
@@ -936,12 +938,12 @@ fn create_vertex_buffer(
         MaybeUninit::write_slice(mapped, vertex_data);
     });
     util::copy_buffer(
-        &logical_device,
         staging_buffer,
         vertex_buffer,
         vertex_buffer_size,
-        command_pool,
+        &logical_device,
         graphics_queue,
+        command_pool,
     );
     unsafe { logical_device.destroy_buffer(staging_buffer, None) };
     unsafe { logical_device.free_memory(staging_memory, None) };
@@ -978,12 +980,12 @@ fn create_index_buffer(
         MaybeUninit::write_slice(mapped, index_data);
     });
     util::copy_buffer(
-        &logical_device,
         staging_buffer,
         index_buffer,
         index_buffer_size,
-        command_pool,
+        &logical_device,
         graphics_queue,
+        command_pool,
     );
     unsafe { logical_device.destroy_buffer(staging_buffer, None) };
     unsafe { logical_device.free_memory(staging_memory, None) };
