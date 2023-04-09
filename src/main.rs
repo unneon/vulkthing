@@ -43,6 +43,7 @@ fn main() {
     let mut camera = Camera {
         position: glm::vec3(-2., 0., 0.),
         yaw: 0.,
+        pitch: 0.,
     };
     let mut last_update = Instant::now();
 

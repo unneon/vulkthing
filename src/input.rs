@@ -66,4 +66,8 @@ impl InputState {
     pub fn camera_yaw(&self) -> f32 {
         self.mouse_dx
     }
+
+    pub fn camera_pitch(&self) -> f32 {
+        self.mouse_dy
+    }
 }
