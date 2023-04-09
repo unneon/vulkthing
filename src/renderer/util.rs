@@ -1,6 +1,23 @@
-use crate::renderer::ImageResources;
+use ash::extensions::ext::DebugUtils;
+use ash::extensions::khr::Surface;
 use ash::{vk, Device, Instance};
 use std::mem::MaybeUninit;
+
+pub struct ImageResources {
+    pub image: vk::Image,
+    pub memory: vk::DeviceMemory,
+    pub view: vk::ImageView,
+}
+
+pub struct VulkanExtensions {
+    pub debug: DebugUtils,
+    pub surface: Surface,
+}
+
+pub struct Queues {
+    pub graphics: vk::Queue,
+    pub present: vk::Queue,
+}
 
 pub fn create_buffer(
     properties: vk::MemoryPropertyFlags,
