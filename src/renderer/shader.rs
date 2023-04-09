@@ -1,16 +1,15 @@
-use crate::renderer::VulkanLogicalDevice;
-use ash::vk;
+use ash::{vk, Device};
 use std::ffi::CStr;
 
 pub struct Shader<'a> {
-    logical_device: &'a VulkanLogicalDevice<'a>,
+    logical_device: &'a Device,
     pub module: vk::ShaderModule,
     pub stage_info: vk::PipelineShaderStageCreateInfo,
 }
 
 impl<'a> Shader<'a> {
     pub(super) fn compile(
-        logical_device: &'a VulkanLogicalDevice,
+        logical_device: &'a Device,
         code: &'static [u8],
         stage: vk::ShaderStageFlags,
     ) -> Self {
@@ -19,7 +18,7 @@ impl<'a> Shader<'a> {
         // simple shaders reach into the 2KB range though, so maybe.
         let aligned_code = ash::util::read_spv(&mut std::io::Cursor::new(code)).unwrap();
         let module = unsafe {
-            logical_device.device.create_shader_module(
+            logical_device.create_shader_module(
                 &vk::ShaderModuleCreateInfo::builder().code(&aligned_code),
                 None,
             )

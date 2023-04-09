@@ -18,23 +18,14 @@ use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use std::collections::HashSet;
 use std::f32::consts::FRAC_PI_4;
 use std::hash::{Hash, Hasher};
-use std::ops::Deref;
 use std::time::Instant;
 use winit::event::{DeviceEvent, Event, StartCause, WindowEvent};
 use winit::platform::run_return::EventLoopExtRunReturn;
 
 const MAX_FRAMES_IN_FLIGHT: usize = 2;
 
-struct VulkanLogicalDevice<'a> {
-    instance: &'a Instance,
-    physical_device: vk::PhysicalDevice,
-    device: Device,
-    graphics_queue: vk::Queue,
-    present_queue: vk::Queue,
-}
-
 struct VulkanSwapchain<'a> {
-    logical_device: &'a VulkanLogicalDevice<'a>,
+    logical_device: &'a Device,
     ext: Swapchain,
     swapchain: vk::SwapchainKHR,
     image_format: vk::Format,
@@ -55,58 +46,6 @@ struct UniformBufferObject {
     model: glm::Mat4,
     view: glm::Mat4,
     proj: glm::Mat4,
-}
-
-impl<'a> VulkanLogicalDevice<'a> {
-    fn create(
-        instance: &'a Instance,
-        physical_device: vk::PhysicalDevice,
-        queue_families: &QueueFamilies,
-    ) -> Self {
-        // Queues from the same family must be created at once, so we need to use a set to eliminate
-        // duplicates. If the queue families are the same, we create only a single queue and keep
-        // two handles. This needs to be remembered later when setting flags related to memory
-        // access being exclusive to the queue or concurrent from many queues.
-        let queue_indices = HashSet::from([queue_families.graphics, queue_families.present]);
-        let queue_creates: Vec<_> = queue_indices
-            .iter()
-            .map(|queue_index| {
-                vk::DeviceQueueCreateInfo::builder()
-                    .queue_family_index(*queue_index)
-                    .queue_priorities(&[1.])
-                    .build()
-            })
-            .collect();
-
-        let physical_device_features =
-            vk::PhysicalDeviceFeatures::builder().sampler_anisotropy(true);
-
-        // Using validation layers on a device level shouldn't be necessary on newer Vulkan version
-        // (since which one?), but it's good to keep it for compatibility.
-        let layer_names = [b"VK_LAYER_KHRONOS_validation\0".as_ptr() as *const i8];
-
-        let device = unsafe {
-            instance.create_device(
-                physical_device,
-                &vk::DeviceCreateInfo::builder()
-                    .queue_create_infos(&queue_creates)
-                    .enabled_features(&physical_device_features)
-                    .enabled_layer_names(&layer_names)
-                    .enabled_extension_names(&[Swapchain::name().as_ptr()]),
-                None,
-            )
-        }
-        .unwrap();
-        let graphics_queue = unsafe { device.get_device_queue(queue_families.graphics, 0) };
-        let present_queue = unsafe { device.get_device_queue(queue_families.present, 0) };
-        VulkanLogicalDevice {
-            instance,
-            physical_device,
-            device,
-            graphics_queue,
-            present_queue,
-        }
-    }
 }
 
 fn select_format(formats: &[vk::SurfaceFormatKHR]) -> vk::SurfaceFormatKHR {
@@ -154,12 +93,12 @@ fn select_image_count(capabilities: vk::SurfaceCapabilitiesKHR) -> u32 {
 impl<'a> VulkanSwapchain<'a> {
     fn create(
         renderer: &Renderer,
-        logical_device: &'a VulkanLogicalDevice<'a>,
+        logical_device: &'a Device,
         surface: vk::SurfaceKHR,
         window: &Window,
+        instance: &Instance,
     ) -> VulkanSwapchain<'a> {
-        let instance = logical_device.instance;
-        let ext = Swapchain::new(&instance, &logical_device.device);
+        let ext = Swapchain::new(&instance, logical_device);
 
         // Create the swapchain for presenting images to display. Set to prefer triple buffering
         // right now, should be possible to change on laptops or integrated GPUs? Also requires
@@ -230,6 +169,8 @@ impl<'a> VulkanPipeline<'a> {
         swapchain: &'a VulkanSwapchain,
         descriptor_set_layout: vk::DescriptorSetLayout,
         msaa_samples: vk::SampleCountFlags,
+        physical_device: vk::PhysicalDevice,
+        instance: &Instance,
     ) -> VulkanPipeline<'a> {
         let logical_device = swapchain.logical_device;
         let vert_shader = Shader::compile(
@@ -303,10 +244,7 @@ impl<'a> VulkanPipeline<'a> {
             .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL);
         let color_attachments = [*color_attachment_ref];
         let depth_attachment = *vk::AttachmentDescription::builder()
-            .format(find_depth_format(
-                logical_device.physical_device,
-                logical_device.instance,
-            ))
+            .format(find_depth_format(physical_device, instance))
             .samples(msaa_samples)
             .load_op(vk::AttachmentLoadOp::CLEAR)
             .store_op(vk::AttachmentStoreOp::DONT_CARE)
@@ -437,20 +375,6 @@ impl PartialEq for Vertex {
     }
 }
 
-impl Deref for VulkanLogicalDevice<'_> {
-    type Target = Device;
-
-    fn deref(&self) -> &Device {
-        &self.device
-    }
-}
-
-impl Drop for VulkanLogicalDevice<'_> {
-    fn drop(&mut self) {
-        unsafe { self.device.destroy_device(None) };
-    }
-}
-
 impl Drop for VulkanSwapchain<'_> {
     fn drop(&mut self) {
         for image_view in &self.image_views {
@@ -491,8 +415,8 @@ pub struct Renderer {
     surface_capabilities: vk::SurfaceCapabilitiesKHR,
     surface_formats: Vec<vk::SurfaceFormatKHR>,
     present_modes: Vec<vk::PresentModeKHR>,
-    // logical_device: Device,
-    // queues: Queues,
+    logical_device: Device,
+    queues: Queues,
     // swapchain_extension: Swapchain,
     // swapchain: vk::SwapchainKHR,
     // swapchain_format: vk::Format,
@@ -556,6 +480,15 @@ impl Renderer {
         let debug_messenger = create_debug_messenger(&extensions.debug);
         let surface = create_surface(window, &entry, &instance);
         let device_info = select_device(&instance, &extensions.surface, surface);
+        let logical_device = create_logical_device(
+            &device_info.queue_families,
+            &instance,
+            device_info.physical_device,
+        );
+        let graphics_queue =
+            unsafe { logical_device.get_device_queue(device_info.queue_families.graphics, 0) };
+        let present_queue =
+            unsafe { logical_device.get_device_queue(device_info.queue_families.present, 0) };
         Renderer {
             entry,
             instance,
@@ -567,8 +500,11 @@ impl Renderer {
             surface_capabilities: device_info.surface_capabilities,
             surface_formats: device_info.surface_formats,
             present_modes: device_info.present_modes,
-            // logical_device: Device,
-            // queues: Queues,
+            logical_device,
+            queues: Queues {
+                graphics: graphics_queue,
+                present: present_queue,
+            },
             // swapchain: vk::SwapchainKHR,
             // swapchain_format: vk::Format,
             // swapchain_extent: vk::Extent2D,
@@ -603,57 +539,93 @@ impl Renderer {
 pub fn run_renderer(mut window: Window, model: Model) {
     let renderer = Renderer::new(&window);
 
-    let logical_device = VulkanLogicalDevice::create(
+    let swapchain = VulkanSwapchain::create(
+        &renderer,
+        &renderer.logical_device,
+        renderer.surface,
+        &window,
+        &renderer.instance,
+    );
+    let descriptor_set_layout = create_descriptor_set_layout(&renderer.logical_device);
+    let msaa_samples = get_max_usable_sample_count(renderer.physical_device, &renderer.instance);
+    let pipeline = VulkanPipeline::create(
+        &swapchain,
+        descriptor_set_layout,
+        msaa_samples,
+        renderer.physical_device,
+        &renderer.instance,
+    );
+    let command_pool = create_command_pool(&renderer.queue_families, &renderer.logical_device);
+    let command_buffers = create_command_buffers(command_pool, &renderer.logical_device);
+
+    let (color_image, color_image_memory, color_image_view) = create_color_resources(
+        &swapchain,
+        msaa_samples,
         &renderer.instance,
         renderer.physical_device,
-        &renderer.queue_families,
     );
-    let swapchain = VulkanSwapchain::create(&renderer, &logical_device, renderer.surface, &window);
-    let descriptor_set_layout = create_descriptor_set_layout(&logical_device);
-    let msaa_samples = get_max_usable_sample_count(renderer.physical_device, &renderer.instance);
-    let pipeline = VulkanPipeline::create(&swapchain, descriptor_set_layout, msaa_samples);
-    let command_pool = create_command_pool(&renderer.queue_families, &logical_device);
-    let command_buffers = create_command_buffers(command_pool, &logical_device);
-
-    let (color_image, color_image_memory, color_image_view) =
-        create_color_resources(&swapchain, msaa_samples);
 
     let (depth_image, depth_image_memory, depth_image_view) = create_depth_resources(
         &swapchain,
-        logical_device.graphics_queue,
+        renderer.queues.graphics,
         command_pool,
         msaa_samples,
+        renderer.physical_device,
+        &renderer.instance,
     );
     let framebuffers = create_framebuffers(&pipeline, depth_image_view, color_image_view);
 
     let (texture_image, texture_image_memory, mip_levels) = create_texture_image(
         model.texture_path,
-        &logical_device,
-        logical_device.graphics_queue,
+        &renderer.logical_device,
+        renderer.queues.graphics,
         command_pool,
+        &renderer.instance,
+        renderer.physical_device,
     );
-    let texture_image_view = create_texture_image_view(&logical_device, texture_image, mip_levels);
-    let texture_sampler = create_texture_sampler(&logical_device, mip_levels);
+    let texture_image_view =
+        create_texture_image_view(&renderer.logical_device, texture_image, mip_levels);
+    let texture_sampler = create_texture_sampler(
+        &renderer.logical_device,
+        mip_levels,
+        &renderer.instance,
+        renderer.physical_device,
+    );
 
-    let (vertex_buffer, vertex_buffer_memory) =
-        create_vertex_buffer(&model.vertices, &logical_device, command_pool);
-    let (index_buffer, index_buffer_memory) =
-        create_index_buffer(&model.indices, &logical_device, command_pool);
+    let (vertex_buffer, vertex_buffer_memory) = create_vertex_buffer(
+        &model.vertices,
+        &renderer.logical_device,
+        command_pool,
+        &renderer.instance,
+        renderer.physical_device,
+        renderer.queues.graphics,
+    );
+    let (index_buffer, index_buffer_memory) = create_index_buffer(
+        &model.indices,
+        &renderer.logical_device,
+        command_pool,
+        &renderer.instance,
+        renderer.physical_device,
+        renderer.queues.graphics,
+    );
 
-    let (uniform_buffers, uniform_buffer_memories, uniform_buffer_mapped) =
-        create_uniform_buffer(&logical_device);
+    let (uniform_buffers, uniform_buffer_memories, uniform_buffer_mapped) = create_uniform_buffer(
+        &renderer.logical_device,
+        &renderer.instance,
+        renderer.physical_device,
+    );
 
-    let descriptor_pool = create_descriptor_pool(&logical_device);
+    let descriptor_pool = create_descriptor_pool(&renderer.logical_device);
     let descriptor_sets = create_descriptor_sets(
         descriptor_set_layout,
         descriptor_pool,
         &uniform_buffers,
         texture_image_view,
         texture_sampler,
-        &logical_device,
+        &renderer.logical_device,
     );
 
-    let sync = create_sync(&logical_device);
+    let sync = create_sync(&renderer.logical_device);
 
     let mut current_frame = 0;
     let mut input_state = InputState::new();
@@ -696,7 +668,7 @@ pub fn run_renderer(mut window: Window, model: Model) {
                 camera.apply_input(&input_state, delta_time);
                 input_state.reset_after_frame();
                 draw_frame(
-                    &logical_device,
+                    &renderer.logical_device,
                     sync.in_flight[current_frame],
                     &swapchain,
                     sync.image_available[current_frame],
@@ -710,6 +682,8 @@ pub fn run_renderer(mut window: Window, model: Model) {
                     uniform_buffer_mapped[current_frame],
                     descriptor_sets[current_frame],
                     &camera,
+                    renderer.queues.graphics,
+                    renderer.queues.present,
                 );
                 current_frame = (current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
             }
@@ -726,46 +700,98 @@ pub fn run_renderer(mut window: Window, model: Model) {
         }
     });
 
-    unsafe { logical_device.device_wait_idle() }.unwrap();
+    unsafe { renderer.logical_device.device_wait_idle() }.unwrap();
 
     for fence in sync.in_flight {
-        unsafe { logical_device.destroy_fence(fence, None) };
+        unsafe { renderer.logical_device.destroy_fence(fence, None) };
     }
     for semaphore in sync.render_finished {
-        unsafe { logical_device.destroy_semaphore(semaphore, None) };
+        unsafe { renderer.logical_device.destroy_semaphore(semaphore, None) };
     }
     for semaphore in sync.image_available {
-        unsafe { logical_device.destroy_semaphore(semaphore, None) };
+        unsafe { renderer.logical_device.destroy_semaphore(semaphore, None) };
     }
-    unsafe { logical_device.destroy_descriptor_pool(descriptor_pool, None) };
+    unsafe {
+        renderer
+            .logical_device
+            .destroy_descriptor_pool(descriptor_pool, None)
+    };
     for buffer in uniform_buffers {
-        unsafe { logical_device.destroy_buffer(buffer, None) };
+        unsafe { renderer.logical_device.destroy_buffer(buffer, None) };
     }
     for memory in uniform_buffer_memories {
-        unsafe { logical_device.free_memory(memory, None) };
+        unsafe { renderer.logical_device.free_memory(memory, None) };
     }
-    unsafe { logical_device.destroy_buffer(index_buffer, None) };
-    unsafe { logical_device.free_memory(index_buffer_memory, None) };
-    unsafe { logical_device.destroy_buffer(vertex_buffer, None) };
-    unsafe { logical_device.free_memory(vertex_buffer_memory, None) };
-    unsafe { logical_device.destroy_sampler(texture_sampler, None) };
-    unsafe { logical_device.destroy_image_view(texture_image_view, None) };
-    unsafe { logical_device.destroy_image(texture_image, None) };
-    unsafe { logical_device.free_memory(texture_image_memory, None) };
+    unsafe { renderer.logical_device.destroy_buffer(index_buffer, None) };
+    unsafe {
+        renderer
+            .logical_device
+            .free_memory(index_buffer_memory, None)
+    };
+    unsafe { renderer.logical_device.destroy_buffer(vertex_buffer, None) };
+    unsafe {
+        renderer
+            .logical_device
+            .free_memory(vertex_buffer_memory, None)
+    };
+    unsafe {
+        renderer
+            .logical_device
+            .destroy_sampler(texture_sampler, None)
+    };
+    unsafe {
+        renderer
+            .logical_device
+            .destroy_image_view(texture_image_view, None)
+    };
+    unsafe { renderer.logical_device.destroy_image(texture_image, None) };
+    unsafe {
+        renderer
+            .logical_device
+            .free_memory(texture_image_memory, None)
+    };
     for framebuffer in &framebuffers {
-        unsafe { logical_device.destroy_framebuffer(*framebuffer, None) };
+        unsafe {
+            renderer
+                .logical_device
+                .destroy_framebuffer(*framebuffer, None)
+        };
     }
-    unsafe { logical_device.destroy_image_view(depth_image_view, None) };
-    unsafe { logical_device.destroy_image(depth_image, None) };
-    unsafe { logical_device.free_memory(depth_image_memory, None) };
-    unsafe { logical_device.destroy_image_view(color_image_view, None) };
-    unsafe { logical_device.destroy_image(color_image, None) };
-    unsafe { logical_device.free_memory(color_image_memory, None) };
-    unsafe { logical_device.destroy_command_pool(command_pool, None) };
+    unsafe {
+        renderer
+            .logical_device
+            .destroy_image_view(depth_image_view, None)
+    };
+    unsafe { renderer.logical_device.destroy_image(depth_image, None) };
+    unsafe {
+        renderer
+            .logical_device
+            .free_memory(depth_image_memory, None)
+    };
+    unsafe {
+        renderer
+            .logical_device
+            .destroy_image_view(color_image_view, None)
+    };
+    unsafe { renderer.logical_device.destroy_image(color_image, None) };
+    unsafe {
+        renderer
+            .logical_device
+            .free_memory(color_image_memory, None)
+    };
+    unsafe {
+        renderer
+            .logical_device
+            .destroy_command_pool(command_pool, None)
+    };
     drop(pipeline);
-    unsafe { logical_device.destroy_descriptor_set_layout(descriptor_set_layout, None) };
+    unsafe {
+        renderer
+            .logical_device
+            .destroy_descriptor_set_layout(descriptor_set_layout, None)
+    };
     drop(swapchain);
-    drop(logical_device);
+    unsafe { renderer.logical_device.destroy_device(None) };
     unsafe {
         renderer
             .extensions
@@ -819,6 +845,46 @@ fn create_surface(window: &Window, entry: &Entry, instance: &Instance) -> vk::Su
             &instance,
             window.window.raw_display_handle(),
             window.window.raw_window_handle(),
+            None,
+        )
+    }
+    .unwrap()
+}
+
+fn create_logical_device(
+    queue_families: &QueueFamilies,
+    instance: &Instance,
+    physical_device: vk::PhysicalDevice,
+) -> Device {
+    // Queues from the same family must be created at once, so we need to use a set to eliminate
+    // duplicates. If the queue families are the same, we create only a single queue and keep
+    // two handles. This needs to be remembered later when setting flags related to memory
+    // access being exclusive to the queue or concurrent from many queues.
+    let queue_indices = HashSet::from([queue_families.graphics, queue_families.present]);
+    let queue_creates: Vec<_> = queue_indices
+        .iter()
+        .map(|queue_index| {
+            vk::DeviceQueueCreateInfo::builder()
+                .queue_family_index(*queue_index)
+                .queue_priorities(&[1.])
+                .build()
+        })
+        .collect();
+
+    let physical_device_features = vk::PhysicalDeviceFeatures::builder().sampler_anisotropy(true);
+
+    // Using validation layers on a device level shouldn't be necessary on newer Vulkan version
+    // (since which one?), but it's good to keep it for compatibility.
+    let layer_names = [b"VK_LAYER_KHRONOS_validation\0".as_ptr() as *const i8];
+
+    unsafe {
+        instance.create_device(
+            physical_device,
+            &vk::DeviceCreateInfo::builder()
+                .queue_create_infos(&queue_creates)
+                .enabled_features(&physical_device_features)
+                .enabled_layer_names(&layer_names)
+                .enabled_extension_names(&[Swapchain::name().as_ptr()]),
             None,
         )
     }
@@ -899,10 +965,12 @@ fn find_memory_type(
 }
 
 fn create_buffer(
-    logical_device: &VulkanLogicalDevice,
+    logical_device: &Device,
     size: usize,
     usage: vk::BufferUsageFlags,
     properties: vk::MemoryPropertyFlags,
+    instance: &Instance,
+    physical_device: vk::PhysicalDevice,
 ) -> (vk::Buffer, vk::DeviceMemory) {
     let buffer_info = *vk::BufferCreateInfo::builder()
         .size(size as u64)
@@ -911,21 +979,23 @@ fn create_buffer(
     let buffer = unsafe { logical_device.create_buffer(&buffer_info, None) }.unwrap();
     let requirements = unsafe { logical_device.get_buffer_memory_requirements(buffer) };
     let memory_type_index = find_memory_type(
-        logical_device.instance,
-        logical_device.physical_device,
+        instance,
+        physical_device,
         requirements.memory_type_bits,
         properties,
     );
     let alloc_info = vk::MemoryAllocateInfo::builder()
         .allocation_size(requirements.size)
         .memory_type_index(memory_type_index);
-    let memory = unsafe { logical_device.device.allocate_memory(&alloc_info, None) }.unwrap();
-    unsafe { logical_device.device.bind_buffer_memory(buffer, memory, 0) }.unwrap();
+    let memory = unsafe { logical_device.allocate_memory(&alloc_info, None) }.unwrap();
+    unsafe { logical_device.bind_buffer_memory(buffer, memory, 0) }.unwrap();
     (buffer, memory)
 }
 
 fn create_image(
-    logical_device: &VulkanLogicalDevice,
+    instance: &Instance,
+    physical_device: vk::PhysicalDevice,
+    logical_device: &Device,
     width: usize,
     height: usize,
     mip_levels: usize,
@@ -954,8 +1024,8 @@ fn create_image(
 
     let requirements = unsafe { logical_device.get_image_memory_requirements(image) };
     let memory_type = find_memory_type(
-        logical_device.instance,
-        logical_device.physical_device,
+        instance,
+        physical_device,
         requirements.memory_type_bits,
         memory,
     );
@@ -994,9 +1064,13 @@ fn find_supported_format(
 fn create_color_resources(
     swapchain: &VulkanSwapchain,
     msaa_samples: vk::SampleCountFlags,
+    instance: &Instance,
+    physical_device: vk::PhysicalDevice,
 ) -> (vk::Image, vk::DeviceMemory, vk::ImageView) {
     let format = swapchain.image_format;
     let (image, image_memory) = create_image(
+        instance,
+        physical_device,
         swapchain.logical_device,
         swapchain.extent.width as usize,
         swapchain.extent.height as usize,
@@ -1040,12 +1114,13 @@ fn create_depth_resources(
     graphics_queue: vk::Queue,
     command_pool: vk::CommandPool,
     msaa_samples: vk::SampleCountFlags,
+    physical_device: vk::PhysicalDevice,
+    instance: &Instance,
 ) -> (vk::Image, vk::DeviceMemory, vk::ImageView) {
-    let format = find_depth_format(
-        swapchain.logical_device.physical_device,
-        swapchain.logical_device.instance,
-    );
+    let format = find_depth_format(physical_device, instance);
     let (image, image_memory) = create_image(
+        instance,
+        physical_device,
         swapchain.logical_device,
         swapchain.extent.width as usize,
         swapchain.extent.height as usize,
@@ -1078,9 +1153,11 @@ fn create_depth_resources(
 
 fn create_texture_image(
     path: &str,
-    logical_device: &VulkanLogicalDevice,
+    logical_device: &Device,
     graphics_queue: vk::Queue,
     command_pool: vk::CommandPool,
+    instance: &Instance,
+    physical_device: vk::PhysicalDevice,
 ) -> (vk::Image, vk::DeviceMemory, usize) {
     let image = image::open(path).unwrap().to_rgba8();
     let pixel_count = image.width() as usize * image.height() as usize;
@@ -1092,6 +1169,8 @@ fn create_texture_image(
         image_size,
         vk::BufferUsageFlags::TRANSFER_SRC | vk::BufferUsageFlags::TRANSFER_DST,
         vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+        instance,
+        physical_device,
     );
     let staging_ptr = unsafe {
         logical_device.map_memory(
@@ -1108,6 +1187,8 @@ fn create_texture_image(
     unsafe { logical_device.unmap_memory(staging_buffer_memory) };
 
     let (texture_image, texture_image_memory) = create_image(
+        instance,
+        physical_device,
         logical_device,
         image.width() as usize,
         image.height() as usize,
@@ -1149,6 +1230,8 @@ fn create_texture_image(
         logical_device,
         graphics_queue,
         command_pool,
+        instance,
+        physical_device,
     );
 
     unsafe { logical_device.destroy_buffer(staging_buffer, None) };
@@ -1163,15 +1246,14 @@ fn generate_mipmaps(
     tex_width: usize,
     tex_height: usize,
     mip_levels: usize,
-    logical_device: &VulkanLogicalDevice,
+    logical_device: &Device,
     graphics_queue: vk::Queue,
     command_pool: vk::CommandPool,
+    instance: &Instance,
+    physical_device: vk::PhysicalDevice,
 ) {
-    let format_properties = unsafe {
-        logical_device
-            .instance
-            .get_physical_device_format_properties(logical_device.physical_device, format)
-    };
+    let format_properties =
+        unsafe { instance.get_physical_device_format_properties(physical_device, format) };
     assert!(format_properties
         .optimal_tiling_features
         .contains(vk::FormatFeatureFlags::SAMPLED_IMAGE_FILTER_LINEAR));
@@ -1306,7 +1388,7 @@ fn generate_mipmaps(
 }
 
 fn create_image_view(
-    logical_device: &VulkanLogicalDevice,
+    logical_device: &Device,
     image: vk::Image,
     format: vk::Format,
     aspect_mask: vk::ImageAspectFlags,
@@ -1327,7 +1409,7 @@ fn create_image_view(
 }
 
 fn create_texture_image_view(
-    logical_device: &VulkanLogicalDevice,
+    logical_device: &Device,
     texture_image: vk::Image,
     mip_levels: usize,
 ) -> vk::ImageView {
@@ -1340,12 +1422,13 @@ fn create_texture_image_view(
     )
 }
 
-fn create_texture_sampler(logical_device: &VulkanLogicalDevice, mip_levels: usize) -> vk::Sampler {
-    let properties = unsafe {
-        logical_device
-            .instance
-            .get_physical_device_properties(logical_device.physical_device)
-    };
+fn create_texture_sampler(
+    logical_device: &Device,
+    mip_levels: usize,
+    instance: &Instance,
+    physical_device: vk::PhysicalDevice,
+) -> vk::Sampler {
+    let properties = unsafe { instance.get_physical_device_properties(physical_device) };
     let sampler_info = vk::SamplerCreateInfo::builder()
         .mag_filter(vk::Filter::LINEAR)
         .min_filter(vk::Filter::LINEAR)
@@ -1367,8 +1450,11 @@ fn create_texture_sampler(logical_device: &VulkanLogicalDevice, mip_levels: usiz
 
 fn create_vertex_buffer(
     vertex_data: &[Vertex],
-    logical_device: &VulkanLogicalDevice,
+    logical_device: &Device,
     command_pool: vk::CommandPool,
+    instance: &Instance,
+    physical_device: vk::PhysicalDevice,
+    graphics_queue: vk::Queue,
 ) -> (vk::Buffer, vk::DeviceMemory) {
     let vertex_size = std::mem::size_of::<Vertex>();
     let vertex_buffer_size = vertex_size * vertex_data.len();
@@ -1377,15 +1463,19 @@ fn create_vertex_buffer(
         vertex_buffer_size,
         vk::BufferUsageFlags::TRANSFER_SRC,
         vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+        instance,
+        physical_device,
     );
     let (vertex_buffer, vertex_buffer_memory) = create_buffer(
         &logical_device,
         vertex_buffer_size,
         vk::BufferUsageFlags::VERTEX_BUFFER | vk::BufferUsageFlags::TRANSFER_DST,
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
+        instance,
+        physical_device,
     );
     let staging_ptr = unsafe {
-        logical_device.device.map_memory(
+        logical_device.map_memory(
             staging_buffer_memory,
             0,
             vertex_buffer_size as u64,
@@ -1395,14 +1485,14 @@ fn create_vertex_buffer(
     .unwrap();
     unsafe { std::slice::from_raw_parts_mut(staging_ptr as *mut Vertex, vertex_data.len()) }
         .copy_from_slice(&vertex_data);
-    unsafe { logical_device.device.unmap_memory(staging_buffer_memory) };
+    unsafe { logical_device.unmap_memory(staging_buffer_memory) };
     copy_buffer(
         &logical_device,
         staging_buffer,
         vertex_buffer,
         vertex_buffer_size,
         command_pool,
-        logical_device.graphics_queue,
+        graphics_queue,
     );
     unsafe { logical_device.destroy_buffer(staging_buffer, None) };
     unsafe { logical_device.free_memory(staging_buffer_memory, None) };
@@ -1410,7 +1500,7 @@ fn create_vertex_buffer(
 }
 
 fn transition_image_layout(
-    logical_device: &VulkanLogicalDevice,
+    logical_device: &Device,
     graphics_queue: vk::Queue,
     command_pool: vk::CommandPool,
     image: vk::Image,
@@ -1500,7 +1590,7 @@ fn transition_image_layout(
 }
 
 fn copy_buffer_to_image(
-    logical_device: &VulkanLogicalDevice,
+    logical_device: &Device,
     graphics_queue: vk::Queue,
     command_pool: vk::CommandPool,
     buffer: vk::Buffer,
@@ -1546,8 +1636,11 @@ fn copy_buffer_to_image(
 
 fn create_index_buffer(
     index_data: &[u32],
-    logical_device: &VulkanLogicalDevice,
+    logical_device: &Device,
     command_pool: vk::CommandPool,
+    instance: &Instance,
+    physical_device: vk::PhysicalDevice,
+    graphics_queue: vk::Queue,
 ) -> (vk::Buffer, vk::DeviceMemory) {
     let index_size = std::mem::size_of_val(&index_data[0]);
     let index_buffer_size = index_size * index_data.len();
@@ -1556,15 +1649,19 @@ fn create_index_buffer(
         index_buffer_size,
         vk::BufferUsageFlags::TRANSFER_SRC,
         vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+        instance,
+        physical_device,
     );
     let (index_buffer, index_buffer_memory) = create_buffer(
         &logical_device,
         index_buffer_size,
         vk::BufferUsageFlags::INDEX_BUFFER | vk::BufferUsageFlags::TRANSFER_DST,
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
+        instance,
+        physical_device,
     );
     let staging_ptr = unsafe {
-        logical_device.device.map_memory(
+        logical_device.map_memory(
             staging_buffer_memory,
             0,
             index_buffer_size as u64,
@@ -1574,14 +1671,14 @@ fn create_index_buffer(
     .unwrap();
     unsafe { std::slice::from_raw_parts_mut(staging_ptr as *mut u32, index_data.len()) }
         .copy_from_slice(&index_data);
-    unsafe { logical_device.device.unmap_memory(staging_buffer_memory) };
+    unsafe { logical_device.unmap_memory(staging_buffer_memory) };
     copy_buffer(
         &logical_device,
         staging_buffer,
         index_buffer,
         index_buffer_size,
         command_pool,
-        logical_device.graphics_queue,
+        graphics_queue,
     );
     unsafe { logical_device.destroy_buffer(staging_buffer, None) };
     unsafe { logical_device.free_memory(staging_buffer_memory, None) };
@@ -1589,7 +1686,9 @@ fn create_index_buffer(
 }
 
 fn create_uniform_buffer(
-    logical_device: &VulkanLogicalDevice,
+    logical_device: &Device,
+    instance: &Instance,
+    physical_device: vk::PhysicalDevice,
 ) -> (
     Vec<vk::Buffer>,
     Vec<vk::DeviceMemory>,
@@ -1605,14 +1704,11 @@ fn create_uniform_buffer(
             buffer_size,
             vk::BufferUsageFlags::UNIFORM_BUFFER,
             vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+            instance,
+            physical_device,
         );
         let mapping = unsafe {
-            logical_device.device.map_memory(
-                memory,
-                0,
-                buffer_size as u64,
-                vk::MemoryMapFlags::empty(),
-            )
+            logical_device.map_memory(memory, 0, buffer_size as u64, vk::MemoryMapFlags::empty())
         }
         .unwrap() as *mut UniformBufferObject;
         buffers.push(buffer);
@@ -1622,7 +1718,7 @@ fn create_uniform_buffer(
     (buffers, memories, mappings)
 }
 
-fn create_descriptor_set_layout(logical_device: &VulkanLogicalDevice) -> vk::DescriptorSetLayout {
+fn create_descriptor_set_layout(logical_device: &Device) -> vk::DescriptorSetLayout {
     let ubo_layout_binding = vk::DescriptorSetLayoutBinding::builder()
         .binding(0)
         .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
@@ -1638,7 +1734,7 @@ fn create_descriptor_set_layout(logical_device: &VulkanLogicalDevice) -> vk::Des
     unsafe { logical_device.create_descriptor_set_layout(&layout_info, None) }.unwrap()
 }
 
-fn create_descriptor_pool(logical_device: &VulkanLogicalDevice) -> vk::DescriptorPool {
+fn create_descriptor_pool(logical_device: &Device) -> vk::DescriptorPool {
     let pool_sizes = [
         vk::DescriptorPoolSize {
             ty: vk::DescriptorType::UNIFORM_BUFFER,
@@ -1661,7 +1757,7 @@ fn create_descriptor_sets(
     uniform_buffers: &[vk::Buffer],
     texture_image_view: vk::ImageView,
     texture_sampler: vk::Sampler,
-    logical_device: &VulkanLogicalDevice,
+    logical_device: &Device,
 ) -> Vec<vk::DescriptorSet> {
     let layouts = vec![layout; MAX_FRAMES_IN_FLIGHT];
     let descriptor_set_alloc_info = vk::DescriptorSetAllocateInfo::builder()
@@ -1699,7 +1795,7 @@ fn create_descriptor_sets(
     descriptor_sets
 }
 
-fn create_sync<'a>(logical_device: &VulkanLogicalDevice) -> Synchronization {
+fn create_sync<'a>(logical_device: &Device) -> Synchronization {
     let semaphore_info = vk::SemaphoreCreateInfo::builder();
     let fence_info = vk::FenceCreateInfo::builder().flags(vk::FenceCreateFlags::SIGNALED);
     let mut image_available: [vk::Semaphore; MAX_FRAMES_IN_FLIGHT] = Default::default();
@@ -1747,10 +1843,7 @@ fn get_max_usable_sample_count(
     vk::SampleCountFlags::TYPE_1
 }
 
-fn create_command_pool(
-    queue_families: &QueueFamilies,
-    logical_device: &VulkanLogicalDevice,
-) -> vk::CommandPool {
+fn create_command_pool(queue_families: &QueueFamilies, logical_device: &Device) -> vk::CommandPool {
     let command_pool_info = vk::CommandPoolCreateInfo::builder()
         .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
         .queue_family_index(queue_families.graphics);
@@ -1759,7 +1852,7 @@ fn create_command_pool(
 
 fn create_command_buffers(
     command_pool: vk::CommandPool,
-    logical_device: &VulkanLogicalDevice,
+    logical_device: &Device,
 ) -> Vec<vk::CommandBuffer> {
     let command_buffer_allocate_info = vk::CommandBufferAllocateInfo::builder()
         .command_pool(command_pool)
@@ -1769,7 +1862,7 @@ fn create_command_buffers(
 }
 
 fn copy_buffer(
-    logical_device: &VulkanLogicalDevice,
+    logical_device: &Device,
     src: vk::Buffer,
     dst: vk::Buffer,
     len: usize,
@@ -1791,7 +1884,7 @@ fn copy_buffer(
 }
 
 fn single_time_commands<R>(
-    logical_device: &VulkanLogicalDevice,
+    logical_device: &Device,
     queue: vk::Queue,
     command_pool: vk::CommandPool,
     f: impl FnOnce(vk::CommandBuffer) -> R,
@@ -1800,24 +1893,15 @@ fn single_time_commands<R>(
         .level(vk::CommandBufferLevel::PRIMARY)
         .command_pool(command_pool)
         .command_buffer_count(1);
-    let command_buffer = unsafe {
-        logical_device
-            .device
-            .allocate_command_buffers(&command_info)
-    }
-    .unwrap()
-    .into_iter()
-    .next()
-    .unwrap();
+    let command_buffer = unsafe { logical_device.allocate_command_buffers(&command_info) }
+        .unwrap()
+        .into_iter()
+        .next()
+        .unwrap();
 
     let begin_info =
         vk::CommandBufferBeginInfo::builder().flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
-    unsafe {
-        logical_device
-            .device
-            .begin_command_buffer(command_buffer, &begin_info)
-    }
-    .unwrap();
+    unsafe { logical_device.begin_command_buffer(command_buffer, &begin_info) }.unwrap();
 
     let result = f(command_buffer);
 
@@ -1833,7 +1917,7 @@ fn single_time_commands<R>(
 }
 
 fn draw_frame(
-    device: &VulkanLogicalDevice,
+    device: &Device,
     in_flight_fence: vk::Fence,
     swapchain: &VulkanSwapchain,
     image_available_semaphore: vk::Semaphore,
@@ -1847,6 +1931,8 @@ fn draw_frame(
     ubo_ptr: *mut UniformBufferObject,
     descriptor_set: vk::DescriptorSet,
     camera: &Camera,
+    graphics_queue: vk::Queue,
+    present_queue: vk::Queue,
 ) {
     unsafe { device.wait_for_fences(&[in_flight_fence], true, u64::MAX) }.unwrap();
     unsafe { device.reset_fences(&[in_flight_fence]) }.unwrap();
@@ -1890,8 +1976,7 @@ fn draw_frame(
         .wait_dst_stage_mask(&[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT])
         .command_buffers(&command_buffers)
         .signal_semaphores(&signal_semaphores);
-    unsafe { device.queue_submit(device.graphics_queue, &[*submit_info], in_flight_fence) }
-        .unwrap();
+    unsafe { device.queue_submit(graphics_queue, &[*submit_info], in_flight_fence) }.unwrap();
 
     let present_info_swapchains = [swapchain.swapchain];
     let present_info_images = [image_index];
@@ -1899,16 +1984,11 @@ fn draw_frame(
         .wait_semaphores(&signal_semaphores)
         .swapchains(&present_info_swapchains)
         .image_indices(&present_info_images);
-    unsafe {
-        swapchain
-            .ext
-            .queue_present(device.present_queue, &present_info)
-    }
-    .unwrap();
+    unsafe { swapchain.ext.queue_present(present_queue, &present_info) }.unwrap();
 }
 
 fn record_command_buffer(
-    device: &VulkanLogicalDevice,
+    device: &Device,
     command_buffer: vk::CommandBuffer,
     image_index: u32,
     framebuffers: &[vk::Framebuffer],
