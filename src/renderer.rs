@@ -1,13 +1,17 @@
 mod debug;
 mod device;
+pub mod gpu_data;
 mod shader;
+mod traits;
 mod util;
 
 use crate::camera::Camera;
-use crate::model::{Model, Vertex};
+use crate::model::Model;
 use crate::renderer::debug::create_debug_messenger;
 use crate::renderer::device::{select_device, DeviceInfo, QueueFamilies};
+use crate::renderer::gpu_data::{UniformBufferObject, Vertex};
 use crate::renderer::shader::Shader;
+use crate::renderer::traits::VertexOps;
 use crate::window::Window;
 use crate::{VULKAN_APP_NAME, VULKAN_APP_VERSION, VULKAN_ENGINE_NAME, VULKAN_ENGINE_VERSION};
 use ash::extensions::ext::DebugUtils;
@@ -21,14 +25,7 @@ use std::mem::MaybeUninit;
 
 const MAX_FRAMES_IN_FLIGHT: usize = 2;
 
-#[repr(C)]
-#[derive(Clone, Copy, Debug)]
-struct UniformBufferObject {
-    model: glm::Mat4,
-    view: glm::Mat4,
-    proj: glm::Mat4,
-}
-
+#[allow(dead_code)]
 pub struct Renderer {
     entry: Entry,
     instance: Instance,
@@ -125,11 +122,14 @@ impl Renderer {
         let swapchain_image_count = select_swapchain_image_count(surface_capabilities);
         let swapchain_format = select_swapchain_format(&surface_formats);
         let swapchain_extent = select_swapchain_extent(surface_capabilities, window);
+        let swapchain_present_mode = select_swapchain_present_mode(&present_modes);
         let swapchain = create_swapchain(
             swapchain_image_count,
             swapchain_format,
             swapchain_extent,
-            &device_info,
+            swapchain_present_mode,
+            &queue_families,
+            surface_capabilities,
             surface,
             &swapchain_extension,
         );
@@ -489,11 +489,17 @@ fn select_swapchain_extent(
     }
 }
 
+fn select_swapchain_present_mode(_available: &[vk::PresentModeKHR]) -> vk::PresentModeKHR {
+    vk::PresentModeKHR::FIFO
+}
+
 fn create_swapchain(
     image_count: usize,
     format: vk::SurfaceFormatKHR,
     extent: vk::Extent2D,
-    device_info: &DeviceInfo,
+    present_mode: vk::PresentModeKHR,
+    queue_families: &QueueFamilies,
+    surface_capabilities: vk::SurfaceCapabilitiesKHR,
     surface: vk::SurfaceKHR,
     extension: &Swapchain,
 ) -> vk::SwapchainKHR {
@@ -501,10 +507,7 @@ fn create_swapchain(
     // right now, should be possible to change on laptops or integrated GPUs? Also requires
     // specifying a bunch of display-related parameters, which aren't very interesting as they
     // were mostly decided on previously.
-    let queue_family_indices = [
-        device_info.queue_families.graphics,
-        device_info.queue_families.present,
-    ];
+    let queue_family_indices = [queue_families.graphics, queue_families.present];
     let create_info = vk::SwapchainCreateInfoKHR::builder()
         .surface(surface)
         .min_image_count(image_count as u32)
@@ -513,7 +516,7 @@ fn create_swapchain(
         .image_extent(extent)
         .image_array_layers(1)
         .image_usage(vk::ImageUsageFlags::COLOR_ATTACHMENT);
-    let create_info = if device_info.queue_families.graphics != device_info.queue_families.present {
+    let create_info = if queue_families.graphics != queue_families.present {
         create_info
             .image_sharing_mode(vk::SharingMode::CONCURRENT)
             .queue_family_indices(&queue_family_indices)
@@ -521,16 +524,12 @@ fn create_swapchain(
         create_info.image_sharing_mode(vk::SharingMode::EXCLUSIVE)
     };
     let create_info = create_info
-        .pre_transform(device_info.surface_capabilities.current_transform)
+        .pre_transform(surface_capabilities.current_transform)
         .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE)
-        .present_mode(select_swapchain_present_mode())
+        .present_mode(present_mode)
         .clipped(true)
         .old_swapchain(vk::SwapchainKHR::null());
     unsafe { extension.create_swapchain(&create_info, None) }.unwrap()
-}
-
-fn select_swapchain_present_mode() -> vk::PresentModeKHR {
-    vk::PresentModeKHR::FIFO
 }
 
 fn create_swapchain_image_views(
@@ -554,6 +553,22 @@ fn create_swapchain_image_views(
     image_views
 }
 
+fn create_descriptor_set_layout(logical_device: &Device) -> vk::DescriptorSetLayout {
+    let ubo_layout_binding = vk::DescriptorSetLayoutBinding::builder()
+        .binding(0)
+        .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+        .descriptor_count(1)
+        .stage_flags(vk::ShaderStageFlags::VERTEX);
+    let sampler_layout_binding = vk::DescriptorSetLayoutBinding::builder()
+        .binding(1)
+        .descriptor_count(1)
+        .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+        .stage_flags(vk::ShaderStageFlags::FRAGMENT);
+    let layout_bindings = [*ubo_layout_binding, *sampler_layout_binding];
+    let layout_info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(&layout_bindings);
+    unsafe { logical_device.create_descriptor_set_layout(&layout_info, None) }.unwrap()
+}
+
 fn create_pipeline(
     swapchain_image_format: vk::SurfaceFormatKHR,
     descriptor_set_layout: vk::DescriptorSetLayout,
@@ -575,8 +590,11 @@ fn create_pipeline(
     let shader_stages = [vert_shader.stage_info, frag_shader.stage_info];
     let dynamic_state = vk::PipelineDynamicStateCreateInfo::builder()
         .dynamic_states(&[vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR]);
-    let vertex_binding_descriptions = [build_vertex_binding_description()];
-    let vertex_attribute_descriptions = get_attribute_descriptions();
+    let vertex_attribute_descriptions = Vertex::attribute_descriptions(0);
+    let vertex_binding_descriptions = [*vk::VertexInputBindingDescription::builder()
+        .binding(0)
+        .stride(std::mem::size_of::<Vertex>() as u32)
+        .input_rate(vk::VertexInputRate::VERTEX)];
     let vertex_input = vk::PipelineVertexInputStateCreateInfo::builder()
         .vertex_binding_descriptions(&vertex_binding_descriptions)
         .vertex_attribute_descriptions(&vertex_attribute_descriptions);
@@ -727,60 +745,25 @@ fn create_pipeline(
     (pipeline, pipeline_layout, render_pass)
 }
 
-fn build_vertex_binding_description() -> vk::VertexInputBindingDescription {
-    vk::VertexInputBindingDescription::builder()
-        .binding(0)
-        .stride(std::mem::size_of::<Vertex>() as u32)
-        .input_rate(vk::VertexInputRate::VERTEX)
-        .build()
+fn create_command_pool(queue_families: &QueueFamilies, logical_device: &Device) -> vk::CommandPool {
+    let command_pool_info = vk::CommandPoolCreateInfo::builder()
+        .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
+        .queue_family_index(queue_families.graphics);
+    unsafe { logical_device.create_command_pool(&command_pool_info, None) }.unwrap()
 }
 
-fn create_framebuffers(
-    pipeline_render_pass: vk::RenderPass,
+fn create_command_buffers(
+    command_pool: vk::CommandPool,
     logical_device: &Device,
-    depth_image_view: vk::ImageView,
-    color_image_view: vk::ImageView,
-    swapchain_image_count: usize,
-    swapchain_image_views: &[vk::ImageView],
-    swapchain_extent: vk::Extent2D,
-) -> Vec<vk::Framebuffer> {
-    let mut framebuffers = vec![vk::Framebuffer::null(); swapchain_image_count];
-    for i in 0..swapchain_image_count {
-        let attachments = [color_image_view, depth_image_view, swapchain_image_views[i]];
-        let framebuffer_info = vk::FramebufferCreateInfo::builder()
-            .render_pass(pipeline_render_pass)
-            .attachments(&attachments)
-            .width(swapchain_extent.width)
-            .height(swapchain_extent.height)
-            .layers(1);
-        let framebuffer =
-            unsafe { logical_device.create_framebuffer(&framebuffer_info, None) }.unwrap();
-        framebuffers[i] = framebuffer;
-    }
-    framebuffers
-}
-
-fn get_attribute_descriptions() -> [vk::VertexInputAttributeDescription; 3] {
-    [
-        vk::VertexInputAttributeDescription {
-            binding: 0,
-            location: 0,
-            format: vk::Format::R32G32B32_SFLOAT,
-            offset: 0,
-        },
-        vk::VertexInputAttributeDescription {
-            binding: 0,
-            location: 1,
-            format: vk::Format::R32G32B32_SFLOAT,
-            offset: std::mem::size_of::<glm::Vec3>() as u32,
-        },
-        vk::VertexInputAttributeDescription {
-            binding: 0,
-            location: 2,
-            format: vk::Format::R32G32_SFLOAT,
-            offset: std::mem::size_of::<glm::Vec3>() as u32 * 2,
-        },
-    ]
+) -> [vk::CommandBuffer; MAX_FRAMES_IN_FLIGHT] {
+    let command_buffer_allocate_info = vk::CommandBufferAllocateInfo::builder()
+        .command_pool(command_pool)
+        .level(vk::CommandBufferLevel::PRIMARY)
+        .command_buffer_count(MAX_FRAMES_IN_FLIGHT as u32);
+    unsafe { logical_device.allocate_command_buffers(&command_buffer_allocate_info) }
+        .unwrap()
+        .try_into()
+        .unwrap()
 }
 
 fn create_color_resources(
@@ -816,20 +799,6 @@ fn create_color_resources(
         memory,
         view,
     }
-}
-
-fn select_depth_format(physical_device: vk::PhysicalDevice, instance: &Instance) -> vk::Format {
-    util::select_format(
-        &[
-            vk::Format::D32_SFLOAT,
-            vk::Format::D32_SFLOAT_S8_UINT,
-            vk::Format::D24_UNORM_S8_UINT,
-        ],
-        vk::FormatFeatureFlags::DEPTH_STENCIL_ATTACHMENT,
-        vk::ImageTiling::OPTIMAL,
-        instance,
-        physical_device,
-    )
 }
 
 fn create_depth_resources(
@@ -879,6 +848,45 @@ fn create_depth_resources(
         memory,
         view,
     }
+}
+
+fn select_depth_format(physical_device: vk::PhysicalDevice, instance: &Instance) -> vk::Format {
+    util::select_format(
+        &[
+            vk::Format::D32_SFLOAT,
+            vk::Format::D32_SFLOAT_S8_UINT,
+            vk::Format::D24_UNORM_S8_UINT,
+        ],
+        vk::FormatFeatureFlags::DEPTH_STENCIL_ATTACHMENT,
+        vk::ImageTiling::OPTIMAL,
+        instance,
+        physical_device,
+    )
+}
+
+fn create_framebuffers(
+    pipeline_render_pass: vk::RenderPass,
+    logical_device: &Device,
+    depth_image_view: vk::ImageView,
+    color_image_view: vk::ImageView,
+    swapchain_image_count: usize,
+    swapchain_image_views: &[vk::ImageView],
+    swapchain_extent: vk::Extent2D,
+) -> Vec<vk::Framebuffer> {
+    let mut framebuffers = vec![vk::Framebuffer::null(); swapchain_image_count];
+    for i in 0..swapchain_image_count {
+        let attachments = [color_image_view, depth_image_view, swapchain_image_views[i]];
+        let framebuffer_info = vk::FramebufferCreateInfo::builder()
+            .render_pass(pipeline_render_pass)
+            .attachments(&attachments)
+            .width(swapchain_extent.width)
+            .height(swapchain_extent.height)
+            .layers(1);
+        let framebuffer =
+            unsafe { logical_device.create_framebuffer(&framebuffer_info, None) }.unwrap();
+        framebuffers[i] = framebuffer;
+    }
+    framebuffers
 }
 
 fn create_texture_sampler(
@@ -1025,22 +1033,6 @@ fn create_uniform_buffer(
     (buffers, memories, mappings)
 }
 
-fn create_descriptor_set_layout(logical_device: &Device) -> vk::DescriptorSetLayout {
-    let ubo_layout_binding = vk::DescriptorSetLayoutBinding::builder()
-        .binding(0)
-        .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-        .descriptor_count(1)
-        .stage_flags(vk::ShaderStageFlags::VERTEX);
-    let sampler_layout_binding = vk::DescriptorSetLayoutBinding::builder()
-        .binding(1)
-        .descriptor_count(1)
-        .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-        .stage_flags(vk::ShaderStageFlags::FRAGMENT);
-    let layout_bindings = [*ubo_layout_binding, *sampler_layout_binding];
-    let layout_info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(&layout_bindings);
-    unsafe { logical_device.create_descriptor_set_layout(&layout_info, None) }.unwrap()
-}
-
 fn create_descriptor_pool(logical_device: &Device) -> vk::DescriptorPool {
     let pool_sizes = [
         vk::DescriptorPoolSize {
@@ -1123,27 +1115,6 @@ fn create_sync<'a>(logical_device: &Device) -> Synchronization {
         render_finished,
         in_flight,
     }
-}
-
-fn create_command_pool(queue_families: &QueueFamilies, logical_device: &Device) -> vk::CommandPool {
-    let command_pool_info = vk::CommandPoolCreateInfo::builder()
-        .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
-        .queue_family_index(queue_families.graphics);
-    unsafe { logical_device.create_command_pool(&command_pool_info, None) }.unwrap()
-}
-
-fn create_command_buffers(
-    command_pool: vk::CommandPool,
-    logical_device: &Device,
-) -> [vk::CommandBuffer; MAX_FRAMES_IN_FLIGHT] {
-    let command_buffer_allocate_info = vk::CommandBufferAllocateInfo::builder()
-        .command_pool(command_pool)
-        .level(vk::CommandBufferLevel::PRIMARY)
-        .command_buffer_count(MAX_FRAMES_IN_FLIGHT as u32);
-    unsafe { logical_device.allocate_command_buffers(&command_buffer_allocate_info) }
-        .unwrap()
-        .try_into()
-        .unwrap()
 }
 
 fn draw_frame(

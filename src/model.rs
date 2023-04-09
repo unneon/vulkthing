@@ -1,13 +1,6 @@
+use crate::renderer::gpu_data::Vertex;
 use nalgebra_glm as glm;
 use tobj::LoadOptions;
-
-#[repr(C)]
-#[derive(Clone, Copy, Debug)]
-pub struct Vertex {
-    pub position: glm::Vec3,
-    pub normal: glm::Vec3,
-    pub tex: glm::Vec2,
-}
 
 pub struct Model {
     pub vertices: Vec<Vertex>,

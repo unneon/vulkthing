@@ -2,9 +2,9 @@
 #![feature(const_cstr_methods)]
 #![feature(const_option)]
 #![feature(const_result_drop)]
+#![feature(generic_const_exprs)]
 #![feature(maybe_uninit_write_slice)]
-
-extern crate core;
+#![allow(incomplete_features)]
 
 mod camera;
 mod input;
