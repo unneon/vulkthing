@@ -18,6 +18,13 @@ pub struct UniformBufferObject {
     pub proj: glm::Mat4,
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct Lighting {
+    pub color: glm::Vec3,
+    pub pos: glm::Vec3,
+}
+
 impl VertexOps for Vertex {
     const ATTRIBUTE_COUNT: usize = 3;
     const ATTRIBUTE_FORMATS: &'static [vk::Format] = &[

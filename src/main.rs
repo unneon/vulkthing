@@ -48,7 +48,7 @@ fn main() {
         yaw: 0.,
         pitch: 0.,
     };
-    let mut time_start = Instant::now();
+    let time_start = Instant::now();
     let mut last_update = Instant::now();
 
     // Run the event loop. Winit delivers events, like key presses. After it finishes delivering

@@ -1,7 +1,7 @@
 use crate::model::Model;
 use crate::renderer::debug::create_debug_messenger;
 use crate::renderer::device::{select_device, DeviceInfo, QueueFamilies};
-use crate::renderer::gpu_data::{UniformBufferObject, Vertex};
+use crate::renderer::gpu_data::{Lighting, UniformBufferObject, Vertex};
 use crate::renderer::shader::Shader;
 use crate::renderer::traits::VertexOps;
 use crate::renderer::util::{ImageResources, Queues, VulkanExtensions};
@@ -152,12 +152,15 @@ impl Renderer {
             create_uniform_buffer(&instance, physical_device, &logical_device);
         let (light_ub, light_ubm, light_ubp) =
             create_uniform_buffer(&instance, physical_device, &logical_device);
+        let (lighting_ub, lighting_ubm, lighting_ubp) =
+            create_uniform_buffer(&instance, physical_device, &logical_device);
 
         let descriptor_pool = create_descriptor_pool(&logical_device);
         let descriptor_sets = create_descriptor_sets(
             descriptor_set_layout,
             descriptor_pool,
             &uniform_buffers,
+            &lighting_ub,
             texture.view,
             texture_sampler,
             &logical_device,
@@ -166,6 +169,7 @@ impl Renderer {
             descriptor_set_layout,
             descriptor_pool,
             &light_ub,
+            &lighting_ub,
             texture.view,
             texture_sampler,
             &logical_device,
@@ -218,6 +222,9 @@ impl Renderer {
             light_ub,
             light_ubm,
             light_ubp,
+            lighting_ub,
+            lighting_ubm,
+            lighting_ubp,
             descriptor_pool,
             descriptor_sets,
             light_ds,
@@ -379,6 +386,12 @@ impl Drop for Renderer {
                 dev.destroy_buffer(buffer, None);
             }
             for memory in self.light_ubm {
+                dev.free_memory(memory, None);
+            }
+            for buffer in self.lighting_ub {
+                dev.destroy_buffer(buffer, None);
+            }
+            for memory in self.lighting_ubm {
                 dev.free_memory(memory, None);
             }
             dev.destroy_buffer(self.index_buffer, None);
@@ -622,7 +635,16 @@ fn create_descriptor_set_layout(logical_device: &Device) -> vk::DescriptorSetLay
         .descriptor_count(1)
         .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
         .stage_flags(vk::ShaderStageFlags::FRAGMENT);
-    let layout_bindings = [*ubo_layout_binding, *sampler_layout_binding];
+    let lighting_binding = vk::DescriptorSetLayoutBinding::builder()
+        .binding(2)
+        .descriptor_count(1)
+        .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+        .stage_flags(vk::ShaderStageFlags::FRAGMENT);
+    let layout_bindings = [
+        *ubo_layout_binding,
+        *sampler_layout_binding,
+        *lighting_binding,
+    ];
     let layout_info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(&layout_bindings);
     unsafe { logical_device.create_descriptor_set_layout(&layout_info, None) }.unwrap()
 }
@@ -1058,20 +1080,20 @@ fn create_index_buffer(
     (index_buffer, index_buffer_memory)
 }
 
-fn create_uniform_buffer(
+fn create_uniform_buffer<T>(
     instance: &Instance,
     physical_device: vk::PhysicalDevice,
     logical_device: &Device,
 ) -> (
     [vk::Buffer; FRAMES_IN_FLIGHT],
     [vk::DeviceMemory; FRAMES_IN_FLIGHT],
-    [*mut UniformBufferObject; FRAMES_IN_FLIGHT],
+    [*mut T; FRAMES_IN_FLIGHT],
 ) {
     let mut buffers = [vk::Buffer::null(); FRAMES_IN_FLIGHT];
     let mut memories = [vk::DeviceMemory::null(); FRAMES_IN_FLIGHT];
     let mut mappings = [std::ptr::null_mut(); FRAMES_IN_FLIGHT];
     for i in 0..FRAMES_IN_FLIGHT {
-        let buffer_size = std::mem::size_of::<UniformBufferObject>();
+        let buffer_size = std::mem::size_of::<T>();
         let (buffer, memory) = util::create_buffer(
             vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
             vk::BufferUsageFlags::UNIFORM_BUFFER,
@@ -1083,7 +1105,7 @@ fn create_uniform_buffer(
         let mapping = unsafe {
             logical_device.map_memory(memory, 0, buffer_size as u64, vk::MemoryMapFlags::empty())
         }
-        .unwrap() as *mut UniformBufferObject;
+        .unwrap() as *mut T;
         buffers[i] = buffer;
         memories[i] = memory;
         mappings[i] = mapping;
@@ -1095,7 +1117,7 @@ fn create_descriptor_pool(logical_device: &Device) -> vk::DescriptorPool {
     let pool_sizes = [
         vk::DescriptorPoolSize {
             ty: vk::DescriptorType::UNIFORM_BUFFER,
-            descriptor_count: 2 * FRAMES_IN_FLIGHT as u32,
+            descriptor_count: 4 * FRAMES_IN_FLIGHT as u32,
         },
         vk::DescriptorPoolSize {
             ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
@@ -1112,6 +1134,7 @@ fn create_descriptor_sets(
     layout: vk::DescriptorSetLayout,
     pool: vk::DescriptorPool,
     uniform_buffers: &[vk::Buffer],
+    lighting_ub: &[vk::Buffer],
     texture_image_view: vk::ImageView,
     texture_sampler: vk::Sampler,
     logical_device: &Device,
@@ -1131,6 +1154,11 @@ fn create_descriptor_sets(
             .offset(0)
             .range(std::mem::size_of::<UniformBufferObject>() as u64);
         let buffer_infos = [*buffer_info];
+        let lighting_b = vk::DescriptorBufferInfo::builder()
+            .buffer(lighting_ub[i])
+            .offset(0)
+            .range(std::mem::size_of::<Lighting>() as u64);
+        let lighting_bi = [*lighting_b];
         let image_info = vk::DescriptorImageInfo::builder()
             .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
             .image_view(texture_image_view)
@@ -1149,6 +1177,12 @@ fn create_descriptor_sets(
                 .dst_array_element(0)
                 .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
                 .image_info(&image_infos),
+            *vk::WriteDescriptorSet::builder()
+                .dst_set(descriptor_sets[i])
+                .dst_binding(2)
+                .dst_array_element(0)
+                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+                .buffer_info(&lighting_bi),
         ];
         unsafe { logical_device.update_descriptor_sets(&descriptor_writes, &[]) };
     }

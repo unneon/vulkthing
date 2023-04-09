@@ -8,11 +8,11 @@ mod util;
 
 use crate::camera::Camera;
 use crate::renderer::device::QueueFamilies;
-use crate::renderer::gpu_data::UniformBufferObject;
+use crate::renderer::gpu_data::{Lighting, UniformBufferObject};
 use ash::extensions::khr::Swapchain;
 use ash::{vk, Device, Entry, Instance};
 use nalgebra_glm as glm;
-use std::f32::consts::FRAC_PI_4;
+use std::f32::consts::{FRAC_PI_2, FRAC_PI_4};
 use winit::dpi::PhysicalSize;
 
 pub struct Renderer {
@@ -62,6 +62,9 @@ pub struct Renderer {
     light_ub: [vk::Buffer; FRAMES_IN_FLIGHT],
     light_ubm: [vk::DeviceMemory; FRAMES_IN_FLIGHT],
     light_ubp: [*mut UniformBufferObject; FRAMES_IN_FLIGHT],
+    lighting_ub: [vk::Buffer; FRAMES_IN_FLIGHT],
+    lighting_ubm: [vk::DeviceMemory; FRAMES_IN_FLIGHT],
+    lighting_ubp: [*mut Lighting; FRAMES_IN_FLIGHT],
     descriptor_pool: vk::DescriptorPool,
     descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
     light_ds: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
@@ -85,6 +88,7 @@ impl Renderer {
         unsafe { self.record_command_buffer(image_index) };
         self.update_uniform_buffer(camera);
         self.update_light_ub(camera, timestamp);
+        self.update_lighting_ub(timestamp);
         self.submit_graphics();
         self.submit_present(image_index);
 
@@ -218,6 +222,17 @@ impl Renderer {
         };
         ubo.proj[(1, 1)] *= -1.;
         unsafe { self.light_ubp[self.flight_index].write_volatile(ubo) };
+    }
+
+    fn update_lighting_ub(&self, timestamp: f32) {
+        let model = glm::identity();
+        let model = glm::rotate_z(&model, timestamp * 2. + FRAC_PI_2);
+        let model = glm::translate(&model, &glm::vec3(-4., 0., 2.));
+        let ubo = Lighting {
+            color: glm::vec3(1., 0.12, 68.),
+            pos: (model * glm::vec4(0., 0., 0., 1.)).xyz(),
+        };
+        unsafe { self.lighting_ubp[self.flight_index].write_volatile(ubo) };
     }
 
     fn submit_graphics(&self) {
