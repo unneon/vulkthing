@@ -15,9 +15,8 @@ use nalgebra_glm as glm;
 use std::f32::consts::FRAC_PI_4;
 use winit::dpi::PhysicalSize;
 
-#[allow(dead_code)]
 pub struct Renderer {
-    entry: Entry,
+    _entry: Entry,
     instance: Instance,
     extensions: util::VulkanExtensions,
     debug_messenger: vk::DebugUtilsMessengerEXT,
@@ -46,7 +45,6 @@ pub struct Renderer {
     depth: util::ImageResources,
     framebuffers: Vec<vk::Framebuffer>,
     texture: util::ImageResources,
-    texture_mipmaps: usize,
     texture_sampler: vk::Sampler,
     vertex_buffer: vk::Buffer,
     vertex_buffer_memory: vk::DeviceMemory,

@@ -146,7 +146,7 @@ impl Renderer {
         );
         let sync = create_sync(&logical_device);
         Renderer {
-            entry,
+            _entry: entry,
             instance,
             extensions,
             debug_messenger,
@@ -175,7 +175,6 @@ impl Renderer {
             depth,
             framebuffers,
             texture,
-            texture_mipmaps,
             texture_sampler,
             vertex_buffer,
             vertex_buffer_memory,
