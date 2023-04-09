@@ -6,6 +6,7 @@ pub struct InputState {
     forward_pressed: bool,
     backward_pressed: bool,
     jump: Click,
+    sprint: bool,
     mouse_dx: f32,
     mouse_dy: f32,
 }
@@ -24,6 +25,7 @@ impl InputState {
             forward_pressed: false,
             backward_pressed: false,
             jump: Click::default(),
+            sprint: false,
             mouse_dx: 0.,
             mouse_dy: 0.,
         }
@@ -36,6 +38,7 @@ impl InputState {
             Some(VirtualKeyCode::S) => self.backward_pressed = input.state == ElementState::Pressed,
             Some(VirtualKeyCode::D) => self.right_pressed = input.state == ElementState::Pressed,
             Some(VirtualKeyCode::Space) => self.jump.apply(input.state),
+            Some(VirtualKeyCode::LShift) => self.sprint = input.state == ElementState::Pressed,
             _ => (),
         }
     }
@@ -75,6 +78,10 @@ impl InputState {
 
     pub fn movement_jumps(&self) -> usize {
         self.jump.queued_count
+    }
+
+    pub fn movement_sprint(&self) -> bool {
+        self.sprint
     }
 
     pub fn camera_yaw(&self) -> f32 {

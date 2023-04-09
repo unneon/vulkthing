@@ -1,5 +1,5 @@
 use crate::input::InputState;
-use crate::{CAMERA_SENSITIVITY, MOVEMENT_SPEED};
+use crate::{CAMERA_SENSITIVITY, SPRINT_SPEED, WALK_SPEED};
 use nalgebra_glm as glm;
 use nalgebra_glm::{vec3, Mat4, Vec3};
 use std::f32::consts::FRAC_PI_2;
@@ -18,6 +18,11 @@ impl Camera {
         let front = self.walk_direction();
         let up = vec3(0., 0., 1.);
         let right = glm::cross(&front, &up);
+        let movement_speed = if input.movement_sprint() {
+            SPRINT_SPEED
+        } else {
+            WALK_SPEED
+        };
         if input.movement_jumps() > 0 && self.position.z == 0. {
             self.velocity.z = 4.;
         }
@@ -29,7 +34,7 @@ impl Camera {
         }
         self.position +=
             normalize_or_zero(right * input.movement_horizontal() + front * input.movement_depth())
-                * MOVEMENT_SPEED
+                * movement_speed
                 * delta_time;
         self.yaw += input.camera_yaw() * CAMERA_SENSITIVITY;
         self.pitch =
