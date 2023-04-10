@@ -12,7 +12,7 @@ use crate::renderer::gpu_data::{Lighting, UniformBufferObject};
 use ash::extensions::khr::Swapchain;
 use ash::{vk, Device, Entry, Instance};
 use nalgebra_glm as glm;
-use std::f32::consts::{FRAC_PI_2, FRAC_PI_4};
+use std::f32::consts::FRAC_PI_4;
 use winit::dpi::PhysicalSize;
 
 pub struct Renderer {
@@ -211,10 +211,12 @@ impl Renderer {
 
     fn update_light_ub(&self, camera: &Camera, timestamp: f32) {
         let aspect_ratio = self.swapchain_extent.width as f32 / self.swapchain_extent.height as f32;
-        let model = glm::identity();
-        let model = glm::rotate_z(&model, timestamp * 2.);
-        let model = glm::translate(&model, &glm::vec3(-4., 0., 2.));
-        let model = glm::scale(&model, &glm::vec3(0.2, 0.2, 0.2));
+        let x = -4. * timestamp.cos();
+        let y = -4. * timestamp.sin();
+        let model = glm::scale(
+            &glm::translate(&glm::identity(), &glm::vec3(x, y, 2.)),
+            &glm::vec3(0.2, 0.2, 0.2),
+        );
         let mut ubo = UniformBufferObject {
             model,
             view: camera.view_matrix(),
@@ -225,12 +227,14 @@ impl Renderer {
     }
 
     fn update_lighting_ub(&self, timestamp: f32) {
-        let model = glm::identity();
-        let model = glm::rotate_z(&model, timestamp * 2. + FRAC_PI_2);
-        let model = glm::translate(&model, &glm::vec3(-4., 0., 2.));
+        let x = -4. * timestamp.cos();
+        let y = -4. * timestamp.sin();
+        let pos = glm::vec3(x, y, 2.);
         let ubo = Lighting {
             color: glm::vec3(1., 0.12, 68.),
-            pos: (model * glm::vec4(0., 0., 0., 1.)).xyz(),
+            pos,
+            _pad0: 0.,
+            _pad1: 0.,
         };
         unsafe { self.lighting_ubp[self.flight_index].write_volatile(ubo) };
     }

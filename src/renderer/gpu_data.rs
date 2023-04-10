@@ -22,7 +22,9 @@ pub struct UniformBufferObject {
 #[derive(Clone, Copy, Debug)]
 pub struct Lighting {
     pub color: glm::Vec3,
+    pub _pad0: f32,
     pub pos: glm::Vec3,
+    pub _pad1: f32,
 }
 
 impl VertexOps for Vertex {

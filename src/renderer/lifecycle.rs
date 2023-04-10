@@ -149,11 +149,18 @@ impl Renderer {
         );
 
         let (uniform_buffers, uniform_buffer_memories, uniform_buffer_mapped) =
-            create_uniform_buffer(&instance, physical_device, &logical_device);
-        let (light_ub, light_ubm, light_ubp) =
-            create_uniform_buffer(&instance, physical_device, &logical_device);
+            create_uniform_buffer::<UniformBufferObject>(
+                &instance,
+                physical_device,
+                &logical_device,
+            );
+        let (light_ub, light_ubm, light_ubp) = create_uniform_buffer::<UniformBufferObject>(
+            &instance,
+            physical_device,
+            &logical_device,
+        );
         let (lighting_ub, lighting_ubm, lighting_ubp) =
-            create_uniform_buffer(&instance, physical_device, &logical_device);
+            create_uniform_buffer::<Lighting>(&instance, physical_device, &logical_device);
 
         let descriptor_pool = create_descriptor_pool(&logical_device);
         let descriptor_sets = create_descriptor_sets(

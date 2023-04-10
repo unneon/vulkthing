@@ -43,7 +43,7 @@ fn main() {
     let mut renderer = Renderer::new(&window, &building_model, &cube_model);
     let mut input_state = InputState::new();
     let mut camera = Camera {
-        position: glm::vec3(-2., 0., 0.),
+        position: glm::vec3(-10., 0., 0.),
         velocity: glm::vec3(0., 0., 0.),
         yaw: 0.,
         pitch: 0.,
