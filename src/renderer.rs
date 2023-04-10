@@ -7,9 +7,9 @@ mod uniform;
 mod util;
 pub mod vertex;
 
-use crate::camera::Camera;
 use crate::renderer::device::QueueFamilies;
 use crate::renderer::uniform::{Light, Material, ModelViewProjection};
+use crate::world::{Entity, World};
 use ash::extensions::khr::Swapchain;
 use ash::{vk, Device, Entry, Instance};
 use nalgebra_glm as glm;
@@ -45,8 +45,7 @@ pub struct Renderer {
     depth: util::ImageResources,
     framebuffers: Vec<vk::Framebuffer>,
     light: UniformBuffer<Light>,
-    building: Object,
-    sun: Object,
+    objects: Vec<Object>,
     descriptor_pool: vk::DescriptorPool,
     sync: Synchronization,
     flight_index: usize,
@@ -81,14 +80,15 @@ struct UniformBuffer<T> {
 const FRAMES_IN_FLIGHT: usize = 2;
 
 impl Renderer {
-    pub fn draw_frame(&mut self, camera: &Camera, window_size: PhysicalSize<u32>, timestamp: f32) {
+    pub fn draw_frame(&mut self, world: &World, window_size: PhysicalSize<u32>) {
         let Some(image_index) = (unsafe { self.prepare_command_buffer(window_size) }) else {
             return;
         };
-        unsafe { self.record_command_buffer(image_index) };
-        self.update_building_uniforms(camera);
-        self.update_sun_uniforms(camera, timestamp);
-        self.update_light_uniforms(timestamp);
+        unsafe { self.record_command_buffer(image_index, world) };
+        for entity in &world.entities {
+            self.update_object_uniforms(world, entity);
+        }
+        self.update_light_uniform(world);
         self.submit_graphics();
         self.submit_present(image_index);
 
@@ -122,7 +122,7 @@ impl Renderer {
         Some(image_index)
     }
 
-    unsafe fn record_command_buffer(&self, image_index: u32) {
+    unsafe fn record_command_buffer(&self, image_index: u32, world: &World) {
         let dev = &self.logical_device;
         let buf = self.command_buffers[self.flight_index];
 
@@ -169,7 +169,8 @@ impl Renderer {
         };
         dev.cmd_set_scissor(buf, 0, &[scissor]);
 
-        for object in [&self.building, &self.sun] {
+        for entity in &world.entities {
+            let object = &self.objects[entity.gpu_object];
             dev.cmd_bind_descriptor_sets(
                 buf,
                 vk::PipelineBindPoint::GRAPHICS,
@@ -188,43 +189,31 @@ impl Renderer {
         dev.end_command_buffer(buf).unwrap();
     }
 
-    fn update_building_uniforms(&self, camera: &Camera) {
-        let mvp = ModelViewProjection {
-            model: glm::identity(),
-            view: camera.view_matrix(),
-            proj: self.projection,
-        };
-        let material = Material { emit: glm::zero() };
-        unsafe { self.building.mvp.mappings[self.flight_index].write_volatile(mvp) };
-        unsafe { self.building.material.mappings[self.flight_index].write_volatile(material) };
-    }
-
-    fn update_sun_uniforms(&self, camera: &Camera, timestamp: f32) {
-        let x = -4. * timestamp.cos();
-        let y = -4. * timestamp.sin();
+    fn update_object_uniforms(&self, world: &World, entity: &Entity) {
         let model = glm::scale(
-            &glm::translate(&glm::identity(), &glm::vec3(x, y, 2.)),
-            &glm::vec3(0.2, 0.2, 0.2),
+            &glm::translate(&glm::identity(), &entity.position),
+            &entity.scale,
         );
         let mvp = ModelViewProjection {
             model,
-            view: camera.view_matrix(),
+            view: world.camera.view_matrix(),
             proj: self.projection,
         };
-        let material = Material {
-            emit: glm::vec3(1., 0.12, 68.),
+        let material = Material { emit: entity.emit };
+        unsafe {
+            self.objects[entity.gpu_object].mvp.mappings[self.flight_index].write_volatile(mvp)
         };
-        unsafe { self.sun.mvp.mappings[self.flight_index].write_volatile(mvp) };
-        unsafe { self.sun.material.mappings[self.flight_index].write_volatile(material) };
+        unsafe {
+            self.objects[entity.gpu_object].material.mappings[self.flight_index]
+                .write_volatile(material)
+        };
     }
 
-    fn update_light_uniforms(&self, timestamp: f32) {
-        let x = -4. * timestamp.cos();
-        let y = -4. * timestamp.sin();
+    fn update_light_uniform(&self, world: &World) {
         let light = Light {
-            color: glm::vec3(1., 0.12, 68.),
-            position: glm::vec3(x, y, 2.),
-            ambient_strength: 0.004,
+            color: world.light.color,
+            position: world.light.position,
+            ambient_strength: world.light.ambient_strength,
         };
         unsafe { self.light.mappings[self.flight_index].write_volatile(light) };
     }

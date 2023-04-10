@@ -15,14 +15,14 @@ mod logger;
 mod model;
 mod renderer;
 mod window;
+mod world;
 
-use crate::camera::Camera;
 use crate::input::InputState;
 use crate::logger::initialize_logger;
 use crate::model::load_model;
 use crate::renderer::Renderer;
 use crate::window::create_window;
-use nalgebra_glm as glm;
+use crate::world::World;
 use std::time::Instant;
 use winit::event::{DeviceEvent, Event, StartCause, WindowEvent};
 
@@ -40,15 +40,9 @@ fn main() {
     let window = create_window();
     let cube_model = load_model("assets/cube.obj", "assets/cube.png");
     let building_model = load_model("assets/czudec-pkp.obj", "assets/czudec-pkp.jpg");
-    let mut renderer = Renderer::new(&window, &building_model, &cube_model);
+    let mut renderer = Renderer::new(&window, &[building_model, cube_model]);
     let mut input_state = InputState::new();
-    let mut camera = Camera {
-        position: glm::vec3(-10., 0., 0.),
-        velocity: glm::vec3(0., 0., 0.),
-        yaw: 0.,
-        pitch: 0.,
-    };
-    let time_start = Instant::now();
+    let mut world = World::new();
     let mut last_update = Instant::now();
 
     // Run the event loop. Winit delivers events, like key presses. After it finishes delivering
@@ -81,11 +75,10 @@ fn main() {
             Event::MainEventsCleared => {
                 let curr_update = Instant::now();
                 let delta_time = (curr_update - last_update).as_secs_f32();
-                let timestamp = (curr_update - time_start).as_secs_f32();
                 last_update = curr_update;
-                camera.apply_input(&input_state, delta_time);
+                world.update(delta_time, &input_state);
                 input_state.reset_after_frame();
-                renderer.draw_frame(&camera, window.window.inner_size(), timestamp);
+                renderer.draw_frame(&world, window.window.inner_size());
             }
             // This event is only sent after MainEventsCleared, during which we render
             // unconditionally.

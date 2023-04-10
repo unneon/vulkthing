@@ -21,7 +21,7 @@ use std::mem::MaybeUninit;
 use winit::dpi::PhysicalSize;
 
 impl Renderer {
-    pub fn new(window: &Window, building_model: &Model, sun_model: &Model) -> Renderer {
+    pub fn new(window: &Window, models: &[Model]) -> Renderer {
         let entry = unsafe { Entry::load() }.unwrap();
         let instance = create_instance(window, &entry);
         let extensions = VulkanExtensions {
@@ -111,28 +111,21 @@ impl Renderer {
 
         let light = create_uniform_buffer(&instance, physical_device, &logical_device);
 
-        let building = create_object(
-            building_model,
-            descriptor_set_layout,
-            descriptor_pool,
-            &light.buffers,
-            &instance,
-            physical_device,
-            &logical_device,
-            queues.graphics,
-            command_pool,
-        );
-        let sun = create_object(
-            sun_model,
-            descriptor_set_layout,
-            descriptor_pool,
-            &light.buffers,
-            &instance,
-            physical_device,
-            &logical_device,
-            queues.graphics,
-            command_pool,
-        );
+        let mut objects = Vec::new();
+        for model in models {
+            let object = create_object(
+                model,
+                descriptor_set_layout,
+                descriptor_pool,
+                &light.buffers,
+                &instance,
+                physical_device,
+                &logical_device,
+                queues.graphics,
+                command_pool,
+            );
+            objects.push(object);
+        }
 
         let sync = create_sync(&logical_device);
         let projection = compute_projection(swapchain_extent);
@@ -166,8 +159,7 @@ impl Renderer {
             depth,
             framebuffers,
             light,
-            building,
-            sun,
+            objects,
             descriptor_pool,
             sync,
             flight_index: 0,
@@ -345,8 +337,9 @@ impl Drop for Renderer {
             }
             dev.destroy_descriptor_pool(self.descriptor_pool, None);
             self.light.cleanup(dev);
-            self.building.cleanup(dev);
-            self.sun.cleanup(dev);
+            for object in &self.objects {
+                object.cleanup(dev);
+            }
             dev.destroy_command_pool(self.command_pool, None);
             dev.destroy_pipeline(self.pipeline, None);
             dev.destroy_render_pass(self.pipeline_render_pass, None);
