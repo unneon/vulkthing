@@ -1,6 +1,6 @@
 use ash::extensions::khr::{Surface, Swapchain};
 use ash::{vk, Instance};
-use log::{info, warn};
+use log::{debug, warn};
 use std::ffi::CStr;
 
 #[derive(Clone)]
@@ -85,7 +85,7 @@ pub fn select_device(
 
         // Let's just select the first GPU for now. Linux seems to sort them by itself, I should
         // think more about selection later.
-        info!("physical device selected, \x1B[1mname\x1B[0m: {name}");
+        debug!("physical device selected, \x1B[1mname\x1B[0m: {name}");
         return DeviceInfo {
             physical_device: device,
             queue_families: QueueFamilies { graphics, present },

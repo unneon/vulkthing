@@ -1,6 +1,7 @@
 use ash::extensions::ext::DebugUtils;
 use ash::extensions::khr::Surface;
 use ash::{vk, Device, Instance};
+use log::debug;
 use std::mem::MaybeUninit;
 
 pub struct ImageResources {
@@ -203,6 +204,7 @@ pub fn load_texture(
         memory,
         view,
     };
+    debug!("texture loaded, \x1B[1mpath\x1B[0m: {path}, \x1B[1msize\x1B[0m: {image_width}x{image_height}");
     (texture, mip_levels)
 }
 
@@ -629,4 +631,11 @@ pub fn select_format(
 
 fn has_stencil_component(format: vk::Format) -> bool {
     format == vk::Format::D32_SFLOAT_S8_UINT || format == vk::Format::D24_UNORM_S8_UINT
+}
+
+pub fn exists_newer_file(path: &str, reference: &str) -> bool {
+    let Ok(meta) = std::fs::metadata(path) else { return false; };
+    let path_mtime = meta.modified().unwrap();
+    let reference_mtime = std::fs::metadata(reference).unwrap().modified().unwrap();
+    path_mtime >= reference_mtime
 }

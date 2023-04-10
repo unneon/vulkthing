@@ -1,4 +1,5 @@
 use crate::renderer::vertex::Vertex;
+use log::debug;
 use nalgebra_glm as glm;
 use tobj::LoadOptions;
 
@@ -21,6 +22,10 @@ pub fn load_model(obj_path: &str, texture_path: &'static str) -> Model {
     let models = tobj::load_obj(obj_path, &load_options).unwrap().0;
     let (mut vertices, indices) = flatten_models(&models);
     scale_mesh(&mut vertices);
+    debug!(
+        "model OBJ loaded, \x1B[1mpath\x1B[0m: {obj_path}, \x1B[1mvertices\x1B[0m: {}",
+        vertices.len()
+    );
     Model {
         vertices,
         indices,

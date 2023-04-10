@@ -1,5 +1,7 @@
 use ash::{vk, Device};
+use log::debug;
 use std::ffi::CStr;
+use std::fs::File;
 
 pub struct Shader<'a> {
     logical_device: &'a Device,
@@ -10,13 +12,11 @@ pub struct Shader<'a> {
 impl<'a> Shader<'a> {
     pub(super) fn compile(
         logical_device: &'a Device,
-        code: &'static [u8],
+        spirv_path: &str,
         stage: vk::ShaderStageFlags,
     ) -> Self {
-        // Shaders need to be passed to vulkan as an aligned u32 array. It would be good to read
-        // this from a file later, but memory mapping probably doesn't make sense for it? Even
-        // simple shaders reach into the 2KB range though, so maybe.
-        let aligned_code = ash::util::read_spv(&mut std::io::Cursor::new(code)).unwrap();
+        let mut file = File::open(spirv_path).unwrap();
+        let aligned_code = ash::util::read_spv(&mut file).unwrap();
         let module = unsafe {
             logical_device.create_shader_module(
                 &vk::ShaderModuleCreateInfo::builder().code(&aligned_code),
@@ -24,6 +24,7 @@ impl<'a> Shader<'a> {
             )
         }
         .unwrap();
+        debug!("shader SPIR-V loaded, \x1B[1mpath\x1B[0m: {spirv_path}");
         let stage_info = vk::PipelineShaderStageCreateInfo::builder()
             .stage(stage)
             .module(module)

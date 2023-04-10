@@ -4,7 +4,7 @@ use crate::renderer::device::{select_device, DeviceInfo, QueueFamilies};
 use crate::renderer::shader::Shader;
 use crate::renderer::traits::VertexOps;
 use crate::renderer::uniform::{Light, Material, ModelViewProjection};
-use crate::renderer::util::{ImageResources, Queues, VulkanExtensions};
+use crate::renderer::util::{exists_newer_file, ImageResources, Queues, VulkanExtensions};
 use crate::renderer::vertex::Vertex;
 use crate::renderer::{util, Object, Renderer, Synchronization, UniformBuffer, FRAMES_IN_FLIGHT};
 use crate::window::Window;
@@ -12,6 +12,7 @@ use crate::{VULKAN_APP_NAME, VULKAN_APP_VERSION, VULKAN_ENGINE_NAME, VULKAN_ENGI
 use ash::extensions::ext::DebugUtils;
 use ash::extensions::khr::{Surface, Swapchain};
 use ash::{vk, Device, Entry, Instance};
+use log::debug;
 use nalgebra_glm as glm;
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use std::collections::HashSet;
@@ -599,15 +600,15 @@ fn create_pipeline(
     physical_device: vk::PhysicalDevice,
     logical_device: &Device,
 ) -> (vk::Pipeline, vk::PipelineLayout, vk::RenderPass) {
-    let vert_shader = Shader::compile(
-        logical_device,
-        include_bytes!("../../shaders/triangle-vert.spv"),
+    let vert_shader = compile_shader(
+        "shaders/triangle.vert",
         vk::ShaderStageFlags::VERTEX,
-    );
-    let frag_shader = Shader::compile(
         logical_device,
-        include_bytes!("../../shaders/triangle-frag.spv"),
+    );
+    let frag_shader = compile_shader(
+        "shaders/triangle.frag",
         vk::ShaderStageFlags::FRAGMENT,
+        logical_device,
     );
     let shader_stages = [vert_shader.stage_info, frag_shader.stage_info];
     let dynamic_state = vk::PipelineDynamicStateCreateInfo::builder()
@@ -765,6 +766,25 @@ fn create_pipeline(
     .unwrap();
 
     (pipeline, pipeline_layout, render_pass)
+}
+
+fn compile_shader<'a>(
+    glsl_path: &str,
+    stage: vk::ShaderStageFlags,
+    logical_device: &'a Device,
+) -> Shader<'a> {
+    let spirv_path = format!("{glsl_path}.spv");
+    if !exists_newer_file(&spirv_path, glsl_path) {
+        let status = std::process::Command::new("glslc")
+            .arg(glsl_path)
+            .arg("-o")
+            .arg(&spirv_path)
+            .status()
+            .unwrap();
+        assert!(status.success());
+        debug!("shader GLSL compiled, \x1B[1mpath\x1B[0m: {glsl_path}");
+    }
+    Shader::compile(logical_device, &spirv_path, stage)
 }
 
 fn create_command_pool(queue_families: &QueueFamilies, logical_device: &Device) -> vk::CommandPool {
