@@ -9,7 +9,7 @@ pub mod vertex;
 
 use crate::camera::Camera;
 use crate::renderer::device::QueueFamilies;
-use crate::renderer::uniform::{Light, ModelViewProjection};
+use crate::renderer::uniform::{Light, Material, ModelViewProjection};
 use ash::extensions::khr::Swapchain;
 use ash::{vk, Device, Entry, Instance};
 use nalgebra_glm as glm;
@@ -68,6 +68,7 @@ struct Object {
     index_buffer: vk::Buffer,
     index_buffer_memory: vk::DeviceMemory,
     mvp: UniformBuffer<ModelViewProjection>,
+    material: UniformBuffer<Material>,
     descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
 }
 
@@ -193,7 +194,9 @@ impl Renderer {
             view: camera.view_matrix(),
             proj: self.projection,
         };
+        let material = Material { emit: glm::zero() };
         unsafe { self.building.mvp.mappings[self.flight_index].write_volatile(mvp) };
+        unsafe { self.building.material.mappings[self.flight_index].write_volatile(material) };
     }
 
     fn update_sun_uniforms(&self, camera: &Camera, timestamp: f32) {
@@ -208,18 +211,22 @@ impl Renderer {
             view: camera.view_matrix(),
             proj: self.projection,
         };
+        let material = Material {
+            emit: glm::vec3(1., 0.12, 68.),
+        };
         unsafe { self.sun.mvp.mappings[self.flight_index].write_volatile(mvp) };
+        unsafe { self.sun.material.mappings[self.flight_index].write_volatile(material) };
     }
 
     fn update_light_uniforms(&self, timestamp: f32) {
         let x = -4. * timestamp.cos();
         let y = -4. * timestamp.sin();
-        let ubo = Light {
+        let light = Light {
             color: glm::vec3(1., 0.12, 68.),
             position: glm::vec3(x, y, 2.),
             ambient_strength: 0.004,
         };
-        unsafe { self.light.mappings[self.flight_index].write_volatile(ubo) };
+        unsafe { self.light.mappings[self.flight_index].write_volatile(light) };
     }
 
     fn submit_graphics(&self) {

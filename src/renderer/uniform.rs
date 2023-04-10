@@ -1,7 +1,6 @@
 use nalgebra_glm as glm;
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug)]
 pub struct ModelViewProjection {
     pub model: glm::Mat4,
     pub view: glm::Mat4,
@@ -9,7 +8,11 @@ pub struct ModelViewProjection {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug)]
+pub struct Material {
+    pub emit: glm::Vec3,
+}
+
+#[repr(C)]
 pub struct Light {
     pub color: glm::Vec3,
     pub ambient_strength: f32,

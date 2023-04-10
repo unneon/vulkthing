@@ -1,7 +1,10 @@
 #version 450
 
 layout(binding = 1) uniform sampler2D tex_sampler;
-layout(binding = 2) uniform Light {
+layout(binding = 2) uniform Material {
+    vec3 emit;
+} material;
+layout(binding = 3) uniform Light {
     vec3 color;
     float ambient_strength;
     vec3 position;
@@ -19,7 +22,8 @@ void main() {
 
     vec3 ambient = light.ambient_strength * light.color * object_color;
     vec3 diffuse = max(dot(frag_normal, light_dir), 0.) * light.color * object_color;
+    vec3 emit = material.emit;
 
-    vec3 result = ambient + diffuse;
+    vec3 result = ambient + diffuse + emit;
     out_color = vec4(result, 1.);
 }

@@ -3,7 +3,7 @@ use crate::renderer::debug::create_debug_messenger;
 use crate::renderer::device::{select_device, DeviceInfo, QueueFamilies};
 use crate::renderer::shader::Shader;
 use crate::renderer::traits::VertexOps;
-use crate::renderer::uniform::{Light, ModelViewProjection};
+use crate::renderer::uniform::{Light, Material, ModelViewProjection};
 use crate::renderer::util::{ImageResources, Queues, VulkanExtensions};
 use crate::renderer::vertex::Vertex;
 use crate::renderer::{util, Object, Renderer, Synchronization, UniformBuffer, FRAMES_IN_FLIGHT};
@@ -120,7 +120,7 @@ impl Renderer {
 
         let descriptor_pool = create_descriptor_pool(&logical_device);
 
-        let light = create_uniform_buffer::<Light>(&instance, physical_device, &logical_device);
+        let light = create_uniform_buffer(&instance, physical_device, &logical_device);
 
         let building = create_object(
             building_model,
@@ -319,6 +319,7 @@ impl Object {
         unsafe { logical_device.destroy_buffer(self.index_buffer, None) };
         unsafe { logical_device.free_memory(self.index_buffer_memory, None) };
         self.mvp.cleanup(logical_device);
+        self.material.cleanup(logical_device);
     }
 }
 
@@ -584,7 +585,7 @@ fn create_swapchain_image_views(
 }
 
 fn create_descriptor_set_layout(logical_device: &Device) -> vk::DescriptorSetLayout {
-    let ubo_layout_binding = vk::DescriptorSetLayoutBinding::builder()
+    let mvp_layout_binding = vk::DescriptorSetLayoutBinding::builder()
         .binding(0)
         .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
         .descriptor_count(1)
@@ -594,15 +595,21 @@ fn create_descriptor_set_layout(logical_device: &Device) -> vk::DescriptorSetLay
         .descriptor_count(1)
         .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
         .stage_flags(vk::ShaderStageFlags::FRAGMENT);
-    let lighting_binding = vk::DescriptorSetLayoutBinding::builder()
+    let material_binding = vk::DescriptorSetLayoutBinding::builder()
         .binding(2)
         .descriptor_count(1)
         .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
         .stage_flags(vk::ShaderStageFlags::FRAGMENT);
+    let light_binding = vk::DescriptorSetLayoutBinding::builder()
+        .binding(3)
+        .descriptor_count(1)
+        .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+        .stage_flags(vk::ShaderStageFlags::FRAGMENT);
     let layout_bindings = [
-        *ubo_layout_binding,
+        *mvp_layout_binding,
         *sampler_layout_binding,
-        *lighting_binding,
+        *material_binding,
+        *light_binding,
     ];
     let layout_info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(&layout_bindings);
     unsafe { logical_device.create_descriptor_set_layout(&layout_info, None) }.unwrap()
@@ -983,12 +990,13 @@ fn create_object(
         graphics_queue,
         command_pool,
     );
-    let mvp =
-        create_uniform_buffer::<ModelViewProjection>(instance, physical_device, logical_device);
+    let mvp = create_uniform_buffer(instance, physical_device, logical_device);
+    let material = create_uniform_buffer(instance, physical_device, logical_device);
     let descriptor_sets = create_descriptor_sets(
         descriptor_set_layout,
         descriptor_pool,
         &mvp.buffers,
+        &material.buffers,
         light_buffers,
         texture_view,
         texture_sampler,
@@ -1001,6 +1009,7 @@ fn create_object(
         index_buffer,
         index_buffer_memory,
         mvp,
+        material,
         descriptor_sets,
     }
 }
@@ -1127,7 +1136,7 @@ fn create_descriptor_pool(logical_device: &Device) -> vk::DescriptorPool {
     let pool_sizes = [
         vk::DescriptorPoolSize {
             ty: vk::DescriptorType::UNIFORM_BUFFER,
-            descriptor_count: 4 * FRAMES_IN_FLIGHT as u32,
+            descriptor_count: 6 * FRAMES_IN_FLIGHT as u32,
         },
         vk::DescriptorPoolSize {
             ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
@@ -1143,8 +1152,9 @@ fn create_descriptor_pool(logical_device: &Device) -> vk::DescriptorPool {
 fn create_descriptor_sets(
     layout: vk::DescriptorSetLayout,
     pool: vk::DescriptorPool,
-    uniform_buffers: &[vk::Buffer],
-    lighting_ub: &[vk::Buffer],
+    mvp_buffers: &[vk::Buffer],
+    material_buffers: &[vk::Buffer],
+    light_buffers: &[vk::Buffer],
     texture_image_view: vk::ImageView,
     texture_sampler: vk::Sampler,
     logical_device: &Device,
@@ -1159,28 +1169,33 @@ fn create_descriptor_sets(
             .try_into()
             .unwrap();
     for i in 0..FRAMES_IN_FLIGHT {
-        let buffer_info = vk::DescriptorBufferInfo::builder()
-            .buffer(uniform_buffers[i])
+        let mvp_info = vk::DescriptorBufferInfo::builder()
+            .buffer(mvp_buffers[i])
             .offset(0)
             .range(std::mem::size_of::<ModelViewProjection>() as u64);
-        let buffer_infos = [*buffer_info];
-        let lighting_b = vk::DescriptorBufferInfo::builder()
-            .buffer(lighting_ub[i])
-            .offset(0)
-            .range(std::mem::size_of::<Light>() as u64);
-        let lighting_bi = [*lighting_b];
         let image_info = vk::DescriptorImageInfo::builder()
             .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
             .image_view(texture_image_view)
             .sampler(texture_sampler);
+        let material_info = vk::DescriptorBufferInfo::builder()
+            .buffer(material_buffers[i])
+            .offset(0)
+            .range(std::mem::size_of::<Material>() as u64);
+        let light_info = vk::DescriptorBufferInfo::builder()
+            .buffer(light_buffers[i])
+            .offset(0)
+            .range(std::mem::size_of::<Light>() as u64);
+        let mvp_infos = [*mvp_info];
         let image_infos = [*image_info];
+        let material_infos = [*material_info];
+        let light_infos = [*light_info];
         let descriptor_writes = [
             *vk::WriteDescriptorSet::builder()
                 .dst_set(descriptor_sets[i])
                 .dst_binding(0)
                 .dst_array_element(0)
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-                .buffer_info(&buffer_infos),
+                .buffer_info(&mvp_infos),
             *vk::WriteDescriptorSet::builder()
                 .dst_set(descriptor_sets[i])
                 .dst_binding(1)
@@ -1192,7 +1207,13 @@ fn create_descriptor_sets(
                 .dst_binding(2)
                 .dst_array_element(0)
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-                .buffer_info(&lighting_bi),
+                .buffer_info(&material_infos),
+            *vk::WriteDescriptorSet::builder()
+                .dst_set(descriptor_sets[i])
+                .dst_binding(3)
+                .dst_array_element(0)
+                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+                .buffer_info(&light_infos),
         ];
         unsafe { logical_device.update_descriptor_sets(&descriptor_writes, &[]) };
     }
