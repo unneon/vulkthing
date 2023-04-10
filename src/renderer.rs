@@ -44,8 +44,6 @@ pub struct Renderer {
     color: util::ImageResources,
     depth: util::ImageResources,
     framebuffers: Vec<vk::Framebuffer>,
-    texture: util::ImageResources,
-    texture_sampler: vk::Sampler,
     light: UniformBuffer<Light>,
     building: Object,
     sun: Object,
@@ -68,6 +66,8 @@ struct Object {
     index_buffer: vk::Buffer,
     index_buffer_memory: vk::DeviceMemory,
     mvp: UniformBuffer<ModelViewProjection>,
+    texture: util::ImageResources,
+    texture_sampler: vk::Sampler,
     material: UniformBuffer<Material>,
     descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
 }

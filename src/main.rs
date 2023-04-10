@@ -38,8 +38,8 @@ const CAMERA_SENSITIVITY: f32 = 0.01;
 fn main() {
     initialize_logger();
     let window = create_window();
-    let cube_model = load_model("assets/cube.obj");
-    let building_model = load_model("assets/czudec-pkp.obj");
+    let cube_model = load_model("assets/cube.obj", "assets/cube.png");
+    let building_model = load_model("assets/czudec-pkp.obj", "assets/czudec-pkp.jpg");
     let mut renderer = Renderer::new(&window, &building_model, &cube_model);
     let mut input_state = InputState::new();
     let mut camera = Camera {

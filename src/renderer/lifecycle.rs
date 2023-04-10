@@ -107,17 +107,6 @@ impl Renderer {
             &logical_device,
         );
 
-        let (texture, texture_mipmaps) = util::load_texture(
-            building_model.texture_path,
-            &instance,
-            physical_device,
-            &logical_device,
-            queues.graphics,
-            command_pool,
-        );
-        let texture_sampler =
-            create_texture_sampler(texture_mipmaps, &instance, physical_device, &logical_device);
-
         let descriptor_pool = create_descriptor_pool(&logical_device);
 
         let light = create_uniform_buffer(&instance, physical_device, &logical_device);
@@ -127,8 +116,6 @@ impl Renderer {
             descriptor_set_layout,
             descriptor_pool,
             &light.buffers,
-            texture.view,
-            texture_sampler,
             &instance,
             physical_device,
             &logical_device,
@@ -140,8 +127,6 @@ impl Renderer {
             descriptor_set_layout,
             descriptor_pool,
             &light.buffers,
-            texture.view,
-            texture_sampler,
             &instance,
             physical_device,
             &logical_device,
@@ -180,8 +165,6 @@ impl Renderer {
             color,
             depth,
             framebuffers,
-            texture,
-            texture_sampler,
             light,
             building,
             sun,
@@ -319,6 +302,8 @@ impl Object {
         unsafe { logical_device.destroy_buffer(self.index_buffer, None) };
         unsafe { logical_device.free_memory(self.index_buffer_memory, None) };
         self.mvp.cleanup(logical_device);
+        unsafe { logical_device.destroy_sampler(self.texture_sampler, None) };
+        self.texture.cleanup(logical_device);
         self.material.cleanup(logical_device);
     }
 }
@@ -362,8 +347,6 @@ impl Drop for Renderer {
             self.light.cleanup(dev);
             self.building.cleanup(dev);
             self.sun.cleanup(dev);
-            dev.destroy_sampler(self.texture_sampler, None);
-            self.texture.cleanup(&self.logical_device);
             dev.destroy_command_pool(self.command_pool, None);
             dev.destroy_pipeline(self.pipeline, None);
             dev.destroy_render_pass(self.pipeline_render_pass, None);
@@ -966,8 +949,6 @@ fn create_object(
     descriptor_set_layout: vk::DescriptorSetLayout,
     descriptor_pool: vk::DescriptorPool,
     light_buffers: &[vk::Buffer],
-    texture_view: vk::ImageView,
-    texture_sampler: vk::Sampler,
     instance: &Instance,
     physical_device: vk::PhysicalDevice,
     logical_device: &Device,
@@ -991,6 +972,16 @@ fn create_object(
         command_pool,
     );
     let mvp = create_uniform_buffer(instance, physical_device, logical_device);
+    let (texture, texture_mipmaps) = util::load_texture(
+        model.texture_path,
+        instance,
+        physical_device,
+        logical_device,
+        graphics_queue,
+        command_pool,
+    );
+    let texture_sampler =
+        create_texture_sampler(texture_mipmaps, instance, physical_device, logical_device);
     let material = create_uniform_buffer(instance, physical_device, logical_device);
     let descriptor_sets = create_descriptor_sets(
         descriptor_set_layout,
@@ -998,7 +989,7 @@ fn create_object(
         &mvp.buffers,
         &material.buffers,
         light_buffers,
-        texture_view,
+        texture.view,
         texture_sampler,
         logical_device,
     );
@@ -1009,6 +1000,8 @@ fn create_object(
         index_buffer,
         index_buffer_memory,
         mvp,
+        texture,
+        texture_sampler,
         material,
         descriptor_sets,
     }

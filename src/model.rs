@@ -8,9 +8,7 @@ pub struct Model {
     pub texture_path: &'static str,
 }
 
-const TEXTURE_PATH: &str = "assets/czudec-pkp.jpg";
-
-pub fn load_model(path: &str) -> Model {
+pub fn load_model(obj_path: &str, texture_path: &'static str) -> Model {
     let load_options = LoadOptions {
         // Faces can sometimes be given as arbitrary (convex?) polygons, but we only render
         // triangles so let's get the loader to split them up for us.
@@ -20,10 +18,9 @@ pub fn load_model(path: &str) -> Model {
         single_index: true,
         ..Default::default()
     };
-    let models = tobj::load_obj(path, &load_options).unwrap().0;
+    let models = tobj::load_obj(obj_path, &load_options).unwrap().0;
     let (mut vertices, indices) = flatten_models(&models);
     scale_mesh(&mut vertices);
-    let texture_path = TEXTURE_PATH;
     Model {
         vertices,
         indices,
