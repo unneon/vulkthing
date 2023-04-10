@@ -1,18 +1,18 @@
 mod debug;
 mod device;
-pub mod gpu_data;
 mod lifecycle;
 mod shader;
 mod traits;
+mod uniform;
 mod util;
+pub mod vertex;
 
 use crate::camera::Camera;
 use crate::renderer::device::QueueFamilies;
-use crate::renderer::gpu_data::{Lighting, UniformBufferObject};
+use crate::renderer::uniform::{Light, ModelViewProjection};
 use ash::extensions::khr::Swapchain;
 use ash::{vk, Device, Entry, Instance};
 use nalgebra_glm as glm;
-use std::f32::consts::FRAC_PI_4;
 use winit::dpi::PhysicalSize;
 
 pub struct Renderer {
@@ -46,36 +46,35 @@ pub struct Renderer {
     framebuffers: Vec<vk::Framebuffer>,
     texture: util::ImageResources,
     texture_sampler: vk::Sampler,
-    vertex_buffer: vk::Buffer,
-    vertex_buffer_memory: vk::DeviceMemory,
-    vertex_count: usize,
-    index_buffer: vk::Buffer,
-    index_buffer_memory: vk::DeviceMemory,
-    light_vb: vk::Buffer,
-    light_vbm: vk::DeviceMemory,
-    light_vc: usize,
-    light_ib: vk::Buffer,
-    light_ibm: vk::DeviceMemory,
-    uniform_buffers: [vk::Buffer; FRAMES_IN_FLIGHT],
-    uniform_buffer_memories: [vk::DeviceMemory; FRAMES_IN_FLIGHT],
-    uniform_buffer_mapped: [*mut UniformBufferObject; FRAMES_IN_FLIGHT],
-    light_ub: [vk::Buffer; FRAMES_IN_FLIGHT],
-    light_ubm: [vk::DeviceMemory; FRAMES_IN_FLIGHT],
-    light_ubp: [*mut UniformBufferObject; FRAMES_IN_FLIGHT],
-    lighting_ub: [vk::Buffer; FRAMES_IN_FLIGHT],
-    lighting_ubm: [vk::DeviceMemory; FRAMES_IN_FLIGHT],
-    lighting_ubp: [*mut Lighting; FRAMES_IN_FLIGHT],
+    light: UniformBuffer<Light>,
+    building: Object,
+    sun: Object,
     descriptor_pool: vk::DescriptorPool,
-    descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
-    light_ds: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
     sync: Synchronization,
     flight_index: usize,
+    projection: glm::Mat4,
 }
 
 struct Synchronization {
     image_available: [vk::Semaphore; FRAMES_IN_FLIGHT],
     render_finished: [vk::Semaphore; FRAMES_IN_FLIGHT],
     in_flight: [vk::Fence; FRAMES_IN_FLIGHT],
+}
+
+struct Object {
+    vertex_buffer: vk::Buffer,
+    vertex_buffer_memory: vk::DeviceMemory,
+    vertex_count: usize,
+    index_buffer: vk::Buffer,
+    index_buffer_memory: vk::DeviceMemory,
+    mvp: UniformBuffer<ModelViewProjection>,
+    descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
+}
+
+struct UniformBuffer<T> {
+    buffers: [vk::Buffer; FRAMES_IN_FLIGHT],
+    memories: [vk::DeviceMemory; FRAMES_IN_FLIGHT],
+    mappings: [*mut T; FRAMES_IN_FLIGHT],
 }
 
 const FRAMES_IN_FLIGHT: usize = 2;
@@ -86,9 +85,9 @@ impl Renderer {
             return;
         };
         unsafe { self.record_command_buffer(image_index) };
-        self.update_uniform_buffer(camera);
-        self.update_light_ub(camera, timestamp);
-        self.update_lighting_ub(timestamp);
+        self.update_building_uniforms(camera);
+        self.update_sun_uniforms(camera, timestamp);
+        self.update_light_uniforms(timestamp);
         self.submit_graphics();
         self.submit_present(image_index);
 
@@ -169,74 +168,58 @@ impl Renderer {
         };
         dev.cmd_set_scissor(buf, 0, &[scissor]);
 
-        dev.cmd_bind_descriptor_sets(
-            buf,
-            vk::PipelineBindPoint::GRAPHICS,
-            self.pipeline_layout,
-            0,
-            &[self.descriptor_sets[self.flight_index]],
-            &[],
-        );
-        dev.cmd_bind_vertex_buffers(buf, 0, &[self.vertex_buffer], &[0]);
-        dev.cmd_bind_index_buffer(buf, self.index_buffer, 0, vk::IndexType::UINT32);
-        dev.cmd_draw_indexed(buf, self.vertex_count as u32, 1, 0, 0, 0);
-
-        dev.cmd_bind_descriptor_sets(
-            buf,
-            vk::PipelineBindPoint::GRAPHICS,
-            self.pipeline_layout,
-            0,
-            &[self.light_ds[self.flight_index]],
-            &[],
-        );
-        dev.cmd_bind_vertex_buffers(buf, 0, &[self.light_vb], &[0]);
-        dev.cmd_bind_index_buffer(buf, self.light_ib, 0, vk::IndexType::UINT32);
-        dev.cmd_draw_indexed(buf, self.light_vc as u32, 1, 0, 0, 0);
+        for object in [&self.building, &self.sun] {
+            dev.cmd_bind_descriptor_sets(
+                buf,
+                vk::PipelineBindPoint::GRAPHICS,
+                self.pipeline_layout,
+                0,
+                &[object.descriptor_sets[self.flight_index]],
+                &[],
+            );
+            dev.cmd_bind_vertex_buffers(buf, 0, &[object.vertex_buffer], &[0]);
+            dev.cmd_bind_index_buffer(buf, object.index_buffer, 0, vk::IndexType::UINT32);
+            dev.cmd_draw_indexed(buf, object.vertex_count as u32, 1, 0, 0, 0);
+        }
 
         dev.cmd_end_render_pass(buf);
 
         dev.end_command_buffer(buf).unwrap();
     }
 
-    fn update_uniform_buffer(&self, camera: &Camera) {
-        let aspect_ratio = self.swapchain_extent.width as f32 / self.swapchain_extent.height as f32;
-        let mut ubo = UniformBufferObject {
+    fn update_building_uniforms(&self, camera: &Camera) {
+        let mvp = ModelViewProjection {
             model: glm::identity(),
             view: camera.view_matrix(),
-            proj: glm::perspective_rh_zo(aspect_ratio, FRAC_PI_4, 0.1, 100.),
+            proj: self.projection,
         };
-        ubo.proj[(1, 1)] *= -1.;
-        unsafe { self.uniform_buffer_mapped[self.flight_index].write_volatile(ubo) };
+        unsafe { self.building.mvp.mappings[self.flight_index].write_volatile(mvp) };
     }
 
-    fn update_light_ub(&self, camera: &Camera, timestamp: f32) {
-        let aspect_ratio = self.swapchain_extent.width as f32 / self.swapchain_extent.height as f32;
+    fn update_sun_uniforms(&self, camera: &Camera, timestamp: f32) {
         let x = -4. * timestamp.cos();
         let y = -4. * timestamp.sin();
         let model = glm::scale(
             &glm::translate(&glm::identity(), &glm::vec3(x, y, 2.)),
             &glm::vec3(0.2, 0.2, 0.2),
         );
-        let mut ubo = UniformBufferObject {
+        let mvp = ModelViewProjection {
             model,
             view: camera.view_matrix(),
-            proj: glm::perspective_rh_zo(aspect_ratio, FRAC_PI_4, 0.1, 100.),
+            proj: self.projection,
         };
-        ubo.proj[(1, 1)] *= -1.;
-        unsafe { self.light_ubp[self.flight_index].write_volatile(ubo) };
+        unsafe { self.sun.mvp.mappings[self.flight_index].write_volatile(mvp) };
     }
 
-    fn update_lighting_ub(&self, timestamp: f32) {
+    fn update_light_uniforms(&self, timestamp: f32) {
         let x = -4. * timestamp.cos();
         let y = -4. * timestamp.sin();
-        let pos = glm::vec3(x, y, 2.);
-        let ubo = Lighting {
+        let ubo = Light {
             color: glm::vec3(1., 0.12, 68.),
-            pos,
-            _pad0: 0.,
-            _pad1: 0.,
+            position: glm::vec3(x, y, 2.),
+            ambient_strength: 0.004,
         };
-        unsafe { self.lighting_ubp[self.flight_index].write_volatile(ubo) };
+        unsafe { self.light.mappings[self.flight_index].write_volatile(ubo) };
     }
 
     fn submit_graphics(&self) {

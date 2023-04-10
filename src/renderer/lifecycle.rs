@@ -1,24 +1,27 @@
 use crate::model::Model;
 use crate::renderer::debug::create_debug_messenger;
 use crate::renderer::device::{select_device, DeviceInfo, QueueFamilies};
-use crate::renderer::gpu_data::{Lighting, UniformBufferObject, Vertex};
 use crate::renderer::shader::Shader;
 use crate::renderer::traits::VertexOps;
+use crate::renderer::uniform::{Light, ModelViewProjection};
 use crate::renderer::util::{ImageResources, Queues, VulkanExtensions};
-use crate::renderer::{util, Renderer, Synchronization, FRAMES_IN_FLIGHT};
+use crate::renderer::vertex::Vertex;
+use crate::renderer::{util, Object, Renderer, Synchronization, UniformBuffer, FRAMES_IN_FLIGHT};
 use crate::window::Window;
 use crate::{VULKAN_APP_NAME, VULKAN_APP_VERSION, VULKAN_ENGINE_NAME, VULKAN_ENGINE_VERSION};
 use ash::extensions::ext::DebugUtils;
 use ash::extensions::khr::{Surface, Swapchain};
 use ash::{vk, Device, Entry, Instance};
+use nalgebra_glm as glm;
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use std::collections::HashSet;
+use std::f32::consts::FRAC_PI_4;
 use std::ffi::CString;
 use std::mem::MaybeUninit;
 use winit::dpi::PhysicalSize;
 
 impl Renderer {
-    pub fn new(window: &Window, main_model: &Model, light_model: &Model) -> Renderer {
+    pub fn new(window: &Window, building_model: &Model, sun_model: &Model) -> Renderer {
         let entry = unsafe { Entry::load() }.unwrap();
         let instance = create_instance(window, &entry);
         let extensions = VulkanExtensions {
@@ -105,7 +108,7 @@ impl Renderer {
         );
 
         let (texture, texture_mipmaps) = util::load_texture(
-            main_model.texture_path,
+            building_model.texture_path,
             &instance,
             physical_device,
             &logical_device,
@@ -115,73 +118,39 @@ impl Renderer {
         let texture_sampler =
             create_texture_sampler(texture_mipmaps, &instance, physical_device, &logical_device);
 
-        let (vertex_buffer, vertex_buffer_memory) = create_vertex_buffer(
-            &main_model.vertices,
-            &instance,
-            physical_device,
-            &logical_device,
-            queues.graphics,
-            command_pool,
-        );
-        let (index_buffer, index_buffer_memory) = create_index_buffer(
-            &main_model.indices,
-            &instance,
-            physical_device,
-            &logical_device,
-            queues.graphics,
-            command_pool,
-        );
-        let (light_vb, light_vbm) = create_vertex_buffer(
-            &light_model.vertices,
-            &instance,
-            physical_device,
-            &logical_device,
-            queues.graphics,
-            command_pool,
-        );
-        let (light_ib, light_ibm) = create_index_buffer(
-            &light_model.indices,
-            &instance,
-            physical_device,
-            &logical_device,
-            queues.graphics,
-            command_pool,
-        );
-
-        let (uniform_buffers, uniform_buffer_memories, uniform_buffer_mapped) =
-            create_uniform_buffer::<UniformBufferObject>(
-                &instance,
-                physical_device,
-                &logical_device,
-            );
-        let (light_ub, light_ubm, light_ubp) = create_uniform_buffer::<UniformBufferObject>(
-            &instance,
-            physical_device,
-            &logical_device,
-        );
-        let (lighting_ub, lighting_ubm, lighting_ubp) =
-            create_uniform_buffer::<Lighting>(&instance, physical_device, &logical_device);
-
         let descriptor_pool = create_descriptor_pool(&logical_device);
-        let descriptor_sets = create_descriptor_sets(
+
+        let light = create_uniform_buffer::<Light>(&instance, physical_device, &logical_device);
+
+        let building = create_object(
+            building_model,
             descriptor_set_layout,
             descriptor_pool,
-            &uniform_buffers,
-            &lighting_ub,
+            &light.buffers,
             texture.view,
             texture_sampler,
+            &instance,
+            physical_device,
             &logical_device,
+            queues.graphics,
+            command_pool,
         );
-        let light_ds = create_descriptor_sets(
+        let sun = create_object(
+            sun_model,
             descriptor_set_layout,
             descriptor_pool,
-            &light_ub,
-            &lighting_ub,
+            &light.buffers,
             texture.view,
             texture_sampler,
+            &instance,
+            physical_device,
             &logical_device,
+            queues.graphics,
+            command_pool,
         );
+
         let sync = create_sync(&logical_device);
+        let projection = compute_projection(swapchain_extent);
         Renderer {
             _entry: entry,
             instance,
@@ -213,30 +182,13 @@ impl Renderer {
             framebuffers,
             texture,
             texture_sampler,
-            vertex_buffer,
-            vertex_buffer_memory,
-            vertex_count: main_model.vertices.len(),
-            index_buffer,
-            index_buffer_memory,
-            light_vb,
-            light_vbm,
-            light_vc: light_model.vertices.len(),
-            light_ib,
-            light_ibm,
-            uniform_buffers,
-            uniform_buffer_memories,
-            uniform_buffer_mapped,
-            light_ub,
-            light_ubm,
-            light_ubp,
-            lighting_ub,
-            lighting_ubm,
-            lighting_ubp,
+            light,
+            building,
+            sun,
             descriptor_pool,
-            descriptor_sets,
-            light_ds,
             sync,
             flight_index: 0,
+            projection,
         }
     }
 
@@ -326,6 +278,7 @@ impl Renderer {
             color.view,
             &self.logical_device,
         );
+        let projection = compute_projection(swapchain_extent);
 
         // Doing the assignments at the end guarantees any operation won't fail in the middle, and
         // makes it possible to easily compare new values to old ones.
@@ -340,6 +293,7 @@ impl Renderer {
         self.color = color;
         self.depth = depth;
         self.framebuffers = framebuffers;
+        self.projection = projection;
     }
 
     fn cleanup_swapchain(&mut self) {
@@ -354,6 +308,27 @@ impl Renderer {
             }
             self.swapchain_extension
                 .destroy_swapchain(self.swapchain, None);
+        }
+    }
+}
+
+impl Object {
+    fn cleanup(&self, logical_device: &Device) {
+        unsafe { logical_device.destroy_buffer(self.vertex_buffer, None) };
+        unsafe { logical_device.free_memory(self.vertex_buffer_memory, None) };
+        unsafe { logical_device.destroy_buffer(self.index_buffer, None) };
+        unsafe { logical_device.free_memory(self.index_buffer_memory, None) };
+        self.mvp.cleanup(logical_device);
+    }
+}
+
+impl<T> UniformBuffer<T> {
+    fn cleanup(&self, logical_device: &Device) {
+        for buffer in self.buffers {
+            unsafe { logical_device.destroy_buffer(buffer, None) };
+        }
+        for memory in self.memories {
+            unsafe { logical_device.free_memory(memory, None) };
         }
     }
 }
@@ -383,32 +358,9 @@ impl Drop for Renderer {
                 dev.destroy_semaphore(semaphore, None);
             }
             dev.destroy_descriptor_pool(self.descriptor_pool, None);
-            for buffer in self.uniform_buffers {
-                dev.destroy_buffer(buffer, None);
-            }
-            for memory in self.uniform_buffer_memories {
-                dev.free_memory(memory, None);
-            }
-            for buffer in self.light_ub {
-                dev.destroy_buffer(buffer, None);
-            }
-            for memory in self.light_ubm {
-                dev.free_memory(memory, None);
-            }
-            for buffer in self.lighting_ub {
-                dev.destroy_buffer(buffer, None);
-            }
-            for memory in self.lighting_ubm {
-                dev.free_memory(memory, None);
-            }
-            dev.destroy_buffer(self.index_buffer, None);
-            dev.free_memory(self.index_buffer_memory, None);
-            dev.destroy_buffer(self.vertex_buffer, None);
-            dev.free_memory(self.vertex_buffer_memory, None);
-            dev.destroy_buffer(self.light_ib, None);
-            dev.free_memory(self.light_ibm, None);
-            dev.destroy_buffer(self.light_vb, None);
-            dev.free_memory(self.light_vbm, None);
+            self.light.cleanup(dev);
+            self.building.cleanup(dev);
+            self.sun.cleanup(dev);
             dev.destroy_sampler(self.texture_sampler, None);
             self.texture.cleanup(&self.logical_device);
             dev.destroy_command_pool(self.command_pool, None);
@@ -1002,6 +954,57 @@ fn create_texture_sampler(
     unsafe { logical_device.create_sampler(&sampler_info, None) }.unwrap()
 }
 
+fn create_object(
+    model: &Model,
+    descriptor_set_layout: vk::DescriptorSetLayout,
+    descriptor_pool: vk::DescriptorPool,
+    light_buffers: &[vk::Buffer],
+    texture_view: vk::ImageView,
+    texture_sampler: vk::Sampler,
+    instance: &Instance,
+    physical_device: vk::PhysicalDevice,
+    logical_device: &Device,
+    graphics_queue: vk::Queue,
+    command_pool: vk::CommandPool,
+) -> Object {
+    let (vertex_buffer, vertex_buffer_memory) = create_vertex_buffer(
+        &model.vertices,
+        instance,
+        physical_device,
+        logical_device,
+        graphics_queue,
+        command_pool,
+    );
+    let (index_buffer, index_buffer_memory) = create_index_buffer(
+        &model.indices,
+        instance,
+        physical_device,
+        logical_device,
+        graphics_queue,
+        command_pool,
+    );
+    let mvp =
+        create_uniform_buffer::<ModelViewProjection>(instance, physical_device, logical_device);
+    let descriptor_sets = create_descriptor_sets(
+        descriptor_set_layout,
+        descriptor_pool,
+        &mvp.buffers,
+        light_buffers,
+        texture_view,
+        texture_sampler,
+        logical_device,
+    );
+    Object {
+        vertex_buffer,
+        vertex_buffer_memory,
+        vertex_count: model.vertices.len(),
+        index_buffer,
+        index_buffer_memory,
+        mvp,
+        descriptor_sets,
+    }
+}
+
 fn create_vertex_buffer(
     vertex_data: &[Vertex],
     instance: &Instance,
@@ -1091,11 +1094,7 @@ fn create_uniform_buffer<T>(
     instance: &Instance,
     physical_device: vk::PhysicalDevice,
     logical_device: &Device,
-) -> (
-    [vk::Buffer; FRAMES_IN_FLIGHT],
-    [vk::DeviceMemory; FRAMES_IN_FLIGHT],
-    [*mut T; FRAMES_IN_FLIGHT],
-) {
+) -> UniformBuffer<T> {
     let mut buffers = [vk::Buffer::null(); FRAMES_IN_FLIGHT];
     let mut memories = [vk::DeviceMemory::null(); FRAMES_IN_FLIGHT];
     let mut mappings = [std::ptr::null_mut(); FRAMES_IN_FLIGHT];
@@ -1117,7 +1116,11 @@ fn create_uniform_buffer<T>(
         memories[i] = memory;
         mappings[i] = mapping;
     }
-    (buffers, memories, mappings)
+    UniformBuffer {
+        buffers,
+        memories,
+        mappings,
+    }
 }
 
 fn create_descriptor_pool(logical_device: &Device) -> vk::DescriptorPool {
@@ -1159,12 +1162,12 @@ fn create_descriptor_sets(
         let buffer_info = vk::DescriptorBufferInfo::builder()
             .buffer(uniform_buffers[i])
             .offset(0)
-            .range(std::mem::size_of::<UniformBufferObject>() as u64);
+            .range(std::mem::size_of::<ModelViewProjection>() as u64);
         let buffer_infos = [*buffer_info];
         let lighting_b = vk::DescriptorBufferInfo::builder()
             .buffer(lighting_ub[i])
             .offset(0)
-            .range(std::mem::size_of::<Lighting>() as u64);
+            .range(std::mem::size_of::<Light>() as u64);
         let lighting_bi = [*lighting_b];
         let image_info = vk::DescriptorImageInfo::builder()
             .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
@@ -1214,4 +1217,11 @@ fn create_sync(logical_device: &Device) -> Synchronization {
         render_finished,
         in_flight,
     }
+}
+
+fn compute_projection(swapchain_extent: vk::Extent2D) -> glm::Mat4 {
+    let aspect_ratio = swapchain_extent.width as f32 / swapchain_extent.height as f32;
+    let mut proj = glm::perspective_rh_zo(aspect_ratio, FRAC_PI_4, 0.1, 100.);
+    proj[(1, 1)] *= -1.;
+    proj
 }

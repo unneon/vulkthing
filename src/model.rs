@@ -1,4 +1,4 @@
-use crate::renderer::gpu_data::Vertex;
+use crate::renderer::vertex::Vertex;
 use nalgebra_glm as glm;
 use tobj::LoadOptions;
 
