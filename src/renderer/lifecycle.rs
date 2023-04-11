@@ -124,7 +124,6 @@ impl Renderer {
             swapchain_image_count,
             &swapchain_image_views,
             swapchain_extent,
-            offscreen.view,
             &logical_device,
         );
 
@@ -301,7 +300,6 @@ impl Renderer {
             swapchain_image_count,
             &swapchain_image_views,
             swapchain_extent,
-            offscreen.view,
             &self.logical_device,
         );
         let postprocess_descriptor_set = create_postprocess_descriptor_set(
@@ -678,7 +676,7 @@ fn create_postprocess_descriptor_set_layout(logical_device: &Device) -> vk::Desc
     let input_binding = vk::DescriptorSetLayoutBinding::builder()
         .binding(0)
         .descriptor_count(1)
-        .descriptor_type(vk::DescriptorType::INPUT_ATTACHMENT)
+        .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
         .stage_flags(vk::ShaderStageFlags::FRAGMENT);
     let layout_bindings = [*input_binding];
     let layout_info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(&layout_bindings);
@@ -916,24 +914,10 @@ fn create_postprocess_pipeline(
         .attachment(0)
         .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL);
     let color_attachments = [*color_attachment_ref];
-    let input_attachment = vk::AttachmentDescription::builder()
-        .format(swapchain_image_format.format)
-        .samples(vk::SampleCountFlags::TYPE_1)
-        .load_op(vk::AttachmentLoadOp::LOAD)
-        .store_op(vk::AttachmentStoreOp::DONT_CARE)
-        .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
-        .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
-        .initial_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-        .final_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL);
-    let input_attachment_ref = vk::AttachmentReference::builder()
-        .attachment(1)
-        .layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL);
-    let input_attachments = [*input_attachment_ref];
     let subpass = vk::SubpassDescription::builder()
         .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
-        .color_attachments(&color_attachments)
-        .input_attachments(&input_attachments);
-    let attachments = [*color_attachment, *input_attachment];
+        .color_attachments(&color_attachments);
+    let attachments = [*color_attachment];
     let subpasses = [*subpass];
     let render_pass_info = vk::RenderPassCreateInfo::builder()
         .attachments(&attachments)
@@ -1053,7 +1037,7 @@ fn create_offscreen_resources(
         swapchain_format.format,
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
         vk::ImageTiling::OPTIMAL,
-        vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::INPUT_ATTACHMENT,
+        vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::SAMPLED,
         swapchain_extent.width as usize,
         swapchain_extent.height as usize,
         1,
@@ -1130,12 +1114,11 @@ fn create_framebuffers(
     swapchain_image_count: usize,
     swapchain_image_views: &[vk::ImageView],
     swapchain_extent: vk::Extent2D,
-    offscreen_image_view: vk::ImageView,
     logical_device: &Device,
 ) -> Vec<vk::Framebuffer> {
     let mut framebuffers = vec![vk::Framebuffer::null(); swapchain_image_count];
     for i in 0..swapchain_image_count {
-        let attachments = [swapchain_image_views[i], offscreen_image_view];
+        let attachments = [swapchain_image_views[i]];
         let framebuffer_info = vk::FramebufferCreateInfo::builder()
             .render_pass(postprocess_pass)
             .attachments(&attachments)
@@ -1418,7 +1401,7 @@ fn create_descriptor_pool(logical_device: &Device) -> vk::DescriptorPool {
 
 fn create_postprocess_descriptor_pool(logical_device: &Device) -> vk::DescriptorPool {
     let pool_sizes = [vk::DescriptorPoolSize {
-        ty: vk::DescriptorType::INPUT_ATTACHMENT,
+        ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
         descriptor_count: 1,
     }];
     let pool_infp = vk::DescriptorPoolCreateInfo::builder()
@@ -1524,7 +1507,7 @@ fn create_postprocess_descriptor_set(
         .dst_set(descriptor_set)
         .dst_binding(0)
         .dst_array_element(0)
-        .descriptor_type(vk::DescriptorType::INPUT_ATTACHMENT)
+        .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
         .image_info(&image_infos)];
     unsafe { logical_device.update_descriptor_sets(&descriptor_writes, &[]) };
     descriptor_set
