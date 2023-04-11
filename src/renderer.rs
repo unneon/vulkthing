@@ -34,18 +34,27 @@ pub struct Renderer {
     swapchain: vk::SwapchainKHR,
     swapchain_image_views: Vec<vk::ImageView>,
     descriptor_set_layout: vk::DescriptorSetLayout,
+    postprocess_descriptor_set_layout: vk::DescriptorSetLayout,
     msaa_samples: vk::SampleCountFlags,
     pipeline: vk::Pipeline,
     pipeline_layout: vk::PipelineLayout,
     pipeline_render_pass: vk::RenderPass,
+    postprocess_pipeline: vk::Pipeline,
+    postprocess_pipeline_layout: vk::PipelineLayout,
+    postprocess_pass: vk::RenderPass,
     command_pool: vk::CommandPool,
     command_buffers: [vk::CommandBuffer; FRAMES_IN_FLIGHT],
     color: util::ImageResources,
     depth: util::ImageResources,
+    offscreen: util::ImageResources,
+    offscreen_framebuffer: vk::Framebuffer,
+    offscreen_sampler: vk::Sampler,
     framebuffers: Vec<vk::Framebuffer>,
     light: UniformBuffer<Light>,
     objects: Vec<Object>,
     descriptor_pool: vk::DescriptorPool,
+    postprocess_descriptor_pool: vk::DescriptorPool,
+    postprocess_descriptor_set: vk::DescriptorSet,
     sync: Synchronization,
     flight_index: usize,
     projection: glm::Mat4,
@@ -125,12 +134,20 @@ impl Renderer {
         let dev = &self.logical_device;
         let buf = self.command_buffers[self.flight_index];
 
-        dev.begin_command_buffer(buf, &vk::CommandBufferBeginInfo::builder())
-            .unwrap();
+        let begin_info = vk::CommandBufferBeginInfo::builder();
+        dev.begin_command_buffer(buf, &begin_info).unwrap();
+        self.record_render_pass(buf, world);
+        self.record_postprocess_pass(buf, image_index);
+        dev.end_command_buffer(buf).unwrap();
+    }
 
-        let render_pass_info = vk::RenderPassBeginInfo::builder()
+    unsafe fn record_render_pass(&self, buf: vk::CommandBuffer, world: &World) {
+        let dev = &self.logical_device;
+        let pass_info = vk::RenderPassBeginInfo::builder()
             .render_pass(self.pipeline_render_pass)
-            .framebuffer(self.framebuffers[image_index as usize])
+            .framebuffer(self.offscreen_framebuffer)
+            // I don't quite understand when render area should be anything else. It seems like
+            // scissor already offers the same functionality?
             .render_area(vk::Rect2D {
                 offset: vk::Offset2D { x: 0, y: 0 },
                 extent: self.swapchain_extent,
@@ -148,25 +165,10 @@ impl Renderer {
                     },
                 },
             ]);
-        dev.cmd_begin_render_pass(buf, &render_pass_info, vk::SubpassContents::INLINE);
+        dev.cmd_begin_render_pass(buf, &pass_info, vk::SubpassContents::INLINE);
 
         dev.cmd_bind_pipeline(buf, vk::PipelineBindPoint::GRAPHICS, self.pipeline);
-
-        let viewport = vk::Viewport {
-            x: 0.,
-            y: 0.,
-            width: self.swapchain_extent.width as f32,
-            height: self.swapchain_extent.height as f32,
-            min_depth: 0.,
-            max_depth: 1.,
-        };
-        dev.cmd_set_viewport(buf, 0, &[viewport]);
-
-        let scissor = vk::Rect2D {
-            offset: vk::Offset2D { x: 0, y: 0 },
-            extent: self.swapchain_extent,
-        };
-        dev.cmd_set_scissor(buf, 0, &[scissor]);
+        self.record_viewport_and_scissor(buf);
 
         for entity in &world.entities {
             let object = &self.objects[entity.gpu_object];
@@ -184,8 +186,57 @@ impl Renderer {
         }
 
         dev.cmd_end_render_pass(buf);
+    }
 
-        dev.end_command_buffer(buf).unwrap();
+    unsafe fn record_postprocess_pass(&self, buf: vk::CommandBuffer, image_index: u32) {
+        let dev = &self.logical_device;
+        let pass_info = vk::RenderPassBeginInfo::builder()
+            .render_pass(self.postprocess_pass)
+            .framebuffer(self.framebuffers[image_index as usize])
+            .render_area(vk::Rect2D {
+                offset: vk::Offset2D { x: 0, y: 0 },
+                extent: self.swapchain_extent,
+            });
+        dev.cmd_begin_render_pass(buf, &pass_info, vk::SubpassContents::INLINE);
+
+        dev.cmd_bind_pipeline(
+            buf,
+            vk::PipelineBindPoint::GRAPHICS,
+            self.postprocess_pipeline,
+        );
+        self.record_viewport_and_scissor(buf);
+
+        dev.cmd_bind_descriptor_sets(
+            buf,
+            vk::PipelineBindPoint::GRAPHICS,
+            self.postprocess_pipeline_layout,
+            0,
+            &[self.postprocess_descriptor_set],
+            &[],
+        );
+        dev.cmd_draw(buf, 6, 1, 0, 0);
+
+        dev.cmd_end_render_pass(buf);
+    }
+
+    fn record_viewport_and_scissor(&self, buf: vk::CommandBuffer) {
+        // This should really be set during the lifecycle events to avoid wasting cycles recording
+        // the command, but this would require rebuilding the pipeline on window resize so let's do
+        // it later. Or keeping it dynamic, but only recording the command after a window resize.
+        let viewport = vk::Viewport {
+            x: 0.,
+            y: 0.,
+            width: self.swapchain_extent.width as f32,
+            height: self.swapchain_extent.height as f32,
+            min_depth: 0.,
+            max_depth: 1.,
+        };
+        let scissor = vk::Rect2D {
+            offset: vk::Offset2D { x: 0, y: 0 },
+            extent: self.swapchain_extent,
+        };
+        unsafe { self.logical_device.cmd_set_viewport(buf, 0, &[viewport]) };
+        unsafe { self.logical_device.cmd_set_scissor(buf, 0, &[scissor]) };
     }
 
     fn update_object_uniforms(&self, world: &World, entity: &Entity) {

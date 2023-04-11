@@ -68,6 +68,8 @@ impl Renderer {
             &swapchain_extension,
         );
         let descriptor_set_layout = create_descriptor_set_layout(&logical_device);
+        let postprocess_descriptor_set_layout =
+            create_postprocess_descriptor_set_layout(&logical_device);
         let msaa_samples = util::find_max_msaa_samples(&instance, physical_device);
         let (pipeline, pipeline_layout, pipeline_render_pass) = create_pipeline(
             descriptor_set_layout,
@@ -77,6 +79,12 @@ impl Renderer {
             physical_device,
             &logical_device,
         );
+        let (postprocess_pipeline, postprocess_pipeline_layout, postprocess_pass) =
+            create_postprocess_pipeline(
+                postprocess_descriptor_set_layout,
+                swapchain_format,
+                &logical_device,
+            );
         let command_pool = create_command_pool(&queue_families, &logical_device);
         let command_buffers = create_command_buffers(&logical_device, command_pool);
 
@@ -98,17 +106,41 @@ impl Renderer {
             queues.graphics,
             command_pool,
         );
-        let framebuffers = create_framebuffers(
+        let offscreen = create_offscreen_resources(
+            swapchain_format,
+            swapchain_extent,
+            &instance,
+            physical_device,
+            &logical_device,
+        );
+        let offscreen_framebuffer = create_offscreen_framebuffer(
             pipeline_render_pass,
-            swapchain_image_count,
-            &swapchain_image_views,
+            offscreen.view,
             swapchain_extent,
             depth.view,
             color.view,
             &logical_device,
         );
+        let framebuffers = create_framebuffers(
+            postprocess_pass,
+            swapchain_image_count,
+            &swapchain_image_views,
+            swapchain_extent,
+            offscreen.view,
+            &logical_device,
+        );
 
         let descriptor_pool = create_descriptor_pool(&logical_device);
+        let postprocess_descriptor_pool = create_postprocess_descriptor_pool(&logical_device);
+        let offscreen_sampler =
+            create_offscreen_sampler(&instance, physical_device, &logical_device);
+        let postprocess_descriptor_set = create_postprocess_descriptor_set(
+            offscreen.view,
+            offscreen_sampler,
+            postprocess_descriptor_set_layout,
+            postprocess_descriptor_pool,
+            &logical_device,
+        );
 
         let light = create_uniform_buffer(&instance, physical_device, &logical_device);
 
@@ -149,18 +181,27 @@ impl Renderer {
             swapchain,
             swapchain_image_views,
             descriptor_set_layout,
+            postprocess_descriptor_set_layout,
             msaa_samples,
             pipeline,
             pipeline_layout,
             pipeline_render_pass,
+            postprocess_pipeline,
+            postprocess_pipeline_layout,
+            postprocess_pass,
             command_pool,
             command_buffers,
             color,
             depth,
+            offscreen,
+            offscreen_framebuffer,
+            offscreen_sampler,
             framebuffers,
             light,
             objects,
             descriptor_pool,
+            postprocess_descriptor_pool,
+            postprocess_descriptor_set,
             sync,
             flight_index: 0,
             projection,
@@ -244,13 +285,34 @@ impl Renderer {
             self.queues.graphics,
             self.command_pool,
         );
-        let framebuffers = create_framebuffers(
+        let offscreen = create_offscreen_resources(
+            swapchain_format,
+            swapchain_extent,
+            &self.instance,
+            self.physical_device,
+            &self.logical_device,
+        );
+        let offscreen_framebuffer = create_offscreen_framebuffer(
             self.pipeline_render_pass,
-            swapchain_image_count,
-            &swapchain_image_views,
+            offscreen.view,
             swapchain_extent,
             depth.view,
             color.view,
+            &self.logical_device,
+        );
+        let framebuffers = create_framebuffers(
+            self.postprocess_pass,
+            swapchain_image_count,
+            &swapchain_image_views,
+            swapchain_extent,
+            offscreen.view,
+            &self.logical_device,
+        );
+        let postprocess_descriptor_set = create_postprocess_descriptor_set(
+            offscreen.view,
+            self.offscreen_sampler,
+            self.postprocess_descriptor_set_layout,
+            self.postprocess_descriptor_pool,
             &self.logical_device,
         );
         let projection = compute_projection(swapchain_extent);
@@ -266,17 +328,29 @@ impl Renderer {
         self.swapchain_image_views = swapchain_image_views;
         self.color = color;
         self.depth = depth;
+        self.offscreen = offscreen;
+        self.offscreen_framebuffer = offscreen_framebuffer;
         self.framebuffers = framebuffers;
+        self.postprocess_descriptor_set = postprocess_descriptor_set;
         self.projection = projection;
     }
 
     fn cleanup_swapchain(&mut self) {
         self.depth.cleanup(&self.logical_device);
         self.color.cleanup(&self.logical_device);
+        self.offscreen.cleanup(&self.logical_device);
         unsafe {
+            self.logical_device
+                .free_descriptor_sets(
+                    self.postprocess_descriptor_pool,
+                    &[self.postprocess_descriptor_set],
+                )
+                .unwrap();
             for framebuffer in &self.framebuffers {
                 self.logical_device.destroy_framebuffer(*framebuffer, None);
             }
+            self.logical_device
+                .destroy_framebuffer(self.offscreen_framebuffer, None);
             for image_view in &self.swapchain_image_views {
                 self.logical_device.destroy_image_view(*image_view, None);
             }
@@ -341,12 +415,20 @@ impl Drop for Renderer {
             }
             dev.destroy_command_pool(self.command_pool, None);
             dev.destroy_pipeline(self.pipeline, None);
+            dev.destroy_pipeline(self.postprocess_pipeline, None);
             dev.destroy_render_pass(self.pipeline_render_pass, None);
+            dev.destroy_render_pass(self.postprocess_pass, None);
             dev.destroy_pipeline_layout(self.pipeline_layout, None);
+            dev.destroy_pipeline_layout(self.postprocess_pipeline_layout, None);
             dev.destroy_descriptor_set_layout(self.descriptor_set_layout, None);
+            dev.destroy_descriptor_set_layout(self.postprocess_descriptor_set_layout, None);
         }
         self.cleanup_swapchain();
         unsafe {
+            self.logical_device
+                .destroy_descriptor_pool(self.postprocess_descriptor_pool, None);
+            self.logical_device
+                .destroy_sampler(self.offscreen_sampler, None);
             self.logical_device.destroy_device(None);
             self.extensions.surface.destroy_surface(self.surface, None);
             self.extensions
@@ -596,6 +678,17 @@ fn create_descriptor_set_layout(logical_device: &Device) -> vk::DescriptorSetLay
     unsafe { logical_device.create_descriptor_set_layout(&layout_info, None) }.unwrap()
 }
 
+fn create_postprocess_descriptor_set_layout(logical_device: &Device) -> vk::DescriptorSetLayout {
+    let input_binding = vk::DescriptorSetLayoutBinding::builder()
+        .binding(0)
+        .descriptor_count(1)
+        .descriptor_type(vk::DescriptorType::INPUT_ATTACHMENT)
+        .stage_flags(vk::ShaderStageFlags::FRAGMENT);
+    let layout_bindings = [*input_binding];
+    let layout_info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(&layout_bindings);
+    unsafe { logical_device.create_descriptor_set_layout(&layout_info, None) }.unwrap()
+}
+
 fn create_pipeline(
     descriptor_set_layout: vk::DescriptorSetLayout,
     swapchain_image_format: vk::SurfaceFormatKHR,
@@ -697,7 +790,7 @@ fn create_pipeline(
         .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
         .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
         .initial_layout(vk::ImageLayout::UNDEFINED)
-        .final_layout(vk::ImageLayout::PRESENT_SRC_KHR);
+        .final_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL);
     let color_attachment_resolve_ref = *vk::AttachmentReference::builder()
         .attachment(2)
         .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL);
@@ -772,6 +865,127 @@ fn create_pipeline(
     (pipeline, pipeline_layout, render_pass)
 }
 
+fn create_postprocess_pipeline(
+    descriptor_set_layout: vk::DescriptorSetLayout,
+    swapchain_image_format: vk::SurfaceFormatKHR,
+    logical_device: &Device,
+) -> (vk::Pipeline, vk::PipelineLayout, vk::RenderPass) {
+    let vert_shader = compile_shader(
+        "shaders/quad.vert",
+        vk::ShaderStageFlags::VERTEX,
+        logical_device,
+    );
+    let frag_shader = compile_shader(
+        "shaders/postprocess.frag",
+        vk::ShaderStageFlags::FRAGMENT,
+        logical_device,
+    );
+    let shader_stages = [vert_shader.stage_info, frag_shader.stage_info];
+    let dynamic_state = vk::PipelineDynamicStateCreateInfo::builder()
+        .dynamic_states(&[vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR]);
+    let vertex_input = vk::PipelineVertexInputStateCreateInfo::builder()
+        .vertex_binding_descriptions(&[])
+        .vertex_attribute_descriptions(&[]);
+    let input_assembly = vk::PipelineInputAssemblyStateCreateInfo::builder()
+        .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
+        .primitive_restart_enable(false);
+    let viewport_state = vk::PipelineViewportStateCreateInfo::builder()
+        .viewport_count(1)
+        .scissor_count(1);
+    let rasterizer = vk::PipelineRasterizationStateCreateInfo::builder()
+        .depth_clamp_enable(false)
+        .rasterizer_discard_enable(false)
+        .polygon_mode(vk::PolygonMode::FILL)
+        .line_width(1.)
+        .cull_mode(vk::CullModeFlags::BACK)
+        .front_face(vk::FrontFace::COUNTER_CLOCKWISE)
+        .depth_bias_enable(false)
+        .depth_bias_constant_factor(0.)
+        .depth_bias_clamp(0.)
+        .depth_bias_slope_factor(0.);
+    let multisampling = vk::PipelineMultisampleStateCreateInfo::builder()
+        .sample_shading_enable(false)
+        .rasterization_samples(vk::SampleCountFlags::TYPE_1)
+        .min_sample_shading(1.)
+        .sample_mask(&[])
+        .alpha_to_coverage_enable(false)
+        .alpha_to_one_enable(false);
+    let color_blend_attachment = vk::PipelineColorBlendAttachmentState::builder()
+        .color_write_mask(vk::ColorComponentFlags::RGBA)
+        .blend_enable(false);
+    let color_blend_attachments = [*color_blend_attachment];
+    let color_blending = vk::PipelineColorBlendStateCreateInfo::builder()
+        .logic_op_enable(false)
+        .logic_op(vk::LogicOp::COPY)
+        .attachments(&color_blend_attachments);
+    let set_layouts = [descriptor_set_layout];
+    let pipeline_layout_info = vk::PipelineLayoutCreateInfo::builder()
+        .set_layouts(&set_layouts)
+        .push_constant_ranges(&[]);
+    let pipeline_layout =
+        unsafe { logical_device.create_pipeline_layout(&pipeline_layout_info, None) }.unwrap();
+
+    let color_attachment = vk::AttachmentDescription::builder()
+        .format(swapchain_image_format.format)
+        .samples(vk::SampleCountFlags::TYPE_1)
+        .load_op(vk::AttachmentLoadOp::DONT_CARE)
+        .store_op(vk::AttachmentStoreOp::STORE)
+        .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
+        .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
+        .initial_layout(vk::ImageLayout::UNDEFINED)
+        .final_layout(vk::ImageLayout::PRESENT_SRC_KHR);
+    let color_attachment_ref = vk::AttachmentReference::builder()
+        .attachment(0)
+        .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL);
+    let color_attachments = [*color_attachment_ref];
+    let input_attachment = vk::AttachmentDescription::builder()
+        .format(swapchain_image_format.format)
+        .samples(vk::SampleCountFlags::TYPE_1)
+        .load_op(vk::AttachmentLoadOp::LOAD)
+        .store_op(vk::AttachmentStoreOp::DONT_CARE)
+        .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
+        .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
+        .initial_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+        .final_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL);
+    let input_attachment_ref = vk::AttachmentReference::builder()
+        .attachment(1)
+        .layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL);
+    let input_attachments = [*input_attachment_ref];
+    let subpass = vk::SubpassDescription::builder()
+        .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
+        .color_attachments(&color_attachments)
+        .input_attachments(&input_attachments);
+    let attachments = [*color_attachment, *input_attachment];
+    let subpasses = [*subpass];
+    let render_pass_info = vk::RenderPassCreateInfo::builder()
+        .attachments(&attachments)
+        .subpasses(&subpasses);
+    let render_pass =
+        unsafe { logical_device.create_render_pass(&render_pass_info, None) }.unwrap();
+
+    let pipeline_info = vk::GraphicsPipelineCreateInfo::builder()
+        .stages(&shader_stages)
+        .vertex_input_state(&vertex_input)
+        .input_assembly_state(&input_assembly)
+        .viewport_state(&viewport_state)
+        .rasterization_state(&rasterizer)
+        .multisample_state(&multisampling)
+        .color_blend_state(&color_blending)
+        .dynamic_state(&dynamic_state)
+        .layout(pipeline_layout)
+        .render_pass(render_pass)
+        .subpass(0);
+    let pipeline = unsafe {
+        logical_device.create_graphics_pipelines(vk::PipelineCache::null(), &[*pipeline_info], None)
+    }
+    .unwrap()
+    .into_iter()
+    .next()
+    .unwrap();
+
+    (pipeline, pipeline_layout, render_pass)
+}
+
 fn compile_shader<'a>(
     glsl_path: &str,
     stage: vk::ShaderStageFlags,
@@ -824,11 +1038,48 @@ fn create_color_resources(
         swapchain_format.format,
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
         vk::ImageTiling::OPTIMAL,
+        // Transient attachment lets the drivers lazily allocate memory for the framebuffer
+        // attachment, and for some implementation this actually doesn't allocate memory at all. See
+        // "Lazily ALlocated Memory" section of the Vulkan specification.
         vk::ImageUsageFlags::TRANSIENT_ATTACHMENT | vk::ImageUsageFlags::COLOR_ATTACHMENT,
         swapchain_extent.width as usize,
         swapchain_extent.height as usize,
         1,
         msaa_samples,
+        instance,
+        physical_device,
+        logical_device,
+    );
+    let view = util::create_image_view(
+        image,
+        swapchain_format.format,
+        vk::ImageAspectFlags::COLOR,
+        1,
+        logical_device,
+    );
+    ImageResources {
+        image,
+        memory,
+        view,
+    }
+}
+
+fn create_offscreen_resources(
+    swapchain_format: vk::SurfaceFormatKHR,
+    swapchain_extent: vk::Extent2D,
+    instance: &Instance,
+    physical_device: vk::PhysicalDevice,
+    logical_device: &Device,
+) -> ImageResources {
+    let (image, memory) = util::create_image(
+        swapchain_format.format,
+        vk::MemoryPropertyFlags::DEVICE_LOCAL,
+        vk::ImageTiling::OPTIMAL,
+        vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::INPUT_ATTACHMENT,
+        swapchain_extent.width as usize,
+        swapchain_extent.height as usize,
+        1,
+        vk::SampleCountFlags::TYPE_1,
         instance,
         physical_device,
         logical_device,
@@ -911,19 +1162,18 @@ fn select_depth_format(instance: &Instance, physical_device: vk::PhysicalDevice)
 }
 
 fn create_framebuffers(
-    pipeline_render_pass: vk::RenderPass,
+    postprocess_pass: vk::RenderPass,
     swapchain_image_count: usize,
     swapchain_image_views: &[vk::ImageView],
     swapchain_extent: vk::Extent2D,
-    depth_image_view: vk::ImageView,
-    color_image_view: vk::ImageView,
+    offscreen_image_view: vk::ImageView,
     logical_device: &Device,
 ) -> Vec<vk::Framebuffer> {
     let mut framebuffers = vec![vk::Framebuffer::null(); swapchain_image_count];
     for i in 0..swapchain_image_count {
-        let attachments = [color_image_view, depth_image_view, swapchain_image_views[i]];
+        let attachments = [swapchain_image_views[i], offscreen_image_view];
         let framebuffer_info = vk::FramebufferCreateInfo::builder()
-            .render_pass(pipeline_render_pass)
+            .render_pass(postprocess_pass)
             .attachments(&attachments)
             .width(swapchain_extent.width)
             .height(swapchain_extent.height)
@@ -933,6 +1183,24 @@ fn create_framebuffers(
         framebuffers[i] = framebuffer;
     }
     framebuffers
+}
+
+fn create_offscreen_framebuffer(
+    pipeline_render_pass: vk::RenderPass,
+    offscreen_image_view: vk::ImageView,
+    swapchain_extent: vk::Extent2D,
+    depth_image_view: vk::ImageView,
+    color_image_view: vk::ImageView,
+    logical_device: &Device,
+) -> vk::Framebuffer {
+    let attachments = [color_image_view, depth_image_view, offscreen_image_view];
+    let framebuffer_info = vk::FramebufferCreateInfo::builder()
+        .render_pass(pipeline_render_pass)
+        .attachments(&attachments)
+        .width(swapchain_extent.width)
+        .height(swapchain_extent.height)
+        .layers(1);
+    unsafe { logical_device.create_framebuffer(&framebuffer_info, None) }.unwrap()
 }
 
 fn create_texture_sampler(
@@ -957,6 +1225,31 @@ fn create_texture_sampler(
         .mipmap_mode(vk::SamplerMipmapMode::LINEAR)
         .min_lod(0.)
         .max_lod(mip_levels as f32)
+        .mip_lod_bias(0.);
+    unsafe { logical_device.create_sampler(&sampler_info, None) }.unwrap()
+}
+
+fn create_offscreen_sampler(
+    instance: &Instance,
+    physical_device: vk::PhysicalDevice,
+    logical_device: &Device,
+) -> vk::Sampler {
+    let properties = unsafe { instance.get_physical_device_properties(physical_device) };
+    let sampler_info = vk::SamplerCreateInfo::builder()
+        .mag_filter(vk::Filter::LINEAR)
+        .min_filter(vk::Filter::LINEAR)
+        .address_mode_u(vk::SamplerAddressMode::REPEAT)
+        .address_mode_v(vk::SamplerAddressMode::REPEAT)
+        .address_mode_w(vk::SamplerAddressMode::REPEAT)
+        .anisotropy_enable(true)
+        .max_anisotropy(properties.limits.max_sampler_anisotropy)
+        .border_color(vk::BorderColor::INT_OPAQUE_BLACK)
+        .unnormalized_coordinates(false)
+        .compare_enable(false)
+        .compare_op(vk::CompareOp::ALWAYS)
+        .mipmap_mode(vk::SamplerMipmapMode::LINEAR)
+        .min_lod(0.)
+        .max_lod(0.)
         .mip_lod_bias(0.);
     unsafe { logical_device.create_sampler(&sampler_info, None) }.unwrap()
 }
@@ -1159,6 +1452,18 @@ fn create_descriptor_pool(logical_device: &Device) -> vk::DescriptorPool {
     unsafe { logical_device.create_descriptor_pool(&pool_info, None) }.unwrap()
 }
 
+fn create_postprocess_descriptor_pool(logical_device: &Device) -> vk::DescriptorPool {
+    let pool_sizes = [vk::DescriptorPoolSize {
+        ty: vk::DescriptorType::INPUT_ATTACHMENT,
+        descriptor_count: 1,
+    }];
+    let pool_infp = vk::DescriptorPoolCreateInfo::builder()
+        .pool_sizes(&pool_sizes)
+        .max_sets(1)
+        .flags(vk::DescriptorPoolCreateFlags::FREE_DESCRIPTOR_SET);
+    unsafe { logical_device.create_descriptor_pool(&pool_infp, None) }.unwrap()
+}
+
 fn create_descriptor_sets(
     layout: vk::DescriptorSetLayout,
     pool: vk::DescriptorPool,
@@ -1228,6 +1533,37 @@ fn create_descriptor_sets(
         unsafe { logical_device.update_descriptor_sets(&descriptor_writes, &[]) };
     }
     descriptor_sets
+}
+
+fn create_postprocess_descriptor_set(
+    offscreen_view: vk::ImageView,
+    offscreen_sampler: vk::Sampler,
+    layout: vk::DescriptorSetLayout,
+    pool: vk::DescriptorPool,
+    logical_device: &Device,
+) -> vk::DescriptorSet {
+    let layouts = [layout];
+    let descriptor_set_alloc_info = vk::DescriptorSetAllocateInfo::builder()
+        .descriptor_pool(pool)
+        .set_layouts(&layouts);
+    let [descriptor_set]: [vk::DescriptorSet; 1] =
+        unsafe { logical_device.allocate_descriptor_sets(&descriptor_set_alloc_info) }
+            .unwrap()
+            .try_into()
+            .unwrap();
+    let image_info = vk::DescriptorImageInfo::builder()
+        .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+        .image_view(offscreen_view)
+        .sampler(offscreen_sampler);
+    let image_infos = [*image_info];
+    let descriptor_writes = [*vk::WriteDescriptorSet::builder()
+        .dst_set(descriptor_set)
+        .dst_binding(0)
+        .dst_array_element(0)
+        .descriptor_type(vk::DescriptorType::INPUT_ATTACHMENT)
+        .image_info(&image_infos)];
+    unsafe { logical_device.update_descriptor_sets(&descriptor_writes, &[]) };
+    descriptor_set
 }
 
 fn create_sync(logical_device: &Device) -> Synchronization {
