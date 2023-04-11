@@ -278,7 +278,7 @@ impl Renderer {
         let signal_semaphores = [render_finished];
         let submit_info = vk::SubmitInfo::builder()
             .wait_semaphores(&wait_semaphores)
-            .wait_dst_stage_mask(&[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT])
+            .wait_dst_stage_mask(&[vk::PipelineStageFlags::TOP_OF_PIPE])
             .command_buffers(&command_buffers)
             .signal_semaphores(&signal_semaphores);
         unsafe {

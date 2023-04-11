@@ -103,8 +103,6 @@ impl Renderer {
             &instance,
             physical_device,
             &logical_device,
-            queues.graphics,
-            command_pool,
         );
         let offscreen = create_offscreen_resources(
             swapchain_format,
@@ -282,8 +280,6 @@ impl Renderer {
             &self.instance,
             self.physical_device,
             &self.logical_device,
-            self.queues.graphics,
-            self.command_pool,
         );
         let offscreen = create_offscreen_resources(
             swapchain_format,
@@ -800,33 +796,15 @@ fn create_pipeline(
         .color_attachments(&color_attachments)
         .depth_stencil_attachment(&depth_attachment_ref)
         .resolve_attachments(&resolve_attachments);
-    let dependency = vk::SubpassDependency::builder()
-        .src_subpass(vk::SUBPASS_EXTERNAL)
-        .dst_subpass(0)
-        .src_stage_mask(
-            vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT
-                | vk::PipelineStageFlags::EARLY_FRAGMENT_TESTS,
-        )
-        .src_access_mask(vk::AccessFlags::empty())
-        .dst_stage_mask(
-            vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT
-                | vk::PipelineStageFlags::EARLY_FRAGMENT_TESTS,
-        )
-        .dst_access_mask(
-            vk::AccessFlags::COLOR_ATTACHMENT_WRITE
-                | vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE,
-        );
     let attachments = [
         *color_attachment,
         depth_attachment,
         color_attachment_resolve,
     ];
     let subpasses = [*subpass];
-    let dependencies = [*dependency];
     let render_pass_info = vk::RenderPassCreateInfo::builder()
         .attachments(&attachments)
-        .subpasses(&subpasses)
-        .dependencies(&dependencies);
+        .subpasses(&subpasses);
     let render_pass =
         unsafe { logical_device.create_render_pass(&render_pass_info, None) }.unwrap();
 
@@ -1104,8 +1082,6 @@ fn create_depth_resources(
     instance: &Instance,
     physical_device: vk::PhysicalDevice,
     logical_device: &Device,
-    graphics_queue: vk::Queue,
-    command_pool: vk::CommandPool,
 ) -> ImageResources {
     let format = select_depth_format(instance, physical_device);
     let (image, memory) = util::create_image(
@@ -1127,18 +1103,6 @@ fn create_depth_resources(
         vk::ImageAspectFlags::DEPTH,
         1,
         logical_device,
-    );
-    // This is apparently done by the render pass anyway, but the tutorial leaves it in to show how
-    // to do this explicitly.
-    util::transition_image_layout(
-        image,
-        vk::ImageLayout::UNDEFINED,
-        vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-        format,
-        1,
-        logical_device,
-        graphics_queue,
-        command_pool,
     );
     ImageResources {
         image,

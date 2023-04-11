@@ -212,7 +212,7 @@ pub fn transition_image_layout(
     image: vk::Image,
     old_layout: vk::ImageLayout,
     new_layout: vk::ImageLayout,
-    format: vk::Format,
+    _format: vk::Format,
     mip_levels: usize,
     logical_device: &Device,
     graphics_queue: vk::Queue,
@@ -230,16 +230,7 @@ pub fn transition_image_layout(
                 .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
                 .image(image)
                 .subresource_range(vk::ImageSubresourceRange {
-                    aspect_mask: if new_layout == vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL
-                    {
-                        if has_stencil_component(format) {
-                            vk::ImageAspectFlags::DEPTH | vk::ImageAspectFlags::STENCIL
-                        } else {
-                            vk::ImageAspectFlags::DEPTH
-                        }
-                    } else {
-                        vk::ImageAspectFlags::COLOR
-                    },
+                    aspect_mask: vk::ImageAspectFlags::COLOR,
                     base_mip_level: 0,
                     level_count: mip_levels as u32,
                     base_array_layer: 0,
@@ -265,19 +256,6 @@ pub fn transition_image_layout(
                         .dst_access_mask(vk::AccessFlags::SHADER_READ),
                     vk::PipelineStageFlags::TRANSFER,
                     vk::PipelineStageFlags::FRAGMENT_SHADER,
-                )
-            } else if old_layout == vk::ImageLayout::UNDEFINED
-                && new_layout == vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL
-            {
-                (
-                    barrier
-                        .src_access_mask(vk::AccessFlags::empty())
-                        .dst_access_mask(
-                            vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_READ
-                                | vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE,
-                        ),
-                    vk::PipelineStageFlags::TOP_OF_PIPE,
-                    vk::PipelineStageFlags::EARLY_FRAGMENT_TESTS,
                 )
             } else {
                 panic!("unsupported layout transition");
@@ -627,10 +605,6 @@ pub fn select_format(
         }
     }
     panic!("no supported format");
-}
-
-fn has_stencil_component(format: vk::Format) -> bool {
-    format == vk::Format::D32_SFLOAT_S8_UINT || format == vk::Format::D24_UNORM_S8_UINT
 }
 
 pub fn exists_newer_file(path: &str, reference: &str) -> bool {
