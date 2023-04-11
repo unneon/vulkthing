@@ -29,7 +29,6 @@ pub struct Renderer {
     logical_device: Device,
     queues: util::Queues,
     swapchain_extension: Swapchain,
-    swapchain_image_count: usize,
     swapchain_format: vk::SurfaceFormatKHR,
     swapchain_extent: vk::Extent2D,
     swapchain: vk::SwapchainKHR,

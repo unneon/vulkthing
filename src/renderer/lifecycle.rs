@@ -144,7 +144,6 @@ impl Renderer {
             logical_device,
             queues,
             swapchain_extension,
-            swapchain_image_count,
             swapchain_format,
             swapchain_extent,
             swapchain,
@@ -261,7 +260,6 @@ impl Renderer {
         self.surface_capabilities = surface_capabilities;
         self.surface_formats = surface_formats;
         self.present_modes = present_modes;
-        self.swapchain_image_count = swapchain_image_count;
         self.swapchain_format = swapchain_format;
         self.swapchain_extent = swapchain_extent;
         self.swapchain = swapchain;
@@ -458,8 +456,14 @@ fn create_logical_device(
 }
 
 fn select_swapchain_image_count(capabilities: vk::SurfaceCapabilitiesKHR) -> usize {
+    // Use triple buffering, even if the platform allows to only use double buffering. The Vulkan
+    // tutorial recommends setting this to min_image_count + 1 to prevent waiting for the image due
+    // to driver overhead, but I think that after triple buffering, adding more images shouldn't be
+    // able to fix any internal driver problems. It's also not covered by the Khronos
+    // recommendation.
+    // https://github.com/KhronosGroup/Vulkan-Samples
     let no_image_limit = capabilities.max_image_count == 0;
-    let preferred_image_count = capabilities.min_image_count as usize + 1;
+    let preferred_image_count = capabilities.min_image_count.max(3) as usize;
     if no_image_limit {
         preferred_image_count
     } else {
