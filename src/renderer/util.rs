@@ -147,9 +147,12 @@ pub fn load_texture(
     );
     transition_image_layout(
         image,
+        vk::AccessFlags::empty(),
+        vk::AccessFlags::TRANSFER_WRITE,
         vk::ImageLayout::UNDEFINED,
         vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-        vk::Format::R8G8B8A8_SRGB,
+        vk::PipelineStageFlags::TOP_OF_PIPE,
+        vk::PipelineStageFlags::TRANSFER,
         mip_levels,
         logical_device,
         graphics_queue,
@@ -210,9 +213,12 @@ pub fn load_texture(
 
 pub fn transition_image_layout(
     image: vk::Image,
+    src_access_mask: vk::AccessFlags,
+    dst_access_mask: vk::AccessFlags,
     old_layout: vk::ImageLayout,
     new_layout: vk::ImageLayout,
-    _format: vk::Format,
+    src_stage_mask: vk::PipelineStageFlags,
+    dst_stage_mask: vk::PipelineStageFlags,
     mip_levels: usize,
     logical_device: &Device,
     graphics_queue: vk::Queue,
@@ -224,6 +230,8 @@ pub fn transition_image_layout(
         command_pool,
         move |command_buffer| {
             let barrier = vk::ImageMemoryBarrier::builder()
+                .src_access_mask(src_access_mask)
+                .dst_access_mask(dst_access_mask)
                 .old_layout(old_layout)
                 .new_layout(new_layout)
                 .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
@@ -236,36 +244,11 @@ pub fn transition_image_layout(
                     base_array_layer: 0,
                     layer_count: 1,
                 });
-            let (barrier, source_stage, destination_stage) = if old_layout
-                == vk::ImageLayout::UNDEFINED
-                && new_layout == vk::ImageLayout::TRANSFER_DST_OPTIMAL
-            {
-                (
-                    barrier
-                        .src_access_mask(vk::AccessFlags::empty())
-                        .dst_access_mask(vk::AccessFlags::TRANSFER_WRITE),
-                    vk::PipelineStageFlags::TOP_OF_PIPE,
-                    vk::PipelineStageFlags::TRANSFER,
-                )
-            } else if old_layout == vk::ImageLayout::TRANSFER_DST_OPTIMAL
-                && new_layout == vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL
-            {
-                (
-                    barrier
-                        .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
-                        .dst_access_mask(vk::AccessFlags::SHADER_READ),
-                    vk::PipelineStageFlags::TRANSFER,
-                    vk::PipelineStageFlags::FRAGMENT_SHADER,
-                )
-            } else {
-                panic!("unsupported layout transition");
-            };
-
             unsafe {
                 logical_device.cmd_pipeline_barrier(
                     command_buffer,
-                    source_stage,
-                    destination_stage,
+                    src_stage_mask,
+                    dst_stage_mask,
                     vk::DependencyFlags::empty(),
                     &[],
                     &[],
