@@ -73,8 +73,10 @@ impl Renderer {
             &swapchain_extension,
         );
         let descriptor_set_layout = create_descriptor_set_layout(&logical_device);
+        let offscreen_sampler =
+            create_offscreen_sampler(&instance, physical_device, &logical_device);
         let postprocess_descriptor_set_layout =
-            create_postprocess_descriptor_set_layout(&logical_device);
+            create_postprocess_descriptor_set_layout(offscreen_sampler, &logical_device);
         let msaa_samples = util::find_max_msaa_samples(&instance, physical_device);
         let (pipeline, pipeline_layout, pipeline_render_pass) = create_pipeline(
             descriptor_set_layout,
@@ -131,11 +133,8 @@ impl Renderer {
 
         let descriptor_pool = create_descriptor_pool(&logical_device);
         let postprocess_descriptor_pool = create_postprocess_descriptor_pool(&logical_device);
-        let offscreen_sampler =
-            create_offscreen_sampler(&instance, physical_device, &logical_device);
         let postprocess_descriptor_set = create_postprocess_descriptor_set(
             offscreen.view,
-            offscreen_sampler,
             postprocess_descriptor_set_layout,
             postprocess_descriptor_pool,
             &logical_device,
@@ -304,7 +303,6 @@ impl Renderer {
         );
         let postprocess_descriptor_set = create_postprocess_descriptor_set(
             offscreen.view,
-            self.offscreen_sampler,
             self.postprocess_descriptor_set_layout,
             self.postprocess_descriptor_pool,
             &self.logical_device,
@@ -672,13 +670,18 @@ fn create_descriptor_set_layout(logical_device: &Device) -> vk::DescriptorSetLay
     unsafe { logical_device.create_descriptor_set_layout(&layout_info, None) }.unwrap()
 }
 
-fn create_postprocess_descriptor_set_layout(logical_device: &Device) -> vk::DescriptorSetLayout {
-    let input_binding = vk::DescriptorSetLayoutBinding::builder()
+fn create_postprocess_descriptor_set_layout(
+    offscreen_sampler: vk::Sampler,
+    logical_device: &Device,
+) -> vk::DescriptorSetLayout {
+    let render_samplers = [offscreen_sampler];
+    let render_binding = vk::DescriptorSetLayoutBinding::builder()
         .binding(0)
         .descriptor_count(1)
         .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-        .stage_flags(vk::ShaderStageFlags::FRAGMENT);
-    let layout_bindings = [*input_binding];
+        .stage_flags(vk::ShaderStageFlags::FRAGMENT)
+        .immutable_samplers(&render_samplers);
+    let layout_bindings = [*render_binding];
     let layout_info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(&layout_bindings);
     unsafe { logical_device.create_descriptor_set_layout(&layout_info, None) }.unwrap()
 }
@@ -1481,7 +1484,6 @@ fn create_descriptor_sets(
 
 fn create_postprocess_descriptor_set(
     offscreen_view: vk::ImageView,
-    offscreen_sampler: vk::Sampler,
     layout: vk::DescriptorSetLayout,
     pool: vk::DescriptorPool,
     logical_device: &Device,
@@ -1497,8 +1499,7 @@ fn create_postprocess_descriptor_set(
             .unwrap();
     let image_info = vk::DescriptorImageInfo::builder()
         .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-        .image_view(offscreen_view)
-        .sampler(offscreen_sampler);
+        .image_view(offscreen_view);
     let image_infos = [*image_info];
     let descriptor_writes = [*vk::WriteDescriptorSet::builder()
         .dst_set(descriptor_set)
