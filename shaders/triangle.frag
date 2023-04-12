@@ -25,5 +25,5 @@ void main() {
     vec3 emit = material.emit;
 
     vec3 result = ambient + diffuse + emit;
-    out_color = vec4(result, 1.);
+    out_color = vec4(frag_position * 4, 1);
 }

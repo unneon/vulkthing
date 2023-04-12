@@ -20,5 +20,5 @@ void main() {
     vec3 sides = relative(-1, 0) + relative(1, 0) + relative(0, -1) + relative(0, 1);
     vec3 corners = relative(-1, -1) + relative(-1, 1) + relative(1, -1) + relative(1, 1);
     vec3 gaussian_approx = 4 * center + 2 * sides + corners;
-    out_color = vec4(gaussian_approx, 1);
+    out_color = vec4(center * vec3(center.r <= 1, center.g <= 1, center.b <= 1), 1);
 }

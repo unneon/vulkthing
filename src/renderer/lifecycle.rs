@@ -21,6 +21,11 @@ use std::ffi::CString;
 use std::mem::MaybeUninit;
 use winit::dpi::PhysicalSize;
 
+// Format used for passing HDR data between render passes to enable realistic differences in
+// lighting parameters and improve postprocessing effect quality, not related to monitor HDR.
+// Support for this format is required by the Vulkan specification.
+const INTERNAL_HDR_FORMAT: vk::Format = vk::Format::R16G16B16A16_SFLOAT;
+
 impl Renderer {
     pub fn new(window: &Window, models: &[Model]) -> Renderer {
         let entry = unsafe { Entry::load() }.unwrap();
@@ -73,7 +78,6 @@ impl Renderer {
         let msaa_samples = util::find_max_msaa_samples(&instance, physical_device);
         let (pipeline, pipeline_layout, pipeline_render_pass) = create_pipeline(
             descriptor_set_layout,
-            swapchain_format,
             msaa_samples,
             &instance,
             physical_device,
@@ -89,7 +93,6 @@ impl Renderer {
         let command_buffers = create_command_buffers(&logical_device, command_pool);
 
         let color = create_color_resources(
-            swapchain_format,
             swapchain_extent,
             msaa_samples,
             &instance,
@@ -105,7 +108,6 @@ impl Renderer {
             &logical_device,
         );
         let offscreen = create_offscreen_resources(
-            swapchain_format,
             swapchain_extent,
             &instance,
             physical_device,
@@ -266,7 +268,6 @@ impl Renderer {
             &self.swapchain_extension,
         );
         let color = create_color_resources(
-            swapchain_format,
             swapchain_extent,
             self.msaa_samples,
             &self.instance,
@@ -281,7 +282,6 @@ impl Renderer {
             &self.logical_device,
         );
         let offscreen = create_offscreen_resources(
-            swapchain_format,
             swapchain_extent,
             &self.instance,
             self.physical_device,
@@ -685,7 +685,6 @@ fn create_postprocess_descriptor_set_layout(logical_device: &Device) -> vk::Desc
 
 fn create_pipeline(
     descriptor_set_layout: vk::DescriptorSetLayout,
-    swapchain_image_format: vk::SurfaceFormatKHR,
     msaa_samples: vk::SampleCountFlags,
     instance: &Instance,
     physical_device: vk::PhysicalDevice,
@@ -752,7 +751,7 @@ fn create_pipeline(
         unsafe { logical_device.create_pipeline_layout(&pipeline_layout_info, None) }.unwrap();
 
     let color_attachment = vk::AttachmentDescription::builder()
-        .format(swapchain_image_format.format)
+        .format(INTERNAL_HDR_FORMAT)
         .samples(msaa_samples)
         .load_op(vk::AttachmentLoadOp::CLEAR)
         .store_op(vk::AttachmentStoreOp::STORE)
@@ -777,7 +776,7 @@ fn create_pipeline(
         .attachment(1)
         .layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
     let color_attachment_resolve = *vk::AttachmentDescription::builder()
-        .format(swapchain_image_format.format)
+        .format(INTERNAL_HDR_FORMAT)
         .samples(vk::SampleCountFlags::TYPE_1)
         .load_op(vk::AttachmentLoadOp::DONT_CARE)
         .store_op(vk::AttachmentStoreOp::STORE)
@@ -989,7 +988,6 @@ fn create_command_buffers(
 }
 
 fn create_color_resources(
-    swapchain_format: vk::SurfaceFormatKHR,
     swapchain_extent: vk::Extent2D,
     msaa_samples: vk::SampleCountFlags,
     instance: &Instance,
@@ -997,7 +995,7 @@ fn create_color_resources(
     logical_device: &Device,
 ) -> ImageResources {
     let (image, memory) = util::create_image(
-        swapchain_format.format,
+        INTERNAL_HDR_FORMAT,
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
         vk::ImageTiling::OPTIMAL,
         // Transient attachment lets the drivers lazily allocate memory for the framebuffer
@@ -1014,7 +1012,7 @@ fn create_color_resources(
     );
     let view = util::create_image_view(
         image,
-        swapchain_format.format,
+        INTERNAL_HDR_FORMAT,
         vk::ImageAspectFlags::COLOR,
         1,
         logical_device,
@@ -1027,14 +1025,13 @@ fn create_color_resources(
 }
 
 fn create_offscreen_resources(
-    swapchain_format: vk::SurfaceFormatKHR,
     swapchain_extent: vk::Extent2D,
     instance: &Instance,
     physical_device: vk::PhysicalDevice,
     logical_device: &Device,
 ) -> ImageResources {
     let (image, memory) = util::create_image(
-        swapchain_format.format,
+        INTERNAL_HDR_FORMAT,
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
         vk::ImageTiling::OPTIMAL,
         vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::SAMPLED,
@@ -1048,7 +1045,7 @@ fn create_offscreen_resources(
     );
     let view = util::create_image_view(
         image,
-        swapchain_format.format,
+        INTERNAL_HDR_FORMAT,
         vk::ImageAspectFlags::COLOR,
         1,
         logical_device,
