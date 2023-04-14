@@ -1,7 +1,9 @@
 use ash::extensions::ext::DebugUtils;
 use ash::extensions::khr::Surface;
 use ash::{vk, Device, Instance};
+use image::Rgba;
 use log::debug;
+use noise::{NoiseFn, Perlin};
 use std::mem::MaybeUninit;
 
 pub struct ImageResources {
@@ -209,6 +211,124 @@ pub fn load_texture(
     };
     debug!("texture loaded, \x1B[1mpath\x1B[0m: {path}, \x1B[1msize\x1B[0m: {image_width}x{image_height}");
     (texture, mip_levels)
+}
+
+fn point_noise(perlin: &Perlin, x: f64, y: f64) -> Rgba<u8> {
+    Rgba([
+        unit_noise(perlin, x, y),
+        unit_noise(perlin, 2. * x, 2. * y),
+        unit_noise(perlin, 4. * x, 4. * y),
+        unit_noise(perlin, 8. * x, 8. * y),
+    ])
+}
+
+fn unit_noise(perlin: &Perlin, x: f64, y: f64) -> u8 {
+    let raw_value = perlin.get([x, y]);
+    let float_value = (raw_value + 1.) / 2. * 256.;
+    let int_value = float_value.floor() as u8;
+    int_value
+}
+
+pub fn generate_perlin_texture(
+    resolution: usize,
+    instance: &Instance,
+    physical_device: vk::PhysicalDevice,
+    logical_device: &Device,
+    graphics_queue: vk::Queue,
+    command_pool: vk::CommandPool,
+) -> ImageResources {
+    let mut image_cpu = image::RgbaImage::new(resolution as u32, resolution as u32);
+    let perlin = Perlin::new(907);
+    for y in 0..resolution {
+        for x in 0..resolution {
+            image_cpu.put_pixel(
+                x as u32,
+                y as u32,
+                point_noise(&perlin, (x as f64) / 256., (y as f64) / 256.),
+            );
+        }
+    }
+    let pixel_count = resolution * resolution;
+    let image_size = pixel_count * 4;
+
+    let (image, memory) = create_image(
+        vk::Format::R8G8B8A8_SRGB,
+        vk::MemoryPropertyFlags::DEVICE_LOCAL,
+        vk::ImageTiling::OPTIMAL,
+        vk::ImageUsageFlags::TRANSFER_DST | vk::ImageUsageFlags::SAMPLED,
+        resolution,
+        resolution,
+        1,
+        vk::SampleCountFlags::TYPE_1,
+        instance,
+        physical_device,
+        logical_device,
+    );
+    transition_image_layout(
+        image,
+        vk::AccessFlags::empty(),
+        vk::AccessFlags::TRANSFER_WRITE,
+        vk::ImageLayout::UNDEFINED,
+        vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+        vk::PipelineStageFlags::TOP_OF_PIPE,
+        vk::PipelineStageFlags::TRANSFER,
+        1,
+        logical_device,
+        graphics_queue,
+        command_pool,
+    );
+
+    let (staging_buffer, staging_memory) = create_buffer(
+        vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+        vk::BufferUsageFlags::TRANSFER_SRC | vk::BufferUsageFlags::TRANSFER_DST,
+        image_size,
+        instance,
+        physical_device,
+        logical_device,
+    );
+    with_mapped_slice(staging_memory, image_size, logical_device, |mapped| {
+        MaybeUninit::write_slice(mapped, &image_cpu);
+    });
+    copy_buffer_to_image(
+        staging_buffer,
+        image,
+        resolution,
+        resolution,
+        logical_device,
+        graphics_queue,
+        command_pool,
+    );
+    unsafe { logical_device.destroy_buffer(staging_buffer, None) };
+    unsafe { logical_device.free_memory(staging_memory, None) };
+
+    transition_image_layout(
+        image,
+        vk::AccessFlags::TRANSFER_WRITE,
+        vk::AccessFlags::SHADER_READ,
+        vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+        vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+        vk::PipelineStageFlags::TRANSFER,
+        vk::PipelineStageFlags::FRAGMENT_SHADER,
+        1,
+        logical_device,
+        graphics_queue,
+        command_pool,
+    );
+
+    let view = create_image_view(
+        image,
+        vk::Format::R8G8B8A8_SRGB,
+        vk::ImageAspectFlags::COLOR,
+        1,
+        logical_device,
+    );
+    let texture = ImageResources {
+        image,
+        memory,
+        view,
+    };
+    debug!("perlin noise generated, \x1B[1msize\x1B[0m: {resolution}x{resolution}");
+    texture
 }
 
 pub fn transition_image_layout(

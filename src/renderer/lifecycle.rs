@@ -158,6 +158,15 @@ impl Renderer {
             objects.push(object);
         }
 
+        let noise_texture = util::generate_perlin_texture(
+            1024,
+            &instance,
+            physical_device,
+            &logical_device,
+            graphics_queue,
+            command_pool,
+        );
+
         let sync = create_sync(&logical_device);
         let projection = compute_projection(swapchain_extent);
         Renderer {
@@ -200,6 +209,7 @@ impl Renderer {
             descriptor_pool,
             postprocess_descriptor_pool,
             postprocess_descriptor_set,
+            noise_texture,
             sync,
             flight_index: 0,
             projection,

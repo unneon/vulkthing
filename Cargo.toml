@@ -9,6 +9,7 @@ ash-window = "0.12"
 image = { version = "0.24", features = ["jpeg", "png"], default-features = false }
 log = "0.4"
 nalgebra-glm = "0.18"
+noise = "0.8"
 raw-window-handle = "0.5"
 tobj = { version = "3.2", default-features = false }
 winit = { version = "0.28", features = ["wayland"], default-features = false }

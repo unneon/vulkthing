@@ -32,7 +32,7 @@ impl World {
             pitch: 0.,
         };
         let light = Light {
-            position: vec3(0., 0., 2.),
+            position: vec3(-8., 0., 0.),
             color: sun_color,
             ambient_strength: 0.004,
         };
@@ -44,7 +44,7 @@ impl World {
             gpu_object: 0,
         };
         let sun = Entity {
-            position: vec3(0., 0., 2.),
+            position: light.position,
             scale: vec3(0.2, 0.2, 0.2),
             emit: sun_color,
             gpu_object: 1,
@@ -61,8 +61,8 @@ impl World {
     pub fn update(&mut self, delta_time: f32, input_state: &InputState) {
         self.time += delta_time;
         self.camera.apply_input(input_state, delta_time);
-        self.light.position.x = -4. * self.time.cos();
-        self.light.position.y = -4. * self.time.sin();
+        // self.light.position.x = -4. * self.time.cos();
+        // self.light.position.y = -4. * self.time.sin();
         self.entities[1].position = self.light.position;
     }
 }
