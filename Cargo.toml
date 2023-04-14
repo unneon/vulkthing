@@ -11,5 +11,6 @@ log = "0.4"
 nalgebra = { version = "0.32", features = ["std"], default-features = false }
 noise = "0.8"
 raw-window-handle = "0.5"
+shaderc = "0.8"
 tobj = { version = "3.2", default-features = false }
 winit = { version = "0.28", features = ["wayland"], default-features = false }

@@ -1,7 +1,7 @@
 use crate::renderer::shader::Shader;
 use crate::renderer::util::exists_newer_file;
 use ash::{vk, Device};
-use log::debug;
+use log::{debug, error};
 
 pub struct SimplePipeline<'a> {
     pub vertex_shader_path: &'a str,
@@ -214,13 +214,27 @@ fn compile_shader<'a>(
 ) -> Shader<'a> {
     let spirv_path = format!("{glsl_path}.spv");
     if !exists_newer_file(&spirv_path, glsl_path) {
-        let status = std::process::Command::new("glslc")
-            .arg(glsl_path)
-            .arg("-o")
-            .arg(&spirv_path)
-            .status()
-            .unwrap();
-        assert!(status.success());
+        let compiler = shaderc::Compiler::new().unwrap();
+        let glsl_text = std::fs::read_to_string(glsl_path).unwrap();
+        let shader_kind = if stage.contains(vk::ShaderStageFlags::VERTEX) {
+            shaderc::ShaderKind::Vertex
+        } else if stage.contains(vk::ShaderStageFlags::FRAGMENT) {
+            shaderc::ShaderKind::Fragment
+        } else {
+            panic!("unknown shader stage {stage:?}");
+        };
+        let compile_result =
+            compiler.compile_into_spirv(&glsl_text, shader_kind, glsl_path, "main", None);
+        let spirv_data = match compile_result {
+            Err(shaderc::Error::CompilationError(_, output)) => {
+                for message in output.trim().split('\n') {
+                    error!("shader compilation error, {message}");
+                }
+                panic!("shader compilation error");
+            }
+            result => result.unwrap(),
+        };
+        std::fs::write(&spirv_path, spirv_data.as_binary_u8()).unwrap();
         debug!("shader GLSL compiled, \x1B[1mpath\x1B[0m: {glsl_path}");
     }
     Shader::compile(logical_device, &spirv_path, stage)
