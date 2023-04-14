@@ -115,8 +115,8 @@ impl Renderer {
         }
 
         let noise_texture = util::generate_perlin_texture(
-            512,
-            16.,
+            1024,
+            4.,
             &instance,
             physical_device,
             &logical_device,

@@ -1,6 +1,6 @@
 use crate::renderer::ImageResources;
 use ash::{vk, Device, Instance};
-use image::{ImageBuffer, Rgba};
+use image::{ImageBuffer, Luma};
 use log::debug;
 use noise::{NoiseFn, Perlin};
 use std::mem::MaybeUninit;
@@ -196,22 +196,6 @@ pub(super) fn load_texture(
     (texture, mip_levels)
 }
 
-fn point_noise(perlin: &Perlin, x: f64, y: f64) -> Rgba<u8> {
-    Rgba([
-        unit_noise(perlin, x, y),
-        unit_noise(perlin, 2. * x, 2. * y),
-        unit_noise(perlin, 4. * x, 4. * y),
-        unit_noise(perlin, 8. * x, 8. * y),
-    ])
-}
-
-fn unit_noise(perlin: &Perlin, x: f64, y: f64) -> u8 {
-    let raw_value = perlin.get([x, y]);
-    let float_value = (raw_value + 1.) / 2. * 256.;
-    let int_value = float_value.floor() as u8;
-    int_value
-}
-
 pub(super) fn generate_perlin_texture(
     resolution: usize,
     density: f64,
@@ -222,14 +206,12 @@ pub(super) fn generate_perlin_texture(
     command_pool: vk::CommandPool,
 ) -> ImageResources {
     let pixel_count = resolution * resolution;
-    let image_size = pixel_count * std::mem::size_of::<Rgba<u8>>();
+    let image_size = pixel_count * std::mem::size_of::<Luma<i8>>();
+    let image_format = vk::Format::R8_SNORM;
 
-    // Create texture image with the given resolution and prepare it for writing from the host. Not
-    // sure how to make something else than R8G8S8A8_SRGB work, but I'm not yet sure whether shaders
-    // should get to mix noise frequencies themselves or get a ready texture, so let's fix this
-    // later.
+    // Create texture image with the given resolution and prepare it for writing from the host.
     let (image, memory) = create_image(
-        vk::Format::R8G8B8A8_SRGB,
+        image_format,
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
         vk::ImageTiling::OPTIMAL,
         vk::ImageUsageFlags::TRANSFER_DST | vk::ImageUsageFlags::SAMPLED,
@@ -278,7 +260,7 @@ pub(super) fn generate_perlin_texture(
             for x in 0..resolution {
                 let nx = (x as f64) / resolution as f64 * density;
                 let ny = (y as f64) / resolution as f64 * density;
-                let pixel = point_noise(&perlin, nx, ny);
+                let pixel = noise(&perlin, nx, ny);
                 image_cpu.put_pixel(x as u32, y as u32, pixel);
             }
         }
@@ -311,7 +293,7 @@ pub(super) fn generate_perlin_texture(
 
     let view = create_image_view(
         image,
-        vk::Format::R8G8B8A8_SRGB,
+        image_format,
         vk::ImageAspectFlags::COLOR,
         1,
         logical_device,
@@ -323,6 +305,21 @@ pub(super) fn generate_perlin_texture(
     };
     debug!("perlin noise generated, \x1B[1msize\x1B[0m: {resolution}x{resolution}");
     texture
+}
+
+fn noise(perlin: &Perlin, x: f64, y: f64) -> Luma<i8> {
+    let mut value = 0.;
+    let mut bound = 0.;
+    for i in 0..10 {
+        let factor = (1 << i) as f64;
+        value += perlin.get([factor * x, factor * y]) / factor;
+        bound += 1. / factor;
+    }
+    Luma([float_to_snorm(value / bound)])
+}
+
+fn float_to_snorm(value: f64) -> i8 {
+    (value * 127.).round() as i8
 }
 
 pub fn transition_image_layout(
