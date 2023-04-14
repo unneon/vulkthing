@@ -7,9 +7,7 @@ use std::ffi::CStr;
 pub struct DeviceInfo {
     pub physical_device: vk::PhysicalDevice,
     pub queue_families: QueueFamilies,
-    pub surface_capabilities: vk::SurfaceCapabilitiesKHR,
     pub surface_formats: Vec<vk::SurfaceFormatKHR>,
-    pub present_modes: Vec<vk::PresentModeKHR>,
 }
 
 #[derive(Clone)]
@@ -69,9 +67,6 @@ pub fn select_device(
         // earlier extension check in order to be correct (not crash?). Also there shouldn't be
         // devices that support swapchains but no formats or present modes, but let's check anyway
         // because the tutorial does.
-        let surface_capabilities =
-            unsafe { surface_extension.get_physical_device_surface_capabilities(device, surface) }
-                .unwrap();
         let surface_formats =
             unsafe { surface_extension.get_physical_device_surface_formats(device, surface) }
                 .unwrap();
@@ -89,9 +84,7 @@ pub fn select_device(
         return DeviceInfo {
             physical_device: device,
             queue_families: QueueFamilies { graphics, present },
-            surface_capabilities,
             surface_formats,
-            present_modes,
         };
     }
 

@@ -13,6 +13,7 @@ use ash::extensions::ext::DebugUtils;
 use ash::extensions::khr::{Surface, Swapchain};
 use ash::{vk, Device, Entry, Instance};
 use nalgebra_glm as glm;
+use nalgebra_glm::Mat4;
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use std::collections::HashSet;
 use std::f32::consts::FRAC_PI_4;
@@ -38,9 +39,7 @@ impl Renderer {
         let DeviceInfo {
             physical_device,
             queue_families,
-            surface_capabilities,
             surface_formats,
-            present_modes,
         } = select_device(&instance, &extensions.surface, surface);
         let logical_device = create_logical_device(&queue_families, &instance, physical_device);
         let graphics_queue = unsafe { logical_device.get_device_queue(queue_families.graphics, 0) };
@@ -49,89 +48,62 @@ impl Renderer {
             graphics: graphics_queue,
             present: present_queue,
         };
-        let swapchain_extension = Swapchain::new(&instance, &logical_device);
-        let swapchain_image_count = select_swapchain_image_count(surface_capabilities);
+
         let swapchain_format = select_swapchain_format(&surface_formats);
-        let swapchain_extent =
-            select_swapchain_extent(surface_capabilities, window.window.inner_size());
-        let swapchain_present_mode = select_swapchain_present_mode(&present_modes);
-        let swapchain = create_swapchain(
-            swapchain_format,
-            swapchain_extent,
-            swapchain_present_mode,
-            swapchain_image_count,
-            &swapchain_extension,
-            surface,
-            surface_capabilities,
-            &queue_families,
-        );
-        let swapchain_image_views = create_swapchain_image_views(
-            swapchain,
-            swapchain_format,
-            &logical_device,
-            &swapchain_extension,
-        );
-        let descriptor_set_layout = create_descriptor_set_layout(&logical_device);
-        let offscreen_sampler = create_offscreen_sampler(&logical_device);
-        let postprocess_descriptor_set_layout =
-            create_postprocess_descriptor_set_layout(offscreen_sampler, &logical_device);
         let msaa_samples = util::find_max_msaa_samples(&instance, physical_device);
+        let offscreen_sampler = create_offscreen_sampler(&logical_device);
+
+        let descriptor_set_layout = create_descriptor_set_layout(&logical_device);
         let (pipeline, pipeline_layout, pipeline_render_pass) =
             create_pipeline(descriptor_set_layout, msaa_samples, &logical_device);
+
+        let postprocess_descriptor_set_layout =
+            create_postprocess_descriptor_set_layout(offscreen_sampler, &logical_device);
+
         let (postprocess_pipeline, postprocess_pipeline_layout, postprocess_pass) =
             create_postprocess_pipeline(
                 postprocess_descriptor_set_layout,
                 swapchain_format,
                 &logical_device,
             );
+        let postprocess_descriptor_pool = create_postprocess_descriptor_pool(&logical_device);
+
+        let swapchain_extension = Swapchain::new(&instance, &logical_device);
+        let swapchain_format = select_swapchain_format(&surface_formats);
+
+        let (
+            swapchain_format,
+            swapchain_extent,
+            swapchain,
+            swapchain_image_views,
+            color,
+            depth,
+            offscreen,
+            offscreen_framebuffer,
+            framebuffers,
+            postprocess_descriptor_set,
+            projection,
+        ) = create_swapchain_all(
+            window.window.inner_size(),
+            swapchain_format,
+            &instance,
+            &extensions.surface,
+            &swapchain_extension,
+            physical_device,
+            &queue_families,
+            &logical_device,
+            surface,
+            msaa_samples,
+            pipeline_render_pass,
+            postprocess_pass,
+            postprocess_descriptor_set_layout,
+            postprocess_descriptor_pool,
+        );
+
         let command_pool = create_command_pool(&queue_families, &logical_device);
         let command_buffers = create_command_buffers(&logical_device, command_pool);
 
-        let color = create_color_resources(
-            swapchain_extent,
-            msaa_samples,
-            &instance,
-            physical_device,
-            &logical_device,
-        );
-
-        let depth = create_depth_resources(
-            swapchain_extent,
-            msaa_samples,
-            &instance,
-            physical_device,
-            &logical_device,
-        );
-        let offscreen = create_offscreen_resources(
-            swapchain_extent,
-            &instance,
-            physical_device,
-            &logical_device,
-        );
-        let offscreen_framebuffer = create_offscreen_framebuffer(
-            pipeline_render_pass,
-            offscreen.view,
-            swapchain_extent,
-            depth.view,
-            color.view,
-            &logical_device,
-        );
-        let framebuffers = create_framebuffers(
-            postprocess_pass,
-            swapchain_image_count,
-            &swapchain_image_views,
-            swapchain_extent,
-            &logical_device,
-        );
-
         let descriptor_pool = create_descriptor_pool(&logical_device);
-        let postprocess_descriptor_pool = create_postprocess_descriptor_pool(&logical_device);
-        let postprocess_descriptor_set = create_postprocess_descriptor_set(
-            offscreen.view,
-            postprocess_descriptor_set_layout,
-            postprocess_descriptor_pool,
-            &logical_device,
-        );
 
         let light = create_uniform_buffer(&instance, physical_device, &logical_device);
         let noise_texture = util::generate_perlin_texture(
@@ -162,7 +134,6 @@ impl Renderer {
         }
 
         let sync = create_sync(&logical_device);
-        let projection = compute_projection(swapchain_extent);
         Renderer {
             _entry: entry,
             instance,
@@ -171,9 +142,6 @@ impl Renderer {
             surface,
             physical_device,
             queue_families,
-            surface_capabilities,
-            surface_formats,
-            present_modes,
             logical_device,
             queues,
             swapchain_extension,
@@ -222,103 +190,48 @@ impl Renderer {
         // contain not only things like image formats, but also some sizes.
         self.cleanup_swapchain();
 
-        // Query the surface information again.
-        let surface_capabilities = unsafe {
-            self.extensions
-                .surface
-                .get_physical_device_surface_capabilities(self.physical_device, self.surface)
-        }
-        .unwrap();
+        // Make sure the swapchain format is the same, if it weren't we'd need to recreate the
+        // graphics pipeline too.
         let surface_formats = unsafe {
             self.extensions
                 .surface
                 .get_physical_device_surface_formats(self.physical_device, self.surface)
         }
         .unwrap();
-        let present_modes = unsafe {
-            self.extensions
-                .surface
-                .get_physical_device_surface_present_modes(self.physical_device, self.surface)
-        }
-        .unwrap();
-        assert!(!surface_formats.is_empty());
-        assert!(!present_modes.is_empty());
-
-        let swapchain_image_count = select_swapchain_image_count(surface_capabilities);
-
-        // Make sure the swapchain format is the same, if it weren't we'd need to recreate the
-        // graphics pipeline too.
         let swapchain_format = select_swapchain_format(&surface_formats);
         assert_eq!(swapchain_format, self.swapchain_format);
 
-        // Repeat creating the swapchain, except not using any Renderer members that heavily depend
-        // on the swapchain (such as depth and color buffers).
-        let swapchain_extent = select_swapchain_extent(surface_capabilities, window_size);
-        let swapchain_present_mode = select_swapchain_present_mode(&present_modes);
-        let swapchain = create_swapchain(
+        let (
             swapchain_format,
             swapchain_extent,
-            swapchain_present_mode,
-            swapchain_image_count,
-            &self.swapchain_extension,
-            self.surface,
-            surface_capabilities,
-            &self.queue_families,
-        );
-        let swapchain_image_views = create_swapchain_image_views(
             swapchain,
+            swapchain_image_views,
+            color,
+            depth,
+            offscreen,
+            offscreen_framebuffer,
+            framebuffers,
+            postprocess_descriptor_set,
+            projection,
+        ) = create_swapchain_all(
+            window_size,
             swapchain_format,
-            &self.logical_device,
+            &self.instance,
+            &self.extensions.surface,
             &self.swapchain_extension,
-        );
-        let color = create_color_resources(
-            swapchain_extent,
+            self.physical_device,
+            &self.queue_families,
+            &self.logical_device,
+            self.surface,
             self.msaa_samples,
-            &self.instance,
-            self.physical_device,
-            &self.logical_device,
-        );
-        let depth = create_depth_resources(
-            swapchain_extent,
-            self.msaa_samples,
-            &self.instance,
-            self.physical_device,
-            &self.logical_device,
-        );
-        let offscreen = create_offscreen_resources(
-            swapchain_extent,
-            &self.instance,
-            self.physical_device,
-            &self.logical_device,
-        );
-        let offscreen_framebuffer = create_offscreen_framebuffer(
             self.pipeline_render_pass,
-            offscreen.view,
-            swapchain_extent,
-            depth.view,
-            color.view,
-            &self.logical_device,
-        );
-        let framebuffers = create_framebuffers(
             self.postprocess_pass,
-            swapchain_image_count,
-            &swapchain_image_views,
-            swapchain_extent,
-            &self.logical_device,
-        );
-        let postprocess_descriptor_set = create_postprocess_descriptor_set(
-            offscreen.view,
             self.postprocess_descriptor_set_layout,
             self.postprocess_descriptor_pool,
-            &self.logical_device,
         );
-        let projection = compute_projection(swapchain_extent);
 
         // Doing the assignments at the end guarantees any operation won't fail in the middle, and
         // makes it possible to easily compare new values to old ones.
-        self.surface_capabilities = surface_capabilities;
-        self.surface_formats = surface_formats;
-        self.present_modes = present_modes;
         self.swapchain_format = swapchain_format;
         self.swapchain_extent = swapchain_extent;
         self.swapchain = swapchain;
@@ -645,6 +558,114 @@ fn create_swapchain_image_views(
         );
     }
     image_views
+}
+
+fn create_swapchain_all(
+    window_size: PhysicalSize<u32>,
+    swapchain_format: vk::SurfaceFormatKHR,
+    instance: &Instance,
+    surface_ext: &Surface,
+    swapchain_ext: &Swapchain,
+    physical_device: vk::PhysicalDevice,
+    queue_families: &QueueFamilies,
+    logical_device: &Device,
+    surface: vk::SurfaceKHR,
+    msaa_samples: vk::SampleCountFlags,
+    pipeline_render_pass: vk::RenderPass,
+    postprocess_pass: vk::RenderPass,
+    postprocess_descriptor_set_layout: vk::DescriptorSetLayout,
+    postprocess_descriptor_pool: vk::DescriptorPool,
+) -> (
+    vk::SurfaceFormatKHR,
+    vk::Extent2D,
+    vk::SwapchainKHR,
+    Vec<vk::ImageView>,
+    ImageResources,
+    ImageResources,
+    ImageResources,
+    vk::Framebuffer,
+    Vec<vk::Framebuffer>,
+    vk::DescriptorSet,
+    Mat4,
+) {
+    // Query the surface information again.
+    let surface_capabilities =
+        unsafe { surface_ext.get_physical_device_surface_capabilities(physical_device, surface) }
+            .unwrap();
+    let present_modes =
+        unsafe { surface_ext.get_physical_device_surface_present_modes(physical_device, surface) }
+            .unwrap();
+    assert!(!present_modes.is_empty());
+
+    let swapchain_image_count = select_swapchain_image_count(surface_capabilities);
+
+    // Repeat creating the swapchain, except not using any Renderer members that heavily depend
+    // on the swapchain (such as depth and color buffers).
+    let swapchain_extent = select_swapchain_extent(surface_capabilities, window_size);
+    let swapchain_present_mode = select_swapchain_present_mode(&present_modes);
+    let swapchain = create_swapchain(
+        swapchain_format,
+        swapchain_extent,
+        swapchain_present_mode,
+        swapchain_image_count,
+        swapchain_ext,
+        surface,
+        surface_capabilities,
+        queue_families,
+    );
+    let swapchain_image_views =
+        create_swapchain_image_views(swapchain, swapchain_format, logical_device, swapchain_ext);
+    let color = create_color_resources(
+        swapchain_extent,
+        msaa_samples,
+        instance,
+        physical_device,
+        logical_device,
+    );
+    let depth = create_depth_resources(
+        swapchain_extent,
+        msaa_samples,
+        instance,
+        physical_device,
+        logical_device,
+    );
+    let offscreen =
+        create_offscreen_resources(swapchain_extent, instance, physical_device, logical_device);
+    let offscreen_framebuffer = create_offscreen_framebuffer(
+        pipeline_render_pass,
+        offscreen.view,
+        swapchain_extent,
+        depth.view,
+        color.view,
+        logical_device,
+    );
+    let framebuffers = create_framebuffers(
+        postprocess_pass,
+        swapchain_image_count,
+        &swapchain_image_views,
+        swapchain_extent,
+        logical_device,
+    );
+    let postprocess_descriptor_set = create_postprocess_descriptor_set(
+        offscreen.view,
+        postprocess_descriptor_set_layout,
+        postprocess_descriptor_pool,
+        logical_device,
+    );
+    let projection = compute_projection(swapchain_extent);
+    (
+        swapchain_format,
+        swapchain_extent,
+        swapchain,
+        swapchain_image_views,
+        color,
+        depth,
+        offscreen,
+        offscreen_framebuffer,
+        framebuffers,
+        postprocess_descriptor_set,
+        projection,
+    )
 }
 
 fn create_descriptor_set_layout(logical_device: &Device) -> vk::DescriptorSetLayout {
