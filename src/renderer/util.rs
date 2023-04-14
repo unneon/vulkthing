@@ -1,21 +1,9 @@
-use ash::extensions::ext::DebugUtils;
-use ash::extensions::khr::Surface;
+use crate::renderer::ImageResources;
 use ash::{vk, Device, Instance};
 use image::{ImageBuffer, Rgba};
 use log::debug;
 use noise::{NoiseFn, Perlin};
 use std::mem::MaybeUninit;
-
-pub struct ImageResources {
-    pub image: vk::Image,
-    pub memory: vk::DeviceMemory,
-    pub view: vk::ImageView,
-}
-
-pub struct VulkanExtensions {
-    pub debug: DebugUtils,
-    pub surface: Surface,
-}
 
 pub fn create_buffer(
     properties: vk::MemoryPropertyFlags,
@@ -112,7 +100,7 @@ pub fn create_image_view(
     unsafe { logical_device.create_image_view(&view_info, None) }.unwrap()
 }
 
-pub fn load_texture(
+pub(super) fn load_texture(
     path: &str,
     instance: &Instance,
     physical_device: vk::PhysicalDevice,
@@ -224,7 +212,7 @@ fn unit_noise(perlin: &Perlin, x: f64, y: f64) -> u8 {
     int_value
 }
 
-pub fn generate_perlin_texture(
+pub(super) fn generate_perlin_texture(
     resolution: usize,
     density: f64,
     instance: &Instance,

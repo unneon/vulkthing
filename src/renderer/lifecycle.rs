@@ -4,9 +4,11 @@ use crate::renderer::device::{select_device, DeviceInfo};
 use crate::renderer::pipeline::{build_simple_pipeline, SimplePipeline, SimpleVertexLayout};
 use crate::renderer::traits::VertexOps;
 use crate::renderer::uniform::{Light, Material, ModelViewProjection};
-use crate::renderer::util::{ImageResources, VulkanExtensions};
 use crate::renderer::vertex::Vertex;
-use crate::renderer::{util, Object, Renderer, Synchronization, UniformBuffer, FRAMES_IN_FLIGHT};
+use crate::renderer::{
+    util, ImageResources, Object, Renderer, Synchronization, UniformBuffer, VulkanExtensions,
+    FRAMES_IN_FLIGHT,
+};
 use crate::window::Window;
 use crate::{VULKAN_APP_NAME, VULKAN_APP_VERSION, VULKAN_ENGINE_NAME, VULKAN_ENGINE_VERSION};
 use ash::extensions::ext::DebugUtils;
@@ -42,14 +44,15 @@ impl Renderer {
         } = select_device(&instance, &extensions.surface, surface);
         let logical_device = create_logical_device(queue_family, &instance, physical_device);
         let queue = unsafe { logical_device.get_device_queue(queue_family, 0) };
+        let swapchain_extension = Swapchain::new(&instance, &logical_device);
 
         let swapchain_format = select_swapchain_format(&surface_formats);
         let msaa_samples = util::find_max_msaa_samples(&instance, physical_device);
         let offscreen_sampler = create_offscreen_sampler(&logical_device);
 
-        let descriptor_set_layout = create_descriptor_set_layout(&logical_device);
-        let (pipeline, pipeline_layout, pipeline_render_pass) =
-            create_pipeline(descriptor_set_layout, msaa_samples, &logical_device);
+        let object_descriptor_set_layout = create_descriptor_set_layout(&logical_device);
+        let (render_pipeline, render_pipeline_layout, render_pass) =
+            create_pipeline(object_descriptor_set_layout, msaa_samples, &logical_device);
 
         let postprocess_descriptor_set_layout =
             create_postprocess_descriptor_set_layout(offscreen_sampler, &logical_device);
@@ -62,19 +65,15 @@ impl Renderer {
             );
         let postprocess_descriptor_pool = create_postprocess_descriptor_pool(&logical_device);
 
-        let swapchain_extension = Swapchain::new(&instance, &logical_device);
-        let swapchain_format = select_swapchain_format(&surface_formats);
-
         let (
-            swapchain_format,
             swapchain_extent,
             swapchain,
             swapchain_image_views,
             color,
             depth,
             offscreen,
-            offscreen_framebuffer,
-            framebuffers,
+            render_framebuffer,
+            postprocess_framebuffers,
             postprocess_descriptor_set,
             projection,
         ) = create_swapchain_all(
@@ -87,7 +86,7 @@ impl Renderer {
             &logical_device,
             surface,
             msaa_samples,
-            pipeline_render_pass,
+            render_pass,
             postprocess_pass,
             postprocess_descriptor_set_layout,
             postprocess_descriptor_pool,
@@ -95,10 +94,27 @@ impl Renderer {
 
         let command_pool = create_command_pool(queue_family, &logical_device);
         let command_buffers = create_command_buffers(&logical_device, command_pool);
-
-        let descriptor_pool = create_descriptor_pool(&logical_device);
+        let sync = create_sync(&logical_device);
 
         let light = create_uniform_buffer(&instance, physical_device, &logical_device);
+
+        let object_descriptor_pool = create_descriptor_pool(&logical_device);
+        let mut objects = Vec::new();
+        for model in models {
+            let object = create_object(
+                model,
+                object_descriptor_set_layout,
+                object_descriptor_pool,
+                &light.buffers,
+                &instance,
+                physical_device,
+                &logical_device,
+                queue,
+                command_pool,
+            );
+            objects.push(object);
+        }
+
         let noise_texture = util::generate_perlin_texture(
             512,
             16.,
@@ -110,23 +126,6 @@ impl Renderer {
         );
         let noise_sampler = create_texture_sampler(1, &instance, physical_device, &logical_device);
 
-        let mut objects = Vec::new();
-        for model in models {
-            let object = create_object(
-                model,
-                descriptor_set_layout,
-                descriptor_pool,
-                &light.buffers,
-                &instance,
-                physical_device,
-                &logical_device,
-                queue,
-                command_pool,
-            );
-            objects.push(object);
-        }
-
-        let sync = create_sync(&logical_device);
         Renderer {
             _entry: entry,
             instance,
@@ -138,36 +137,36 @@ impl Renderer {
             queue,
             swapchain_extension,
             swapchain_format,
-            swapchain_extent,
-            swapchain,
-            swapchain_image_views,
-            descriptor_set_layout,
-            postprocess_descriptor_set_layout,
             msaa_samples,
-            pipeline,
-            pipeline_layout,
-            pipeline_render_pass,
+            offscreen_sampler,
+            object_descriptor_set_layout,
+            render_pipeline,
+            render_pipeline_layout,
+            render_pass,
+            postprocess_descriptor_set_layout,
             postprocess_pipeline,
             postprocess_pipeline_layout,
             postprocess_pass,
-            command_pool,
-            command_buffers,
+            postprocess_descriptor_pool,
+            swapchain_extent,
+            swapchain,
+            swapchain_image_views,
             color,
             depth,
             offscreen,
-            offscreen_framebuffer,
-            offscreen_sampler,
-            framebuffers,
-            light,
-            objects,
-            descriptor_pool,
-            postprocess_descriptor_pool,
+            render_framebuffer,
+            postprocess_framebuffers,
             postprocess_descriptor_set,
-            noise_texture,
-            noise_sampler,
+            projection,
+            command_pool,
+            command_buffers,
             sync,
             flight_index: 0,
-            projection,
+            light,
+            objects,
+            object_descriptor_pool,
+            noise_texture,
+            noise_sampler,
         }
     }
 
@@ -194,15 +193,14 @@ impl Renderer {
         assert_eq!(swapchain_format, self.swapchain_format);
 
         let (
-            swapchain_format,
             swapchain_extent,
             swapchain,
             swapchain_image_views,
             color,
             depth,
             offscreen,
-            offscreen_framebuffer,
-            framebuffers,
+            render_framebuffer,
+            postprocess_framebuffers,
             postprocess_descriptor_set,
             projection,
         ) = create_swapchain_all(
@@ -215,7 +213,7 @@ impl Renderer {
             &self.logical_device,
             self.surface,
             self.msaa_samples,
-            self.pipeline_render_pass,
+            self.render_pass,
             self.postprocess_pass,
             self.postprocess_descriptor_set_layout,
             self.postprocess_descriptor_pool,
@@ -223,23 +221,19 @@ impl Renderer {
 
         // Doing the assignments at the end guarantees any operation won't fail in the middle, and
         // makes it possible to easily compare new values to old ones.
-        self.swapchain_format = swapchain_format;
         self.swapchain_extent = swapchain_extent;
         self.swapchain = swapchain;
         self.swapchain_image_views = swapchain_image_views;
         self.color = color;
         self.depth = depth;
         self.offscreen = offscreen;
-        self.offscreen_framebuffer = offscreen_framebuffer;
-        self.framebuffers = framebuffers;
+        self.render_framebuffer = render_framebuffer;
+        self.postprocess_framebuffers = postprocess_framebuffers;
         self.postprocess_descriptor_set = postprocess_descriptor_set;
         self.projection = projection;
     }
 
     fn cleanup_swapchain(&mut self) {
-        self.depth.cleanup(&self.logical_device);
-        self.color.cleanup(&self.logical_device);
-        self.offscreen.cleanup(&self.logical_device);
         unsafe {
             self.logical_device
                 .free_descriptor_sets(
@@ -247,11 +241,14 @@ impl Renderer {
                     &[self.postprocess_descriptor_set],
                 )
                 .unwrap();
-            for framebuffer in &self.framebuffers {
+            for framebuffer in &self.postprocess_framebuffers {
                 self.logical_device.destroy_framebuffer(*framebuffer, None);
             }
             self.logical_device
-                .destroy_framebuffer(self.offscreen_framebuffer, None);
+                .destroy_framebuffer(self.render_framebuffer, None);
+            self.offscreen.cleanup(&self.logical_device);
+            self.depth.cleanup(&self.logical_device);
+            self.color.cleanup(&self.logical_device);
             for image_view in &self.swapchain_image_views {
                 self.logical_device.destroy_image_view(*image_view, None);
             }
@@ -261,36 +258,50 @@ impl Renderer {
     }
 }
 
+impl Synchronization {
+    fn cleanup(&self, dev: &Device) {
+        for fence in self.in_flight {
+            unsafe { dev.destroy_fence(fence, None) };
+        }
+        for semaphore in self.render_finished {
+            unsafe { dev.destroy_semaphore(semaphore, None) };
+        }
+        for semaphore in self.image_available {
+            unsafe { dev.destroy_semaphore(semaphore, None) };
+        }
+    }
+}
+
 impl Object {
-    fn cleanup(&self, logical_device: &Device) {
-        unsafe { logical_device.destroy_buffer(self.vertex_buffer, None) };
-        unsafe { logical_device.free_memory(self.vertex_buffer_memory, None) };
-        unsafe { logical_device.destroy_buffer(self.index_buffer, None) };
-        unsafe { logical_device.free_memory(self.index_buffer_memory, None) };
-        self.mvp.cleanup(logical_device);
-        unsafe { logical_device.destroy_sampler(self.texture_sampler, None) };
-        self.texture.cleanup(logical_device);
-        self.material.cleanup(logical_device);
+    fn cleanup(&self, dev: &Device) {
+        unsafe { dev.destroy_buffer(self.vertex_buffer, None) };
+        unsafe { dev.free_memory(self.vertex_buffer_memory, None) };
+        unsafe { dev.destroy_buffer(self.index_buffer, None) };
+        unsafe { dev.free_memory(self.index_buffer_memory, None) };
+        self.mvp.cleanup(dev);
+        unsafe { dev.destroy_sampler(self.texture_sampler, None) };
+        self.texture.cleanup(dev);
+        self.material.cleanup(dev);
     }
 }
 
 impl<T> UniformBuffer<T> {
-    fn cleanup(&self, logical_device: &Device) {
+    fn cleanup(&self, dev: &Device) {
         for buffer in self.buffers {
-            unsafe { logical_device.destroy_buffer(buffer, None) };
+            unsafe { dev.destroy_buffer(buffer, None) };
         }
         for memory in self.memories {
-            unsafe { logical_device.free_memory(memory, None) };
+            unsafe { dev.free_memory(memory, None) };
         }
     }
 }
 
 impl ImageResources {
-    fn cleanup(&self, logical_device: &Device) {
+    fn cleanup(&self, dev: &Device) {
         unsafe {
-            logical_device.destroy_image_view(self.view, None);
-            logical_device.destroy_image(self.image, None);
-            logical_device.free_memory(self.memory, None);
+            dev.destroy_image_view(self.view, None);
+            dev.destroy_image(self.image, None);
+            dev.free_memory(self.memory, None);
         }
     }
 }
@@ -300,40 +311,36 @@ impl Drop for Renderer {
         unsafe {
             let dev = &self.logical_device;
             dev.device_wait_idle().unwrap();
-            for fence in self.sync.in_flight {
-                dev.destroy_fence(fence, None);
-            }
-            for semaphore in self.sync.render_finished {
-                dev.destroy_semaphore(semaphore, None);
-            }
-            for semaphore in self.sync.image_available {
-                dev.destroy_semaphore(semaphore, None);
-            }
-            dev.destroy_descriptor_pool(self.descriptor_pool, None);
-            self.light.cleanup(dev);
+
+            dev.destroy_sampler(self.noise_sampler, None);
+            self.noise_texture.cleanup(dev);
             for object in &self.objects {
                 object.cleanup(dev);
             }
-            self.noise_texture.cleanup(dev);
+            dev.destroy_descriptor_pool(self.object_descriptor_pool, None);
+            self.light.cleanup(dev);
+
+            self.sync.cleanup(dev);
             dev.destroy_command_pool(self.command_pool, None);
-            dev.destroy_pipeline(self.pipeline, None);
+
+            drop(dev);
+            self.cleanup_swapchain();
+            let dev = &self.logical_device;
+
+            dev.destroy_descriptor_pool(self.postprocess_descriptor_pool, None);
             dev.destroy_pipeline(self.postprocess_pipeline, None);
-            dev.destroy_render_pass(self.pipeline_render_pass, None);
             dev.destroy_render_pass(self.postprocess_pass, None);
-            dev.destroy_pipeline_layout(self.pipeline_layout, None);
             dev.destroy_pipeline_layout(self.postprocess_pipeline_layout, None);
-            dev.destroy_descriptor_set_layout(self.descriptor_set_layout, None);
             dev.destroy_descriptor_set_layout(self.postprocess_descriptor_set_layout, None);
-        }
-        self.cleanup_swapchain();
-        unsafe {
-            self.logical_device
-                .destroy_descriptor_pool(self.postprocess_descriptor_pool, None);
-            self.logical_device
-                .destroy_sampler(self.offscreen_sampler, None);
-            self.logical_device
-                .destroy_sampler(self.noise_sampler, None);
-            self.logical_device.destroy_device(None);
+
+            dev.destroy_pipeline(self.render_pipeline, None);
+            dev.destroy_render_pass(self.render_pass, None);
+            dev.destroy_pipeline_layout(self.render_pipeline_layout, None);
+            dev.destroy_descriptor_set_layout(self.object_descriptor_set_layout, None);
+
+            dev.destroy_sampler(self.offscreen_sampler, None);
+
+            dev.destroy_device(None);
             self.extensions.surface.destroy_surface(self.surface, None);
             self.extensions
                 .debug
@@ -541,12 +548,11 @@ fn create_swapchain_all(
     logical_device: &Device,
     surface: vk::SurfaceKHR,
     msaa_samples: vk::SampleCountFlags,
-    pipeline_render_pass: vk::RenderPass,
+    render_pass: vk::RenderPass,
     postprocess_pass: vk::RenderPass,
     postprocess_descriptor_set_layout: vk::DescriptorSetLayout,
     postprocess_descriptor_pool: vk::DescriptorPool,
 ) -> (
-    vk::SurfaceFormatKHR,
     vk::Extent2D,
     vk::SwapchainKHR,
     Vec<vk::ImageView>,
@@ -601,7 +607,7 @@ fn create_swapchain_all(
     let offscreen =
         create_offscreen_resources(swapchain_extent, instance, physical_device, logical_device);
     let offscreen_framebuffer = create_offscreen_framebuffer(
-        pipeline_render_pass,
+        render_pass,
         offscreen.view,
         swapchain_extent,
         depth.view,
@@ -623,7 +629,6 @@ fn create_swapchain_all(
     );
     let projection = compute_projection(swapchain_extent);
     (
-        swapchain_format,
         swapchain_extent,
         swapchain,
         swapchain_image_views,

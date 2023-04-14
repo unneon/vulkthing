@@ -10,52 +10,85 @@ pub mod vertex;
 
 use crate::renderer::uniform::{Light, Material, ModelViewProjection};
 use crate::world::{Entity, World};
-use ash::extensions::khr::Swapchain;
+use ash::extensions::ext::DebugUtils;
+use ash::extensions::khr::{Surface, Swapchain};
 use ash::{vk, Device, Entry, Instance};
 use nalgebra_glm as glm;
 use winit::dpi::PhysicalSize;
 
 pub struct Renderer {
+    // Immutable parts of the renderer. These can't change in the current design, but recovering
+    // from GPU crashes might require doing something with these later?
     _entry: Entry,
     instance: Instance,
-    extensions: util::VulkanExtensions,
+    extensions: VulkanExtensions,
     debug_messenger: vk::DebugUtilsMessengerEXT,
     surface: vk::SurfaceKHR,
     physical_device: vk::PhysicalDevice,
     logical_device: Device,
     queue: vk::Queue,
     swapchain_extension: Swapchain,
+
+    // Parameters of the renderer that are required early for creating more important objects.
     swapchain_format: vk::SurfaceFormatKHR,
+    msaa_samples: vk::SampleCountFlags,
+    offscreen_sampler: vk::Sampler,
+
+    // Description of the main render pass. Doesn't contain any information about the objects yet,
+    // only low-level data format descriptions.
+    object_descriptor_set_layout: vk::DescriptorSetLayout,
+    render_pipeline_layout: vk::PipelineLayout,
+    render_pass: vk::RenderPass,
+    render_pipeline: vk::Pipeline,
+
+    // Description of the postprocessing pass, and also the actual descriptor pool. Necessary,
+    // because the postprocessing pass depends on swapchain extent and needs to have the descriptor
+    // set updated after window resize.
+    postprocess_descriptor_set_layout: vk::DescriptorSetLayout,
+    postprocess_pipeline_layout: vk::PipelineLayout,
+    postprocess_pass: vk::RenderPass,
+    postprocess_pipeline: vk::Pipeline,
+    postprocess_descriptor_pool: vk::DescriptorPool,
+
+    // All resources that depend on swapchain extent (window size). So swapchain description, memory
+    // used for all framebuffer attachments, framebuffers, and the mentioned postprocess descriptor
+    // set. Projection matrix depends on the monitor aspect ratio, so it's included too.
     swapchain_extent: vk::Extent2D,
     swapchain: vk::SwapchainKHR,
     swapchain_image_views: Vec<vk::ImageView>,
-    descriptor_set_layout: vk::DescriptorSetLayout,
-    postprocess_descriptor_set_layout: vk::DescriptorSetLayout,
-    msaa_samples: vk::SampleCountFlags,
-    pipeline: vk::Pipeline,
-    pipeline_layout: vk::PipelineLayout,
-    pipeline_render_pass: vk::RenderPass,
-    postprocess_pipeline: vk::Pipeline,
-    postprocess_pipeline_layout: vk::PipelineLayout,
-    postprocess_pass: vk::RenderPass,
+    color: ImageResources,
+    depth: ImageResources,
+    offscreen: ImageResources,
+    render_framebuffer: vk::Framebuffer,
+    postprocess_framebuffers: Vec<vk::Framebuffer>,
+    postprocess_descriptor_set: vk::DescriptorSet,
+    projection: glm::Mat4,
+
+    // Vulkan objects actually used for command recording and synchronization. Also internal
+    // renderer state for keeping track of concurrent frames.
     command_pool: vk::CommandPool,
     command_buffers: [vk::CommandBuffer; FRAMES_IN_FLIGHT],
-    color: util::ImageResources,
-    depth: util::ImageResources,
-    offscreen: util::ImageResources,
-    offscreen_framebuffer: vk::Framebuffer,
-    offscreen_sampler: vk::Sampler,
-    framebuffers: Vec<vk::Framebuffer>,
-    light: UniformBuffer<Light>,
-    objects: Vec<Object>,
-    descriptor_pool: vk::DescriptorPool,
-    postprocess_descriptor_pool: vk::DescriptorPool,
-    postprocess_descriptor_set: vk::DescriptorSet,
-    noise_texture: util::ImageResources,
-    noise_sampler: vk::Sampler,
     sync: Synchronization,
     flight_index: usize,
-    projection: glm::Mat4,
+
+    // And finally resources specific to this renderer. So various buffers related to objects we
+    // actually render, their descriptor sets and the like.
+    light: UniformBuffer<Light>,
+    object_descriptor_pool: vk::DescriptorPool,
+    objects: Vec<Object>,
+    noise_texture: ImageResources,
+    noise_sampler: vk::Sampler,
+}
+
+struct VulkanExtensions {
+    debug: DebugUtils,
+    surface: Surface,
+}
+
+struct ImageResources {
+    image: vk::Image,
+    memory: vk::DeviceMemory,
+    view: vk::ImageView,
 }
 
 struct Synchronization {
@@ -71,7 +104,7 @@ struct Object {
     index_buffer: vk::Buffer,
     index_buffer_memory: vk::DeviceMemory,
     mvp: UniformBuffer<ModelViewProjection>,
-    texture: util::ImageResources,
+    texture: ImageResources,
     texture_sampler: vk::Sampler,
     material: UniformBuffer<Material>,
     descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
@@ -142,8 +175,8 @@ impl Renderer {
     unsafe fn record_render_pass(&self, buf: vk::CommandBuffer, world: &World) {
         let dev = &self.logical_device;
         let pass_info = vk::RenderPassBeginInfo::builder()
-            .render_pass(self.pipeline_render_pass)
-            .framebuffer(self.offscreen_framebuffer)
+            .render_pass(self.render_pass)
+            .framebuffer(self.render_framebuffer)
             // I don't quite understand when render area should be anything else. It seems like
             // scissor already offers the same functionality?
             .render_area(vk::Rect2D {
@@ -165,7 +198,7 @@ impl Renderer {
             ]);
         dev.cmd_begin_render_pass(buf, &pass_info, vk::SubpassContents::INLINE);
 
-        dev.cmd_bind_pipeline(buf, vk::PipelineBindPoint::GRAPHICS, self.pipeline);
+        dev.cmd_bind_pipeline(buf, vk::PipelineBindPoint::GRAPHICS, self.render_pipeline);
         self.record_viewport_and_scissor(buf);
 
         for entity in &world.entities {
@@ -173,7 +206,7 @@ impl Renderer {
             dev.cmd_bind_descriptor_sets(
                 buf,
                 vk::PipelineBindPoint::GRAPHICS,
-                self.pipeline_layout,
+                self.render_pipeline_layout,
                 0,
                 &[object.descriptor_sets[self.flight_index]],
                 &[],
@@ -190,7 +223,7 @@ impl Renderer {
         let dev = &self.logical_device;
         let pass_info = vk::RenderPassBeginInfo::builder()
             .render_pass(self.postprocess_pass)
-            .framebuffer(self.framebuffers[image_index as usize])
+            .framebuffer(self.postprocess_framebuffers[image_index as usize])
             .render_area(vk::Rect2D {
                 offset: vk::Offset2D { x: 0, y: 0 },
                 extent: self.swapchain_extent,
