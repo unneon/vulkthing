@@ -23,7 +23,7 @@ pub fn load_model(obj_path: &str, texture_path: &'static str) -> Model {
     let (mut vertices, indices) = flatten_models(&models);
     scale_mesh(&mut vertices);
     debug!(
-        "model OBJ loaded, \x1B[1mpath\x1B[0m: {obj_path}, \x1B[1mvertices\x1B[0m: {}",
+        "model OBJ loaded, \x1B[1mfile\x1B[0m: {obj_path}, \x1B[1mvertices\x1B[0m: {}",
         vertices.len()
     );
     Model {

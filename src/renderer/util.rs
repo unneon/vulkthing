@@ -192,7 +192,7 @@ pub(super) fn load_texture(
         memory,
         view,
     };
-    debug!("texture loaded, \x1B[1mpath\x1B[0m: {path}, \x1B[1msize\x1B[0m: {image_width}x{image_height}");
+    debug!("texture loaded, \x1B[1mfile\x1B[0m: {path}, \x1B[1msize\x1B[0m: {image_width}x{image_height}");
     (texture, mip_levels)
 }
 

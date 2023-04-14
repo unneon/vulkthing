@@ -274,11 +274,6 @@ impl Renderer {
     }
 
     fn update_object_uniforms(&self, world: &World, entity: &Entity) {
-        // let model = glm::scale(
-        //     &glm::translate(&glm::identity(), &entity.position),
-        //     &entity.scale,
-        // );
-
         let model = Matrix4::identity()
             .prepend_translation(&entity.position)
             .prepend_nonuniform_scaling(&entity.scale);

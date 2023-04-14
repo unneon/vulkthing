@@ -1,7 +1,5 @@
-use crate::renderer::shader::Shader;
-use crate::renderer::util::exists_newer_file;
+use crate::renderer::shader::create_shader;
 use ash::{vk, Device};
-use log::{debug, error};
 
 pub struct SimplePipeline<'a> {
     pub vertex_shader_path: &'a str,
@@ -25,12 +23,12 @@ pub fn build_simple_pipeline(
 ) -> (vk::Pipeline, vk::PipelineLayout, vk::RenderPass) {
     // Build shaders from GLSL paths. This can build and cache SPIR-V by spawning glslc as a
     // subprocess.
-    let vertex_shader = compile_shader(
+    let vertex_shader = create_shader(
         config.vertex_shader_path,
         vk::ShaderStageFlags::VERTEX,
         config.logical_device,
     );
-    let fragment_shader = compile_shader(
+    let fragment_shader = create_shader(
         config.fragment_shader_path,
         vk::ShaderStageFlags::FRAGMENT,
         config.logical_device,
@@ -205,37 +203,4 @@ pub fn build_simple_pipeline(
     .unwrap()[0];
 
     (pipeline, pipeline_layout, render_pass)
-}
-
-fn compile_shader<'a>(
-    glsl_path: &str,
-    stage: vk::ShaderStageFlags,
-    logical_device: &'a Device,
-) -> Shader<'a> {
-    let spirv_path = format!("{glsl_path}.spv");
-    if !exists_newer_file(&spirv_path, glsl_path) {
-        let compiler = shaderc::Compiler::new().unwrap();
-        let glsl_text = std::fs::read_to_string(glsl_path).unwrap();
-        let shader_kind = if stage.contains(vk::ShaderStageFlags::VERTEX) {
-            shaderc::ShaderKind::Vertex
-        } else if stage.contains(vk::ShaderStageFlags::FRAGMENT) {
-            shaderc::ShaderKind::Fragment
-        } else {
-            panic!("unknown shader stage {stage:?}");
-        };
-        let compile_result =
-            compiler.compile_into_spirv(&glsl_text, shader_kind, glsl_path, "main", None);
-        let spirv_data = match compile_result {
-            Err(shaderc::Error::CompilationError(_, output)) => {
-                for message in output.trim().split('\n') {
-                    error!("shader compilation error, {message}");
-                }
-                panic!("shader compilation error");
-            }
-            result => result.unwrap(),
-        };
-        std::fs::write(&spirv_path, spirv_data.as_binary_u8()).unwrap();
-        debug!("shader GLSL compiled, \x1B[1mpath\x1B[0m: {glsl_path}");
-    }
-    Shader::compile(logical_device, &spirv_path, stage)
 }
