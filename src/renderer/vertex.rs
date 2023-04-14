@@ -1,13 +1,13 @@
 use crate::renderer::traits::VertexOps;
 use ash::vk;
-use nalgebra_glm as glm;
+use nalgebra::{Vector2, Vector3};
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct Vertex {
-    pub position: glm::Vec3,
-    pub normal: glm::Vec3,
-    pub tex: glm::Vec2,
+    pub position: Vector3<f32>,
+    pub normal: Vector3<f32>,
+    pub tex: Vector2<f32>,
 }
 
 impl VertexOps for Vertex {
@@ -17,8 +17,8 @@ impl VertexOps for Vertex {
         vk::Format::R32G32_SFLOAT,
     ];
     const ATTRIBUTE_SIZES: &'static [usize] = &[
-        std::mem::size_of::<glm::Vec3>(),
-        std::mem::size_of::<glm::Vec3>(),
-        std::mem::size_of::<glm::Vec2>(),
+        std::mem::size_of::<Vector3<f32>>(),
+        std::mem::size_of::<Vector3<f32>>(),
+        std::mem::size_of::<Vector2<f32>>(),
     ];
 }

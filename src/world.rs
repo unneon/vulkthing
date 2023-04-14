@@ -1,6 +1,6 @@
 use crate::camera::Camera;
 use crate::input::InputState;
-use nalgebra_glm::{vec3, Vec3};
+use nalgebra::Vector3;
 
 pub struct World {
     time: f32,
@@ -10,42 +10,42 @@ pub struct World {
 }
 
 pub struct Entity {
-    pub position: Vec3,
-    pub scale: Vec3,
-    pub emit: Vec3,
+    pub position: Vector3<f32>,
+    pub scale: Vector3<f32>,
+    pub emit: Vector3<f32>,
     pub gpu_object: usize,
 }
 
 pub struct Light {
-    pub position: Vec3,
-    pub color: Vec3,
+    pub position: Vector3<f32>,
+    pub color: Vector3<f32>,
     pub ambient_strength: f32,
 }
 
 impl World {
     pub fn new() -> World {
-        let sun_color = vec3(1., 0.12, 68.);
+        let sun_color = Vector3::new(1., 0.12, 68.);
         let camera = Camera {
-            position: vec3(-10., 0., 0.),
-            velocity: vec3(0., 0., 0.),
+            position: Vector3::new(-10., 0., 0.),
+            velocity: Vector3::new(0., 0., 0.),
             yaw: 0.,
             pitch: 0.,
         };
         let light = Light {
-            position: vec3(-4., 0., 2.),
+            position: Vector3::new(-4., 0., 2.),
             color: sun_color,
             ambient_strength: 0.004,
         };
         let time = 0.;
         let building = Entity {
-            position: vec3(0., 0., 0.),
-            scale: vec3(1., 1., 1.),
-            emit: vec3(0., 0., 0.),
+            position: Vector3::new(0., 0., 0.),
+            scale: Vector3::new(1., 1., 1.),
+            emit: Vector3::new(0., 0., 0.),
             gpu_object: 0,
         };
         let sun = Entity {
             position: light.position,
-            scale: vec3(0.2, 0.2, 0.2),
+            scale: Vector3::new(0.2, 0.2, 0.2),
             emit: sun_color,
             gpu_object: 1,
         };

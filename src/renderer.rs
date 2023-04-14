@@ -13,7 +13,7 @@ use crate::world::{Entity, World};
 use ash::extensions::ext::DebugUtils;
 use ash::extensions::khr::{Surface, Swapchain};
 use ash::{vk, Device, Entry, Instance};
-use nalgebra_glm as glm;
+use nalgebra::Matrix4;
 use winit::dpi::PhysicalSize;
 
 pub struct Renderer {
@@ -62,7 +62,7 @@ pub struct Renderer {
     render_framebuffer: vk::Framebuffer,
     postprocess_framebuffers: Vec<vk::Framebuffer>,
     postprocess_descriptor_set: vk::DescriptorSet,
-    projection: glm::Mat4,
+    projection: Matrix4<f32>,
 
     // Vulkan objects actually used for command recording and synchronization. Also internal
     // renderer state for keeping track of concurrent frames.
@@ -274,10 +274,14 @@ impl Renderer {
     }
 
     fn update_object_uniforms(&self, world: &World, entity: &Entity) {
-        let model = glm::scale(
-            &glm::translate(&glm::identity(), &entity.position),
-            &entity.scale,
-        );
+        // let model = glm::scale(
+        //     &glm::translate(&glm::identity(), &entity.position),
+        //     &entity.scale,
+        // );
+
+        let model = Matrix4::identity()
+            .prepend_translation(&entity.position)
+            .prepend_nonuniform_scaling(&entity.scale);
         let mvp = ModelViewProjection {
             model,
             view: world.camera.view_matrix(),

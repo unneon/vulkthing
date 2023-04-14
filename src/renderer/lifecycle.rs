@@ -14,8 +14,7 @@ use crate::{VULKAN_APP_NAME, VULKAN_APP_VERSION, VULKAN_ENGINE_NAME, VULKAN_ENGI
 use ash::extensions::ext::DebugUtils;
 use ash::extensions::khr::{Surface, Swapchain};
 use ash::{vk, Device, Entry, Instance};
-use nalgebra_glm as glm;
-use nalgebra_glm::Mat4;
+use nalgebra::Matrix4;
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use std::f32::consts::FRAC_PI_4;
 use std::ffi::CString;
@@ -564,7 +563,7 @@ fn create_swapchain_all(
     vk::Framebuffer,
     Vec<vk::Framebuffer>,
     vk::DescriptorSet,
-    Mat4,
+    Matrix4<f32>,
 ) {
     // Query the surface information again.
     let surface_capabilities =
@@ -1296,9 +1295,9 @@ fn create_sync(logical_device: &Device) -> Synchronization {
     }
 }
 
-fn compute_projection(swapchain_extent: vk::Extent2D) -> glm::Mat4 {
+fn compute_projection(swapchain_extent: vk::Extent2D) -> Matrix4<f32> {
     let aspect_ratio = swapchain_extent.width as f32 / swapchain_extent.height as f32;
-    let mut proj = glm::perspective_rh_zo(aspect_ratio, FRAC_PI_4, 0.1, 100.);
+    let mut proj = Matrix4::new_perspective(aspect_ratio, FRAC_PI_4, 0.1, 100.);
     proj[(1, 1)] *= -1.;
     proj
 }

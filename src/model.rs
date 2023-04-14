@@ -1,6 +1,6 @@
 use crate::renderer::vertex::Vertex;
 use log::debug;
-use nalgebra_glm as glm;
+use nalgebra::{Vector2, Vector3};
 use tobj::LoadOptions;
 
 pub struct Model {
@@ -44,21 +44,21 @@ fn flatten_models(models: &[tobj::Model]) -> (Vec<Vertex>, Vec<u32>) {
             // floats.
             let offset_pos = (3 * *index) as usize;
             let offset_tex = (2 * *index) as usize;
-            let position = glm::vec3(
+            let position = Vector3::new(
                 model.mesh.positions[offset_pos],
                 model.mesh.positions[offset_pos + 1],
                 model.mesh.positions[offset_pos + 2],
             );
             // Will be computed from triangle positions later.
-            let normal = glm::zero();
+            let normal = Vector3::zeros();
             // Coordinate system in OBJ assumes that 0 is the bottom of the image, but Vulkan uses
             // an orientation where 0 is the top of the image.
             let tex = if model.mesh.texcoords.is_empty() {
-                glm::vec2(0., 0.)
+                Vector2::new(0., 0.)
             } else {
-                glm::vec2(
+                Vector2::new(
                     model.mesh.texcoords[offset_tex],
-                    1.0 - model.mesh.texcoords[offset_tex + 1],
+                    1. - model.mesh.texcoords[offset_tex + 1],
                 )
             };
             let vertex = Vertex {
@@ -72,8 +72,9 @@ fn flatten_models(models: &[tobj::Model]) -> (Vec<Vertex>, Vec<u32>) {
         }
     }
     for [v1, v2, v3] in vertices.array_chunks_mut() {
-        let normal =
-            glm::cross(&(v2.position - v1.position), &(v3.position - v1.position)).normalize();
+        let normal = (v2.position - v1.position)
+            .cross(&(v3.position - v1.position))
+            .normalize();
         v1.normal = normal;
         v2.normal = normal;
         v3.normal = normal;
@@ -82,11 +83,11 @@ fn flatten_models(models: &[tobj::Model]) -> (Vec<Vertex>, Vec<u32>) {
 }
 
 fn scale_mesh(vertices: &mut [Vertex]) {
-    let mut min = glm::vec3(f32::INFINITY, f32::INFINITY, f32::INFINITY);
-    let mut max = glm::vec3(f32::NEG_INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY);
+    let mut min = Vector3::new(f32::INFINITY, f32::INFINITY, f32::INFINITY);
+    let mut max = Vector3::new(f32::NEG_INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY);
     for vertex in vertices.iter_mut() {
-        min = glm::min2(&min, &vertex.position);
-        max = glm::max2(&max, &vertex.position);
+        min = min.inf(&vertex.position);
+        max = max.sup(&vertex.position);
     }
     for vertex in vertices.iter_mut() {
         vertex.position =

@@ -1,12 +1,11 @@
 use crate::input::InputState;
 use crate::{CAMERA_SENSITIVITY, SPRINT_SPEED, WALK_SPEED};
-use nalgebra_glm as glm;
-use nalgebra_glm::{vec3, Mat4, Vec3};
+use nalgebra::{Matrix4, Point3, Vector3};
 use std::f32::consts::FRAC_PI_2;
 
 pub struct Camera {
-    pub position: Vec3,
-    pub velocity: Vec3,
+    pub position: Vector3<f32>,
+    pub velocity: Vector3<f32>,
     pub yaw: f32,
     pub pitch: f32,
 }
@@ -16,8 +15,8 @@ const YAW_LIMIT: f32 = FRAC_PI_2 - 0.00001;
 impl Camera {
     pub fn apply_input(&mut self, input: &InputState, delta_time: f32) {
         let front = self.walk_direction();
-        let up = vec3(0., 0., 1.);
-        let right = glm::cross(&front, &up);
+        let up = Vector3::new(0., 0., 1.);
+        let right = front.cross(&up);
         let movement_speed = if input.movement_sprint() {
             SPRINT_SPEED
         } else {
@@ -41,17 +40,19 @@ impl Camera {
             (self.pitch - input.camera_pitch() * CAMERA_SENSITIVITY).clamp(-YAW_LIMIT, YAW_LIMIT);
     }
 
-    pub fn view_matrix(&self) -> Mat4 {
-        let view_center = self.position + self.view_direction();
-        glm::look_at(&self.position, &view_center, &vec3(0., 0., 1.))
+    pub fn view_matrix(&self) -> Matrix4<f32> {
+        let eye = Point3::from(self.position);
+        let target = Point3::from(self.position + self.view_direction());
+        let up = Vector3::new(0., 0., 1.);
+        Matrix4::look_at_rh(&eye, &target, &up)
     }
 
-    fn walk_direction(&self) -> Vec3 {
-        vec3(self.yaw.cos(), -self.yaw.sin(), 0.)
+    fn walk_direction(&self) -> Vector3<f32> {
+        Vector3::new(self.yaw.cos(), -self.yaw.sin(), 0.)
     }
 
-    fn view_direction(&self) -> Vec3 {
-        vec3(
+    fn view_direction(&self) -> Vector3<f32> {
+        Vector3::new(
             self.yaw.cos() * self.pitch.cos(),
             -self.yaw.sin() * self.pitch.cos(),
             self.pitch.sin(),
@@ -59,10 +60,10 @@ impl Camera {
     }
 }
 
-fn normalize_or_zero(vec: Vec3) -> Vec3 {
+fn normalize_or_zero(vec: Vector3<f32>) -> Vector3<f32> {
     if let Some(normalized) = vec.try_normalize(1.0e-6) {
         normalized
     } else {
-        glm::zero()
+        Vector3::zeros()
     }
 }
