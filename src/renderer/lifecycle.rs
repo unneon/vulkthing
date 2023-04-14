@@ -92,8 +92,8 @@ impl Renderer {
             postprocess_descriptor_pool,
         );
 
-        let command_pool = create_command_pool(queue_family, &logical_device);
-        let command_buffers = create_command_buffers(&logical_device, command_pool);
+        let command_pools = create_command_pools(queue_family, &logical_device);
+        let command_buffers = create_command_buffers(&logical_device, &command_pools);
         let sync = create_sync(&logical_device);
 
         let light = create_uniform_buffer(&instance, physical_device, &logical_device);
@@ -110,7 +110,7 @@ impl Renderer {
                 physical_device,
                 &logical_device,
                 queue,
-                command_pool,
+                command_pools[0],
             );
             objects.push(object);
         }
@@ -122,7 +122,7 @@ impl Renderer {
             physical_device,
             &logical_device,
             queue,
-            command_pool,
+            command_pools[0],
         );
         let noise_sampler = create_texture_sampler(1, &instance, physical_device, &logical_device);
 
@@ -158,7 +158,7 @@ impl Renderer {
             postprocess_framebuffers,
             postprocess_descriptor_set,
             projection,
-            command_pool,
+            command_pools,
             command_buffers,
             sync,
             flight_index: 0,
@@ -321,7 +321,9 @@ impl Drop for Renderer {
             self.light.cleanup(dev);
 
             self.sync.cleanup(dev);
-            dev.destroy_command_pool(self.command_pool, None);
+            for pool in &self.command_pools {
+                dev.destroy_command_pool(*pool, None);
+            }
 
             drop(dev);
             self.cleanup_swapchain();
@@ -766,25 +768,31 @@ fn create_postprocess_pipeline(
     build_simple_pipeline(pipeline)
 }
 
-fn create_command_pool(queue_family: u32, logical_device: &Device) -> vk::CommandPool {
-    let command_pool_info = vk::CommandPoolCreateInfo::builder()
-        .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
-        .queue_family_index(queue_family);
-    unsafe { logical_device.create_command_pool(&command_pool_info, None) }.unwrap()
+fn create_command_pools(
+    queue_family: u32,
+    logical_device: &Device,
+) -> [vk::CommandPool; FRAMES_IN_FLIGHT] {
+    let command_pool_info = vk::CommandPoolCreateInfo::builder().queue_family_index(queue_family);
+    let mut pools = [vk::CommandPool::null(); FRAMES_IN_FLIGHT];
+    for pool in &mut pools {
+        *pool = unsafe { logical_device.create_command_pool(&command_pool_info, None) }.unwrap();
+    }
+    pools
 }
 
 fn create_command_buffers(
     logical_device: &Device,
-    command_pool: vk::CommandPool,
+    command_pools: &[vk::CommandPool; FRAMES_IN_FLIGHT],
 ) -> [vk::CommandBuffer; FRAMES_IN_FLIGHT] {
-    let command_buffer_allocate_info = vk::CommandBufferAllocateInfo::builder()
-        .command_pool(command_pool)
-        .level(vk::CommandBufferLevel::PRIMARY)
-        .command_buffer_count(FRAMES_IN_FLIGHT as u32);
-    unsafe { logical_device.allocate_command_buffers(&command_buffer_allocate_info) }
-        .unwrap()
-        .try_into()
-        .unwrap()
+    let mut buffers = [vk::CommandBuffer::null(); FRAMES_IN_FLIGHT];
+    for (i, buffer) in buffers.iter_mut().enumerate() {
+        let buffer_info = vk::CommandBufferAllocateInfo::builder()
+            .command_pool(command_pools[i])
+            .level(vk::CommandBufferLevel::PRIMARY)
+            .command_buffer_count(1);
+        *buffer = unsafe { logical_device.allocate_command_buffers(&buffer_info) }.unwrap()[0];
+    }
+    buffers
 }
 
 fn create_color_resources(

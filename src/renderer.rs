@@ -66,7 +66,7 @@ pub struct Renderer {
 
     // Vulkan objects actually used for command recording and synchronization. Also internal
     // renderer state for keeping track of concurrent frames.
-    command_pool: vk::CommandPool,
+    command_pools: [vk::CommandPool; FRAMES_IN_FLIGHT],
     command_buffers: [vk::CommandBuffer; FRAMES_IN_FLIGHT],
     sync: Synchronization,
     flight_index: usize,
@@ -136,7 +136,6 @@ impl Renderer {
 
     unsafe fn prepare_command_buffer(&mut self, window_size: PhysicalSize<u32>) -> Option<u32> {
         let dev = &self.logical_device;
-        let command_buffer = self.command_buffers[self.flight_index];
         let image_available = self.sync.image_available[self.flight_index];
         let in_flight = self.sync.in_flight[self.flight_index];
 
@@ -155,8 +154,11 @@ impl Renderer {
         let (image_index, _is_suboptimal) = acquire_result.unwrap();
 
         dev.reset_fences(&[in_flight]).unwrap();
-        dev.reset_command_buffer(command_buffer, vk::CommandBufferResetFlags::empty())
-            .unwrap();
+        dev.reset_command_pool(
+            self.command_pools[self.flight_index],
+            vk::CommandPoolResetFlags::empty(),
+        )
+        .unwrap();
 
         Some(image_index)
     }
@@ -165,7 +167,8 @@ impl Renderer {
         let dev = &self.logical_device;
         let buf = self.command_buffers[self.flight_index];
 
-        let begin_info = vk::CommandBufferBeginInfo::builder();
+        let begin_info = vk::CommandBufferBeginInfo::builder()
+            .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
         dev.begin_command_buffer(buf, &begin_info).unwrap();
         self.record_render_pass(buf, world);
         self.record_postprocess_pass(buf, image_index);
