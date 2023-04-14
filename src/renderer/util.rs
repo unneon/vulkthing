@@ -1,7 +1,7 @@
 use ash::extensions::ext::DebugUtils;
 use ash::extensions::khr::Surface;
 use ash::{vk, Device, Instance};
-use image::Rgba;
+use image::{ImageBuffer, Rgba};
 use log::debug;
 use noise::{NoiseFn, Perlin};
 use std::mem::MaybeUninit;
@@ -231,26 +231,20 @@ fn unit_noise(perlin: &Perlin, x: f64, y: f64) -> u8 {
 
 pub fn generate_perlin_texture(
     resolution: usize,
+    density: f64,
     instance: &Instance,
     physical_device: vk::PhysicalDevice,
     logical_device: &Device,
     graphics_queue: vk::Queue,
     command_pool: vk::CommandPool,
 ) -> ImageResources {
-    let mut image_cpu = image::RgbaImage::new(resolution as u32, resolution as u32);
-    let perlin = Perlin::new(907);
-    for y in 0..resolution {
-        for x in 0..resolution {
-            image_cpu.put_pixel(
-                x as u32,
-                y as u32,
-                point_noise(&perlin, (x as f64) / 256., (y as f64) / 256.),
-            );
-        }
-    }
     let pixel_count = resolution * resolution;
-    let image_size = pixel_count * 4;
+    let image_size = pixel_count * std::mem::size_of::<Rgba<u8>>();
 
+    // Create texture image with the given resolution and prepare it for writing from the host. Not
+    // sure how to make something else than R8G8S8A8_SRGB work, but I'm not yet sure whether shaders
+    // should get to mix noise frequencies themselves or get a ready texture, so let's fix this
+    // later.
     let (image, memory) = create_image(
         vk::Format::R8G8B8A8_SRGB,
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
@@ -278,6 +272,11 @@ pub fn generate_perlin_texture(
         command_pool,
     );
 
+    // Rust image library actually lets you specify a custom buffer, and passing in a
+    // Vulkan-allocated one seems to work nicely. I kind of wonder whether I should add resizable
+    // bar and/or unified memory support. This would just let me generate the noise straight to GPU
+    // memory? Device parameters seem to support it, but I have to read up on the performance
+    // implications.
     let (staging_buffer, staging_memory) = create_buffer(
         vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
         vk::BufferUsageFlags::TRANSFER_SRC | vk::BufferUsageFlags::TRANSFER_DST,
@@ -287,7 +286,19 @@ pub fn generate_perlin_texture(
         logical_device,
     );
     with_mapped_slice(staging_memory, image_size, logical_device, |mapped| {
-        MaybeUninit::write_slice(mapped, &image_cpu);
+        // This doesn't sound safe, but let's figure this out later.
+        let mapped = unsafe { MaybeUninit::slice_assume_init_mut(mapped) };
+        let mut image_cpu =
+            ImageBuffer::from_raw(resolution as u32, resolution as u32, mapped).unwrap();
+        let perlin = Perlin::new(907);
+        for y in 0..resolution {
+            for x in 0..resolution {
+                let nx = (x as f64) / resolution as f64 * density;
+                let ny = (y as f64) / resolution as f64 * density;
+                let pixel = point_noise(&perlin, nx, ny);
+                image_cpu.put_pixel(x as u32, y as u32, pixel);
+            }
+        }
     });
     copy_buffer_to_image(
         staging_buffer,

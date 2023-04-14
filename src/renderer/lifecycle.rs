@@ -141,6 +141,16 @@ impl Renderer {
         );
 
         let light = create_uniform_buffer(&instance, physical_device, &logical_device);
+        let noise_texture = util::generate_perlin_texture(
+            512,
+            16.,
+            &instance,
+            physical_device,
+            &logical_device,
+            graphics_queue,
+            command_pool,
+        );
+        let noise_sampler = create_texture_sampler(1, &instance, physical_device, &logical_device);
 
         let mut objects = Vec::new();
         for model in models {
@@ -149,6 +159,8 @@ impl Renderer {
                 descriptor_set_layout,
                 descriptor_pool,
                 &light.buffers,
+                &noise_texture,
+                noise_sampler,
                 &instance,
                 physical_device,
                 &logical_device,
@@ -157,15 +169,6 @@ impl Renderer {
             );
             objects.push(object);
         }
-
-        let noise_texture = util::generate_perlin_texture(
-            1024,
-            &instance,
-            physical_device,
-            &logical_device,
-            graphics_queue,
-            command_pool,
-        );
 
         let sync = create_sync(&logical_device);
         let projection = compute_projection(swapchain_extent);
@@ -210,6 +213,7 @@ impl Renderer {
             postprocess_descriptor_pool,
             postprocess_descriptor_set,
             noise_texture,
+            noise_sampler,
             sync,
             flight_index: 0,
             projection,
@@ -415,6 +419,7 @@ impl Drop for Renderer {
             for object in &self.objects {
                 object.cleanup(dev);
             }
+            self.noise_texture.cleanup(dev);
             dev.destroy_command_pool(self.command_pool, None);
             dev.destroy_pipeline(self.pipeline, None);
             dev.destroy_pipeline(self.postprocess_pipeline, None);
@@ -431,6 +436,8 @@ impl Drop for Renderer {
                 .destroy_descriptor_pool(self.postprocess_descriptor_pool, None);
             self.logical_device
                 .destroy_sampler(self.offscreen_sampler, None);
+            self.logical_device
+                .destroy_sampler(self.noise_sampler, None);
             self.logical_device.destroy_device(None);
             self.extensions.surface.destroy_surface(self.surface, None);
             self.extensions
@@ -1216,6 +1223,8 @@ fn create_object(
     descriptor_set_layout: vk::DescriptorSetLayout,
     descriptor_pool: vk::DescriptorPool,
     light_buffers: &[vk::Buffer],
+    noise_texture: &ImageResources,
+    noise_sampler: vk::Sampler,
     instance: &Instance,
     physical_device: vk::PhysicalDevice,
     logical_device: &Device,
@@ -1256,8 +1265,8 @@ fn create_object(
         &mvp.buffers,
         &material.buffers,
         light_buffers,
-        texture.view,
-        texture_sampler,
+        noise_texture.view,
+        noise_sampler,
         logical_device,
     );
     Object {

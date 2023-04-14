@@ -56,6 +56,7 @@ pub struct Renderer {
     postprocess_descriptor_pool: vk::DescriptorPool,
     postprocess_descriptor_set: vk::DescriptorSet,
     noise_texture: util::ImageResources,
+    noise_sampler: vk::Sampler,
     sync: Synchronization,
     flight_index: usize,
     projection: glm::Mat4,

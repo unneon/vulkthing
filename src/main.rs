@@ -3,6 +3,7 @@
 #![feature(const_option)]
 #![feature(const_result_drop)]
 #![feature(generic_const_exprs)]
+#![feature(maybe_uninit_slice)]
 #![feature(maybe_uninit_write_slice)]
 #![allow(incomplete_features)]
 #![allow(clippy::collapsible_match)]
