@@ -11,7 +11,6 @@ pub struct Vertex {
 }
 
 impl VertexOps for Vertex {
-    const ATTRIBUTE_COUNT: usize = 3;
     const ATTRIBUTE_FORMATS: &'static [vk::Format] = &[
         vk::Format::R32G32B32_SFLOAT,
         vk::Format::R32G32B32_SFLOAT,

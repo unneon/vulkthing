@@ -634,11 +634,8 @@ fn onetime_commands<R>(
         .level(vk::CommandBufferLevel::PRIMARY)
         .command_pool(command_pool)
         .command_buffer_count(1);
-    let command_buffer = unsafe { logical_device.allocate_command_buffers(&command_info) }
-        .unwrap()
-        .into_iter()
-        .next()
-        .unwrap();
+    let command_buffer =
+        unsafe { logical_device.allocate_command_buffers(&command_info) }.unwrap()[0];
 
     let begin_info =
         vk::CommandBufferBeginInfo::builder().flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);

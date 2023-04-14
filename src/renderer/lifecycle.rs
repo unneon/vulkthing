@@ -1,10 +1,10 @@
 use crate::model::Model;
 use crate::renderer::debug::create_debug_messenger;
 use crate::renderer::device::{select_device, DeviceInfo, QueueFamilies};
-use crate::renderer::shader::Shader;
+use crate::renderer::pipeline::{build_simple_pipeline, SimplePipeline, SimpleVertexLayout};
 use crate::renderer::traits::VertexOps;
 use crate::renderer::uniform::{Light, Material, ModelViewProjection};
-use crate::renderer::util::{exists_newer_file, ImageResources, Queues, VulkanExtensions};
+use crate::renderer::util::{ImageResources, Queues, VulkanExtensions};
 use crate::renderer::vertex::Vertex;
 use crate::renderer::{util, Object, Renderer, Synchronization, UniformBuffer, FRAMES_IN_FLIGHT};
 use crate::window::Window;
@@ -12,7 +12,6 @@ use crate::{VULKAN_APP_NAME, VULKAN_APP_VERSION, VULKAN_ENGINE_NAME, VULKAN_ENGI
 use ash::extensions::ext::DebugUtils;
 use ash::extensions::khr::{Surface, Swapchain};
 use ash::{vk, Device, Entry, Instance};
-use log::debug;
 use nalgebra_glm as glm;
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use std::collections::HashSet;
@@ -710,67 +709,7 @@ fn create_pipeline(
     physical_device: vk::PhysicalDevice,
     logical_device: &Device,
 ) -> (vk::Pipeline, vk::PipelineLayout, vk::RenderPass) {
-    let vert_shader = compile_shader(
-        "shaders/triangle.vert",
-        vk::ShaderStageFlags::VERTEX,
-        logical_device,
-    );
-    let frag_shader = compile_shader(
-        "shaders/triangle.frag",
-        vk::ShaderStageFlags::FRAGMENT,
-        logical_device,
-    );
-    let shader_stages = [vert_shader.stage_info, frag_shader.stage_info];
-    let dynamic_state = vk::PipelineDynamicStateCreateInfo::builder()
-        .dynamic_states(&[vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR]);
-    let vertex_attribute_descriptions = Vertex::attribute_descriptions(0);
-    let vertex_binding_descriptions = [*vk::VertexInputBindingDescription::builder()
-        .binding(0)
-        .stride(std::mem::size_of::<Vertex>() as u32)
-        .input_rate(vk::VertexInputRate::VERTEX)];
-    let vertex_input = vk::PipelineVertexInputStateCreateInfo::builder()
-        .vertex_binding_descriptions(&vertex_binding_descriptions)
-        .vertex_attribute_descriptions(&vertex_attribute_descriptions);
-    let input_assembly = vk::PipelineInputAssemblyStateCreateInfo::builder()
-        .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
-        .primitive_restart_enable(false);
-    let viewport_state = vk::PipelineViewportStateCreateInfo::builder()
-        .viewport_count(1)
-        .scissor_count(1);
-    let rasterizer = vk::PipelineRasterizationStateCreateInfo::builder()
-        .depth_clamp_enable(false)
-        .rasterizer_discard_enable(false)
-        .polygon_mode(vk::PolygonMode::FILL)
-        .line_width(1.)
-        .cull_mode(vk::CullModeFlags::BACK)
-        .front_face(vk::FrontFace::COUNTER_CLOCKWISE)
-        .depth_bias_enable(false)
-        .depth_bias_constant_factor(0.)
-        .depth_bias_clamp(0.)
-        .depth_bias_slope_factor(0.);
-    let multisampling = vk::PipelineMultisampleStateCreateInfo::builder()
-        .sample_shading_enable(false)
-        .rasterization_samples(msaa_samples)
-        .min_sample_shading(1.)
-        .sample_mask(&[])
-        .alpha_to_coverage_enable(false)
-        .alpha_to_one_enable(false);
-    let color_blend_attachment = vk::PipelineColorBlendAttachmentState::builder()
-        .color_write_mask(vk::ColorComponentFlags::RGBA)
-        .blend_enable(false);
-    let color_blend_attachments = [*color_blend_attachment];
-    let color_blending = vk::PipelineColorBlendStateCreateInfo::builder()
-        .logic_op_enable(false)
-        .logic_op(vk::LogicOp::COPY)
-        .attachments(&color_blend_attachments);
-    let set_layouts = [descriptor_set_layout];
-    let pipeline_layout_info = vk::PipelineLayoutCreateInfo::builder()
-        .set_layouts(&set_layouts)
-        .push_constant_ranges(&[]);
-    let pipeline_layout =
-        unsafe { logical_device.create_pipeline_layout(&pipeline_layout_info, None) }.unwrap();
-
-    let color_attachment = vk::AttachmentDescription::builder()
+    let color_attachment = *vk::AttachmentDescription::builder()
         .format(INTERNAL_HDR_FORMAT)
         .samples(msaa_samples)
         .load_op(vk::AttachmentLoadOp::CLEAR)
@@ -779,10 +718,6 @@ fn create_pipeline(
         .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
         .initial_layout(vk::ImageLayout::UNDEFINED)
         .final_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL);
-    let color_attachment_ref = vk::AttachmentReference::builder()
-        .attachment(0)
-        .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL);
-    let color_attachments = [*color_attachment_ref];
     let depth_attachment = *vk::AttachmentDescription::builder()
         .format(select_depth_format(instance, physical_device))
         .samples(msaa_samples)
@@ -792,10 +727,7 @@ fn create_pipeline(
         .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
         .initial_layout(vk::ImageLayout::UNDEFINED)
         .final_layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
-    let depth_attachment_ref = vk::AttachmentReference::builder()
-        .attachment(1)
-        .layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
-    let color_attachment_resolve = *vk::AttachmentDescription::builder()
+    let resolve_attachment = *vk::AttachmentDescription::builder()
         .format(INTERNAL_HDR_FORMAT)
         .samples(vk::SampleCountFlags::TYPE_1)
         .load_op(vk::AttachmentLoadOp::DONT_CARE)
@@ -804,60 +736,21 @@ fn create_pipeline(
         .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
         .initial_layout(vk::ImageLayout::UNDEFINED)
         .final_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL);
-    let color_attachment_resolve_ref = *vk::AttachmentReference::builder()
-        .attachment(2)
-        .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL);
-    let resolve_attachments = [color_attachment_resolve_ref];
-    let subpass = vk::SubpassDescription::builder()
-        .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
-        .color_attachments(&color_attachments)
-        .depth_stencil_attachment(&depth_attachment_ref)
-        .resolve_attachments(&resolve_attachments);
-    let attachments = [
-        *color_attachment,
-        depth_attachment,
-        color_attachment_resolve,
-    ];
-    let subpasses = [*subpass];
-    let render_pass_info = vk::RenderPassCreateInfo::builder()
-        .attachments(&attachments)
-        .subpasses(&subpasses);
-    let render_pass =
-        unsafe { logical_device.create_render_pass(&render_pass_info, None) }.unwrap();
-
-    let depth_stencil = vk::PipelineDepthStencilStateCreateInfo::builder()
-        .depth_test_enable(true)
-        .depth_write_enable(true)
-        .depth_compare_op(vk::CompareOp::LESS)
-        .depth_bounds_test_enable(false)
-        .min_depth_bounds(0.)
-        .max_depth_bounds(1.)
-        .stencil_test_enable(false)
-        .front(vk::StencilOpState::default())
-        .back(vk::StencilOpState::default());
-
-    let pipeline_info = vk::GraphicsPipelineCreateInfo::builder()
-        .stages(&shader_stages)
-        .vertex_input_state(&vertex_input)
-        .input_assembly_state(&input_assembly)
-        .viewport_state(&viewport_state)
-        .rasterization_state(&rasterizer)
-        .multisample_state(&multisampling)
-        .color_blend_state(&color_blending)
-        .depth_stencil_state(&depth_stencil)
-        .dynamic_state(&dynamic_state)
-        .layout(pipeline_layout)
-        .render_pass(render_pass)
-        .subpass(0);
-    let pipeline = unsafe {
-        logical_device.create_graphics_pipelines(vk::PipelineCache::null(), &[*pipeline_info], None)
-    }
-    .unwrap()
-    .into_iter()
-    .next()
-    .unwrap();
-
-    (pipeline, pipeline_layout, render_pass)
+    let pipeline = SimplePipeline {
+        vertex_shader_path: "shaders/triangle.vert",
+        fragment_shader_path: "shaders/triangle.frag",
+        vertex_layout: Some(SimpleVertexLayout {
+            stride: std::mem::size_of::<Vertex>(),
+            attribute_descriptions: Vertex::attribute_descriptions(0),
+        }),
+        msaa_samples,
+        descriptor_set_layout,
+        color_attachment,
+        depth_attachment: Some(depth_attachment),
+        resolve_attachment: Some(resolve_attachment),
+        logical_device,
+    };
+    build_simple_pipeline(pipeline)
 }
 
 fn create_postprocess_pipeline(
@@ -865,62 +758,7 @@ fn create_postprocess_pipeline(
     swapchain_image_format: vk::SurfaceFormatKHR,
     logical_device: &Device,
 ) -> (vk::Pipeline, vk::PipelineLayout, vk::RenderPass) {
-    let vert_shader = compile_shader(
-        "shaders/quad.vert",
-        vk::ShaderStageFlags::VERTEX,
-        logical_device,
-    );
-    let frag_shader = compile_shader(
-        "shaders/postprocess.frag",
-        vk::ShaderStageFlags::FRAGMENT,
-        logical_device,
-    );
-    let shader_stages = [vert_shader.stage_info, frag_shader.stage_info];
-    let dynamic_state = vk::PipelineDynamicStateCreateInfo::builder()
-        .dynamic_states(&[vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR]);
-    let vertex_input = vk::PipelineVertexInputStateCreateInfo::builder()
-        .vertex_binding_descriptions(&[])
-        .vertex_attribute_descriptions(&[]);
-    let input_assembly = vk::PipelineInputAssemblyStateCreateInfo::builder()
-        .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
-        .primitive_restart_enable(false);
-    let viewport_state = vk::PipelineViewportStateCreateInfo::builder()
-        .viewport_count(1)
-        .scissor_count(1);
-    let rasterizer = vk::PipelineRasterizationStateCreateInfo::builder()
-        .depth_clamp_enable(false)
-        .rasterizer_discard_enable(false)
-        .polygon_mode(vk::PolygonMode::FILL)
-        .line_width(1.)
-        .cull_mode(vk::CullModeFlags::BACK)
-        .front_face(vk::FrontFace::COUNTER_CLOCKWISE)
-        .depth_bias_enable(false)
-        .depth_bias_constant_factor(0.)
-        .depth_bias_clamp(0.)
-        .depth_bias_slope_factor(0.);
-    let multisampling = vk::PipelineMultisampleStateCreateInfo::builder()
-        .sample_shading_enable(false)
-        .rasterization_samples(vk::SampleCountFlags::TYPE_1)
-        .min_sample_shading(1.)
-        .sample_mask(&[])
-        .alpha_to_coverage_enable(false)
-        .alpha_to_one_enable(false);
-    let color_blend_attachment = vk::PipelineColorBlendAttachmentState::builder()
-        .color_write_mask(vk::ColorComponentFlags::RGBA)
-        .blend_enable(false);
-    let color_blend_attachments = [*color_blend_attachment];
-    let color_blending = vk::PipelineColorBlendStateCreateInfo::builder()
-        .logic_op_enable(false)
-        .logic_op(vk::LogicOp::COPY)
-        .attachments(&color_blend_attachments);
-    let set_layouts = [descriptor_set_layout];
-    let pipeline_layout_info = vk::PipelineLayoutCreateInfo::builder()
-        .set_layouts(&set_layouts)
-        .push_constant_ranges(&[]);
-    let pipeline_layout =
-        unsafe { logical_device.create_pipeline_layout(&pipeline_layout_info, None) }.unwrap();
-
-    let color_attachment = vk::AttachmentDescription::builder()
+    let color_attachment = *vk::AttachmentDescription::builder()
         .format(swapchain_image_format.format)
         .samples(vk::SampleCountFlags::TYPE_1)
         .load_op(vk::AttachmentLoadOp::DONT_CARE)
@@ -929,61 +767,18 @@ fn create_postprocess_pipeline(
         .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
         .initial_layout(vk::ImageLayout::UNDEFINED)
         .final_layout(vk::ImageLayout::PRESENT_SRC_KHR);
-    let color_attachment_ref = vk::AttachmentReference::builder()
-        .attachment(0)
-        .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL);
-    let color_attachments = [*color_attachment_ref];
-    let subpass = vk::SubpassDescription::builder()
-        .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
-        .color_attachments(&color_attachments);
-    let attachments = [*color_attachment];
-    let subpasses = [*subpass];
-    let render_pass_info = vk::RenderPassCreateInfo::builder()
-        .attachments(&attachments)
-        .subpasses(&subpasses);
-    let render_pass =
-        unsafe { logical_device.create_render_pass(&render_pass_info, None) }.unwrap();
-
-    let pipeline_info = vk::GraphicsPipelineCreateInfo::builder()
-        .stages(&shader_stages)
-        .vertex_input_state(&vertex_input)
-        .input_assembly_state(&input_assembly)
-        .viewport_state(&viewport_state)
-        .rasterization_state(&rasterizer)
-        .multisample_state(&multisampling)
-        .color_blend_state(&color_blending)
-        .dynamic_state(&dynamic_state)
-        .layout(pipeline_layout)
-        .render_pass(render_pass)
-        .subpass(0);
-    let pipeline = unsafe {
-        logical_device.create_graphics_pipelines(vk::PipelineCache::null(), &[*pipeline_info], None)
-    }
-    .unwrap()
-    .into_iter()
-    .next()
-    .unwrap();
-
-    (pipeline, pipeline_layout, render_pass)
-}
-
-fn compile_shader<'a>(
-    glsl_path: &str,
-    stage: vk::ShaderStageFlags,
-    logical_device: &'a Device,
-) -> Shader<'a> {
-    let spirv_path = format!("{glsl_path}.spv");
-    if !exists_newer_file(&spirv_path, glsl_path) {
-        let status = std::process::Command::new("glslc")
-            .arg(glsl_path)
-            .arg("-o")
-            .arg(&spirv_path)
-            .status()
-            .unwrap();
-        assert!(status.success());
-        debug!("shader GLSL compiled, \x1B[1mpath\x1B[0m: {glsl_path}");
-    }
-    Shader::compile(logical_device, &spirv_path, stage)
+    let pipeline = SimplePipeline {
+        vertex_shader_path: "shaders/quad.vert",
+        fragment_shader_path: "shaders/postprocess.frag",
+        vertex_layout: None,
+        msaa_samples: vk::SampleCountFlags::TYPE_1,
+        descriptor_set_layout,
+        color_attachment,
+        depth_attachment: None,
+        resolve_attachment: None,
+        logical_device,
+    };
+    build_simple_pipeline(pipeline)
 }
 
 fn create_command_pool(queue_families: &QueueFamilies, logical_device: &Device) -> vk::CommandPool {

@@ -1,6 +1,7 @@
 mod debug;
 mod device;
 mod lifecycle;
+mod pipeline;
 mod shader;
 mod traits;
 mod uniform;
