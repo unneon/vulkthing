@@ -15,8 +15,8 @@ layout(location = 1) out vec3 frag_normal;
 layout(location = 2) out vec2 frag_tex_coord;
 
 void main() {
-    gl_Position = mvp.proj * mvp.view * mvp.model * vec4(in_position, 1.0);
-    frag_position = vec3(mvp.model * vec4(in_position, 1.0));
+    gl_Position = mvp.proj * mvp.view * mvp.model * vec4(in_position, 1);
+    frag_position = (mvp.model * vec4(in_position, 1)).xyz;
     frag_normal = in_normal;
     frag_tex_coord = in_tex_coord;
 }

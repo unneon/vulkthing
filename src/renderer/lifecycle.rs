@@ -72,8 +72,7 @@ impl Renderer {
             &swapchain_extension,
         );
         let descriptor_set_layout = create_descriptor_set_layout(&logical_device);
-        let offscreen_sampler =
-            create_offscreen_sampler(&instance, physical_device, &logical_device);
+        let offscreen_sampler = create_offscreen_sampler(&logical_device);
         let postprocess_descriptor_set_layout =
             create_postprocess_descriptor_set_layout(offscreen_sampler, &logical_device);
         let msaa_samples = util::find_max_msaa_samples(&instance, physical_device);
@@ -158,8 +157,6 @@ impl Renderer {
                 descriptor_set_layout,
                 descriptor_pool,
                 &light.buffers,
-                &noise_texture,
-                noise_sampler,
                 &instance,
                 physical_device,
                 &logical_device,
@@ -737,8 +734,8 @@ fn create_pipeline(
         .initial_layout(vk::ImageLayout::UNDEFINED)
         .final_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL);
     let pipeline = SimplePipeline {
-        vertex_shader_path: "shaders/triangle.vert",
-        fragment_shader_path: "shaders/triangle.frag",
+        vertex_shader_path: "shaders/model.vert",
+        fragment_shader_path: "shaders/model.frag",
         vertex_layout: Some(SimpleVertexLayout {
             stride: std::mem::size_of::<Vertex>(),
             attribute_descriptions: Vertex::attribute_descriptions(0),
@@ -972,44 +969,19 @@ fn create_texture_sampler(
     let sampler_info = vk::SamplerCreateInfo::builder()
         .mag_filter(vk::Filter::LINEAR)
         .min_filter(vk::Filter::LINEAR)
-        .address_mode_u(vk::SamplerAddressMode::REPEAT)
-        .address_mode_v(vk::SamplerAddressMode::REPEAT)
-        .address_mode_w(vk::SamplerAddressMode::REPEAT)
         .anisotropy_enable(true)
         .max_anisotropy(properties.limits.max_sampler_anisotropy)
-        .border_color(vk::BorderColor::INT_OPAQUE_BLACK)
-        .unnormalized_coordinates(false)
-        .compare_enable(false)
-        .compare_op(vk::CompareOp::ALWAYS)
         .mipmap_mode(vk::SamplerMipmapMode::LINEAR)
         .min_lod(0.)
-        .max_lod(mip_levels as f32)
-        .mip_lod_bias(0.);
+        .max_lod(mip_levels as f32);
     unsafe { logical_device.create_sampler(&sampler_info, None) }.unwrap()
 }
 
-fn create_offscreen_sampler(
-    instance: &Instance,
-    physical_device: vk::PhysicalDevice,
-    logical_device: &Device,
-) -> vk::Sampler {
-    let properties = unsafe { instance.get_physical_device_properties(physical_device) };
+fn create_offscreen_sampler(logical_device: &Device) -> vk::Sampler {
     let sampler_info = vk::SamplerCreateInfo::builder()
-        .mag_filter(vk::Filter::LINEAR)
-        .min_filter(vk::Filter::LINEAR)
-        .address_mode_u(vk::SamplerAddressMode::REPEAT)
-        .address_mode_v(vk::SamplerAddressMode::REPEAT)
-        .address_mode_w(vk::SamplerAddressMode::REPEAT)
-        .anisotropy_enable(true)
-        .max_anisotropy(properties.limits.max_sampler_anisotropy)
-        .border_color(vk::BorderColor::INT_OPAQUE_BLACK)
-        .unnormalized_coordinates(false)
-        .compare_enable(false)
-        .compare_op(vk::CompareOp::ALWAYS)
-        .mipmap_mode(vk::SamplerMipmapMode::LINEAR)
-        .min_lod(0.)
-        .max_lod(0.)
-        .mip_lod_bias(0.);
+        .address_mode_u(vk::SamplerAddressMode::CLAMP_TO_BORDER)
+        .address_mode_v(vk::SamplerAddressMode::CLAMP_TO_BORDER)
+        .unnormalized_coordinates(true);
     unsafe { logical_device.create_sampler(&sampler_info, None) }.unwrap()
 }
 
@@ -1018,8 +990,6 @@ fn create_object(
     descriptor_set_layout: vk::DescriptorSetLayout,
     descriptor_pool: vk::DescriptorPool,
     light_buffers: &[vk::Buffer],
-    noise_texture: &ImageResources,
-    noise_sampler: vk::Sampler,
     instance: &Instance,
     physical_device: vk::PhysicalDevice,
     logical_device: &Device,
@@ -1060,8 +1030,8 @@ fn create_object(
         &mvp.buffers,
         &material.buffers,
         light_buffers,
-        noise_texture.view,
-        noise_sampler,
+        texture.view,
+        texture_sampler,
         logical_device,
     );
     Object {
