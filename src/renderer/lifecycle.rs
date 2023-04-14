@@ -76,13 +76,8 @@ impl Renderer {
         let postprocess_descriptor_set_layout =
             create_postprocess_descriptor_set_layout(offscreen_sampler, &logical_device);
         let msaa_samples = util::find_max_msaa_samples(&instance, physical_device);
-        let (pipeline, pipeline_layout, pipeline_render_pass) = create_pipeline(
-            descriptor_set_layout,
-            msaa_samples,
-            &instance,
-            physical_device,
-            &logical_device,
-        );
+        let (pipeline, pipeline_layout, pipeline_render_pass) =
+            create_pipeline(descriptor_set_layout, msaa_samples, &logical_device);
         let (postprocess_pipeline, postprocess_pipeline_layout, postprocess_pass) =
             create_postprocess_pipeline(
                 postprocess_descriptor_set_layout,
@@ -702,8 +697,6 @@ fn create_postprocess_descriptor_set_layout(
 fn create_pipeline(
     descriptor_set_layout: vk::DescriptorSetLayout,
     msaa_samples: vk::SampleCountFlags,
-    instance: &Instance,
-    physical_device: vk::PhysicalDevice,
     logical_device: &Device,
 ) -> (vk::Pipeline, vk::PipelineLayout, vk::RenderPass) {
     let color_attachment = *vk::AttachmentDescription::builder()
@@ -716,7 +709,7 @@ fn create_pipeline(
         .initial_layout(vk::ImageLayout::UNDEFINED)
         .final_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL);
     let depth_attachment = *vk::AttachmentDescription::builder()
-        .format(select_depth_format(instance, physical_device))
+        .format(vk::Format::D16_UNORM)
         .samples(msaa_samples)
         .load_op(vk::AttachmentLoadOp::CLEAR)
         .store_op(vk::AttachmentStoreOp::DONT_CARE)
@@ -876,9 +869,8 @@ fn create_depth_resources(
     physical_device: vk::PhysicalDevice,
     logical_device: &Device,
 ) -> ImageResources {
-    let format = select_depth_format(instance, physical_device);
     let (image, memory) = util::create_image(
-        format,
+        vk::Format::D16_UNORM,
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
         vk::ImageTiling::OPTIMAL,
         vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
@@ -892,7 +884,7 @@ fn create_depth_resources(
     );
     let view = util::create_image_view(
         image,
-        format,
+        vk::Format::D16_UNORM,
         vk::ImageAspectFlags::DEPTH,
         1,
         logical_device,
@@ -902,20 +894,6 @@ fn create_depth_resources(
         memory,
         view,
     }
-}
-
-fn select_depth_format(instance: &Instance, physical_device: vk::PhysicalDevice) -> vk::Format {
-    util::select_format(
-        &[
-            vk::Format::D32_SFLOAT,
-            vk::Format::D32_SFLOAT_S8_UINT,
-            vk::Format::D24_UNORM_S8_UINT,
-        ],
-        vk::FormatFeatureFlags::DEPTH_STENCIL_ATTACHMENT,
-        vk::ImageTiling::OPTIMAL,
-        instance,
-        physical_device,
-    )
 }
 
 fn create_framebuffers(

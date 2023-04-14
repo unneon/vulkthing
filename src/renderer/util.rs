@@ -697,27 +697,6 @@ fn find_memory_type(
     );
 }
 
-pub fn select_format(
-    candidates: &[vk::Format],
-    features: vk::FormatFeatureFlags,
-    tiling: vk::ImageTiling,
-    instance: &Instance,
-    physical_device: vk::PhysicalDevice,
-) -> vk::Format {
-    for format in candidates {
-        let props =
-            unsafe { instance.get_physical_device_format_properties(physical_device, *format) };
-        let matching_linear = tiling == vk::ImageTiling::LINEAR
-            && (props.linear_tiling_features & features) == features;
-        let matching_optimal = tiling == vk::ImageTiling::OPTIMAL
-            && (props.optimal_tiling_features & features) == features;
-        if matching_linear || matching_optimal {
-            return *format;
-        }
-    }
-    panic!("no supported format");
-}
-
 pub fn exists_newer_file(path: &str, reference: &str) -> bool {
     let Ok(meta) = std::fs::metadata(path) else { return false; };
     let path_mtime = meta.modified().unwrap();
