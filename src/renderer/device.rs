@@ -6,14 +6,8 @@ use std::ffi::CStr;
 #[derive(Clone)]
 pub struct DeviceInfo {
     pub physical_device: vk::PhysicalDevice,
-    pub queue_families: QueueFamilies,
+    pub queue_family: u32,
     pub surface_formats: Vec<vk::SurfaceFormatKHR>,
-}
-
-#[derive(Clone)]
-pub struct QueueFamilies {
-    pub graphics: u32,
-    pub present: u32,
 }
 
 pub fn select_device(
@@ -37,17 +31,9 @@ pub fn select_device(
             .to_owned();
 
         // The GPU has to have a graphics queue. Otherwise there's no way to do any rendering
-        // operations, so this must be some weird compute-only accelerator or something. This also
-        // checks whether there is a present queue. This could be worked around using two separate
-        // GPUs (or just one for headless benchmarking), but the OS should take care of handling
-        // this sort of stuff between devices, probably?
-        let Some(graphics) = find_graphics_queue(&queue_families) else {
-            warn!("physical device rejected, no graphics queue, \x1B[1mname\x1B[0m: {name}");
-            continue;
-        };
-
-        let Some(present) = find_present_queue(&queue_families, surface_extension, device, surface) else {
-            warn!("physical device rejected, no present queue, \x1B[1mname\x1B[0m: {name}");
+        // operations, so this must be some weird compute-only accelerator or something.
+        let Some(queue_family) = find_suitable_queue(&queue_families, surface_extension, device, surface) else {
+            warn!("physical device rejected, no suitable queue, \x1B[1mname\x1B[0m: {name}");
             continue;
         };
 
@@ -83,7 +69,7 @@ pub fn select_device(
         debug!("physical device selected, \x1B[1mname\x1B[0m: {name}");
         return DeviceInfo {
             physical_device: device,
-            queue_families: QueueFamilies { graphics, present },
+            queue_family,
             surface_formats,
         };
     }
@@ -91,34 +77,21 @@ pub fn select_device(
     panic!("gpu not found");
 }
 
-fn find_graphics_queue(queues: &[vk::QueueFamilyProperties]) -> Option<u32> {
-    find_queue(queues, |_, q| {
-        q.queue_flags.contains(vk::QueueFlags::GRAPHICS)
-    })
-}
-
-fn find_present_queue(
+fn find_suitable_queue(
     queues: &[vk::QueueFamilyProperties],
     surface_extension: &Surface,
     device: vk::PhysicalDevice,
     surface: vk::SurfaceKHR,
 ) -> Option<u32> {
-    find_queue(queues, |i, _| {
-        unsafe { surface_extension.get_physical_device_surface_support(device, i, surface) }
-            .unwrap()
-    })
-}
-
-fn find_queue(
-    queues: &[vk::QueueFamilyProperties],
-    p: impl Fn(u32, &vk::QueueFamilyProperties) -> bool,
-) -> Option<u32> {
-    // Find the first queue that supports a given operation and return it. Not sure what to do when
-    // there are multiple queues that support an operation? Also, graphics queue being distinct from
-    // present queue is supposed to be somewhat rare, so not sure where can I test it.
-    for (index, queue) in queues.iter().enumerate() {
+    // Some devices have separate graphics and present queues, but let's ignore them for now.
+    for (index, family) in queues.iter().enumerate() {
         let index = index as u32;
-        if p(index, queue) {
+        let supports_graphics = family.queue_flags.contains(vk::QueueFlags::GRAPHICS);
+        let supports_present = unsafe {
+            surface_extension.get_physical_device_surface_support(device, index, surface)
+        }
+        .unwrap();
+        if supports_graphics && supports_present {
             return Some(index);
         }
     }

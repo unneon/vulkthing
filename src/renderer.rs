@@ -8,7 +8,6 @@ mod uniform;
 mod util;
 pub mod vertex;
 
-use crate::renderer::device::QueueFamilies;
 use crate::renderer::uniform::{Light, Material, ModelViewProjection};
 use crate::world::{Entity, World};
 use ash::extensions::khr::Swapchain;
@@ -23,9 +22,8 @@ pub struct Renderer {
     debug_messenger: vk::DebugUtilsMessengerEXT,
     surface: vk::SurfaceKHR,
     physical_device: vk::PhysicalDevice,
-    queue_families: QueueFamilies,
     logical_device: Device,
-    queues: util::Queues,
+    queue: vk::Queue,
     swapchain_extension: Swapchain,
     swapchain_format: vk::SurfaceFormatKHR,
     swapchain_extent: vk::Extent2D,
@@ -283,7 +281,7 @@ impl Renderer {
             .signal_semaphores(&signal_semaphores);
         unsafe {
             self.logical_device.queue_submit(
-                self.queues.graphics,
+                self.queue,
                 &[*submit_info],
                 self.sync.in_flight[self.flight_index],
             )
@@ -303,7 +301,7 @@ impl Renderer {
             .image_indices(&image_indices);
         unsafe {
             self.swapchain_extension
-                .queue_present(self.queues.present, &present_info)
+                .queue_present(self.queue, &present_info)
         }
         .unwrap();
     }

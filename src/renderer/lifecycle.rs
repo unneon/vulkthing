@@ -1,10 +1,10 @@
 use crate::model::Model;
 use crate::renderer::debug::create_debug_messenger;
-use crate::renderer::device::{select_device, DeviceInfo, QueueFamilies};
+use crate::renderer::device::{select_device, DeviceInfo};
 use crate::renderer::pipeline::{build_simple_pipeline, SimplePipeline, SimpleVertexLayout};
 use crate::renderer::traits::VertexOps;
 use crate::renderer::uniform::{Light, Material, ModelViewProjection};
-use crate::renderer::util::{ImageResources, Queues, VulkanExtensions};
+use crate::renderer::util::{ImageResources, VulkanExtensions};
 use crate::renderer::vertex::Vertex;
 use crate::renderer::{util, Object, Renderer, Synchronization, UniformBuffer, FRAMES_IN_FLIGHT};
 use crate::window::Window;
@@ -15,7 +15,6 @@ use ash::{vk, Device, Entry, Instance};
 use nalgebra_glm as glm;
 use nalgebra_glm::Mat4;
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
-use std::collections::HashSet;
 use std::f32::consts::FRAC_PI_4;
 use std::ffi::CString;
 use std::mem::MaybeUninit;
@@ -38,16 +37,11 @@ impl Renderer {
         let surface = create_surface(window, &entry, &instance);
         let DeviceInfo {
             physical_device,
-            queue_families,
+            queue_family,
             surface_formats,
         } = select_device(&instance, &extensions.surface, surface);
-        let logical_device = create_logical_device(&queue_families, &instance, physical_device);
-        let graphics_queue = unsafe { logical_device.get_device_queue(queue_families.graphics, 0) };
-        let present_queue = unsafe { logical_device.get_device_queue(queue_families.present, 0) };
-        let queues = Queues {
-            graphics: graphics_queue,
-            present: present_queue,
-        };
+        let logical_device = create_logical_device(queue_family, &instance, physical_device);
+        let queue = unsafe { logical_device.get_device_queue(queue_family, 0) };
 
         let swapchain_format = select_swapchain_format(&surface_formats);
         let msaa_samples = util::find_max_msaa_samples(&instance, physical_device);
@@ -90,7 +84,6 @@ impl Renderer {
             &extensions.surface,
             &swapchain_extension,
             physical_device,
-            &queue_families,
             &logical_device,
             surface,
             msaa_samples,
@@ -100,7 +93,7 @@ impl Renderer {
             postprocess_descriptor_pool,
         );
 
-        let command_pool = create_command_pool(&queue_families, &logical_device);
+        let command_pool = create_command_pool(queue_family, &logical_device);
         let command_buffers = create_command_buffers(&logical_device, command_pool);
 
         let descriptor_pool = create_descriptor_pool(&logical_device);
@@ -112,7 +105,7 @@ impl Renderer {
             &instance,
             physical_device,
             &logical_device,
-            graphics_queue,
+            queue,
             command_pool,
         );
         let noise_sampler = create_texture_sampler(1, &instance, physical_device, &logical_device);
@@ -127,7 +120,7 @@ impl Renderer {
                 &instance,
                 physical_device,
                 &logical_device,
-                queues.graphics,
+                queue,
                 command_pool,
             );
             objects.push(object);
@@ -141,9 +134,8 @@ impl Renderer {
             debug_messenger,
             surface,
             physical_device,
-            queue_families,
             logical_device,
-            queues,
+            queue,
             swapchain_extension,
             swapchain_format,
             swapchain_extent,
@@ -220,7 +212,6 @@ impl Renderer {
             &self.extensions.surface,
             &self.swapchain_extension,
             self.physical_device,
-            &self.queue_families,
             &self.logical_device,
             self.surface,
             self.msaa_samples,
@@ -411,24 +402,13 @@ fn create_surface(window: &Window, entry: &Entry, instance: &Instance) -> vk::Su
 }
 
 fn create_logical_device(
-    queue_families: &QueueFamilies,
+    queue_family: u32,
     instance: &Instance,
     physical_device: vk::PhysicalDevice,
 ) -> Device {
-    // Queues from the same family must be created at once, so we need to use a set to eliminate
-    // duplicates. If the queue families are the same, we create only a single queue and keep
-    // two handles. This needs to be remembered later when setting flags related to memory
-    // access being exclusive to the queue or concurrent from many queues.
-    let queue_indices = HashSet::from([queue_families.graphics, queue_families.present]);
-    let queue_creates: Vec<_> = queue_indices
-        .iter()
-        .map(|queue_index| {
-            vk::DeviceQueueCreateInfo::builder()
-                .queue_family_index(*queue_index)
-                .queue_priorities(&[1.])
-                .build()
-        })
-        .collect();
+    let queue_create = *vk::DeviceQueueCreateInfo::builder()
+        .queue_family_index(queue_family)
+        .queue_priorities(&[1.]);
 
     let physical_device_features = vk::PhysicalDeviceFeatures::builder().sampler_anisotropy(true);
 
@@ -440,7 +420,7 @@ fn create_logical_device(
         instance.create_device(
             physical_device,
             &vk::DeviceCreateInfo::builder()
-                .queue_create_infos(&queue_creates)
+                .queue_create_infos(std::slice::from_ref(&queue_create))
                 .enabled_features(&physical_device_features)
                 .enabled_layer_names(&layer_names)
                 .enabled_extension_names(&[Swapchain::name().as_ptr()]),
@@ -508,13 +488,11 @@ fn create_swapchain(
     extension: &Swapchain,
     surface: vk::SurfaceKHR,
     surface_capabilities: vk::SurfaceCapabilitiesKHR,
-    queue_families: &QueueFamilies,
 ) -> vk::SwapchainKHR {
     // Create the swapchain for presenting images to display. Set to prefer triple buffering
     // right now, should be possible to change on laptops or integrated GPUs? Also requires
     // specifying a bunch of display-related parameters, which aren't very interesting as they
     // were mostly decided on previously.
-    let queue_family_indices = [queue_families.graphics, queue_families.present];
     let create_info = vk::SwapchainCreateInfoKHR::builder()
         .surface(surface)
         .min_image_count(image_count as u32)
@@ -522,15 +500,8 @@ fn create_swapchain(
         .image_color_space(format.color_space)
         .image_extent(extent)
         .image_array_layers(1)
-        .image_usage(vk::ImageUsageFlags::COLOR_ATTACHMENT);
-    let create_info = if queue_families.graphics != queue_families.present {
-        create_info
-            .image_sharing_mode(vk::SharingMode::CONCURRENT)
-            .queue_family_indices(&queue_family_indices)
-    } else {
-        create_info.image_sharing_mode(vk::SharingMode::EXCLUSIVE)
-    };
-    let create_info = create_info
+        .image_usage(vk::ImageUsageFlags::COLOR_ATTACHMENT)
+        .image_sharing_mode(vk::SharingMode::EXCLUSIVE)
         .pre_transform(surface_capabilities.current_transform)
         .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE)
         .present_mode(present_mode)
@@ -567,7 +538,6 @@ fn create_swapchain_all(
     surface_ext: &Surface,
     swapchain_ext: &Swapchain,
     physical_device: vk::PhysicalDevice,
-    queue_families: &QueueFamilies,
     logical_device: &Device,
     surface: vk::SurfaceKHR,
     msaa_samples: vk::SampleCountFlags,
@@ -611,7 +581,6 @@ fn create_swapchain_all(
         swapchain_ext,
         surface,
         surface_capabilities,
-        queue_families,
     );
     let swapchain_image_views =
         create_swapchain_image_views(swapchain, swapchain_format, logical_device, swapchain_ext);
@@ -792,10 +761,10 @@ fn create_postprocess_pipeline(
     build_simple_pipeline(pipeline)
 }
 
-fn create_command_pool(queue_families: &QueueFamilies, logical_device: &Device) -> vk::CommandPool {
+fn create_command_pool(queue_family: u32, logical_device: &Device) -> vk::CommandPool {
     let command_pool_info = vk::CommandPoolCreateInfo::builder()
         .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
-        .queue_family_index(queue_families.graphics);
+        .queue_family_index(queue_family);
     unsafe { logical_device.create_command_pool(&command_pool_info, None) }.unwrap()
 }
 
@@ -992,7 +961,7 @@ fn create_object(
     instance: &Instance,
     physical_device: vk::PhysicalDevice,
     logical_device: &Device,
-    graphics_queue: vk::Queue,
+    queue: vk::Queue,
     command_pool: vk::CommandPool,
 ) -> Object {
     let (vertex_buffer, vertex_buffer_memory) = create_vertex_buffer(
@@ -1000,7 +969,7 @@ fn create_object(
         instance,
         physical_device,
         logical_device,
-        graphics_queue,
+        queue,
         command_pool,
     );
     let (index_buffer, index_buffer_memory) = create_index_buffer(
@@ -1008,7 +977,7 @@ fn create_object(
         instance,
         physical_device,
         logical_device,
-        graphics_queue,
+        queue,
         command_pool,
     );
     let mvp = create_uniform_buffer(instance, physical_device, logical_device);
@@ -1017,7 +986,7 @@ fn create_object(
         instance,
         physical_device,
         logical_device,
-        graphics_queue,
+        queue,
         command_pool,
     );
     let texture_sampler =
@@ -1052,7 +1021,7 @@ fn create_vertex_buffer(
     instance: &Instance,
     physical_device: vk::PhysicalDevice,
     logical_device: &Device,
-    graphics_queue: vk::Queue,
+    queue: vk::Queue,
     command_pool: vk::CommandPool,
 ) -> (vk::Buffer, vk::DeviceMemory) {
     let vertex_size = std::mem::size_of::<Vertex>();
@@ -1082,7 +1051,7 @@ fn create_vertex_buffer(
         vertex_buffer,
         vertex_buffer_size,
         logical_device,
-        graphics_queue,
+        queue,
         command_pool,
     );
     unsafe { logical_device.destroy_buffer(staging_buffer, None) };
@@ -1095,7 +1064,7 @@ fn create_index_buffer(
     instance: &Instance,
     physical_device: vk::PhysicalDevice,
     logical_device: &Device,
-    graphics_queue: vk::Queue,
+    queue: vk::Queue,
     command_pool: vk::CommandPool,
 ) -> (vk::Buffer, vk::DeviceMemory) {
     let index_size = std::mem::size_of_val(&index_data[0]);
@@ -1124,7 +1093,7 @@ fn create_index_buffer(
         index_buffer,
         index_buffer_size,
         logical_device,
-        graphics_queue,
+        queue,
         command_pool,
     );
     unsafe { logical_device.destroy_buffer(staging_buffer, None) };

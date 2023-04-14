@@ -17,11 +17,6 @@ pub struct VulkanExtensions {
     pub surface: Surface,
 }
 
-pub struct Queues {
-    pub graphics: vk::Queue,
-    pub present: vk::Queue,
-}
-
 pub fn create_buffer(
     properties: vk::MemoryPropertyFlags,
     usage: vk::BufferUsageFlags,
@@ -122,7 +117,7 @@ pub fn load_texture(
     instance: &Instance,
     physical_device: vk::PhysicalDevice,
     logical_device: &Device,
-    graphics_queue: vk::Queue,
+    queue: vk::Queue,
     command_pool: vk::CommandPool,
 ) -> (ImageResources, usize) {
     let image_cpu = image::open(path).unwrap().to_rgba8();
@@ -157,7 +152,7 @@ pub fn load_texture(
         vk::PipelineStageFlags::TRANSFER,
         mip_levels,
         logical_device,
-        graphics_queue,
+        queue,
         command_pool,
     );
 
@@ -178,7 +173,7 @@ pub fn load_texture(
         image_width,
         image_height,
         logical_device,
-        graphics_queue,
+        queue,
         command_pool,
     );
     unsafe { logical_device.destroy_buffer(staging_buffer, None) };
@@ -193,7 +188,7 @@ pub fn load_texture(
         instance,
         physical_device,
         logical_device,
-        graphics_queue,
+        queue,
         command_pool,
     );
 
@@ -235,7 +230,7 @@ pub fn generate_perlin_texture(
     instance: &Instance,
     physical_device: vk::PhysicalDevice,
     logical_device: &Device,
-    graphics_queue: vk::Queue,
+    queue: vk::Queue,
     command_pool: vk::CommandPool,
 ) -> ImageResources {
     let pixel_count = resolution * resolution;
@@ -268,7 +263,7 @@ pub fn generate_perlin_texture(
         vk::PipelineStageFlags::TRANSFER,
         1,
         logical_device,
-        graphics_queue,
+        queue,
         command_pool,
     );
 
@@ -306,7 +301,7 @@ pub fn generate_perlin_texture(
         resolution,
         resolution,
         logical_device,
-        graphics_queue,
+        queue,
         command_pool,
     );
     unsafe { logical_device.destroy_buffer(staging_buffer, None) };
@@ -322,7 +317,7 @@ pub fn generate_perlin_texture(
         vk::PipelineStageFlags::FRAGMENT_SHADER,
         1,
         logical_device,
-        graphics_queue,
+        queue,
         command_pool,
     );
 
@@ -352,42 +347,37 @@ pub fn transition_image_layout(
     dst_stage_mask: vk::PipelineStageFlags,
     mip_levels: usize,
     logical_device: &Device,
-    graphics_queue: vk::Queue,
+    queue: vk::Queue,
     command_pool: vk::CommandPool,
 ) {
-    onetime_commands(
-        logical_device,
-        graphics_queue,
-        command_pool,
-        move |command_buffer| {
-            let barrier = vk::ImageMemoryBarrier::builder()
-                .src_access_mask(src_access_mask)
-                .dst_access_mask(dst_access_mask)
-                .old_layout(old_layout)
-                .new_layout(new_layout)
-                .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-                .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-                .image(image)
-                .subresource_range(vk::ImageSubresourceRange {
-                    aspect_mask: vk::ImageAspectFlags::COLOR,
-                    base_mip_level: 0,
-                    level_count: mip_levels as u32,
-                    base_array_layer: 0,
-                    layer_count: 1,
-                });
-            unsafe {
-                logical_device.cmd_pipeline_barrier(
-                    command_buffer,
-                    src_stage_mask,
-                    dst_stage_mask,
-                    vk::DependencyFlags::empty(),
-                    &[],
-                    &[],
-                    &[*barrier],
-                )
-            };
-        },
-    );
+    onetime_commands(logical_device, queue, command_pool, move |command_buffer| {
+        let barrier = vk::ImageMemoryBarrier::builder()
+            .src_access_mask(src_access_mask)
+            .dst_access_mask(dst_access_mask)
+            .old_layout(old_layout)
+            .new_layout(new_layout)
+            .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+            .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+            .image(image)
+            .subresource_range(vk::ImageSubresourceRange {
+                aspect_mask: vk::ImageAspectFlags::COLOR,
+                base_mip_level: 0,
+                level_count: mip_levels as u32,
+                base_array_layer: 0,
+                layer_count: 1,
+            });
+        unsafe {
+            logical_device.cmd_pipeline_barrier(
+                command_buffer,
+                src_stage_mask,
+                dst_stage_mask,
+                vk::DependencyFlags::empty(),
+                &[],
+                &[],
+                &[*barrier],
+            )
+        };
+    });
 }
 
 fn copy_buffer_to_image(
@@ -396,43 +386,38 @@ fn copy_buffer_to_image(
     width: usize,
     height: usize,
     logical_device: &Device,
-    graphics_queue: vk::Queue,
+    queue: vk::Queue,
     command_pool: vk::CommandPool,
 ) {
-    onetime_commands(
-        logical_device,
-        graphics_queue,
-        command_pool,
-        move |command_buffer| {
-            let region = vk::BufferImageCopy {
-                buffer_offset: 0,
-                buffer_row_length: 0,
-                buffer_image_height: 0,
-                image_subresource: vk::ImageSubresourceLayers {
-                    aspect_mask: vk::ImageAspectFlags::COLOR,
-                    mip_level: 0,
-                    base_array_layer: 0,
-                    layer_count: 1,
-                },
-                image_offset: vk::Offset3D { x: 0, y: 0, z: 0 },
-                image_extent: vk::Extent3D {
-                    width: width as u32,
-                    height: height as u32,
-                    depth: 1,
-                },
-            };
+    onetime_commands(logical_device, queue, command_pool, move |command_buffer| {
+        let region = vk::BufferImageCopy {
+            buffer_offset: 0,
+            buffer_row_length: 0,
+            buffer_image_height: 0,
+            image_subresource: vk::ImageSubresourceLayers {
+                aspect_mask: vk::ImageAspectFlags::COLOR,
+                mip_level: 0,
+                base_array_layer: 0,
+                layer_count: 1,
+            },
+            image_offset: vk::Offset3D { x: 0, y: 0, z: 0 },
+            image_extent: vk::Extent3D {
+                width: width as u32,
+                height: height as u32,
+                depth: 1,
+            },
+        };
 
-            unsafe {
-                logical_device.cmd_copy_buffer_to_image(
-                    command_buffer,
-                    buffer,
-                    image,
-                    vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-                    &[region],
-                )
-            };
-        },
-    );
+        unsafe {
+            logical_device.cmd_copy_buffer_to_image(
+                command_buffer,
+                buffer,
+                image,
+                vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                &[region],
+            )
+        };
+    });
 }
 
 fn generate_mipmaps(
@@ -444,7 +429,7 @@ fn generate_mipmaps(
     instance: &Instance,
     physical_device: vk::PhysicalDevice,
     logical_device: &Device,
-    graphics_queue: vk::Queue,
+    queue: vk::Queue,
     command_pool: vk::CommandPool,
 ) {
     let format_properties =
@@ -453,119 +438,90 @@ fn generate_mipmaps(
         .optimal_tiling_features
         .contains(vk::FormatFeatureFlags::SAMPLED_IMAGE_FILTER_LINEAR));
 
-    onetime_commands(
-        logical_device,
-        graphics_queue,
-        command_pool,
-        move |command_buffer| {
-            let mut barrier = *vk::ImageMemoryBarrier::builder()
-                .image(image)
-                .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-                .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-                .subresource_range(vk::ImageSubresourceRange {
+    onetime_commands(logical_device, queue, command_pool, move |command_buffer| {
+        let mut barrier = *vk::ImageMemoryBarrier::builder()
+            .image(image)
+            .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+            .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+            .subresource_range(vk::ImageSubresourceRange {
+                aspect_mask: vk::ImageAspectFlags::COLOR,
+                base_mip_level: 0, // Will be set before submitting each command.
+                base_array_layer: 0,
+                layer_count: 1,
+                level_count: 1,
+            });
+        let mut mip_width = tex_width;
+        let mut mip_height = tex_height;
+        for i in 1..mip_levels {
+            barrier.subresource_range.base_mip_level = i as u32 - 1;
+            barrier.old_layout = vk::ImageLayout::TRANSFER_DST_OPTIMAL;
+            barrier.new_layout = vk::ImageLayout::TRANSFER_SRC_OPTIMAL;
+            barrier.src_access_mask = vk::AccessFlags::TRANSFER_WRITE;
+            barrier.dst_access_mask = vk::AccessFlags::TRANSFER_READ;
+            unsafe {
+                logical_device.cmd_pipeline_barrier(
+                    command_buffer,
+                    vk::PipelineStageFlags::TRANSFER,
+                    vk::PipelineStageFlags::TRANSFER,
+                    vk::DependencyFlags::empty(),
+                    &[],
+                    &[],
+                    &[barrier],
+                )
+            };
+
+            let blit = vk::ImageBlit::builder()
+                .src_offsets([
+                    vk::Offset3D { x: 0, y: 0, z: 0 },
+                    vk::Offset3D {
+                        x: mip_width as i32,
+                        y: mip_height as i32,
+                        z: 1,
+                    },
+                ])
+                .src_subresource(vk::ImageSubresourceLayers {
                     aspect_mask: vk::ImageAspectFlags::COLOR,
-                    base_mip_level: 0, // Will be set before submitting each command.
+                    mip_level: i as u32 - 1,
                     base_array_layer: 0,
                     layer_count: 1,
-                    level_count: 1,
+                })
+                .dst_offsets([
+                    vk::Offset3D { x: 0, y: 0, z: 0 },
+                    vk::Offset3D {
+                        x: if mip_width > 1 {
+                            mip_width as i32 / 2
+                        } else {
+                            1
+                        },
+                        y: if mip_height > 1 {
+                            mip_height as i32 / 2
+                        } else {
+                            1
+                        },
+                        z: 1,
+                    },
+                ])
+                .dst_subresource(vk::ImageSubresourceLayers {
+                    aspect_mask: vk::ImageAspectFlags::COLOR,
+                    mip_level: i as u32,
+                    base_array_layer: 0,
+                    layer_count: 1,
                 });
-            let mut mip_width = tex_width;
-            let mut mip_height = tex_height;
-            for i in 1..mip_levels {
-                barrier.subresource_range.base_mip_level = i as u32 - 1;
-                barrier.old_layout = vk::ImageLayout::TRANSFER_DST_OPTIMAL;
-                barrier.new_layout = vk::ImageLayout::TRANSFER_SRC_OPTIMAL;
-                barrier.src_access_mask = vk::AccessFlags::TRANSFER_WRITE;
-                barrier.dst_access_mask = vk::AccessFlags::TRANSFER_READ;
-                unsafe {
-                    logical_device.cmd_pipeline_barrier(
-                        command_buffer,
-                        vk::PipelineStageFlags::TRANSFER,
-                        vk::PipelineStageFlags::TRANSFER,
-                        vk::DependencyFlags::empty(),
-                        &[],
-                        &[],
-                        &[barrier],
-                    )
-                };
+            unsafe {
+                logical_device.cmd_blit_image(
+                    command_buffer,
+                    image,
+                    vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+                    image,
+                    vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                    &[*blit],
+                    vk::Filter::LINEAR,
+                )
+            };
 
-                let blit = vk::ImageBlit::builder()
-                    .src_offsets([
-                        vk::Offset3D { x: 0, y: 0, z: 0 },
-                        vk::Offset3D {
-                            x: mip_width as i32,
-                            y: mip_height as i32,
-                            z: 1,
-                        },
-                    ])
-                    .src_subresource(vk::ImageSubresourceLayers {
-                        aspect_mask: vk::ImageAspectFlags::COLOR,
-                        mip_level: i as u32 - 1,
-                        base_array_layer: 0,
-                        layer_count: 1,
-                    })
-                    .dst_offsets([
-                        vk::Offset3D { x: 0, y: 0, z: 0 },
-                        vk::Offset3D {
-                            x: if mip_width > 1 {
-                                mip_width as i32 / 2
-                            } else {
-                                1
-                            },
-                            y: if mip_height > 1 {
-                                mip_height as i32 / 2
-                            } else {
-                                1
-                            },
-                            z: 1,
-                        },
-                    ])
-                    .dst_subresource(vk::ImageSubresourceLayers {
-                        aspect_mask: vk::ImageAspectFlags::COLOR,
-                        mip_level: i as u32,
-                        base_array_layer: 0,
-                        layer_count: 1,
-                    });
-                unsafe {
-                    logical_device.cmd_blit_image(
-                        command_buffer,
-                        image,
-                        vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
-                        image,
-                        vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-                        &[*blit],
-                        vk::Filter::LINEAR,
-                    )
-                };
-
-                barrier.old_layout = vk::ImageLayout::TRANSFER_SRC_OPTIMAL;
-                barrier.new_layout = vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL;
-                barrier.src_access_mask = vk::AccessFlags::TRANSFER_READ;
-                barrier.dst_access_mask = vk::AccessFlags::SHADER_READ;
-                unsafe {
-                    logical_device.cmd_pipeline_barrier(
-                        command_buffer,
-                        vk::PipelineStageFlags::TRANSFER,
-                        vk::PipelineStageFlags::FRAGMENT_SHADER,
-                        vk::DependencyFlags::empty(),
-                        &[],
-                        &[],
-                        &[barrier],
-                    )
-                };
-
-                if mip_width > 1 {
-                    mip_width /= 2;
-                }
-                if mip_height > 1 {
-                    mip_height /= 2;
-                }
-            }
-
-            barrier.subresource_range.base_mip_level = mip_levels as u32 - 1;
-            barrier.old_layout = vk::ImageLayout::TRANSFER_DST_OPTIMAL;
+            barrier.old_layout = vk::ImageLayout::TRANSFER_SRC_OPTIMAL;
             barrier.new_layout = vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL;
-            barrier.src_access_mask = vk::AccessFlags::TRANSFER_WRITE;
+            barrier.src_access_mask = vk::AccessFlags::TRANSFER_READ;
             barrier.dst_access_mask = vk::AccessFlags::SHADER_READ;
             unsafe {
                 logical_device.cmd_pipeline_barrier(
@@ -578,8 +534,32 @@ fn generate_mipmaps(
                     &[barrier],
                 )
             };
-        },
-    );
+
+            if mip_width > 1 {
+                mip_width /= 2;
+            }
+            if mip_height > 1 {
+                mip_height /= 2;
+            }
+        }
+
+        barrier.subresource_range.base_mip_level = mip_levels as u32 - 1;
+        barrier.old_layout = vk::ImageLayout::TRANSFER_DST_OPTIMAL;
+        barrier.new_layout = vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL;
+        barrier.src_access_mask = vk::AccessFlags::TRANSFER_WRITE;
+        barrier.dst_access_mask = vk::AccessFlags::SHADER_READ;
+        unsafe {
+            logical_device.cmd_pipeline_barrier(
+                command_buffer,
+                vk::PipelineStageFlags::TRANSFER,
+                vk::PipelineStageFlags::FRAGMENT_SHADER,
+                vk::DependencyFlags::empty(),
+                &[],
+                &[],
+                &[barrier],
+            )
+        };
+    });
 }
 
 pub fn copy_buffer(
@@ -587,21 +567,16 @@ pub fn copy_buffer(
     dst: vk::Buffer,
     len: usize,
     logical_device: &Device,
-    graphics_queue: vk::Queue,
+    queue: vk::Queue,
     command_pool: vk::CommandPool,
 ) {
-    onetime_commands(
-        logical_device,
-        graphics_queue,
-        command_pool,
-        move |command_buffer| {
-            let copy_region = vk::BufferCopy::builder()
-                .src_offset(0)
-                .dst_offset(0)
-                .size(len as u64);
-            unsafe { logical_device.cmd_copy_buffer(command_buffer, src, dst, &[*copy_region]) };
-        },
-    );
+    onetime_commands(logical_device, queue, command_pool, move |command_buffer| {
+        let copy_region = vk::BufferCopy::builder()
+            .src_offset(0)
+            .dst_offset(0)
+            .size(len as u64);
+        unsafe { logical_device.cmd_copy_buffer(command_buffer, src, dst, &[*copy_region]) };
+    });
 }
 
 pub fn with_mapped_slice<T, R>(
