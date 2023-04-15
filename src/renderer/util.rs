@@ -671,6 +671,7 @@ fn onetime_commands<R>(
     result
 }
 
+// TODO: Use 4x or less MSAA samples, as recommended by AMD.
 pub fn find_max_msaa_samples(
     instance: &Instance,
     physical_device: vk::PhysicalDevice,

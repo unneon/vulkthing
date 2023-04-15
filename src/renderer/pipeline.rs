@@ -101,6 +101,8 @@ pub fn build_simple_pipeline(
 
     // Configuring conventions for the depth buffer. AMD FSR 2 has some recommendations to change
     // them from 0 1 to 0 infinity. I wonder what DLSS recommendations say.
+    // TODO: AMD recommends using reversed 1 0 depth to improve float distribution?
+    // TODO: AMD recommends to make the near value as high as possible.
     let depth_stencil = *vk::PipelineDepthStencilStateCreateInfo::builder()
         .depth_test_enable(config.depth_attachment.is_some())
         .depth_write_enable(config.depth_attachment.is_some())
