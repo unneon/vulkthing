@@ -78,6 +78,9 @@ pub struct Renderer {
     objects: Vec<Object>,
     noise_texture: ImageResources,
     noise_sampler: vk::Sampler,
+
+    pub imgui: imgui::Context,
+    imgui_renderer: Option<imgui_rs_vulkan_renderer::Renderer>,
 }
 
 struct VulkanExtensions {
@@ -163,16 +166,17 @@ impl Renderer {
         Some(image_index)
     }
 
-    unsafe fn record_command_buffer(&self, image_index: u32, world: &World) {
-        let dev = &self.logical_device;
+    unsafe fn record_command_buffer(&mut self, image_index: u32, world: &World) {
         let buf = self.command_buffers[self.flight_index];
 
         let begin_info = vk::CommandBufferBeginInfo::builder()
             .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
-        dev.begin_command_buffer(buf, &begin_info).unwrap();
+        self.logical_device
+            .begin_command_buffer(buf, &begin_info)
+            .unwrap();
         self.record_render_pass(buf, world);
         self.record_postprocess_pass(buf, image_index);
-        dev.end_command_buffer(buf).unwrap();
+        self.logical_device.end_command_buffer(buf).unwrap();
     }
 
     unsafe fn record_render_pass(&self, buf: vk::CommandBuffer, world: &World) {
@@ -222,7 +226,7 @@ impl Renderer {
         dev.cmd_end_render_pass(buf);
     }
 
-    unsafe fn record_postprocess_pass(&self, buf: vk::CommandBuffer, image_index: u32) {
+    unsafe fn record_postprocess_pass(&mut self, buf: vk::CommandBuffer, image_index: u32) {
         let dev = &self.logical_device;
         let pass_info = vk::RenderPassBeginInfo::builder()
             .render_pass(self.postprocess_pass)
@@ -249,6 +253,16 @@ impl Renderer {
             &[],
         );
         dev.cmd_draw(buf, 6, 1, 0, 0);
+
+        let ui = self.imgui.frame();
+        build_ui(ui);
+        // TODO: Hide cursor if necessary.
+        let draw_data = self.imgui.render();
+        self.imgui_renderer
+            .as_mut()
+            .unwrap()
+            .cmd_draw(buf, &draw_data)
+            .unwrap();
 
         dev.cmd_end_render_pass(buf);
     }
@@ -340,4 +354,12 @@ impl Renderer {
         }
         .unwrap();
     }
+}
+
+fn build_ui(ui: &mut imgui::Ui) {
+    ui.window("Hello, world!")
+        .size([300., 300.], imgui::Condition::FirstUseEver)
+        .build(|| {
+            ui.text_wrapped("test");
+        });
 }

@@ -14,6 +14,7 @@ use crate::{VULKAN_APP_NAME, VULKAN_APP_VERSION, VULKAN_ENGINE_NAME, VULKAN_ENGI
 use ash::extensions::ext::DebugUtils;
 use ash::extensions::khr::{Surface, Swapchain};
 use ash::{vk, Device, Entry, Instance};
+use imgui::FontSource;
 use nalgebra::Matrix4;
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use std::f32::consts::FRAC_PI_4;
@@ -125,6 +126,32 @@ impl Renderer {
         );
         let noise_sampler = create_texture_sampler(1, &instance, physical_device, &logical_device);
 
+        let mut imgui = imgui::Context::create();
+        imgui.set_ini_filename(None);
+        imgui
+            .fonts()
+            .add_font(&[FontSource::DefaultFontData { config: None }]);
+        imgui.io_mut().display_framebuffer_scale = [1., 1.];
+        imgui.io_mut().display_size = [
+            swapchain_extent.width as f32,
+            swapchain_extent.height as f32,
+        ];
+        let imgui_renderer = imgui_rs_vulkan_renderer::Renderer::with_default_allocator(
+            &instance,
+            physical_device,
+            logical_device.clone(),
+            queue,
+            command_pools[0],
+            postprocess_pass,
+            &mut imgui,
+            Some(imgui_rs_vulkan_renderer::Options {
+                in_flight_frames: FRAMES_IN_FLIGHT,
+                enable_depth_test: false,
+                enable_depth_write: false,
+            }),
+        )
+        .unwrap();
+
         Renderer {
             _entry: entry,
             instance,
@@ -166,6 +193,8 @@ impl Renderer {
             object_descriptor_pool,
             noise_texture,
             noise_sampler,
+            imgui,
+            imgui_renderer: Some(imgui_renderer),
         }
     }
 
@@ -310,6 +339,8 @@ impl Drop for Renderer {
         unsafe {
             let dev = &self.logical_device;
             dev.device_wait_idle().unwrap();
+
+            drop(self.imgui_renderer.take());
 
             dev.destroy_sampler(self.noise_sampler, None);
             self.noise_texture.cleanup(dev);

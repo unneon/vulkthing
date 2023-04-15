@@ -7,6 +7,8 @@ edition = "2021"
 ash = "0.37"
 ash-window = "0.12"
 image = { version = "0.24", features = ["jpeg", "png"], default-features = false }
+imgui = "0.11"
+imgui-rs-vulkan-renderer = "1.9"
 log = "0.4"
 nalgebra = { version = "0.32", features = ["std"], default-features = false }
 noise = "0.8"

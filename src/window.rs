@@ -1,5 +1,5 @@
 use winit::event_loop::EventLoop;
-use winit::window::{CursorGrabMode, Fullscreen, WindowBuilder};
+use winit::window::{Fullscreen, WindowBuilder};
 
 const TITLE: &str = "Vulkthing";
 const INITIAL_SIZE: (usize, usize) = (640, 360);
@@ -24,7 +24,7 @@ pub fn create_window() -> Window {
         .with_fullscreen(Some(Fullscreen::Borderless(None)))
         .build(&event_loop)
         .unwrap();
-    window.set_cursor_grab(CursorGrabMode::Locked).unwrap();
-    window.set_cursor_visible(false);
+    // window.set_cursor_grab(CursorGrabMode::Locked).unwrap();
+    // window.set_cursor_visible(false);
     Window { event_loop, window }
 }
