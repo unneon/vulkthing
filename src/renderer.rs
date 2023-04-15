@@ -8,7 +8,7 @@ mod uniform;
 mod util;
 pub mod vertex;
 
-use crate::renderer::uniform::{Light, Material, ModelViewProjection};
+use crate::renderer::uniform::{Filters, Light, Material, ModelViewProjection};
 use crate::world::{Entity, World};
 use ash::extensions::ext::DebugUtils;
 use ash::extensions::khr::{Surface, Swapchain};
@@ -33,6 +33,7 @@ pub struct Renderer {
     swapchain_format: vk::SurfaceFormatKHR,
     msaa_samples: vk::SampleCountFlags,
     offscreen_sampler: vk::Sampler,
+    filters: UniformBuffer<Filters>,
 
     // Description of the main render pass. Doesn't contain any information about the objects yet,
     // only low-level data format descriptions.
@@ -61,7 +62,7 @@ pub struct Renderer {
     offscreen: ImageResources,
     render_framebuffer: vk::Framebuffer,
     postprocess_framebuffers: Vec<vk::Framebuffer>,
-    postprocess_descriptor_set: vk::DescriptorSet,
+    postprocess_descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
     projection: Matrix4<f32>,
 
     // Vulkan objects actually used for command recording and synchronization. Also internal
@@ -131,6 +132,7 @@ impl Renderer {
             self.update_object_uniforms(world, entity);
         }
         self.update_light_uniform(world);
+        self.update_filters_uniform();
         self.submit_graphics();
         self.submit_present(image_index);
 
@@ -249,7 +251,7 @@ impl Renderer {
             vk::PipelineBindPoint::GRAPHICS,
             self.postprocess_pipeline_layout,
             0,
-            &[self.postprocess_descriptor_set],
+            &[self.postprocess_descriptor_sets[self.flight_index]],
             &[],
         );
         dev.cmd_draw(buf, 6, 1, 0, 0);
@@ -313,6 +315,11 @@ impl Renderer {
             ambient_strength: world.light.ambient_strength,
         };
         unsafe { self.light.mappings[self.flight_index].write_volatile(light) };
+    }
+
+    fn update_filters_uniform(&self) {
+        let filters = Filters { exposure: 4. };
+        unsafe { self.filters.mappings[self.flight_index].write_volatile(filters) };
     }
 
     fn submit_graphics(&self) {

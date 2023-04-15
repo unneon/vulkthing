@@ -24,7 +24,7 @@ pub struct Light {
 
 impl World {
     pub fn new() -> World {
-        let sun_color = Vector3::new(1., 0.12, 68.);
+        let sun_color = Vector3::new(1., 1., 1.);
         let camera = Camera {
             position: Vector3::new(-10., 0., 0.),
             velocity: Vector3::new(0., 0., 0.),
@@ -34,7 +34,7 @@ impl World {
         let light = Light {
             position: Vector3::new(-4., 0., 2.),
             color: sun_color,
-            ambient_strength: 0.004,
+            ambient_strength: 0.05,
         };
         let time = 0.;
         let building = Entity {

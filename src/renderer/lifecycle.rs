@@ -3,7 +3,7 @@ use crate::renderer::debug::create_debug_messenger;
 use crate::renderer::device::{select_device, DeviceInfo};
 use crate::renderer::pipeline::{build_simple_pipeline, SimplePipeline, SimpleVertexLayout};
 use crate::renderer::traits::VertexOps;
-use crate::renderer::uniform::{Light, Material, ModelViewProjection};
+use crate::renderer::uniform::{Filters, Light, Material, ModelViewProjection};
 use crate::renderer::vertex::Vertex;
 use crate::renderer::{
     util, ImageResources, Object, Renderer, Synchronization, UniformBuffer, VulkanExtensions,
@@ -49,6 +49,7 @@ impl Renderer {
         let swapchain_format = select_swapchain_format(&surface_formats);
         let msaa_samples = util::find_max_msaa_samples(&instance, physical_device);
         let offscreen_sampler = create_offscreen_sampler(&logical_device);
+        let filters = create_uniform_buffer(&instance, physical_device, &logical_device);
 
         let object_descriptor_set_layout = create_descriptor_set_layout(&logical_device);
         let (render_pipeline, render_pipeline_layout, render_pass) =
@@ -74,7 +75,7 @@ impl Renderer {
             offscreen,
             render_framebuffer,
             postprocess_framebuffers,
-            postprocess_descriptor_set,
+            postprocess_descriptor_sets,
             projection,
         ) = create_swapchain_all(
             window.window.inner_size(),
@@ -86,6 +87,7 @@ impl Renderer {
             &logical_device,
             surface,
             msaa_samples,
+            &filters.buffers,
             render_pass,
             postprocess_pass,
             postprocess_descriptor_set_layout,
@@ -165,6 +167,7 @@ impl Renderer {
             swapchain_format,
             msaa_samples,
             offscreen_sampler,
+            filters,
             object_descriptor_set_layout,
             render_pipeline,
             render_pipeline_layout,
@@ -182,7 +185,7 @@ impl Renderer {
             offscreen,
             render_framebuffer,
             postprocess_framebuffers,
-            postprocess_descriptor_set,
+            postprocess_descriptor_sets,
             projection,
             command_pools,
             command_buffers,
@@ -229,7 +232,7 @@ impl Renderer {
             offscreen,
             render_framebuffer,
             postprocess_framebuffers,
-            postprocess_descriptor_set,
+            postprocess_descriptor_sets,
             projection,
         ) = create_swapchain_all(
             window_size,
@@ -241,6 +244,7 @@ impl Renderer {
             &self.logical_device,
             self.surface,
             self.msaa_samples,
+            &self.filters.buffers,
             self.render_pass,
             self.postprocess_pass,
             self.postprocess_descriptor_set_layout,
@@ -257,7 +261,7 @@ impl Renderer {
         self.offscreen = offscreen;
         self.render_framebuffer = render_framebuffer;
         self.postprocess_framebuffers = postprocess_framebuffers;
-        self.postprocess_descriptor_set = postprocess_descriptor_set;
+        self.postprocess_descriptor_sets = postprocess_descriptor_sets;
         self.projection = projection;
     }
 
@@ -266,7 +270,7 @@ impl Renderer {
             self.logical_device
                 .free_descriptor_sets(
                     self.postprocess_descriptor_pool,
-                    &[self.postprocess_descriptor_set],
+                    &self.postprocess_descriptor_sets,
                 )
                 .unwrap();
             for framebuffer in &self.postprocess_framebuffers {
@@ -370,6 +374,7 @@ impl Drop for Renderer {
             dev.destroy_pipeline_layout(self.render_pipeline_layout, None);
             dev.destroy_descriptor_set_layout(self.object_descriptor_set_layout, None);
 
+            self.filters.cleanup(dev);
             dev.destroy_sampler(self.offscreen_sampler, None);
 
             dev.destroy_device(None);
@@ -580,6 +585,7 @@ fn create_swapchain_all(
     logical_device: &Device,
     surface: vk::SurfaceKHR,
     msaa_samples: vk::SampleCountFlags,
+    filters: &[vk::Buffer],
     render_pass: vk::RenderPass,
     postprocess_pass: vk::RenderPass,
     postprocess_descriptor_set_layout: vk::DescriptorSetLayout,
@@ -593,7 +599,7 @@ fn create_swapchain_all(
     ImageResources,
     vk::Framebuffer,
     Vec<vk::Framebuffer>,
-    vk::DescriptorSet,
+    [vk::DescriptorSet; FRAMES_IN_FLIGHT],
     Matrix4<f32>,
 ) {
     // Query the surface information again.
@@ -653,8 +659,9 @@ fn create_swapchain_all(
         swapchain_extent,
         logical_device,
     );
-    let postprocess_descriptor_set = create_postprocess_descriptor_set(
+    let postprocess_descriptor_sets = create_postprocess_descriptor_sets(
         offscreen.view,
+        filters,
         postprocess_descriptor_set_layout,
         postprocess_descriptor_pool,
         logical_device,
@@ -669,7 +676,7 @@ fn create_swapchain_all(
         offscreen,
         offscreen_framebuffer,
         framebuffers,
-        postprocess_descriptor_set,
+        postprocess_descriptor_sets,
         projection,
     )
 }
@@ -709,15 +716,19 @@ fn create_postprocess_descriptor_set_layout(
     offscreen_sampler: vk::Sampler,
     logical_device: &Device,
 ) -> vk::DescriptorSetLayout {
-    let render_samplers = [offscreen_sampler];
-    let render_binding = vk::DescriptorSetLayoutBinding::builder()
+    let render = *vk::DescriptorSetLayoutBinding::builder()
         .binding(0)
         .descriptor_count(1)
         .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
         .stage_flags(vk::ShaderStageFlags::FRAGMENT)
-        .immutable_samplers(&render_samplers);
-    let layout_bindings = [*render_binding];
-    let layout_info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(&layout_bindings);
+        .immutable_samplers(std::slice::from_ref(&offscreen_sampler));
+    let filters = *vk::DescriptorSetLayoutBinding::builder()
+        .binding(1)
+        .descriptor_count(1)
+        .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+        .stage_flags(vk::ShaderStageFlags::FRAGMENT);
+    let bindings = [render, filters];
+    let layout_info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(&bindings);
     unsafe { logical_device.create_descriptor_set_layout(&layout_info, None) }.unwrap()
 }
 
@@ -1195,13 +1206,19 @@ fn create_descriptor_pool(logical_device: &Device) -> vk::DescriptorPool {
 }
 
 fn create_postprocess_descriptor_pool(logical_device: &Device) -> vk::DescriptorPool {
-    let pool_sizes = [vk::DescriptorPoolSize {
-        ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-        descriptor_count: 1,
-    }];
+    let pool_sizes = [
+        vk::DescriptorPoolSize {
+            ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+            descriptor_count: 2,
+        },
+        vk::DescriptorPoolSize {
+            ty: vk::DescriptorType::UNIFORM_BUFFER,
+            descriptor_count: 2,
+        },
+    ];
     let pool_infp = vk::DescriptorPoolCreateInfo::builder()
         .pool_sizes(&pool_sizes)
-        .max_sets(1)
+        .max_sets(2)
         .flags(vk::DescriptorPoolCreateFlags::FREE_DESCRIPTOR_SET);
     unsafe { logical_device.create_descriptor_pool(&pool_infp, None) }.unwrap()
 }
@@ -1277,33 +1294,44 @@ fn create_descriptor_sets(
     descriptor_sets
 }
 
-fn create_postprocess_descriptor_set(
+fn create_postprocess_descriptor_sets(
     offscreen_view: vk::ImageView,
+    filters: &[vk::Buffer],
     layout: vk::DescriptorSetLayout,
     pool: vk::DescriptorPool,
     logical_device: &Device,
-) -> vk::DescriptorSet {
-    let layouts = [layout];
+) -> [vk::DescriptorSet; FRAMES_IN_FLIGHT] {
+    let layouts = [layout, layout];
     let descriptor_set_alloc_info = vk::DescriptorSetAllocateInfo::builder()
         .descriptor_pool(pool)
         .set_layouts(&layouts);
-    let [descriptor_set]: [vk::DescriptorSet; 1] =
+    let descriptor_sets: [vk::DescriptorSet; 2] =
         unsafe { logical_device.allocate_descriptor_sets(&descriptor_set_alloc_info) }
             .unwrap()
             .try_into()
             .unwrap();
-    let image_info = vk::DescriptorImageInfo::builder()
-        .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-        .image_view(offscreen_view);
-    let image_infos = [*image_info];
-    let descriptor_writes = [*vk::WriteDescriptorSet::builder()
-        .dst_set(descriptor_set)
-        .dst_binding(0)
-        .dst_array_element(0)
-        .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-        .image_info(&image_infos)];
-    unsafe { logical_device.update_descriptor_sets(&descriptor_writes, &[]) };
-    descriptor_set
+    for (i, descriptor_set) in descriptor_sets.iter().enumerate() {
+        let offscreen_info = *vk::DescriptorImageInfo::builder()
+            .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+            .image_view(offscreen_view);
+        let filters_info = *vk::DescriptorBufferInfo::builder()
+            .buffer(filters[i])
+            .range(std::mem::size_of::<Filters>() as u64);
+        let descriptor_writes = [
+            *vk::WriteDescriptorSet::builder()
+                .dst_set(*descriptor_set)
+                .dst_binding(0)
+                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                .image_info(std::slice::from_ref(&offscreen_info)),
+            *vk::WriteDescriptorSet::builder()
+                .dst_set(*descriptor_set)
+                .dst_binding(1)
+                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+                .buffer_info(std::slice::from_ref(&filters_info)),
+        ];
+        unsafe { logical_device.update_descriptor_sets(&descriptor_writes, &[]) };
+    }
+    descriptor_sets
 }
 
 fn create_sync(logical_device: &Device) -> Synchronization {

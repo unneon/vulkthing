@@ -18,3 +18,8 @@ pub struct Light {
     pub ambient_strength: f32,
     pub position: Vector3<f32>,
 }
+
+#[repr(C)]
+pub struct Filters {
+    pub exposure: f32,
+}
