@@ -49,10 +49,9 @@ impl Renderer {
         let swapchain_format = select_swapchain_format(&surface_formats);
         let msaa_samples = util::find_max_msaa_samples(&instance, physical_device);
         let offscreen_sampler = create_offscreen_sampler(&logical_device);
-        let filters: UniformBuffer<Filters> =
-            create_uniform_buffer(&instance, physical_device, &logical_device);
-        for mapping in filters.mappings {
-            unsafe { mapping.write_volatile(Filters::default()) };
+        let filters = UniformBuffer::create(&instance, physical_device, &logical_device);
+        for i in 0..FRAMES_IN_FLIGHT {
+            filters.write(i, Filters::default());
         }
 
         let object_descriptor_set_layout = create_descriptor_set_layout(&logical_device);
@@ -91,7 +90,7 @@ impl Renderer {
             &logical_device,
             surface,
             msaa_samples,
-            &filters.buffers,
+            &filters,
             render_pass,
             postprocess_pass,
             postprocess_descriptor_set_layout,
@@ -102,7 +101,7 @@ impl Renderer {
         let command_buffers = create_command_buffers(&logical_device, &command_pools);
         let sync = create_sync(&logical_device);
 
-        let light = create_uniform_buffer(&instance, physical_device, &logical_device);
+        let light = UniformBuffer::create(&instance, physical_device, &logical_device);
 
         let object_descriptor_pool = create_descriptor_pool(&logical_device);
         let mut objects = Vec::new();
@@ -111,7 +110,7 @@ impl Renderer {
                 model,
                 object_descriptor_set_layout,
                 object_descriptor_pool,
-                &light.buffers,
+                &light,
                 &instance,
                 physical_device,
                 &logical_device,
@@ -248,7 +247,7 @@ impl Renderer {
             &self.logical_device,
             self.surface,
             self.msaa_samples,
-            &self.filters.buffers,
+            &self.filters,
             self.render_pass,
             self.postprocess_pass,
             self.postprocess_descriptor_set_layout,
@@ -318,17 +317,6 @@ impl Object {
         unsafe { dev.destroy_sampler(self.texture_sampler, None) };
         self.texture.cleanup(dev);
         self.material.cleanup(dev);
-    }
-}
-
-impl<T> UniformBuffer<T> {
-    fn cleanup(&self, dev: &Device) {
-        for buffer in self.buffers {
-            unsafe { dev.destroy_buffer(buffer, None) };
-        }
-        for memory in self.memories {
-            unsafe { dev.free_memory(memory, None) };
-        }
     }
 }
 
@@ -589,7 +577,7 @@ fn create_swapchain_all(
     logical_device: &Device,
     surface: vk::SurfaceKHR,
     msaa_samples: vk::SampleCountFlags,
-    filters: &[vk::Buffer],
+    filters: &UniformBuffer<Filters>,
     render_pass: vk::RenderPass,
     postprocess_pass: vk::RenderPass,
     postprocess_descriptor_set_layout: vk::DescriptorSetLayout,
@@ -665,7 +653,7 @@ fn create_swapchain_all(
     );
     let postprocess_descriptor_sets = create_postprocess_descriptor_sets(
         offscreen.view,
-        filters,
+        &filters,
         postprocess_descriptor_set_layout,
         postprocess_descriptor_pool,
         logical_device,
@@ -1015,7 +1003,7 @@ fn create_object(
     model: &Model,
     descriptor_set_layout: vk::DescriptorSetLayout,
     descriptor_pool: vk::DescriptorPool,
-    light_buffers: &[vk::Buffer],
+    light_buffer: &UniformBuffer<Light>,
     instance: &Instance,
     physical_device: vk::PhysicalDevice,
     logical_device: &Device,
@@ -1038,7 +1026,7 @@ fn create_object(
         queue,
         command_pool,
     );
-    let mvp = create_uniform_buffer(instance, physical_device, logical_device);
+    let mvp = UniformBuffer::create(instance, physical_device, logical_device);
     let (texture, texture_mipmaps) = util::load_texture(
         model.texture_path,
         instance,
@@ -1049,13 +1037,13 @@ fn create_object(
     );
     let texture_sampler =
         create_texture_sampler(texture_mipmaps, instance, physical_device, logical_device);
-    let material = create_uniform_buffer(instance, physical_device, logical_device);
+    let material = UniformBuffer::create(instance, physical_device, logical_device);
     let descriptor_sets = create_descriptor_sets(
         descriptor_set_layout,
         descriptor_pool,
-        &mvp.buffers,
-        &material.buffers,
-        light_buffers,
+        &mvp,
+        &material,
+        light_buffer,
         texture.view,
         texture_sampler,
         logical_device,
@@ -1159,39 +1147,6 @@ fn create_index_buffer(
     (index_buffer, index_buffer_memory)
 }
 
-fn create_uniform_buffer<T>(
-    instance: &Instance,
-    physical_device: vk::PhysicalDevice,
-    logical_device: &Device,
-) -> UniformBuffer<T> {
-    let mut buffers = [vk::Buffer::null(); FRAMES_IN_FLIGHT];
-    let mut memories = [vk::DeviceMemory::null(); FRAMES_IN_FLIGHT];
-    let mut mappings = [std::ptr::null_mut(); FRAMES_IN_FLIGHT];
-    for i in 0..FRAMES_IN_FLIGHT {
-        let buffer_size = std::mem::size_of::<T>();
-        let (buffer, memory) = util::create_buffer(
-            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-            vk::BufferUsageFlags::UNIFORM_BUFFER,
-            buffer_size,
-            instance,
-            physical_device,
-            logical_device,
-        );
-        let mapping = unsafe {
-            logical_device.map_memory(memory, 0, buffer_size as u64, vk::MemoryMapFlags::empty())
-        }
-        .unwrap() as *mut T;
-        buffers[i] = buffer;
-        memories[i] = memory;
-        mappings[i] = mapping;
-    }
-    UniformBuffer {
-        buffers,
-        memories,
-        mappings,
-    }
-}
-
 fn create_descriptor_pool(logical_device: &Device) -> vk::DescriptorPool {
     let pool_sizes = [
         vk::DescriptorPoolSize {
@@ -1230,9 +1185,9 @@ fn create_postprocess_descriptor_pool(logical_device: &Device) -> vk::Descriptor
 fn create_descriptor_sets(
     layout: vk::DescriptorSetLayout,
     pool: vk::DescriptorPool,
-    mvp_buffers: &[vk::Buffer],
-    material_buffers: &[vk::Buffer],
-    light_buffers: &[vk::Buffer],
+    mvp_buffer: &UniformBuffer<ModelViewProjection>,
+    material_buffer: &UniformBuffer<Material>,
+    light_buffer: &UniformBuffer<Light>,
     texture_image_view: vk::ImageView,
     texture_sampler: vk::Sampler,
     logical_device: &Device,
@@ -1247,51 +1202,34 @@ fn create_descriptor_sets(
             .try_into()
             .unwrap();
     for i in 0..FRAMES_IN_FLIGHT {
-        let mvp_info = vk::DescriptorBufferInfo::builder()
-            .buffer(mvp_buffers[i])
-            .offset(0)
-            .range(std::mem::size_of::<ModelViewProjection>() as u64);
-        let image_info = vk::DescriptorImageInfo::builder()
+        let mvp_descriptor = mvp_buffer.descriptor(i);
+        let texture_descriptor = *vk::DescriptorImageInfo::builder()
             .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
             .image_view(texture_image_view)
             .sampler(texture_sampler);
-        let material_info = vk::DescriptorBufferInfo::builder()
-            .buffer(material_buffers[i])
-            .offset(0)
-            .range(std::mem::size_of::<Material>() as u64);
-        let light_info = vk::DescriptorBufferInfo::builder()
-            .buffer(light_buffers[i])
-            .offset(0)
-            .range(std::mem::size_of::<Light>() as u64);
-        let mvp_infos = [*mvp_info];
-        let image_infos = [*image_info];
-        let material_infos = [*material_info];
-        let light_infos = [*light_info];
+        let material_descriptor = material_buffer.descriptor(i);
+        let light_descriptor = light_buffer.descriptor(i);
         let descriptor_writes = [
             *vk::WriteDescriptorSet::builder()
                 .dst_set(descriptor_sets[i])
                 .dst_binding(0)
-                .dst_array_element(0)
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-                .buffer_info(&mvp_infos),
+                .buffer_info(std::slice::from_ref(&mvp_descriptor)),
             *vk::WriteDescriptorSet::builder()
                 .dst_set(descriptor_sets[i])
                 .dst_binding(1)
-                .dst_array_element(0)
                 .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-                .image_info(&image_infos),
+                .image_info(std::slice::from_ref(&texture_descriptor)),
             *vk::WriteDescriptorSet::builder()
                 .dst_set(descriptor_sets[i])
                 .dst_binding(2)
-                .dst_array_element(0)
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-                .buffer_info(&material_infos),
+                .buffer_info(std::slice::from_ref(&material_descriptor)),
             *vk::WriteDescriptorSet::builder()
                 .dst_set(descriptor_sets[i])
                 .dst_binding(3)
-                .dst_array_element(0)
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-                .buffer_info(&light_infos),
+                .buffer_info(std::slice::from_ref(&light_descriptor)),
         ];
         unsafe { logical_device.update_descriptor_sets(&descriptor_writes, &[]) };
     }
@@ -1300,7 +1238,7 @@ fn create_descriptor_sets(
 
 fn create_postprocess_descriptor_sets(
     offscreen_view: vk::ImageView,
-    filters: &[vk::Buffer],
+    filters: &UniformBuffer<Filters>,
     layout: vk::DescriptorSetLayout,
     pool: vk::DescriptorPool,
     logical_device: &Device,
@@ -1315,23 +1253,21 @@ fn create_postprocess_descriptor_sets(
             .try_into()
             .unwrap();
     for (i, descriptor_set) in descriptor_sets.iter().enumerate() {
-        let offscreen_info = *vk::DescriptorImageInfo::builder()
+        let offscreen_descriptor = *vk::DescriptorImageInfo::builder()
             .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
             .image_view(offscreen_view);
-        let filters_info = *vk::DescriptorBufferInfo::builder()
-            .buffer(filters[i])
-            .range(std::mem::size_of::<Filters>() as u64);
+        let filters_descriptor = filters.descriptor(i);
         let descriptor_writes = [
             *vk::WriteDescriptorSet::builder()
                 .dst_set(*descriptor_set)
                 .dst_binding(0)
                 .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-                .image_info(std::slice::from_ref(&offscreen_info)),
+                .image_info(std::slice::from_ref(&offscreen_descriptor)),
             *vk::WriteDescriptorSet::builder()
                 .dst_set(*descriptor_set)
                 .dst_binding(1)
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-                .buffer_info(std::slice::from_ref(&filters_info)),
+                .buffer_info(std::slice::from_ref(&filters_descriptor)),
         ];
         unsafe { logical_device.update_descriptor_sets(&descriptor_writes, &[]) };
     }

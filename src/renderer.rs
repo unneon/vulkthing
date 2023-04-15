@@ -9,6 +9,7 @@ mod util;
 pub mod vertex;
 
 use crate::renderer::uniform::{Filters, Light, Material, ModelViewProjection};
+use crate::renderer::util::UniformBuffer;
 use crate::world::{Entity, World};
 use ash::extensions::ext::DebugUtils;
 use ash::extensions::khr::{Surface, Swapchain};
@@ -115,12 +116,6 @@ struct Object {
     descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
 }
 
-struct UniformBuffer<T> {
-    buffers: [vk::Buffer; FRAMES_IN_FLIGHT],
-    memories: [vk::DeviceMemory; FRAMES_IN_FLIGHT],
-    mappings: [*mut T; FRAMES_IN_FLIGHT],
-}
-
 const FRAMES_IN_FLIGHT: usize = 2;
 
 impl Renderer {
@@ -141,7 +136,7 @@ impl Renderer {
     }
 
     fn build_ui(&mut self, world: &mut World) {
-        let filters = unsafe { &mut *self.filters.mappings[self.flight_index] };
+        let filters = self.filters.deref(self.flight_index);
         let mut color_filter = [
             filters.color_filter.x,
             filters.color_filter.y,
@@ -333,13 +328,12 @@ impl Renderer {
             proj: self.projection,
         };
         let material = Material { emit: entity.emit };
-        unsafe {
-            self.objects[entity.gpu_object].mvp.mappings[self.flight_index].write_volatile(mvp)
-        };
-        unsafe {
-            self.objects[entity.gpu_object].material.mappings[self.flight_index]
-                .write_volatile(material)
-        };
+        self.objects[entity.gpu_object]
+            .mvp
+            .write(self.flight_index, mvp);
+        self.objects[entity.gpu_object]
+            .material
+            .write(self.flight_index, material);
     }
 
     fn update_light_uniform(&self, world: &World) {
@@ -348,7 +342,7 @@ impl Renderer {
             position: world.light.position,
             ambient_strength: world.light.ambient_strength,
         };
-        unsafe { self.light.mappings[self.flight_index].write_volatile(light) };
+        self.light.write(self.flight_index, light);
     }
 
     fn submit_graphics(&self) {

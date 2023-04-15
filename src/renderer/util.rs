@@ -1,9 +1,66 @@
-use crate::renderer::ImageResources;
+use crate::renderer::{ImageResources, FRAMES_IN_FLIGHT};
 use ash::{vk, Device, Instance};
 use image::{ImageBuffer, Luma};
 use log::debug;
 use noise::{NoiseFn, Perlin};
 use std::mem::MaybeUninit;
+
+pub struct UniformBuffer<T> {
+    buffer: vk::Buffer,
+    memory: vk::DeviceMemory,
+    mapping: *mut T,
+}
+
+impl<T> UniformBuffer<T> {
+    pub fn create(
+        instance: &Instance,
+        physical_device: vk::PhysicalDevice,
+        logical_device: &Device,
+    ) -> UniformBuffer<T> {
+        let buffer_size = std::mem::size_of::<T>() * FRAMES_IN_FLIGHT;
+        let (buffer, memory) = create_buffer(
+            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+            vk::BufferUsageFlags::UNIFORM_BUFFER,
+            buffer_size,
+            instance,
+            physical_device,
+            logical_device,
+        );
+        let mapping = unsafe {
+            logical_device.map_memory(memory, 0, buffer_size as u64, vk::MemoryMapFlags::empty())
+        }
+        .unwrap() as *mut T;
+        UniformBuffer {
+            buffer,
+            memory,
+            mapping,
+        }
+    }
+
+    pub fn write(&self, flight_index: usize, value: T) {
+        unsafe {
+            self.mapping
+                .offset(flight_index as isize)
+                .write_volatile(value)
+        };
+    }
+
+    pub fn deref(&mut self, flight_index: usize) -> &mut T {
+        unsafe { &mut *self.mapping.offset(flight_index as isize) }
+    }
+
+    pub fn descriptor(&self, flight_index: usize) -> vk::DescriptorBufferInfo {
+        *vk::DescriptorBufferInfo::builder()
+            .buffer(self.buffer)
+            .offset((flight_index * std::mem::size_of::<T>()) as u64)
+            .range(std::mem::size_of::<T>() as u64)
+    }
+
+    pub fn cleanup(&self, dev: &Device) {
+        unsafe { dev.destroy_buffer(self.buffer, None) };
+        unsafe { dev.free_memory(self.memory, None) };
+    }
+}
 
 pub fn create_buffer(
     properties: vk::MemoryPropertyFlags,
