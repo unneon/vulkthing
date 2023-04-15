@@ -49,7 +49,11 @@ impl Renderer {
         let swapchain_format = select_swapchain_format(&surface_formats);
         let msaa_samples = util::find_max_msaa_samples(&instance, physical_device);
         let offscreen_sampler = create_offscreen_sampler(&logical_device);
-        let filters = create_uniform_buffer(&instance, physical_device, &logical_device);
+        let filters: UniformBuffer<Filters> =
+            create_uniform_buffer(&instance, physical_device, &logical_device);
+        for mapping in filters.mappings {
+            unsafe { mapping.write_volatile(Filters::default()) };
+        }
 
         let object_descriptor_set_layout = create_descriptor_set_layout(&logical_device);
         let (render_pipeline, render_pipeline_layout, render_pass) =

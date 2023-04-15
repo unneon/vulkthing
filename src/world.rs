@@ -3,9 +3,10 @@ use crate::input::InputState;
 use nalgebra::Vector3;
 
 pub struct World {
-    time: f32,
     pub camera: Camera,
     pub light: Light,
+    pub light_pause: bool,
+    pub light_time: f32,
     pub entities: [Entity; 2],
 }
 
@@ -53,16 +54,19 @@ impl World {
         World {
             camera,
             light,
-            time,
+            light_pause: false,
+            light_time: time,
             entities,
         }
     }
 
     pub fn update(&mut self, delta_time: f32, input_state: &InputState) {
-        self.time += delta_time;
         self.camera.apply_input(input_state, delta_time);
-        self.light.position.x = -4. * self.time.cos();
-        self.light.position.y = -4. * self.time.sin();
-        self.entities[1].position = self.light.position;
+        if !self.light_pause {
+            self.light_time += delta_time;
+            self.light.position.x = -4. * self.light_time.cos();
+            self.light.position.y = -4. * self.light_time.sin();
+            self.entities[1].position = self.light.position;
+        }
     }
 }

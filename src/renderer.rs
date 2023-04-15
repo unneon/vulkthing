@@ -13,7 +13,8 @@ use crate::world::{Entity, World};
 use ash::extensions::ext::DebugUtils;
 use ash::extensions::khr::{Surface, Swapchain};
 use ash::{vk, Device, Entry, Instance};
-use nalgebra::Matrix4;
+use imgui::{Condition, Drag};
+use nalgebra::{Matrix4, Vector3};
 use winit::dpi::PhysicalSize;
 
 pub struct Renderer {
@@ -123,20 +124,57 @@ struct UniformBuffer<T> {
 const FRAMES_IN_FLIGHT: usize = 2;
 
 impl Renderer {
-    pub fn draw_frame(&mut self, world: &World, window_size: PhysicalSize<u32>) {
+    pub fn draw_frame(&mut self, world: &mut World, window_size: PhysicalSize<u32>) {
         let Some(image_index) = (unsafe { self.prepare_command_buffer(window_size) }) else {
             return;
         };
+        self.build_ui(world);
         unsafe { self.record_command_buffer(image_index, world) };
         for entity in &world.entities {
             self.update_object_uniforms(world, entity);
         }
         self.update_light_uniform(world);
-        self.update_filters_uniform();
         self.submit_graphics();
         self.submit_present(image_index);
 
         self.flight_index = (self.flight_index + 1) % FRAMES_IN_FLIGHT;
+    }
+
+    fn build_ui(&mut self, world: &mut World) {
+        let filters = unsafe { &mut *self.filters.mappings[self.flight_index] };
+        let mut color_filter = [
+            filters.color_filter.x,
+            filters.color_filter.y,
+            filters.color_filter.z,
+        ];
+        let ui = self.imgui.frame();
+        ui.window("Postprocessing")
+            .size([256., 256.], Condition::Always)
+            .build(|| {
+                ui.checkbox("Pause light movement", &mut world.light_pause);
+                Drag::new("Exposure")
+                    .range(0., f32::INFINITY)
+                    .speed(0.01)
+                    .build(ui, &mut filters.exposure);
+                Drag::new("Contrast")
+                    .range(0., f32::INFINITY)
+                    .speed(0.01)
+                    .build(ui, &mut filters.contrast);
+                Drag::new("Brightness")
+                    .range(0., f32::INFINITY)
+                    .speed(0.01)
+                    .build(ui, &mut filters.brightness);
+                ui.color_edit3("Color filter", &mut color_filter);
+                Drag::new("Saturation")
+                    .range(0., f32::INFINITY)
+                    .speed(0.01)
+                    .build(ui, &mut filters.saturation);
+                Drag::new("Gamma")
+                    .range(0., f32::INFINITY)
+                    .speed(0.01)
+                    .build(ui, &mut filters.gamma);
+            });
+        filters.color_filter = Vector3::new(color_filter[0], color_filter[1], color_filter[2]);
     }
 
     unsafe fn prepare_command_buffer(&mut self, window_size: PhysicalSize<u32>) -> Option<u32> {
@@ -256,14 +294,10 @@ impl Renderer {
         );
         dev.cmd_draw(buf, 6, 1, 0, 0);
 
-        let ui = self.imgui.frame();
-        build_ui(ui);
-        // TODO: Hide cursor if necessary.
-        let draw_data = self.imgui.render();
         self.imgui_renderer
             .as_mut()
             .unwrap()
-            .cmd_draw(buf, &draw_data)
+            .cmd_draw(buf, &self.imgui.render())
             .unwrap();
 
         dev.cmd_end_render_pass(buf);
@@ -317,11 +351,6 @@ impl Renderer {
         unsafe { self.light.mappings[self.flight_index].write_volatile(light) };
     }
 
-    fn update_filters_uniform(&self) {
-        let filters = Filters { exposure: 4. };
-        unsafe { self.filters.mappings[self.flight_index].write_volatile(filters) };
-    }
-
     fn submit_graphics(&self) {
         let command_buffer = self.command_buffers[self.flight_index];
         let image_available = self.sync.image_available[self.flight_index];
@@ -361,12 +390,4 @@ impl Renderer {
         }
         .unwrap();
     }
-}
-
-fn build_ui(ui: &mut imgui::Ui) {
-    ui.window("Hello, world!")
-        .size([300., 300.], imgui::Condition::FirstUseEver)
-        .build(|| {
-            ui.text_wrapped("test");
-        });
 }

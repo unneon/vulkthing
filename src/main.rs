@@ -151,7 +151,7 @@ fn main() {
                         })
                         .unwrap();
                 }
-                renderer.draw_frame(&world, window.window.inner_size());
+                renderer.draw_frame(&mut world, window.window.inner_size());
             }
             // This event is only sent after MainEventsCleared, during which we render
             // unconditionally.

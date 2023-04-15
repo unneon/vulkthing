@@ -9,6 +9,7 @@ pub struct InputState {
     sprint: bool,
     mouse_dx: f32,
     mouse_dy: f32,
+    camera_lock: bool,
 }
 
 #[derive(Default)]
@@ -28,6 +29,7 @@ impl InputState {
             sprint: false,
             mouse_dx: 0.,
             mouse_dy: 0.,
+            camera_lock: false,
         }
     }
 
@@ -39,6 +41,7 @@ impl InputState {
             Some(VirtualKeyCode::D) => self.right_pressed = input.state == ElementState::Pressed,
             Some(VirtualKeyCode::Space) => self.jump.apply(input.state),
             Some(VirtualKeyCode::LShift) => self.sprint = input.state == ElementState::Pressed,
+            Some(VirtualKeyCode::E) => self.camera_lock = input.state == ElementState::Pressed,
             _ => (),
         }
     }
@@ -85,11 +88,19 @@ impl InputState {
     }
 
     pub fn camera_yaw(&self) -> f32 {
-        self.mouse_dx
+        if !self.camera_lock {
+            self.mouse_dx
+        } else {
+            0.
+        }
     }
 
     pub fn camera_pitch(&self) -> f32 {
-        self.mouse_dy
+        if !self.camera_lock {
+            self.mouse_dy
+        } else {
+            0.
+        }
     }
 }
 
