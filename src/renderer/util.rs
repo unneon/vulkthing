@@ -704,7 +704,7 @@ fn find_memory_type(
     let memory = unsafe { instance.get_physical_device_memory_properties(device) };
     for i in 0..memory.memory_type_count {
         if type_filter & (1 << i) != 0
-            && !(memory.memory_types[i as usize].property_flags & properties).is_empty()
+            && (memory.memory_types[i as usize].property_flags & properties) == properties
         {
             return i;
         }
