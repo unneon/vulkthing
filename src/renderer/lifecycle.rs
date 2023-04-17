@@ -40,13 +40,11 @@ impl Renderer {
         let DeviceInfo {
             physical_device,
             queue_family,
-            surface_formats,
         } = select_device(&instance, &extensions.surface, surface);
         let logical_device = create_logical_device(queue_family, &instance, physical_device);
         let queue = unsafe { logical_device.get_device_queue(queue_family, 0) };
         let swapchain_extension = Swapchain::new(&instance, &logical_device);
 
-        let swapchain_format = select_swapchain_format(&surface_formats);
         let msaa_samples = util::find_max_msaa_samples(&instance, physical_device);
         let offscreen_sampler = create_offscreen_sampler(&logical_device);
         let filters = UniformBuffer::create(&instance, physical_device, &logical_device);
@@ -55,18 +53,10 @@ impl Renderer {
         }
 
         let object_descriptor_set_layout = create_descriptor_set_layout(&logical_device);
-        let (render_pipeline, render_pipeline_layout, render_pass) =
-            create_pipeline(object_descriptor_set_layout, msaa_samples, &logical_device);
-
         let postprocess_descriptor_set_layout =
             create_postprocess_descriptor_set_layout(offscreen_sampler, &logical_device);
 
-        let (postprocess_pipeline, postprocess_pipeline_layout, postprocess_pass) =
-            create_postprocess_pipeline(
-                postprocess_descriptor_set_layout,
-                swapchain_format,
-                &logical_device,
-            );
+        let object_descriptor_pool = create_object_descriptor_pool(&logical_device);
         let postprocess_descriptor_pool = create_postprocess_descriptor_pool(&logical_device);
 
         let (
@@ -76,13 +66,18 @@ impl Renderer {
             color,
             depth,
             offscreen,
+            render_pipeline,
+            render_pipeline_layout,
+            render_pass,
             render_framebuffer,
+            postprocess_pipeline,
+            postprocess_pipeline_layout,
+            postprocess_pass,
             postprocess_framebuffers,
             postprocess_descriptor_sets,
             projection,
         ) = create_swapchain_all(
             window.window.inner_size(),
-            swapchain_format,
             &instance,
             &extensions.surface,
             &swapchain_extension,
@@ -91,8 +86,7 @@ impl Renderer {
             surface,
             msaa_samples,
             &filters,
-            render_pass,
-            postprocess_pass,
+            object_descriptor_set_layout,
             postprocess_descriptor_set_layout,
             postprocess_descriptor_pool,
         );
@@ -103,7 +97,6 @@ impl Renderer {
 
         let light = UniformBuffer::create(&instance, physical_device, &logical_device);
 
-        let object_descriptor_pool = create_descriptor_pool(&logical_device);
         let mut objects = Vec::new();
         for model in models {
             let object = create_object(
@@ -167,7 +160,6 @@ impl Renderer {
             logical_device,
             queue,
             swapchain_extension,
-            swapchain_format,
             msaa_samples,
             offscreen_sampler,
             filters,
@@ -215,17 +207,6 @@ impl Renderer {
         // contain not only things like image formats, but also some sizes.
         self.cleanup_swapchain();
 
-        // Make sure the swapchain format is the same, if it weren't we'd need to recreate the
-        // graphics pipeline too.
-        let surface_formats = unsafe {
-            self.extensions
-                .surface
-                .get_physical_device_surface_formats(self.physical_device, self.surface)
-        }
-        .unwrap();
-        let swapchain_format = select_swapchain_format(&surface_formats);
-        assert_eq!(swapchain_format, self.swapchain_format);
-
         let (
             swapchain_extent,
             swapchain,
@@ -233,13 +214,18 @@ impl Renderer {
             color,
             depth,
             offscreen,
+            render_pipeline,
+            render_pipeline_layout,
+            render_pass,
             render_framebuffer,
+            postprocess_pipeline,
+            postprocess_pipeline_layout,
+            postprocess_pass,
             postprocess_framebuffers,
             postprocess_descriptor_sets,
             projection,
         ) = create_swapchain_all(
             window_size,
-            swapchain_format,
             &self.instance,
             &self.extensions.surface,
             &self.swapchain_extension,
@@ -248,8 +234,7 @@ impl Renderer {
             self.surface,
             self.msaa_samples,
             &self.filters,
-            self.render_pass,
-            self.postprocess_pass,
+            self.object_descriptor_set_layout,
             self.postprocess_descriptor_set_layout,
             self.postprocess_descriptor_pool,
         );
@@ -262,7 +247,13 @@ impl Renderer {
         self.color = color;
         self.depth = depth;
         self.offscreen = offscreen;
+        self.render_pipeline = render_pipeline;
+        self.render_pipeline_layout = render_pipeline_layout;
+        self.render_pass = render_pass;
         self.render_framebuffer = render_framebuffer;
+        self.postprocess_pipeline = postprocess_pipeline;
+        self.postprocess_pipeline_layout = postprocess_pipeline_layout;
+        self.postprocess_pass = postprocess_pass;
         self.postprocess_framebuffers = postprocess_framebuffers;
         self.postprocess_descriptor_sets = postprocess_descriptor_sets;
         self.projection = projection;
@@ -289,6 +280,18 @@ impl Renderer {
             }
             self.swapchain_extension
                 .destroy_swapchain(self.swapchain, None);
+            self.logical_device
+                .destroy_pipeline(self.postprocess_pipeline, None);
+            self.logical_device
+                .destroy_render_pass(self.postprocess_pass, None);
+            self.logical_device
+                .destroy_pipeline_layout(self.postprocess_pipeline_layout, None);
+            self.logical_device
+                .destroy_pipeline(self.render_pipeline, None);
+            self.logical_device
+                .destroy_render_pass(self.render_pass, None);
+            self.logical_device
+                .destroy_pipeline_layout(self.render_pipeline_layout, None);
         }
     }
 }
@@ -356,14 +359,9 @@ impl Drop for Renderer {
             let dev = &self.logical_device;
 
             dev.destroy_descriptor_pool(self.postprocess_descriptor_pool, None);
-            dev.destroy_pipeline(self.postprocess_pipeline, None);
-            dev.destroy_render_pass(self.postprocess_pass, None);
-            dev.destroy_pipeline_layout(self.postprocess_pipeline_layout, None);
+
             dev.destroy_descriptor_set_layout(self.postprocess_descriptor_set_layout, None);
 
-            dev.destroy_pipeline(self.render_pipeline, None);
-            dev.destroy_render_pass(self.render_pass, None);
-            dev.destroy_pipeline_layout(self.render_pipeline_layout, None);
             dev.destroy_descriptor_set_layout(self.object_descriptor_set_layout, None);
 
             self.filters.cleanup(dev);
@@ -569,7 +567,6 @@ fn create_swapchain_image_views(
 
 fn create_swapchain_all(
     window_size: PhysicalSize<u32>,
-    swapchain_format: vk::SurfaceFormatKHR,
     instance: &Instance,
     surface_ext: &Surface,
     swapchain_ext: &Swapchain,
@@ -578,8 +575,7 @@ fn create_swapchain_all(
     surface: vk::SurfaceKHR,
     msaa_samples: vk::SampleCountFlags,
     filters: &UniformBuffer<Filters>,
-    render_pass: vk::RenderPass,
-    postprocess_pass: vk::RenderPass,
+    object_descriptor_set_layout: vk::DescriptorSetLayout,
     postprocess_descriptor_set_layout: vk::DescriptorSetLayout,
     postprocess_descriptor_pool: vk::DescriptorPool,
 ) -> (
@@ -589,7 +585,13 @@ fn create_swapchain_all(
     ImageResources,
     ImageResources,
     ImageResources,
+    vk::Pipeline,
+    vk::PipelineLayout,
+    vk::RenderPass,
     vk::Framebuffer,
+    vk::Pipeline,
+    vk::PipelineLayout,
+    vk::RenderPass,
     Vec<vk::Framebuffer>,
     [vk::DescriptorSet; FRAMES_IN_FLIGHT],
     Matrix4<f32>,
@@ -598,6 +600,10 @@ fn create_swapchain_all(
     let surface_capabilities =
         unsafe { surface_ext.get_physical_device_surface_capabilities(physical_device, surface) }
             .unwrap();
+    let surface_formats = {
+        unsafe { surface_ext.get_physical_device_surface_formats(physical_device, surface) }
+            .unwrap()
+    };
     let present_modes =
         unsafe { surface_ext.get_physical_device_surface_present_modes(physical_device, surface) }
             .unwrap();
@@ -607,6 +613,7 @@ fn create_swapchain_all(
 
     // Repeat creating the swapchain, except not using any Renderer members that heavily depend
     // on the swapchain (such as depth and color buffers).
+    let swapchain_format = select_swapchain_format(&surface_formats);
     let swapchain_extent = select_swapchain_extent(surface_capabilities, window_size);
     let swapchain_present_mode = select_swapchain_present_mode(&present_modes);
     let swapchain = create_swapchain(
@@ -636,6 +643,19 @@ fn create_swapchain_all(
     );
     let offscreen =
         create_offscreen_resources(swapchain_extent, instance, physical_device, logical_device);
+    let (render_pipeline, render_pipeline_layout, render_pass) = create_pipeline(
+        object_descriptor_set_layout,
+        msaa_samples,
+        swapchain_extent,
+        logical_device,
+    );
+    let (postprocess_pipeline, postprocess_pipeline_layout, postprocess_pass) =
+        create_postprocess_pipeline(
+            postprocess_descriptor_set_layout,
+            swapchain_format,
+            swapchain_extent,
+            logical_device,
+        );
     let offscreen_framebuffer = create_offscreen_framebuffer(
         render_pass,
         offscreen.view,
@@ -666,7 +686,13 @@ fn create_swapchain_all(
         color,
         depth,
         offscreen,
+        render_pipeline,
+        render_pipeline_layout,
+        render_pass,
         offscreen_framebuffer,
+        postprocess_pipeline,
+        postprocess_pipeline_layout,
+        postprocess_pass,
         framebuffers,
         postprocess_descriptor_sets,
         projection,
@@ -727,6 +753,7 @@ fn create_postprocess_descriptor_set_layout(
 fn create_pipeline(
     descriptor_set_layout: vk::DescriptorSetLayout,
     msaa_samples: vk::SampleCountFlags,
+    swapchain_extent: vk::Extent2D,
     logical_device: &Device,
 ) -> (vk::Pipeline, vk::PipelineLayout, vk::RenderPass) {
     let color_attachment = *vk::AttachmentDescription::builder()
@@ -769,6 +796,7 @@ fn create_pipeline(
         depth_attachment: Some(depth_attachment),
         resolve_attachment: Some(resolve_attachment),
         logical_device,
+        swapchain_extent,
     };
     build_simple_pipeline(pipeline)
 }
@@ -776,6 +804,7 @@ fn create_pipeline(
 fn create_postprocess_pipeline(
     descriptor_set_layout: vk::DescriptorSetLayout,
     swapchain_image_format: vk::SurfaceFormatKHR,
+    swapchain_extent: vk::Extent2D,
     logical_device: &Device,
 ) -> (vk::Pipeline, vk::PipelineLayout, vk::RenderPass) {
     let color_attachment = *vk::AttachmentDescription::builder()
@@ -797,6 +826,7 @@ fn create_postprocess_pipeline(
         depth_attachment: None,
         resolve_attachment: None,
         logical_device,
+        swapchain_extent,
     };
     build_simple_pipeline(pipeline)
 }
@@ -1147,7 +1177,7 @@ fn create_index_buffer(
     (index_buffer, index_buffer_memory)
 }
 
-fn create_descriptor_pool(logical_device: &Device) -> vk::DescriptorPool {
+fn create_object_descriptor_pool(logical_device: &Device) -> vk::DescriptorPool {
     let pool_sizes = [
         vk::DescriptorPoolSize {
             ty: vk::DescriptorType::UNIFORM_BUFFER,

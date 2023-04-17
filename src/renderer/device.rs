@@ -7,7 +7,6 @@ use std::ffi::CStr;
 pub struct DeviceInfo {
     pub physical_device: vk::PhysicalDevice,
     pub queue_family: u32,
-    pub surface_formats: Vec<vk::SurfaceFormatKHR>,
 }
 
 pub fn select_device(
@@ -70,7 +69,6 @@ pub fn select_device(
         return DeviceInfo {
             physical_device: device,
             queue_family,
-            surface_formats,
         };
     }
 

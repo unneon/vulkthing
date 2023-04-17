@@ -32,7 +32,6 @@ pub struct Renderer {
     swapchain_extension: Swapchain,
 
     // Parameters of the renderer that are required early for creating more important objects.
-    swapchain_format: vk::SurfaceFormatKHR,
     msaa_samples: vk::SampleCountFlags,
     offscreen_sampler: vk::Sampler,
     filters: UniformBuffer<Filters>,
@@ -241,7 +240,6 @@ impl Renderer {
         dev.cmd_begin_render_pass(buf, &pass_info, vk::SubpassContents::INLINE);
 
         dev.cmd_bind_pipeline(buf, vk::PipelineBindPoint::GRAPHICS, self.render_pipeline);
-        self.record_viewport_and_scissor(buf);
 
         for entity in &world.entities {
             let object = &self.objects[entity.gpu_object];
@@ -277,7 +275,6 @@ impl Renderer {
             vk::PipelineBindPoint::GRAPHICS,
             self.postprocess_pipeline,
         );
-        self.record_viewport_and_scissor(buf);
 
         dev.cmd_bind_descriptor_sets(
             buf,
@@ -296,26 +293,6 @@ impl Renderer {
             .unwrap();
 
         dev.cmd_end_render_pass(buf);
-    }
-
-    fn record_viewport_and_scissor(&self, buf: vk::CommandBuffer) {
-        // This should really be set during the lifecycle events to avoid wasting cycles recording
-        // the command, but this would require rebuilding the pipeline on window resize so let's do
-        // it later. Or keeping it dynamic, but only recording the command after a window resize.
-        let viewport = vk::Viewport {
-            x: 0.,
-            y: 0.,
-            width: self.swapchain_extent.width as f32,
-            height: self.swapchain_extent.height as f32,
-            min_depth: 0.,
-            max_depth: 1.,
-        };
-        let scissor = vk::Rect2D {
-            offset: vk::Offset2D { x: 0, y: 0 },
-            extent: self.swapchain_extent,
-        };
-        unsafe { self.logical_device.cmd_set_viewport(buf, 0, &[viewport]) };
-        unsafe { self.logical_device.cmd_set_scissor(buf, 0, &[scissor]) };
     }
 
     fn update_object_uniforms(&self, world: &World, entity: &Entity) {

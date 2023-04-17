@@ -11,6 +11,7 @@ pub struct SimplePipeline<'a> {
     pub depth_attachment: Option<vk::AttachmentDescription>,
     pub resolve_attachment: Option<vk::AttachmentDescription>,
     pub logical_device: &'a Device,
+    pub swapchain_extent: vk::Extent2D,
 }
 
 pub struct SimpleVertexLayout {
@@ -59,10 +60,21 @@ pub fn build_simple_pipeline(
         .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
         .primitive_restart_enable(false);
 
-    // TODO: Find an example of using more than 1.
+    let viewport = vk::Viewport {
+        x: 0.,
+        y: 0.,
+        width: config.swapchain_extent.width as f32,
+        height: config.swapchain_extent.height as f32,
+        min_depth: 0.,
+        max_depth: 1.,
+    };
+    let scissor = vk::Rect2D {
+        offset: vk::Offset2D { x: 0, y: 0 },
+        extent: config.swapchain_extent,
+    };
     let viewport_state = *vk::PipelineViewportStateCreateInfo::builder()
-        .viewport_count(1)
-        .scissor_count(1);
+        .viewports(std::slice::from_ref(&viewport))
+        .scissors(std::slice::from_ref(&scissor));
 
     // Setting some conventions and whether fill or do wireframe. Wireframe could be useful later
     // for debugging, or maybe I'll just use the functionality in renderdoc.
@@ -116,8 +128,7 @@ pub fn build_simple_pipeline(
 
     // I would like to make these things static too, but it would require recreating the pipeline on
     // window resize. This doesn't sound too bad, games run in fullscreen anyway.
-    let dynamic_state = *vk::PipelineDynamicStateCreateInfo::builder()
-        .dynamic_states(&[vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR]);
+    let dynamic_state = *vk::PipelineDynamicStateCreateInfo::builder();
 
     // I think this is meant to be shared between multiple pipelines? You have to bind this along
     // with the descriptor set, so the intended use case is probably having a single descriptor set
