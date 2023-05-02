@@ -444,7 +444,9 @@ fn create_logical_device(
         .queue_family_index(queue_family)
         .queue_priorities(&[1.]);
 
-    let physical_device_features = vk::PhysicalDeviceFeatures::builder().sampler_anisotropy(true);
+    let physical_device_features = vk::PhysicalDeviceFeatures::builder()
+        .sampler_anisotropy(true)
+        .fill_mode_non_solid(true);
 
     // Using validation layers on a device level shouldn't be necessary on newer Vulkan version
     // (since which one?), but it's good to keep it for compatibility.
@@ -791,6 +793,7 @@ fn create_pipeline(
             attribute_descriptions: Vertex::attribute_descriptions(0),
         }),
         msaa_samples,
+        polygon_mode: vk::PolygonMode::LINE,
         descriptor_set_layout,
         color_attachment,
         depth_attachment: Some(depth_attachment),
@@ -821,6 +824,7 @@ fn create_postprocess_pipeline(
         fragment_shader_path: "shaders/postprocess.frag",
         vertex_layout: None,
         msaa_samples: vk::SampleCountFlags::TYPE_1,
+        polygon_mode: vk::PolygonMode::FILL,
         descriptor_set_layout,
         color_attachment,
         depth_attachment: None,
@@ -1081,7 +1085,7 @@ fn create_object(
     Object {
         vertex_buffer,
         vertex_buffer_memory,
-        vertex_count: model.vertices.len(),
+        index_count: model.indices.len(),
         index_buffer,
         index_buffer_memory,
         mvp,

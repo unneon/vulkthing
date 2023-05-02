@@ -105,7 +105,7 @@ struct Synchronization {
 struct Object {
     vertex_buffer: vk::Buffer,
     vertex_buffer_memory: vk::DeviceMemory,
-    vertex_count: usize,
+    index_count: usize,
     index_buffer: vk::Buffer,
     index_buffer_memory: vk::DeviceMemory,
     mvp: UniformBuffer<ModelViewProjection>,
@@ -253,7 +253,7 @@ impl Renderer {
             );
             dev.cmd_bind_vertex_buffers(buf, 0, &[object.vertex_buffer], &[0]);
             dev.cmd_bind_index_buffer(buf, object.index_buffer, 0, vk::IndexType::UINT32);
-            dev.cmd_draw_indexed(buf, object.vertex_count as u32, 1, 0, 0, 0);
+            dev.cmd_draw_indexed(buf, object.index_count as u32, 1, 0, 0, 0);
         }
 
         dev.cmd_end_render_pass(buf);

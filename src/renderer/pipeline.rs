@@ -6,6 +6,7 @@ pub struct SimplePipeline<'a> {
     pub fragment_shader_path: &'a str,
     pub vertex_layout: Option<SimpleVertexLayout>,
     pub msaa_samples: vk::SampleCountFlags,
+    pub polygon_mode: vk::PolygonMode,
     pub descriptor_set_layout: vk::DescriptorSetLayout,
     pub color_attachment: vk::AttachmentDescription,
     pub depth_attachment: Option<vk::AttachmentDescription>,
@@ -81,7 +82,7 @@ pub fn build_simple_pipeline(
     let rasterizer = *vk::PipelineRasterizationStateCreateInfo::builder()
         .depth_clamp_enable(false)
         .rasterizer_discard_enable(false)
-        .polygon_mode(vk::PolygonMode::FILL)
+        .polygon_mode(config.polygon_mode)
         .line_width(1.)
         .cull_mode(vk::CullModeFlags::BACK)
         .front_face(vk::FrontFace::COUNTER_CLOCKWISE)

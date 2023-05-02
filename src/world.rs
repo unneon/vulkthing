@@ -38,10 +38,10 @@ impl World {
             ambient_strength: 0.05,
         };
         let time = 0.;
-        let building = Entity {
+        let planet = Entity {
             position: Vector3::new(0., 0., 0.),
             scale: Vector3::new(1., 1., 1.),
-            emit: Vector3::new(0., 0., 0.),
+            emit: Vector3::new(0., 0.2, 0.1),
             gpu_object: 0,
         };
         let sun = Entity {
@@ -50,7 +50,7 @@ impl World {
             emit: sun_color,
             gpu_object: 1,
         };
-        let entities = [building, sun];
+        let entities = [planet, sun];
         World {
             camera,
             light,
