@@ -142,14 +142,22 @@ impl Renderer {
             filters.color_filter.z,
         ];
         let ui = self.imgui.frame();
-        ui.window("Postprocessing")
-            .size([256., 256.], Condition::Always)
+        ui.window("World")
+            .size([256., 128.], Condition::Always)
+            .position([50., 50.], Condition::Once)
             .build(|| {
                 ui.checkbox("Pause light movement", &mut world.light_pause);
+            });
+        ui.window("Postprocessing")
+            .size([384., 256.], Condition::Always)
+            .position([50., 300.], Condition::Once)
+            .build(|| {
                 Drag::new("Exposure")
                     .range(0., f32::INFINITY)
                     .speed(0.01)
                     .build(ui, &mut filters.exposure);
+                ui.slider("Temperature", -1.67, 1.67, &mut filters.temperature);
+                ui.slider("Tint", -1.67, 1.67, &mut filters.tint);
                 Drag::new("Contrast")
                     .range(0., f32::INFINITY)
                     .speed(0.01)
