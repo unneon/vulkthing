@@ -31,14 +31,15 @@ use crate::world::World;
 use std::time::Instant;
 use winit::dpi::PhysicalPosition;
 use winit::event::{DeviceEvent, ElementState, Event, StartCause, WindowEvent};
+use winit::window::CursorGrabMode;
 
 const VULKAN_APP_NAME: &str = "Vulkthing";
 const VULKAN_APP_VERSION: (u32, u32, u32) = (0, 0, 0);
 const VULKAN_ENGINE_NAME: &str = "Unneongine";
 const VULKAN_ENGINE_VERSION: (u32, u32, u32) = (0, 0, 0);
 
-const WALK_SPEED: f32 = 1.5;
-const SPRINT_SPEED: f32 = 5.;
+const WALK_SPEED: f32 = 1.;
+const SPRINT_SPEED: f32 = 100.;
 const CAMERA_SENSITIVITY: f32 = 0.01;
 
 fn main() {
@@ -50,6 +51,7 @@ fn main() {
     let mut input_state = InputState::new();
     let mut world = World::new();
     let mut last_update = Instant::now();
+    let mut cursor_visible = false;
 
     // Run the event loop. Winit delivers events, like key presses. After it finishes delivering
     // some batch of events, it sends a MainEventsCleared event, which means the application should
@@ -144,6 +146,30 @@ fn main() {
                 last_update = curr_update;
                 world.update(delta_time, &input_state);
                 input_state.reset_after_frame();
+                if input_state.camera_lock && !cursor_visible {
+                    let window_size = window.window.inner_size();
+                    let window_center = PhysicalPosition {
+                        x: window_size.width / 2,
+                        y: window_size.height / 2,
+                    };
+                    window.window.set_cursor_position(window_center).unwrap();
+                    window.window.set_cursor_grab(CursorGrabMode::None).unwrap();
+                    window.window.set_cursor_visible(true);
+                    cursor_visible = true;
+                } else if !input_state.camera_lock && cursor_visible {
+                    let window_size = window.window.inner_size();
+                    let window_center = PhysicalPosition {
+                        x: window_size.width / 2,
+                        y: window_size.height / 2,
+                    };
+                    window
+                        .window
+                        .set_cursor_grab(CursorGrabMode::Locked)
+                        .unwrap();
+                    window.window.set_cursor_position(window_center).unwrap();
+                    window.window.set_cursor_visible(false);
+                    cursor_visible = false;
+                }
                 if renderer.imgui.io().want_set_mouse_pos {
                     window
                         .window

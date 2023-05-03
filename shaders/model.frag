@@ -17,7 +17,7 @@ layout(location = 2) in vec2 frag_tex_coord;
 layout(location = 0) out vec4 out_color;
 
 void main() {
-    vec3 object_color = texture(tex_sampler, frag_tex_coord).rgb;
+    vec3 object_color = vec3(1, 1, 1);
     vec3 light_dir = normalize(light.position - frag_position);
 
     vec3 ambient = light.ambient_strength * light.color * object_color;

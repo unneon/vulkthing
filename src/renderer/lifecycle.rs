@@ -793,7 +793,7 @@ fn create_pipeline(
             attribute_descriptions: Vertex::attribute_descriptions(0),
         }),
         msaa_samples,
-        polygon_mode: vk::PolygonMode::LINE,
+        polygon_mode: vk::PolygonMode::FILL,
         descriptor_set_layout,
         color_attachment,
         depth_attachment: Some(depth_attachment),
@@ -1330,7 +1330,7 @@ fn create_sync(logical_device: &Device) -> Synchronization {
 
 fn compute_projection(swapchain_extent: vk::Extent2D) -> Matrix4<f32> {
     let aspect_ratio = swapchain_extent.width as f32 / swapchain_extent.height as f32;
-    let mut proj = Matrix4::new_perspective(aspect_ratio, FRAC_PI_4, 0.1, 100.);
+    let mut proj = Matrix4::new_perspective(aspect_ratio, FRAC_PI_4, 0.1, 1000.);
     proj[(1, 1)] *= -1.;
     proj
 }

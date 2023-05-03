@@ -23,17 +23,22 @@ pub struct Light {
     pub ambient_strength: f32,
 }
 
+const SUN_RADIUS: f32 = 500.;
+const SUN_SCALE: f32 = 5.;
+const SUN_Z: f32 = 200.;
+const SUN_SPEED: f32 = 0.1;
+
 impl World {
     pub fn new() -> World {
         let sun_color = Vector3::new(1., 1., 1.);
         let camera = Camera {
-            position: Vector3::new(-10., 0., 0.),
+            position: Vector3::new(-250., 0., 0.),
             velocity: Vector3::new(0., 0., 0.),
             yaw: 0.,
             pitch: 0.,
         };
         let light = Light {
-            position: Vector3::new(-4., 0., 2.),
+            position: Vector3::new(-SUN_RADIUS, 0., SUN_Z),
             color: sun_color,
             ambient_strength: 0.05,
         };
@@ -41,12 +46,12 @@ impl World {
         let planet = Entity {
             position: Vector3::new(0., 0., 0.),
             scale: Vector3::new(1., 1., 1.),
-            emit: Vector3::new(0., 0.2, 0.1),
+            emit: Vector3::new(0., 0., 0.),
             gpu_object: 0,
         };
         let sun = Entity {
             position: light.position,
-            scale: Vector3::new(0.2, 0.2, 0.2),
+            scale: Vector3::new(SUN_SCALE, SUN_SCALE, SUN_SCALE),
             emit: sun_color,
             gpu_object: 1,
         };
@@ -64,8 +69,8 @@ impl World {
         self.camera.apply_input(input_state, delta_time);
         if !self.light_pause {
             self.light_time += delta_time;
-            self.light.position.x = -4. * self.light_time.cos();
-            self.light.position.y = -4. * self.light_time.sin();
+            self.light.position.x = -SUN_RADIUS * (SUN_SPEED * self.light_time).cos();
+            self.light.position.y = -SUN_RADIUS * (SUN_SPEED * self.light_time).sin();
             self.entities[1].position = self.light.position;
         }
     }

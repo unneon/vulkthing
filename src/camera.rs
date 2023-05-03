@@ -22,19 +22,13 @@ impl Camera {
         } else {
             WALK_SPEED
         };
-        if input.movement_jumps() > 0 && self.position.z == 0. {
-            self.velocity.z = 4.;
-        }
-        self.velocity.z -= 9.807 * delta_time;
         self.position += self.velocity * delta_time;
-        if self.position.z < 0. {
-            self.position.z = 0.;
-            self.velocity.z = 0.;
-        }
-        self.position +=
-            normalize_or_zero(right * input.movement_horizontal() + front * input.movement_depth())
-                * movement_speed
-                * delta_time;
+        self.position += normalize_or_zero(
+            right * input.movement_horizontal()
+                + up * input.movement_vertical()
+                + front * input.movement_depth(),
+        ) * movement_speed
+            * delta_time;
         self.yaw += input.camera_yaw() * CAMERA_SENSITIVITY;
         self.pitch =
             (self.pitch - input.camera_pitch() * CAMERA_SENSITIVITY).clamp(-YAW_LIMIT, YAW_LIMIT);
