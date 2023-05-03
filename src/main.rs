@@ -46,7 +46,12 @@ fn main() {
     initialize_logger();
     let window = create_window();
     let cube_model = load_model("assets/cube.obj", "assets/cube.png");
-    let planet_model = generate_planet();
+    let mut planet_parameters = planet::Parameters {
+        resolution: 20,
+        radius: 100.,
+        noise_magnitude: 15.,
+    };
+    let planet_model = generate_planet(&planet_parameters);
     let mut renderer = Renderer::new(&window, &[planet_model, cube_model]);
     let mut input_state = InputState::new();
     let mut world = World::new();
@@ -179,7 +184,29 @@ fn main() {
                         })
                         .unwrap();
                 }
-                renderer.draw_frame(&mut world, window.window.inner_size());
+                let mut new_planet_parameters = planet_parameters.clone();
+                renderer.draw_frame(
+                    &mut world,
+                    &mut new_planet_parameters,
+                    window.window.inner_size(),
+                );
+                if new_planet_parameters != planet_parameters {
+                    planet_parameters = new_planet_parameters;
+                    let new_planet_model = generate_planet(&planet_parameters);
+                    unsafe { renderer.logical_device.device_wait_idle() }.unwrap();
+                    renderer.objects[0].cleanup(&renderer.logical_device);
+                    renderer.objects[0] = renderer::lifecycle::create_object(
+                        &new_planet_model,
+                        renderer.object_descriptor_set_layout,
+                        renderer.object_descriptor_pool,
+                        &renderer.light,
+                        &renderer.instance,
+                        renderer.physical_device,
+                        &renderer.logical_device,
+                        renderer.queue,
+                        renderer.command_pools[0],
+                    );
+                }
             }
             // This event is only sent after MainEventsCleared, during which we render
             // unconditionally.

@@ -311,7 +311,8 @@ impl Synchronization {
 }
 
 impl Object {
-    fn cleanup(&self, dev: &Device) {
+    pub fn cleanup(&self, dev: &Device) {
+        unsafe { dev.free_descriptor_sets(self.descriptor_pool, &self.descriptor_sets) }.unwrap();
         unsafe { dev.destroy_buffer(self.vertex_buffer, None) };
         unsafe { dev.free_memory(self.vertex_buffer_memory, None) };
         unsafe { dev.destroy_buffer(self.index_buffer, None) };
@@ -1033,7 +1034,7 @@ fn create_offscreen_sampler(logical_device: &Device) -> vk::Sampler {
     unsafe { logical_device.create_sampler(&sampler_info, None) }.unwrap()
 }
 
-fn create_object(
+pub fn create_object(
     model: &Model,
     descriptor_set_layout: vk::DescriptorSetLayout,
     descriptor_pool: vk::DescriptorPool,
@@ -1092,6 +1093,7 @@ fn create_object(
         texture,
         texture_sampler,
         material,
+        descriptor_pool,
         descriptor_sets,
     }
 }
@@ -1194,7 +1196,8 @@ fn create_object_descriptor_pool(logical_device: &Device) -> vk::DescriptorPool 
     ];
     let pool_info = vk::DescriptorPoolCreateInfo::builder()
         .pool_sizes(&pool_sizes)
-        .max_sets(2 * FRAMES_IN_FLIGHT as u32);
+        .max_sets(2 * FRAMES_IN_FLIGHT as u32)
+        .flags(vk::DescriptorPoolCreateFlags::FREE_DESCRIPTOR_SET);
     unsafe { logical_device.create_descriptor_pool(&pool_info, None) }.unwrap()
 }
 

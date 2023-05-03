@@ -1,6 +1,6 @@
 mod debug;
 mod device;
-mod lifecycle;
+pub mod lifecycle;
 mod pipeline;
 mod shader;
 mod traits;
@@ -8,6 +8,7 @@ mod uniform;
 mod util;
 pub mod vertex;
 
+use crate::planet::Parameters;
 use crate::renderer::uniform::{Filters, Light, Material, ModelViewProjection};
 use crate::renderer::util::UniformBuffer;
 use crate::world::{Entity, World};
@@ -22,13 +23,13 @@ pub struct Renderer {
     // Immutable parts of the renderer. These can't change in the current design, but recovering
     // from GPU crashes might require doing something with these later?
     _entry: Entry,
-    instance: Instance,
+    pub instance: Instance,
     extensions: VulkanExtensions,
     debug_messenger: vk::DebugUtilsMessengerEXT,
     surface: vk::SurfaceKHR,
-    physical_device: vk::PhysicalDevice,
-    logical_device: Device,
-    queue: vk::Queue,
+    pub physical_device: vk::PhysicalDevice,
+    pub logical_device: Device,
+    pub queue: vk::Queue,
     swapchain_extension: Swapchain,
 
     // Parameters of the renderer that are required early for creating more important objects.
@@ -38,7 +39,7 @@ pub struct Renderer {
 
     // Description of the main render pass. Doesn't contain any information about the objects yet,
     // only low-level data format descriptions.
-    object_descriptor_set_layout: vk::DescriptorSetLayout,
+    pub object_descriptor_set_layout: vk::DescriptorSetLayout,
     render_pipeline_layout: vk::PipelineLayout,
     render_pass: vk::RenderPass,
     render_pipeline: vk::Pipeline,
@@ -68,16 +69,16 @@ pub struct Renderer {
 
     // Vulkan objects actually used for command recording and synchronization. Also internal
     // renderer state for keeping track of concurrent frames.
-    command_pools: [vk::CommandPool; FRAMES_IN_FLIGHT],
+    pub command_pools: [vk::CommandPool; FRAMES_IN_FLIGHT],
     command_buffers: [vk::CommandBuffer; FRAMES_IN_FLIGHT],
     sync: Synchronization,
     flight_index: usize,
 
     // And finally resources specific to this renderer. So various buffers related to objects we
     // actually render, their descriptor sets and the like.
-    light: UniformBuffer<Light>,
-    object_descriptor_pool: vk::DescriptorPool,
-    objects: Vec<Object>,
+    pub light: UniformBuffer<Light>,
+    pub object_descriptor_pool: vk::DescriptorPool,
+    pub objects: Vec<Object>,
     noise_texture: ImageResources,
     noise_sampler: vk::Sampler,
 
@@ -102,7 +103,7 @@ struct Synchronization {
     in_flight: [vk::Fence; FRAMES_IN_FLIGHT],
 }
 
-struct Object {
+pub struct Object {
     vertex_buffer: vk::Buffer,
     vertex_buffer_memory: vk::DeviceMemory,
     index_count: usize,
@@ -112,17 +113,23 @@ struct Object {
     texture: ImageResources,
     texture_sampler: vk::Sampler,
     material: UniformBuffer<Material>,
+    descriptor_pool: vk::DescriptorPool,
     descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
 }
 
 const FRAMES_IN_FLIGHT: usize = 2;
 
 impl Renderer {
-    pub fn draw_frame(&mut self, world: &mut World, window_size: PhysicalSize<u32>) {
+    pub fn draw_frame(
+        &mut self,
+        world: &mut World,
+        planet_parameters: &mut Parameters,
+        window_size: PhysicalSize<u32>,
+    ) {
         let Some(image_index) = (unsafe { self.prepare_command_buffer(window_size) }) else {
             return;
         };
-        self.build_ui(world);
+        self.build_ui(world, planet_parameters);
         unsafe { self.record_command_buffer(image_index, world) };
         for entity in &world.entities {
             self.update_object_uniforms(world, entity);
@@ -134,7 +141,7 @@ impl Renderer {
         self.flight_index = (self.flight_index + 1) % FRAMES_IN_FLIGHT;
     }
 
-    fn build_ui(&mut self, world: &mut World) {
+    fn build_ui(&mut self, world: &mut World, planet_parameters: &mut Parameters) {
         let filters = self.filters.deref(self.flight_index);
         let mut color_filter = [
             filters.color_filter.x,
@@ -148,9 +155,22 @@ impl Renderer {
             .build(|| {
                 ui.checkbox("Pause light movement", &mut world.light_pause);
             });
+        ui.window("Planet")
+            .size([256., 128.], Condition::Always)
+            .position([50., 300.], Condition::Once)
+            .build(|| {
+                ui.slider("Resolution", 1, 400, &mut planet_parameters.resolution);
+                ui.slider("Radius", 10., 200., &mut planet_parameters.radius);
+                ui.slider(
+                    "Noise magnitude",
+                    0.,
+                    100.,
+                    &mut planet_parameters.noise_magnitude,
+                );
+            });
         ui.window("Postprocessing")
             .size([384., 256.], Condition::Always)
-            .position([50., 300.], Condition::Once)
+            .position([50., 600.], Condition::Once)
             .build(|| {
                 Drag::new("Exposure")
                     .range(0., f32::INFINITY)
