@@ -3,7 +3,7 @@ use crate::model::Model;
 use crate::renderer::vertex::Vertex;
 use imgui::Ui;
 use nalgebra::{Vector2, Vector3};
-use noise::NoiseFn;
+use noise::{NoiseFn, Perlin};
 
 #[derive(Clone, PartialEq)]
 pub struct Parameters {
@@ -79,55 +79,83 @@ impl Default for Parameters {
 pub fn generate_planet(parameters: &Parameters) -> Model {
     let mut vertices = Vec::new();
     let mut indices = Vec::new();
-    let noise = noise::Perlin::new(907);
-    for (k, side) in SIDES.iter().enumerate() {
-        for i in 0..parameters.resolution + 1 {
-            for j in 0..parameters.resolution + 1 {
-                let direction = (side.base
-                    + i as f32 * (2. * side.dx) / parameters.resolution as f32
-                    + j as f32 * (2. * side.dy) / parameters.resolution as f32)
-                    .normalize();
-                let is_on_edge =
-                    i == 0 || i == parameters.resolution || j == 0 || j == parameters.resolution;
-                let position = direction
-                    * (parameters.radius
-                        + if is_on_edge {
-                            0.
-                        } else {
-                            let x =
-                                parameters.noise_scale * i as f32 / parameters.resolution as f32;
-                            let y =
-                                parameters.noise_scale * j as f32 / parameters.resolution as f32;
-                            parameters.noise_magnitude * noise.get([x as f64, y as f64]) as f32
-                        });
-                let normal = direction;
+    let noise = Perlin::new(907);
+    for side in SIDES {
+        for i in 0..parameters.resolution {
+            for j in 0..parameters.resolution {
+                let position_bottom_left = generate_vertex(i, j, &side, &parameters, &noise);
+                let position_bottom_right = generate_vertex(i + 1, j, &side, &parameters, &noise);
+                let position_top_left = generate_vertex(i, j + 1, &side, &parameters, &noise);
+                let position_top_right = generate_vertex(i + 1, j + 1, &side, &parameters, &noise);
+                let normal_first = (position_bottom_right - position_bottom_left)
+                    .cross(&(position_top_left - position_bottom_left));
+                let normal_second = (position_bottom_right - position_top_left)
+                    .cross(&(position_top_right - position_top_left));
                 let tex = Vector2::zeros();
-                let vertex = Vertex {
-                    position,
-                    normal,
+                vertices.push(Vertex {
+                    position: position_bottom_left,
+                    normal: normal_first,
                     tex,
-                };
-                vertices.push(vertex);
+                });
+                vertices.push(Vertex {
+                    position: position_bottom_right,
+                    normal: normal_first,
+                    tex,
+                });
+                vertices.push(Vertex {
+                    position: position_top_left,
+                    normal: normal_first,
+                    tex,
+                });
+                vertices.push(Vertex {
+                    position: position_top_left,
+                    normal: normal_second,
+                    tex,
+                });
+                vertices.push(Vertex {
+                    position: position_bottom_right,
+                    normal: normal_second,
+                    tex,
+                });
+                vertices.push(Vertex {
+                    position: position_top_right,
+                    normal: normal_second,
+                    tex,
+                });
             }
         }
-        for i in 0..parameters.resolution as u32 {
-            for j in 0..parameters.resolution as u32 {
-                let side_offset = k as u32
-                    * (parameters.resolution as u32 + 1)
-                    * (parameters.resolution as u32 + 1);
-                indices.push(side_offset + i * (parameters.resolution as u32 + 1) + j);
-                indices.push(side_offset + (i + 1) * (parameters.resolution as u32 + 1) + j);
-                indices.push(side_offset + i * (parameters.resolution as u32 + 1) + j + 1);
-
-                indices.push(side_offset + i * (parameters.resolution as u32 + 1) + j + 1);
-                indices.push(side_offset + (i + 1) * (parameters.resolution as u32 + 1) + j);
-                indices.push(side_offset + (i + 1) * (parameters.resolution as u32 + 1) + j + 1);
-            }
-        }
+    }
+    for i in 0..vertices.len() as u32 {
+        indices.push(i);
     }
     Model {
         vertices,
         indices,
         texture_path: "assets/cube.png",
     }
+}
+
+fn generate_vertex(
+    i: usize,
+    j: usize,
+    side: &Side,
+    parameters: &Parameters,
+    noise: &Perlin,
+) -> Vector3<f32> {
+    let direction = (side.base
+        + i as f32 * (2. * side.dx) / parameters.resolution as f32
+        + j as f32 * (2. * side.dy) / parameters.resolution as f32)
+        .normalize();
+    let is_on_edge = i == 0 || i == parameters.resolution || j == 0 || j == parameters.resolution;
+    let noise_x = parameters.noise_scale * i as f32 / parameters.resolution as f32;
+    let noise_y = parameters.noise_scale * j as f32 / parameters.resolution as f32;
+    let noise_value = noise.get([noise_x as f64, noise_y as f64]) as f32;
+    let position = direction
+        * (parameters.radius
+            + if is_on_edge {
+                0.
+            } else {
+                parameters.noise_magnitude * noise_value
+            });
+    position
 }
