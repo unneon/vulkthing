@@ -27,6 +27,8 @@ use winit::dpi::PhysicalSize;
 // Support for this format is required by the Vulkan specification.
 const INTERNAL_HDR_FORMAT: vk::Format = vk::Format::R16G16B16A16_SFLOAT;
 
+const DEPTH_FORMAT: vk::Format = vk::Format::D32_SFLOAT;
+
 impl Renderer {
     pub fn new(window: &Window, models: &[Model]) -> Renderer {
         let entry = unsafe { Entry::load() }.unwrap();
@@ -769,7 +771,7 @@ fn create_pipeline(
         .initial_layout(vk::ImageLayout::UNDEFINED)
         .final_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL);
     let depth_attachment = *vk::AttachmentDescription::builder()
-        .format(vk::Format::D16_UNORM)
+        .format(DEPTH_FORMAT)
         .samples(msaa_samples)
         .load_op(vk::AttachmentLoadOp::CLEAR)
         .store_op(vk::AttachmentStoreOp::DONT_CARE)
@@ -941,7 +943,7 @@ fn create_depth_resources(
     logical_device: &Device,
 ) -> ImageResources {
     let (image, memory) = util::create_image(
-        vk::Format::D16_UNORM,
+        DEPTH_FORMAT,
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
         vk::ImageTiling::OPTIMAL,
         vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
@@ -955,7 +957,7 @@ fn create_depth_resources(
     );
     let view = util::create_image_view(
         image,
-        vk::Format::D16_UNORM,
+        DEPTH_FORMAT,
         vk::ImageAspectFlags::DEPTH,
         1,
         logical_device,
@@ -1333,7 +1335,7 @@ fn create_sync(logical_device: &Device) -> Synchronization {
 
 fn compute_projection(swapchain_extent: vk::Extent2D) -> Matrix4<f32> {
     let aspect_ratio = swapchain_extent.width as f32 / swapchain_extent.height as f32;
-    let mut proj = Matrix4::new_perspective(aspect_ratio, FRAC_PI_4, 0.1, 1000.);
+    let mut proj = Matrix4::new_perspective(aspect_ratio, FRAC_PI_4, 1., 10000.);
     proj[(1, 1)] *= -1.;
     proj
 }

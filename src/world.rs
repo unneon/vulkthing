@@ -3,6 +3,7 @@ use crate::input::InputState;
 use crate::interface::Editable;
 use imgui::Ui;
 use nalgebra::Vector3;
+use std::f32::consts::PI;
 
 pub struct World {
     pub camera: Camera,
@@ -79,7 +80,7 @@ impl World {
 impl Light {
     fn update(&mut self, delta_time: f32) {
         if self.movement {
-            self.argument += self.speed * delta_time;
+            self.argument = (self.argument + self.speed * delta_time).rem_euclid(2. * PI);
             self.position.x = -self.radius * self.argument.cos();
             self.position.y = -self.radius * self.argument.sin();
         }
@@ -95,5 +96,6 @@ impl Editable for World {
         ui.checkbox("Light movement", &mut self.light.movement);
         ui.slider("Light speed", 0., 1., &mut self.light.speed);
         ui.slider("Light radius", 0., 1000., &mut self.light.radius);
+        ui.slider("Light argument", 0., 2. * PI, &mut self.light.argument);
     }
 }

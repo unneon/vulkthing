@@ -11,6 +11,7 @@ pub struct Parameters {
     pub radius: f32,
     pub noise_magnitude: f32,
     pub noise_scale: f32,
+    pub noise_layers: usize,
 }
 
 struct Side {
@@ -62,6 +63,7 @@ impl Editable for Parameters {
         ui.slider("Radius", 10., 200., &mut self.radius);
         ui.slider("Noise magnitude", 0., 100., &mut self.noise_magnitude);
         ui.slider("Noise scale", 0., 64., &mut self.noise_scale);
+        ui.slider("Noise layers", 0, 16, &mut self.noise_layers);
     }
 }
 
@@ -70,8 +72,9 @@ impl Default for Parameters {
         Parameters {
             resolution: 400,
             radius: 100.,
-            noise_magnitude: 20.,
-            noise_scale: 16.,
+            noise_magnitude: 8.,
+            noise_scale: 6.,
+            noise_layers: 4,
         }
     }
 }
@@ -149,7 +152,12 @@ fn generate_vertex(
     let is_on_edge = i == 0 || i == parameters.resolution || j == 0 || j == parameters.resolution;
     let noise_x = parameters.noise_scale * i as f32 / parameters.resolution as f32;
     let noise_y = parameters.noise_scale * j as f32 / parameters.resolution as f32;
-    let noise_value = noise.get([noise_x as f64, noise_y as f64]) as f32;
+    let mut noise_value = 0.;
+    for i in 0..parameters.noise_layers {
+        let factor = (2.0f64).powi(i as i32);
+        noise_value +=
+            noise.get([noise_x as f64 * factor, noise_y as f64 * factor]) as f32 / factor as f32;
+    }
     let position = direction
         * (parameters.radius
             + if is_on_edge {
