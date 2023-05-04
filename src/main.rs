@@ -14,6 +14,7 @@
 
 mod camera;
 mod input;
+mod interface;
 mod logger;
 mod model;
 mod planet;
@@ -46,11 +47,7 @@ fn main() {
     initialize_logger();
     let window = create_window();
     let cube_model = load_model("assets/cube.obj", "assets/cube.png");
-    let mut planet_parameters = planet::Parameters {
-        resolution: 20,
-        radius: 100.,
-        noise_magnitude: 15.,
-    };
+    let mut planet_parameters = planet::Parameters::default();
     let planet_model = generate_planet(&planet_parameters);
     let mut renderer = Renderer::new(&window, &[planet_model, cube_model]);
     let mut input_state = InputState::new();

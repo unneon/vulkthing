@@ -8,6 +8,7 @@ mod uniform;
 mod util;
 pub mod vertex;
 
+use crate::interface::Editable;
 use crate::planet::Parameters;
 use crate::renderer::uniform::{Filters, Light, Material, ModelViewProjection};
 use crate::renderer::util::UniformBuffer;
@@ -15,8 +16,8 @@ use crate::world::{Entity, World};
 use ash::extensions::ext::DebugUtils;
 use ash::extensions::khr::{Surface, Swapchain};
 use ash::{vk, Device, Entry, Instance};
-use imgui::{Condition, Drag};
-use nalgebra::{Matrix4, Vector3};
+use imgui::{Condition, TreeNodeFlags, Ui};
+use nalgebra::Matrix4;
 use winit::dpi::PhysicalSize;
 
 pub struct Renderer {
@@ -143,60 +144,15 @@ impl Renderer {
 
     fn build_ui(&mut self, world: &mut World, planet_parameters: &mut Parameters) {
         let filters = self.filters.deref(self.flight_index);
-        let mut color_filter = [
-            filters.color_filter.x,
-            filters.color_filter.y,
-            filters.color_filter.z,
-        ];
+
         let ui = self.imgui.frame();
-        ui.window("World")
-            .size([256., 128.], Condition::Always)
-            .position([50., 50.], Condition::Once)
+        ui.window("Debugging")
+            .size([0., 0.], Condition::Always)
             .build(|| {
-                ui.checkbox("Pause light movement", &mut world.light_pause);
+                build_ui_editable(ui, world);
+                build_ui_editable(ui, planet_parameters);
+                build_ui_editable(ui, filters);
             });
-        ui.window("Planet")
-            .size([256., 128.], Condition::Always)
-            .position([50., 300.], Condition::Once)
-            .build(|| {
-                ui.slider("Resolution", 1, 400, &mut planet_parameters.resolution);
-                ui.slider("Radius", 10., 200., &mut planet_parameters.radius);
-                ui.slider(
-                    "Noise magnitude",
-                    0.,
-                    100.,
-                    &mut planet_parameters.noise_magnitude,
-                );
-            });
-        ui.window("Postprocessing")
-            .size([384., 256.], Condition::Always)
-            .position([50., 600.], Condition::Once)
-            .build(|| {
-                Drag::new("Exposure")
-                    .range(0., f32::INFINITY)
-                    .speed(0.01)
-                    .build(ui, &mut filters.exposure);
-                ui.slider("Temperature", -1.67, 1.67, &mut filters.temperature);
-                ui.slider("Tint", -1.67, 1.67, &mut filters.tint);
-                Drag::new("Contrast")
-                    .range(0., f32::INFINITY)
-                    .speed(0.01)
-                    .build(ui, &mut filters.contrast);
-                Drag::new("Brightness")
-                    .range(0., f32::INFINITY)
-                    .speed(0.01)
-                    .build(ui, &mut filters.brightness);
-                ui.color_edit3("Color filter", &mut color_filter);
-                Drag::new("Saturation")
-                    .range(0., f32::INFINITY)
-                    .speed(0.01)
-                    .build(ui, &mut filters.saturation);
-                Drag::new("Gamma")
-                    .range(0., f32::INFINITY)
-                    .speed(0.01)
-                    .build(ui, &mut filters.gamma);
-            });
-        filters.color_filter = Vector3::new(color_filter[0], color_filter[1], color_filter[2]);
     }
 
     unsafe fn prepare_command_buffer(&mut self, window_size: PhysicalSize<u32>) -> Option<u32> {
@@ -389,4 +345,9 @@ impl Renderer {
         }
         .unwrap();
     }
+}
+
+fn build_ui_editable(ui: &Ui, editable: &mut impl Editable) {
+    ui.collapsing_header(editable.name(), TreeNodeFlags::empty())
+        .then(|| editable.widget(ui));
 }
