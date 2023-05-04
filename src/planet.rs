@@ -3,15 +3,31 @@ use crate::model::Model;
 use crate::renderer::vertex::Vertex;
 use imgui::Ui;
 use nalgebra::{Vector2, Vector3};
-use noise::{NoiseFn, Perlin};
+use noise::{
+    Checkerboard, Cylinders, NoiseFn, OpenSimplex, Perlin, PerlinSurflet, Simplex, SuperSimplex,
+    Value, Worley,
+};
 
 #[derive(Clone, PartialEq)]
 pub struct Parameters {
-    pub resolution: usize,
-    pub radius: f32,
-    pub noise_magnitude: f32,
-    pub noise_scale: f32,
-    pub noise_layers: usize,
+    resolution: usize,
+    radius: f32,
+    noise_type: usize,
+    noise_magnitude: f32,
+    noise_scale: f32,
+    noise_layers: usize,
+}
+
+enum NoiseType {
+    Checkerboard,
+    Cylinders,
+    OpenSimplex,
+    Perlin,
+    PerlinSurflet,
+    Simplex,
+    SuperSimplex,
+    Value,
+    Worley,
 }
 
 struct Side {
@@ -19,6 +35,18 @@ struct Side {
     dx: Vector3<f32>,
     dy: Vector3<f32>,
 }
+
+const NOISE_TYPES: &[NoiseType] = &[
+    NoiseType::Checkerboard,
+    NoiseType::Cylinders,
+    NoiseType::OpenSimplex,
+    NoiseType::Perlin,
+    NoiseType::PerlinSurflet,
+    NoiseType::Simplex,
+    NoiseType::SuperSimplex,
+    NoiseType::Value,
+    NoiseType::Worley,
+];
 
 const SIDES: [Side; 6] = [
     Side {
@@ -53,6 +81,22 @@ const SIDES: [Side; 6] = [
     },
 ];
 
+impl NoiseType {
+    fn name(&self) -> &'static str {
+        match self {
+            NoiseType::Checkerboard => "Checkerboard",
+            NoiseType::Cylinders => "Cylinders",
+            NoiseType::OpenSimplex => "OpenSimplex",
+            NoiseType::Perlin => "Perlin",
+            NoiseType::PerlinSurflet => "Perlin surflet",
+            NoiseType::Simplex => "Simplex",
+            NoiseType::SuperSimplex => "SuperSimplex",
+            NoiseType::Value => "Value",
+            NoiseType::Worley => "Worley",
+        }
+    }
+}
+
 impl Editable for Parameters {
     fn name(&self) -> &str {
         "Planet generation"
@@ -61,6 +105,9 @@ impl Editable for Parameters {
     fn widget(&mut self, ui: &Ui) {
         ui.slider("Resolution", 1, 10000, &mut self.resolution);
         ui.slider("Radius", 10., 200., &mut self.radius);
+        ui.combo("Noise type", &mut self.noise_type, &NOISE_TYPES, |nt| {
+            nt.name().into()
+        });
         ui.slider("Noise magnitude", 0., 100., &mut self.noise_magnitude);
         ui.slider("Noise scale", 0., 64., &mut self.noise_scale);
         ui.slider("Noise layers", 0, 16, &mut self.noise_layers);
@@ -72,6 +119,7 @@ impl Default for Parameters {
         Parameters {
             resolution: 400,
             radius: 100.,
+            noise_type: 3,
             noise_magnitude: 8.,
             noise_scale: 6.,
             noise_layers: 4,
@@ -82,7 +130,7 @@ impl Default for Parameters {
 pub fn generate_planet(parameters: &Parameters) -> Model {
     let mut vertices = Vec::new();
     let mut indices = Vec::new();
-    let noise = Perlin::new(907);
+    let noise = select_noise(parameters);
     for side in SIDES {
         for i in 0..parameters.resolution {
             for j in 0..parameters.resolution {
@@ -138,12 +186,27 @@ pub fn generate_planet(parameters: &Parameters) -> Model {
     }
 }
 
+fn select_noise(parameters: &Parameters) -> Box<dyn NoiseFn<f64, 2>> {
+    let seed = 907;
+    match NOISE_TYPES[parameters.noise_type] {
+        NoiseType::Checkerboard => Box::new(Checkerboard::new(1)),
+        NoiseType::Cylinders => Box::new(Cylinders::new()),
+        NoiseType::OpenSimplex => Box::new(OpenSimplex::new(seed)),
+        NoiseType::Perlin => Box::new(Perlin::new(seed)),
+        NoiseType::PerlinSurflet => Box::new(PerlinSurflet::new(seed)),
+        NoiseType::Simplex => Box::new(Simplex::new(seed)),
+        NoiseType::SuperSimplex => Box::new(SuperSimplex::new(seed)),
+        NoiseType::Value => Box::new(Value::new(seed)),
+        NoiseType::Worley => Box::new(Worley::new(seed)),
+    }
+}
+
 fn generate_vertex(
     i: usize,
     j: usize,
     side: &Side,
     parameters: &Parameters,
-    noise: &Perlin,
+    noise: &dyn NoiseFn<f64, 2>,
 ) -> Vector3<f32> {
     let direction = (side.base
         + i as f32 * (2. * side.dx) / parameters.resolution as f32
