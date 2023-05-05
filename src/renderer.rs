@@ -1,22 +1,20 @@
 mod debug;
 mod device;
-pub mod lifecycle;
+mod lifecycle;
 mod pipeline;
 mod shader;
 mod traits;
-mod uniform;
+pub mod uniform;
 mod util;
 pub mod vertex;
 
-use crate::interface::Editable;
-use crate::planet::Parameters;
 use crate::renderer::uniform::{Filters, Light, Material, ModelViewProjection};
 use crate::renderer::util::UniformBuffer;
 use crate::world::{Entity, World};
 use ash::extensions::ext::DebugUtils;
 use ash::extensions::khr::{Surface, Swapchain};
 use ash::{vk, Device, Entry, Instance};
-use imgui::{Condition, TreeNodeFlags, Ui};
+use imgui::DrawData;
 use nalgebra::Matrix4;
 use winit::dpi::PhysicalSize;
 
@@ -24,23 +22,23 @@ pub struct Renderer {
     // Immutable parts of the renderer. These can't change in the current design, but recovering
     // from GPU crashes might require doing something with these later?
     _entry: Entry,
-    pub instance: Instance,
+    instance: Instance,
     extensions: VulkanExtensions,
     debug_messenger: vk::DebugUtilsMessengerEXT,
     surface: vk::SurfaceKHR,
-    pub physical_device: vk::PhysicalDevice,
-    pub logical_device: Device,
-    pub queue: vk::Queue,
+    physical_device: vk::PhysicalDevice,
+    logical_device: Device,
+    queue: vk::Queue,
     swapchain_extension: Swapchain,
 
     // Parameters of the renderer that are required early for creating more important objects.
     msaa_samples: vk::SampleCountFlags,
     offscreen_sampler: vk::Sampler,
-    filters: UniformBuffer<Filters>,
+    pub filters: UniformBuffer<Filters>,
 
     // Description of the main render pass. Doesn't contain any information about the objects yet,
     // only low-level data format descriptions.
-    pub object_descriptor_set_layout: vk::DescriptorSetLayout,
+    object_descriptor_set_layout: vk::DescriptorSetLayout,
     render_pipeline_layout: vk::PipelineLayout,
     render_pass: vk::RenderPass,
     render_pipeline: vk::Pipeline,
@@ -57,7 +55,7 @@ pub struct Renderer {
     // All resources that depend on swapchain extent (window size). So swapchain description, memory
     // used for all framebuffer attachments, framebuffers, and the mentioned postprocess descriptor
     // set. Projection matrix depends on the monitor aspect ratio, so it's included too.
-    swapchain_extent: vk::Extent2D,
+    pub swapchain_extent: vk::Extent2D,
     swapchain: vk::SwapchainKHR,
     swapchain_image_views: Vec<vk::ImageView>,
     color: ImageResources,
@@ -70,21 +68,20 @@ pub struct Renderer {
 
     // Vulkan objects actually used for command recording and synchronization. Also internal
     // renderer state for keeping track of concurrent frames.
-    pub command_pools: [vk::CommandPool; FRAMES_IN_FLIGHT],
+    command_pools: [vk::CommandPool; FRAMES_IN_FLIGHT],
     command_buffers: [vk::CommandBuffer; FRAMES_IN_FLIGHT],
     sync: Synchronization,
-    flight_index: usize,
+    pub flight_index: usize,
 
     // And finally resources specific to this renderer. So various buffers related to objects we
     // actually render, their descriptor sets and the like.
-    pub light: UniformBuffer<Light>,
-    pub object_descriptor_pool: vk::DescriptorPool,
-    pub objects: Vec<Object>,
+    light: UniformBuffer<Light>,
+    object_descriptor_pool: vk::DescriptorPool,
+    objects: Vec<Object>,
     noise_texture: ImageResources,
     noise_sampler: vk::Sampler,
 
-    pub imgui: imgui::Context,
-    imgui_renderer: Option<imgui_rs_vulkan_renderer::Renderer>,
+    interface_renderer: Option<imgui_rs_vulkan_renderer::Renderer>,
 }
 
 struct VulkanExtensions {
@@ -124,14 +121,13 @@ impl Renderer {
     pub fn draw_frame(
         &mut self,
         world: &mut World,
-        planet_parameters: &mut Parameters,
         window_size: PhysicalSize<u32>,
+        ui_draw: &DrawData,
     ) {
         let Some(image_index) = (unsafe { self.prepare_command_buffer(window_size) }) else {
             return;
         };
-        self.build_ui(world, planet_parameters);
-        unsafe { self.record_command_buffer(image_index, world) };
+        unsafe { self.record_command_buffer(image_index, world, ui_draw) };
         for entity in &world.entities {
             self.update_object_uniforms(world, entity);
         }
@@ -140,19 +136,6 @@ impl Renderer {
         self.submit_present(image_index);
 
         self.flight_index = (self.flight_index + 1) % FRAMES_IN_FLIGHT;
-    }
-
-    fn build_ui(&mut self, world: &mut World, planet_parameters: &mut Parameters) {
-        let filters = self.filters.deref(self.flight_index);
-
-        let ui = self.imgui.frame();
-        ui.window("Debugging")
-            .size([0., 0.], Condition::Always)
-            .build(|| {
-                build_ui_editable(ui, world);
-                build_ui_editable(ui, planet_parameters);
-                build_ui_editable(ui, filters);
-            });
     }
 
     unsafe fn prepare_command_buffer(&mut self, window_size: PhysicalSize<u32>) -> Option<u32> {
@@ -184,7 +167,12 @@ impl Renderer {
         Some(image_index)
     }
 
-    unsafe fn record_command_buffer(&mut self, image_index: u32, world: &World) {
+    unsafe fn record_command_buffer(
+        &mut self,
+        image_index: u32,
+        world: &World,
+        ui_draw: &DrawData,
+    ) {
         let buf = self.command_buffers[self.flight_index];
 
         let begin_info = vk::CommandBufferBeginInfo::builder()
@@ -193,7 +181,7 @@ impl Renderer {
             .begin_command_buffer(buf, &begin_info)
             .unwrap();
         self.record_render_pass(buf, world);
-        self.record_postprocess_pass(buf, image_index);
+        self.record_postprocess_pass(buf, image_index, ui_draw);
         self.logical_device.end_command_buffer(buf).unwrap();
     }
 
@@ -243,7 +231,12 @@ impl Renderer {
         dev.cmd_end_render_pass(buf);
     }
 
-    unsafe fn record_postprocess_pass(&mut self, buf: vk::CommandBuffer, image_index: u32) {
+    unsafe fn record_postprocess_pass(
+        &mut self,
+        buf: vk::CommandBuffer,
+        image_index: u32,
+        ui_draw: &DrawData,
+    ) {
         let dev = &self.logical_device;
         let pass_info = vk::RenderPassBeginInfo::builder()
             .render_pass(self.postprocess_pass)
@@ -270,10 +263,10 @@ impl Renderer {
         );
         dev.cmd_draw(buf, 6, 1, 0, 0);
 
-        self.imgui_renderer
+        self.interface_renderer
             .as_mut()
             .unwrap()
-            .cmd_draw(buf, &self.imgui.render())
+            .cmd_draw(buf, ui_draw)
             .unwrap();
 
         dev.cmd_end_render_pass(buf);
@@ -345,9 +338,4 @@ impl Renderer {
         }
         .unwrap();
     }
-}
-
-fn build_ui_editable(ui: &Ui, editable: &mut impl Editable) {
-    ui.collapsing_header(editable.name(), TreeNodeFlags::empty())
-        .then(|| editable.widget(ui));
 }

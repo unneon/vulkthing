@@ -23,16 +23,15 @@ mod window;
 mod world;
 
 use crate::input::InputState;
+use crate::interface::Interface;
 use crate::logger::initialize_logger;
 use crate::model::load_model;
 use crate::planet::generate_planet;
 use crate::renderer::Renderer;
-use crate::window::{create_window, to_imgui_key, to_imgui_modifier, to_imgui_mouse};
+use crate::window::create_window;
 use crate::world::World;
 use std::time::Instant;
-use winit::dpi::PhysicalPosition;
-use winit::event::{DeviceEvent, ElementState, Event, StartCause, WindowEvent};
-use winit::window::CursorGrabMode;
+use winit::event::{DeviceEvent, Event, StartCause, WindowEvent};
 
 const VULKAN_APP_NAME: &str = "Vulkthing";
 const VULKAN_APP_VERSION: (u32, u32, u32) = (0, 0, 0);
@@ -47,13 +46,18 @@ fn main() {
     initialize_logger();
     let window = create_window();
     let cube_model = load_model("assets/cube.obj", "assets/cube.png");
-    let mut planet_parameters = planet::Parameters::default();
-    let planet_model = generate_planet(&planet_parameters);
+    let mut planet = planet::Parameters::default();
+    let planet_model = generate_planet(&planet);
     let mut renderer = Renderer::new(&window, &[planet_model, cube_model]);
+    let mut interface = Interface::new(
+        renderer.swapchain_extent.width as usize,
+        renderer.swapchain_extent.height as usize,
+    );
     let mut input_state = InputState::new();
     let mut world = World::new();
     let mut last_update = Instant::now();
-    let mut cursor_visible = false;
+
+    renderer.create_interface_renderer(&mut interface.ctx);
 
     // Run the event loop. Winit delivers events, like key presses. After it finishes delivering
     // some batch of events, it sends a MainEventsCleared event, which means the application should
@@ -68,72 +72,15 @@ fn main() {
             // it possible to measure frame times accounting for things like having multiple input
             // events before a redraw request.
             Event::NewEvents(StartCause::Poll) => (),
-            Event::WindowEvent { event, .. } => match event {
-                WindowEvent::ReceivedCharacter(ch) => {
-                    if ch != '\u{7f}' {
-                        renderer.imgui.io_mut().add_input_character(ch);
-                    }
+            Event::WindowEvent { event, .. } => {
+                interface.apply_window(&event);
+                match event {
+                    WindowEvent::KeyboardInput { input, .. } => input_state.apply_keyboard(input),
+                    WindowEvent::Resized(new_size) => renderer.recreate_swapchain(new_size),
+                    WindowEvent::CloseRequested => control_flow.set_exit(),
+                    _ => (),
                 }
-                WindowEvent::Focused(gained_focus) => {
-                    renderer.imgui.io_mut().app_focus_lost = !gained_focus;
-                }
-                WindowEvent::KeyboardInput { input, .. } => {
-                    input_state.apply_keyboard(input);
-                    if let Some(key) = input.virtual_keycode {
-                        if let Some(key) = to_imgui_modifier(key) {
-                            renderer
-                                .imgui
-                                .io_mut()
-                                .add_key_event(key, input.state == ElementState::Pressed);
-                        }
-                        if let Some(key) = to_imgui_key(key) {
-                            renderer
-                                .imgui
-                                .io_mut()
-                                .add_key_event(key, input.state == ElementState::Pressed);
-                        }
-                    }
-                }
-                WindowEvent::ModifiersChanged(modifiers) => {
-                    renderer
-                        .imgui
-                        .io_mut()
-                        .add_key_event(imgui::Key::ModShift, modifiers.shift());
-                    renderer
-                        .imgui
-                        .io_mut()
-                        .add_key_event(imgui::Key::ModCtrl, modifiers.ctrl());
-                    renderer
-                        .imgui
-                        .io_mut()
-                        .add_key_event(imgui::Key::ModAlt, modifiers.alt());
-                    renderer
-                        .imgui
-                        .io_mut()
-                        .add_key_event(imgui::Key::ModSuper, modifiers.logo());
-                }
-                WindowEvent::CursorMoved { position, .. } => {
-                    renderer
-                        .imgui
-                        .io_mut()
-                        .add_mouse_pos_event([position.x as f32, position.y as f32]);
-                }
-                WindowEvent::MouseInput { state, button, .. } => {
-                    if let Some(mouse) = to_imgui_mouse(button) {
-                        renderer
-                            .imgui
-                            .io_mut()
-                            .add_mouse_button_event(mouse, state == ElementState::Pressed);
-                    }
-                }
-                WindowEvent::Resized(new_size) => {
-                    renderer.recreate_swapchain(new_size);
-                    renderer.imgui.io_mut().display_size =
-                        [new_size.width as f32, new_size.height as f32];
-                }
-                WindowEvent::CloseRequested => control_flow.set_exit(),
-                _ => (),
-            },
+            }
             // TODO: Handle key release events outside of the window.
             Event::DeviceEvent { event, .. } => match event {
                 DeviceEvent::MouseMotion { delta } => input_state.apply_mouse(delta),
@@ -148,62 +95,22 @@ fn main() {
                 last_update = curr_update;
                 world.update(delta_time, &input_state);
                 input_state.reset_after_frame();
-                if input_state.camera_lock && !cursor_visible {
-                    let window_size = window.window.inner_size();
-                    let window_center = PhysicalPosition {
-                        x: window_size.width / 2,
-                        y: window_size.height / 2,
-                    };
-                    window.window.set_cursor_position(window_center).unwrap();
-                    window.window.set_cursor_grab(CursorGrabMode::None).unwrap();
-                    window.window.set_cursor_visible(true);
-                    cursor_visible = true;
-                } else if !input_state.camera_lock && cursor_visible {
-                    let window_size = window.window.inner_size();
-                    let window_center = PhysicalPosition {
-                        x: window_size.width / 2,
-                        y: window_size.height / 2,
-                    };
-                    window
-                        .window
-                        .set_cursor_grab(CursorGrabMode::Locked)
-                        .unwrap();
-                    window.window.set_cursor_position(window_center).unwrap();
-                    window.window.set_cursor_visible(false);
-                    cursor_visible = false;
+                interface.apply_cursor(input_state.camera_lock, &window.window);
+                let interface_events = interface.build(
+                    &mut world,
+                    &mut planet,
+                    renderer.filters.deref(renderer.flight_index),
+                );
+                if interface_events.planet_changed {
+                    let planet_model = generate_planet(&planet);
+                    renderer.recreate_planet(&planet_model);
                 }
-                if renderer.imgui.io().want_set_mouse_pos {
-                    window
-                        .window
-                        .set_cursor_position(PhysicalPosition {
-                            x: renderer.imgui.io().mouse_pos[0],
-                            y: renderer.imgui.io().mouse_pos[1],
-                        })
-                        .unwrap();
-                }
-                let mut new_planet_parameters = planet_parameters.clone();
+
                 renderer.draw_frame(
                     &mut world,
-                    &mut new_planet_parameters,
                     window.window.inner_size(),
+                    interface.draw_data(),
                 );
-                if new_planet_parameters != planet_parameters {
-                    planet_parameters = new_planet_parameters;
-                    let new_planet_model = generate_planet(&planet_parameters);
-                    unsafe { renderer.logical_device.device_wait_idle() }.unwrap();
-                    renderer.objects[0].cleanup(&renderer.logical_device);
-                    renderer.objects[0] = renderer::lifecycle::create_object(
-                        &new_planet_model,
-                        renderer.object_descriptor_set_layout,
-                        renderer.object_descriptor_pool,
-                        &renderer.light,
-                        &renderer.instance,
-                        renderer.physical_device,
-                        &renderer.logical_device,
-                        renderer.queue,
-                        renderer.command_pools[0],
-                    );
-                }
             }
             // This event is only sent after MainEventsCleared, during which we render
             // unconditionally.

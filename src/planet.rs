@@ -102,15 +102,17 @@ impl Editable for Parameters {
         "Planet generation"
     }
 
-    fn widget(&mut self, ui: &Ui) {
-        ui.slider("Resolution", 1, 10000, &mut self.resolution);
-        ui.slider("Radius", 10., 200., &mut self.radius);
-        ui.combo("Noise type", &mut self.noise_type, &NOISE_TYPES, |nt| {
+    fn widget(&mut self, ui: &Ui) -> bool {
+        let mut changed = false;
+        changed |= ui.slider("Resolution", 1, 800, &mut self.resolution);
+        changed |= ui.slider("Radius", 10., 200., &mut self.radius);
+        changed |= ui.combo("Noise type", &mut self.noise_type, &NOISE_TYPES, |nt| {
             nt.name().into()
         });
-        ui.slider("Noise magnitude", 0., 100., &mut self.noise_magnitude);
-        ui.slider("Noise scale", 0., 64., &mut self.noise_scale);
-        ui.slider("Noise layers", 0, 16, &mut self.noise_layers);
+        changed |= ui.slider("Noise magnitude", 0., 100., &mut self.noise_magnitude);
+        changed |= ui.slider("Noise scale", 0., 64., &mut self.noise_scale);
+        changed |= ui.slider("Noise layers", 0, 16, &mut self.noise_layers);
+        changed
     }
 }
 

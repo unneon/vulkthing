@@ -14,7 +14,6 @@ use crate::{VULKAN_APP_NAME, VULKAN_APP_VERSION, VULKAN_ENGINE_NAME, VULKAN_ENGI
 use ash::extensions::ext::DebugUtils;
 use ash::extensions::khr::{Surface, Swapchain};
 use ash::{vk, Device, Entry, Instance};
-use imgui::FontSource;
 use nalgebra::Matrix4;
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use std::f32::consts::FRAC_PI_4;
@@ -126,32 +125,6 @@ impl Renderer {
         );
         let noise_sampler = create_texture_sampler(1, &instance, physical_device, &logical_device);
 
-        let mut imgui = imgui::Context::create();
-        imgui.set_ini_filename(None);
-        imgui
-            .fonts()
-            .add_font(&[FontSource::DefaultFontData { config: None }]);
-        imgui.io_mut().display_framebuffer_scale = [1., 1.];
-        imgui.io_mut().display_size = [
-            swapchain_extent.width as f32,
-            swapchain_extent.height as f32,
-        ];
-        let imgui_renderer = imgui_rs_vulkan_renderer::Renderer::with_default_allocator(
-            &instance,
-            physical_device,
-            logical_device.clone(),
-            queue,
-            command_pools[0],
-            postprocess_pass,
-            &mut imgui,
-            Some(imgui_rs_vulkan_renderer::Options {
-                in_flight_frames: FRAMES_IN_FLIGHT,
-                enable_depth_test: false,
-                enable_depth_write: false,
-            }),
-        )
-        .unwrap();
-
         Renderer {
             _entry: entry,
             instance,
@@ -193,9 +166,28 @@ impl Renderer {
             object_descriptor_pool,
             noise_texture,
             noise_sampler,
-            imgui,
-            imgui_renderer: Some(imgui_renderer),
+            interface_renderer: None,
         }
+    }
+
+    pub fn create_interface_renderer(&mut self, imgui: &mut imgui::Context) {
+        self.interface_renderer = Some(
+            imgui_rs_vulkan_renderer::Renderer::with_default_allocator(
+                &self.instance,
+                self.physical_device,
+                self.logical_device.clone(),
+                self.queue,
+                self.command_pools[0],
+                self.postprocess_pass,
+                imgui,
+                Some(imgui_rs_vulkan_renderer::Options {
+                    in_flight_frames: FRAMES_IN_FLIGHT,
+                    enable_depth_test: false,
+                    enable_depth_write: false,
+                }),
+            )
+            .unwrap(),
+        );
     }
 
     pub fn recreate_swapchain(&mut self, window_size: PhysicalSize<u32>) {
@@ -259,6 +251,22 @@ impl Renderer {
         self.postprocess_framebuffers = postprocess_framebuffers;
         self.postprocess_descriptor_sets = postprocess_descriptor_sets;
         self.projection = projection;
+    }
+
+    pub fn recreate_planet(&mut self, planet_model: &Model) {
+        unsafe { self.logical_device.device_wait_idle() }.unwrap();
+        self.objects[0].cleanup(&self.logical_device);
+        self.objects[0] = create_object(
+            planet_model,
+            self.object_descriptor_set_layout,
+            self.object_descriptor_pool,
+            &self.light,
+            &self.instance,
+            self.physical_device,
+            &self.logical_device,
+            self.queue,
+            self.command_pools[0],
+        );
     }
 
     fn cleanup_swapchain(&mut self) {
@@ -342,7 +350,7 @@ impl Drop for Renderer {
             let dev = &self.logical_device;
             dev.device_wait_idle().unwrap();
 
-            drop(self.imgui_renderer.take());
+            drop(self.interface_renderer.take());
 
             dev.destroy_sampler(self.noise_sampler, None);
             self.noise_texture.cleanup(dev);

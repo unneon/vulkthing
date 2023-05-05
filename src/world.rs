@@ -92,10 +92,12 @@ impl Editable for World {
         "World"
     }
 
-    fn widget(&mut self, ui: &Ui) {
-        ui.checkbox("Light movement", &mut self.light.movement);
-        ui.slider("Light speed", 0., 1., &mut self.light.speed);
-        ui.slider("Light radius", 0., 1000., &mut self.light.radius);
-        ui.slider("Light argument", 0., 2. * PI, &mut self.light.argument);
+    fn widget(&mut self, ui: &Ui) -> bool {
+        let mut changed = false;
+        changed |= ui.checkbox("Light movement", &mut self.light.movement);
+        changed |= ui.slider("Light speed", 0., 1., &mut self.light.speed);
+        changed |= ui.slider("Light radius", 0., 1000., &mut self.light.radius);
+        changed |= ui.slider("Light argument", 0., 2. * PI, &mut self.light.argument);
+        changed
     }
 }
