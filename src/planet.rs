@@ -139,9 +139,11 @@ pub fn generate_planet(parameters: &Parameters) -> Model {
                 let position_top_left = generate_vertex(i, j + 1, &side, &parameters, &noise);
                 let position_top_right = generate_vertex(i + 1, j + 1, &side, &parameters, &noise);
                 let normal_first = (position_bottom_right - position_bottom_left)
-                    .cross(&(position_top_left - position_bottom_left));
+                    .cross(&(position_top_left - position_bottom_left))
+                    .normalize();
                 let normal_second = (position_bottom_right - position_top_left)
-                    .cross(&(position_top_right - position_top_left));
+                    .cross(&(position_top_right - position_top_left))
+                    .normalize();
                 let tex = Vector2::zeros();
                 vertices.push(Vertex {
                     position: position_bottom_left,
