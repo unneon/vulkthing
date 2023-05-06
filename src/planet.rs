@@ -3,10 +3,7 @@ use crate::model::Model;
 use crate::renderer::vertex::Vertex;
 use imgui::Ui;
 use nalgebra::{Vector2, Vector3};
-use noise::{
-    Checkerboard, Cylinders, NoiseFn, OpenSimplex, Perlin, PerlinSurflet, Simplex, SuperSimplex,
-    Value, Worley,
-};
+use noise::{NoiseFn, OpenSimplex, Perlin, PerlinSurflet, Simplex, SuperSimplex, Value};
 
 #[derive(Clone, PartialEq)]
 pub struct Parameters {
@@ -19,15 +16,12 @@ pub struct Parameters {
 }
 
 enum NoiseType {
-    Checkerboard,
-    Cylinders,
     OpenSimplex,
     Perlin,
     PerlinSurflet,
     Simplex,
     SuperSimplex,
     Value,
-    Worley,
 }
 
 struct Side {
@@ -37,15 +31,12 @@ struct Side {
 }
 
 const NOISE_TYPES: &[NoiseType] = &[
-    NoiseType::Checkerboard,
-    NoiseType::Cylinders,
     NoiseType::OpenSimplex,
     NoiseType::Perlin,
     NoiseType::PerlinSurflet,
     NoiseType::Simplex,
     NoiseType::SuperSimplex,
     NoiseType::Value,
-    NoiseType::Worley,
 ];
 
 const SIDES: [Side; 6] = [
@@ -84,15 +75,12 @@ const SIDES: [Side; 6] = [
 impl NoiseType {
     fn name(&self) -> &'static str {
         match self {
-            NoiseType::Checkerboard => "Checkerboard",
-            NoiseType::Cylinders => "Cylinders",
             NoiseType::OpenSimplex => "OpenSimplex",
             NoiseType::Perlin => "Perlin",
             NoiseType::PerlinSurflet => "Perlin surflet",
             NoiseType::Simplex => "Simplex",
             NoiseType::SuperSimplex => "SuperSimplex",
             NoiseType::Value => "Value",
-            NoiseType::Worley => "Worley",
         }
     }
 }
@@ -122,7 +110,7 @@ impl Default for Parameters {
             resolution: 400,
             radius: 100.,
             noise_type: 3,
-            noise_magnitude: 8.,
+            noise_magnitude: 20.,
             noise_scale: 6.,
             noise_layers: 4,
         }
@@ -190,18 +178,15 @@ pub fn generate_planet(parameters: &Parameters) -> Model {
     }
 }
 
-fn select_noise(parameters: &Parameters) -> Box<dyn NoiseFn<f64, 2>> {
+fn select_noise(parameters: &Parameters) -> Box<dyn NoiseFn<f64, 3>> {
     let seed = 907;
     match NOISE_TYPES[parameters.noise_type] {
-        NoiseType::Checkerboard => Box::new(Checkerboard::new(1)),
-        NoiseType::Cylinders => Box::new(Cylinders::new()),
         NoiseType::OpenSimplex => Box::new(OpenSimplex::new(seed)),
         NoiseType::Perlin => Box::new(Perlin::new(seed)),
         NoiseType::PerlinSurflet => Box::new(PerlinSurflet::new(seed)),
         NoiseType::Simplex => Box::new(Simplex::new(seed)),
         NoiseType::SuperSimplex => Box::new(SuperSimplex::new(seed)),
         NoiseType::Value => Box::new(Value::new(seed)),
-        NoiseType::Worley => Box::new(Worley::new(seed)),
     }
 }
 
@@ -210,27 +195,22 @@ fn generate_vertex(
     j: usize,
     side: &Side,
     parameters: &Parameters,
-    noise: &dyn NoiseFn<f64, 2>,
+    noise: &dyn NoiseFn<f64, 3>,
 ) -> Vector3<f32> {
     let direction = (side.base
         + i as f32 * (2. * side.dx) / parameters.resolution as f32
         + j as f32 * (2. * side.dy) / parameters.resolution as f32)
         .normalize();
-    let is_on_edge = i == 0 || i == parameters.resolution || j == 0 || j == parameters.resolution;
-    let noise_x = parameters.noise_scale * i as f32 / parameters.resolution as f32;
-    let noise_y = parameters.noise_scale * j as f32 / parameters.resolution as f32;
     let mut noise_value = 0.;
     for i in 0..parameters.noise_layers {
         let factor = (2.0f64).powi(i as i32);
-        noise_value +=
-            noise.get([noise_x as f64 * factor, noise_y as f64 * factor]) as f32 / factor as f32;
+        noise_value += noise.get([
+            direction.x as f64 * factor,
+            direction.y as f64 * factor,
+            direction.z as f64 * factor,
+        ]) as f32
+            / factor as f32;
     }
-    let position = direction
-        * (parameters.radius
-            + if is_on_edge {
-                0.
-            } else {
-                parameters.noise_magnitude * noise_value
-            });
+    let position = direction * (parameters.radius + parameters.noise_magnitude * noise_value);
     position
 }
