@@ -3,7 +3,9 @@ use crate::model::Model;
 use crate::renderer::vertex::Vertex;
 use imgui::Ui;
 use nalgebra::{Vector2, Vector3};
-use noise::{NoiseFn, OpenSimplex, Perlin, PerlinSurflet, Simplex, SuperSimplex, Value};
+use noise::{
+    NoiseFn, OpenSimplex, Perlin, PerlinSurflet, RidgedMulti, Simplex, SuperSimplex, Value,
+};
 
 #[derive(Clone, PartialEq)]
 pub struct Parameters {
@@ -19,6 +21,7 @@ enum NoiseType {
     OpenSimplex,
     Perlin,
     PerlinSurflet,
+    Ridge,
     Simplex,
     SuperSimplex,
     Value,
@@ -34,6 +37,7 @@ const NOISE_TYPES: &[NoiseType] = &[
     NoiseType::OpenSimplex,
     NoiseType::Perlin,
     NoiseType::PerlinSurflet,
+    NoiseType::Ridge,
     NoiseType::Simplex,
     NoiseType::SuperSimplex,
     NoiseType::Value,
@@ -78,6 +82,7 @@ impl NoiseType {
             NoiseType::OpenSimplex => "OpenSimplex",
             NoiseType::Perlin => "Perlin",
             NoiseType::PerlinSurflet => "Perlin surflet",
+            NoiseType::Ridge => "Ridge",
             NoiseType::Simplex => "Simplex",
             NoiseType::SuperSimplex => "SuperSimplex",
             NoiseType::Value => "Value",
@@ -184,6 +189,7 @@ fn select_noise(parameters: &Parameters) -> Box<dyn NoiseFn<f64, 3>> {
         NoiseType::OpenSimplex => Box::new(OpenSimplex::new(seed)),
         NoiseType::Perlin => Box::new(Perlin::new(seed)),
         NoiseType::PerlinSurflet => Box::new(PerlinSurflet::new(seed)),
+        NoiseType::Ridge => Box::new(RidgedMulti::<Perlin>::new(seed)),
         NoiseType::Simplex => Box::new(Simplex::new(seed)),
         NoiseType::SuperSimplex => Box::new(SuperSimplex::new(seed)),
         NoiseType::Value => Box::new(Value::new(seed)),
