@@ -55,6 +55,7 @@ const TONEMAPPERS: &[Tonemapper] = &[
     Tonemapper::RgbClamping,
     Tonemapper::Reinhard,
     Tonemapper::NarkowiczAces,
+    Tonemapper::HillAces,
 ];
 
 impl Tonemapper {
@@ -136,7 +137,7 @@ impl Default for Filters {
             brightness: 0.,
             color_filter: Vector3::new(1., 1., 1.),
             saturation: 1.,
-            tonemapper: Tonemapper::NarkowiczAces,
+            tonemapper: Tonemapper::HillAces,
             gamma: 1.,
         }
     }

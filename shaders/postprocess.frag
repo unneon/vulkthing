@@ -18,6 +18,7 @@ layout(location = 0) out vec4 out_color;
 const uint TONEMAPPER_RGB_CLAMPING = 0;
 const uint TONEMAPPER_REINHARD = 4;
 const uint TONEMAPPER_NARKOWICZ_ACES = 8;
+const uint TONEMAPPER_HILL_ACES = 9;
 
 // https://docs.unity3d.com/Packages/com.unity.shadergraph@6.9/manual/White-Balance-Node.html
 vec3 apply_white_balance(vec3 color, float temperature, float tint) {
@@ -68,6 +69,28 @@ vec3 tonemapper_narkowicz_aces(vec3 color) {
     return clamp((color * (2.51 * color + 0.03)) / (color * (2.43 * color + 0.59) + 0.14), 0, 1);
 }
 
+const mat3 HILL_ACES_INPUT = mat3(
+    0.59719, 0.07600, 0.02840,
+    0.35458, 0.90834, 0.13383,
+    0.04823, 0.01566, 0.83777
+);
+
+const mat3 HILL_ACES_OUTPUT = mat3(
+    1.60475, -0.10208, -0.00327,
+    -0.53108, 1.10813, -0.07276,
+    -0.07367, -0.00605, 1.07602
+);
+
+vec3 hill_aces_rrt_and_odt_fit(vec3 v) {
+    vec3 a = v * (v + 0.0245786) - 0.000090537;
+    vec3 b = v * (0.983729 * v + 0.4329510) + 0.238081;
+    return a / b;
+}
+
+vec3 tonemapper_hill_aces(vec3 color) {
+    return clamp(HILL_ACES_OUTPUT * hill_aces_rrt_and_odt_fit(HILL_ACES_INPUT * color), 0, 1);
+}
+
 vec3 apply_tone_mapping(vec3 color) {
     if (filters.tonemapper == TONEMAPPER_RGB_CLAMPING) {
         return tonemapper_rgb_clamping(color);
@@ -75,6 +98,8 @@ vec3 apply_tone_mapping(vec3 color) {
         return tonemapper_reinhard(color);
     } else if (filters.tonemapper == TONEMAPPER_NARKOWICZ_ACES) {
         return tonemapper_narkowicz_aces(color);
+    } else if (filters.tonemapper == TONEMAPPER_HILL_ACES) {
+        return tonemapper_hill_aces(color);
     } else {
         return vec3(1, 0, 0);
     }
