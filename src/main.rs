@@ -45,7 +45,7 @@ const CAMERA_SENSITIVITY: f32 = 0.01;
 fn main() {
     initialize_logger();
     let window = create_window();
-    let cube_model = load_model("assets/cube.obj", "assets/cube.png");
+    let cube_model = load_model("assets/cube.obj");
     let mut planet = planet::Parameters::default();
     let planet_model = generate_planet(&planet);
     let mut renderer = Renderer::new(&window, &[planet_model, cube_model]);

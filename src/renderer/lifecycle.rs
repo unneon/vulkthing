@@ -328,8 +328,6 @@ impl Object {
         unsafe { dev.destroy_buffer(self.index_buffer, None) };
         unsafe { dev.free_memory(self.index_buffer_memory, None) };
         self.mvp.cleanup(dev);
-        unsafe { dev.destroy_sampler(self.texture_sampler, None) };
-        self.texture.cleanup(dev);
         self.material.cleanup(dev);
     }
 }
@@ -718,27 +716,17 @@ fn create_descriptor_set_layout(logical_device: &Device) -> vk::DescriptorSetLay
         .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
         .descriptor_count(1)
         .stage_flags(vk::ShaderStageFlags::VERTEX);
-    let sampler_layout_binding = vk::DescriptorSetLayoutBinding::builder()
-        .binding(1)
-        .descriptor_count(1)
-        .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-        .stage_flags(vk::ShaderStageFlags::FRAGMENT);
     let material_binding = vk::DescriptorSetLayoutBinding::builder()
-        .binding(2)
+        .binding(1)
         .descriptor_count(1)
         .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
         .stage_flags(vk::ShaderStageFlags::FRAGMENT);
     let light_binding = vk::DescriptorSetLayoutBinding::builder()
-        .binding(3)
+        .binding(2)
         .descriptor_count(1)
         .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
         .stage_flags(vk::ShaderStageFlags::FRAGMENT);
-    let layout_bindings = [
-        *mvp_layout_binding,
-        *sampler_layout_binding,
-        *material_binding,
-        *light_binding,
-    ];
+    let layout_bindings = [*mvp_layout_binding, *material_binding, *light_binding];
     let layout_info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(&layout_bindings);
     unsafe { logical_device.create_descriptor_set_layout(&layout_info, None) }.unwrap()
 }
@@ -1072,16 +1060,6 @@ pub fn create_object(
         command_pool,
     );
     let mvp = UniformBuffer::create(instance, physical_device, logical_device);
-    let (texture, texture_mipmaps) = util::load_texture(
-        model.texture_path,
-        instance,
-        physical_device,
-        logical_device,
-        queue,
-        command_pool,
-    );
-    let texture_sampler =
-        create_texture_sampler(texture_mipmaps, instance, physical_device, logical_device);
     let material = UniformBuffer::create(instance, physical_device, logical_device);
     let descriptor_sets = create_descriptor_sets(
         descriptor_set_layout,
@@ -1089,8 +1067,6 @@ pub fn create_object(
         &mvp,
         &material,
         light_buffer,
-        texture.view,
-        texture_sampler,
         logical_device,
     );
     Object {
@@ -1100,8 +1076,6 @@ pub fn create_object(
         index_buffer,
         index_buffer_memory,
         mvp,
-        texture,
-        texture_sampler,
         material,
         descriptor_pool,
         descriptor_sets,
@@ -1194,16 +1168,10 @@ fn create_index_buffer(
 }
 
 fn create_object_descriptor_pool(logical_device: &Device) -> vk::DescriptorPool {
-    let pool_sizes = [
-        vk::DescriptorPoolSize {
-            ty: vk::DescriptorType::UNIFORM_BUFFER,
-            descriptor_count: 6 * FRAMES_IN_FLIGHT as u32,
-        },
-        vk::DescriptorPoolSize {
-            ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-            descriptor_count: 2 * FRAMES_IN_FLIGHT as u32,
-        },
-    ];
+    let pool_sizes = [vk::DescriptorPoolSize {
+        ty: vk::DescriptorType::UNIFORM_BUFFER,
+        descriptor_count: 6 * FRAMES_IN_FLIGHT as u32,
+    }];
     let pool_info = vk::DescriptorPoolCreateInfo::builder()
         .pool_sizes(&pool_sizes)
         .max_sets(2 * FRAMES_IN_FLIGHT as u32)
@@ -1235,8 +1203,6 @@ fn create_descriptor_sets(
     mvp_buffer: &UniformBuffer<ModelViewProjection>,
     material_buffer: &UniformBuffer<Material>,
     light_buffer: &UniformBuffer<Light>,
-    texture_image_view: vk::ImageView,
-    texture_sampler: vk::Sampler,
     logical_device: &Device,
 ) -> [vk::DescriptorSet; FRAMES_IN_FLIGHT] {
     let layouts = vec![layout; FRAMES_IN_FLIGHT];
@@ -1250,10 +1216,6 @@ fn create_descriptor_sets(
             .unwrap();
     for i in 0..FRAMES_IN_FLIGHT {
         let mvp_descriptor = mvp_buffer.descriptor(i);
-        let texture_descriptor = *vk::DescriptorImageInfo::builder()
-            .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-            .image_view(texture_image_view)
-            .sampler(texture_sampler);
         let material_descriptor = material_buffer.descriptor(i);
         let light_descriptor = light_buffer.descriptor(i);
         let descriptor_writes = [
@@ -1265,16 +1227,11 @@ fn create_descriptor_sets(
             *vk::WriteDescriptorSet::builder()
                 .dst_set(descriptor_sets[i])
                 .dst_binding(1)
-                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-                .image_info(std::slice::from_ref(&texture_descriptor)),
-            *vk::WriteDescriptorSet::builder()
-                .dst_set(descriptor_sets[i])
-                .dst_binding(2)
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
                 .buffer_info(std::slice::from_ref(&material_descriptor)),
             *vk::WriteDescriptorSet::builder()
                 .dst_set(descriptor_sets[i])
-                .dst_binding(3)
+                .dst_binding(2)
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
                 .buffer_info(std::slice::from_ref(&light_descriptor)),
         ];

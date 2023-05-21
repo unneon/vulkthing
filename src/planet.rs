@@ -2,7 +2,7 @@ use crate::interface::Editable;
 use crate::model::Model;
 use crate::renderer::vertex::Vertex;
 use imgui::Ui;
-use nalgebra::{Vector2, Vector3};
+use nalgebra::Vector3;
 use noise::{
     NoiseFn, OpenSimplex, Perlin, PerlinSurflet, RidgedMulti, Simplex, SuperSimplex, Value,
 };
@@ -139,36 +139,29 @@ pub fn generate_planet(parameters: &Parameters) -> Model {
                 let normal_second = (position_bottom_right - position_top_left)
                     .cross(&(position_top_right - position_top_left))
                     .normalize();
-                let tex = Vector2::zeros();
                 vertices.push(Vertex {
                     position: position_bottom_left,
                     normal: normal_first,
-                    tex,
                 });
                 vertices.push(Vertex {
                     position: position_bottom_right,
                     normal: normal_first,
-                    tex,
                 });
                 vertices.push(Vertex {
                     position: position_top_left,
                     normal: normal_first,
-                    tex,
                 });
                 vertices.push(Vertex {
                     position: position_top_left,
                     normal: normal_second,
-                    tex,
                 });
                 vertices.push(Vertex {
                     position: position_bottom_right,
                     normal: normal_second,
-                    tex,
                 });
                 vertices.push(Vertex {
                     position: position_top_right,
                     normal: normal_second,
-                    tex,
                 });
             }
         }
@@ -176,11 +169,7 @@ pub fn generate_planet(parameters: &Parameters) -> Model {
     for i in 0..vertices.len() as u32 {
         indices.push(i);
     }
-    Model {
-        vertices,
-        indices,
-        texture_path: "assets/cube.png",
-    }
+    Model { vertices, indices }
 }
 
 fn select_noise(parameters: &Parameters) -> Box<dyn NoiseFn<f64, 3>> {

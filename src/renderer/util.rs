@@ -1,6 +1,5 @@
 use crate::renderer::{ImageResources, FRAMES_IN_FLIGHT};
 use ash::{vk, Device, Instance};
-use image::{ImageBuffer, Luma};
 use log::debug;
 use noise::{NoiseFn, Perlin};
 use std::mem::MaybeUninit;
@@ -163,102 +162,6 @@ pub fn create_image_view(
     unsafe { logical_device.create_image_view(&view_info, None) }.unwrap()
 }
 
-pub(super) fn load_texture(
-    path: &str,
-    instance: &Instance,
-    physical_device: vk::PhysicalDevice,
-    logical_device: &Device,
-    queue: vk::Queue,
-    command_pool: vk::CommandPool,
-) -> (ImageResources, usize) {
-    let image_cpu = image::open(path).unwrap().to_rgba8();
-    let image_width = image_cpu.width() as usize;
-    let image_height = image_cpu.height() as usize;
-    let pixel_count = image_width * image_height;
-    let image_size = pixel_count * 4;
-    let mip_levels = (image_width.max(image_height) as f64).log2().floor() as usize + 1;
-
-    let (image, memory) = create_image(
-        vk::Format::R8G8B8A8_SRGB,
-        vk::MemoryPropertyFlags::DEVICE_LOCAL,
-        vk::ImageTiling::OPTIMAL,
-        vk::ImageUsageFlags::TRANSFER_SRC
-            | vk::ImageUsageFlags::TRANSFER_DST
-            | vk::ImageUsageFlags::SAMPLED,
-        image_width,
-        image_height,
-        mip_levels,
-        vk::SampleCountFlags::TYPE_1,
-        instance,
-        physical_device,
-        logical_device,
-    );
-    transition_image_layout(
-        image,
-        vk::AccessFlags::empty(),
-        vk::AccessFlags::TRANSFER_WRITE,
-        vk::ImageLayout::UNDEFINED,
-        vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-        vk::PipelineStageFlags::TOP_OF_PIPE,
-        vk::PipelineStageFlags::TRANSFER,
-        mip_levels,
-        logical_device,
-        queue,
-        command_pool,
-    );
-
-    let (staging_buffer, staging_memory) = create_buffer(
-        vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-        vk::BufferUsageFlags::TRANSFER_SRC | vk::BufferUsageFlags::TRANSFER_DST,
-        image_size,
-        instance,
-        physical_device,
-        logical_device,
-    );
-    with_mapped_slice(staging_memory, image_size, logical_device, |mapped| {
-        MaybeUninit::write_slice(mapped, &image_cpu);
-    });
-    copy_buffer_to_image(
-        staging_buffer,
-        image,
-        image_width,
-        image_height,
-        logical_device,
-        queue,
-        command_pool,
-    );
-    unsafe { logical_device.destroy_buffer(staging_buffer, None) };
-    unsafe { logical_device.free_memory(staging_memory, None) };
-
-    generate_mipmaps(
-        image,
-        vk::Format::R8G8B8A8_SRGB,
-        image_width,
-        image_height,
-        mip_levels,
-        instance,
-        physical_device,
-        logical_device,
-        queue,
-        command_pool,
-    );
-
-    let view = create_image_view(
-        image,
-        vk::Format::R8G8B8A8_SRGB,
-        vk::ImageAspectFlags::COLOR,
-        mip_levels,
-        logical_device,
-    );
-    let texture = ImageResources {
-        image,
-        memory,
-        view,
-    };
-    debug!("texture loaded, \x1B[1mfile\x1B[0m: {path}, \x1B[1msize\x1B[0m: {image_width}x{image_height}");
-    (texture, mip_levels)
-}
-
 pub(super) fn generate_perlin_texture(
     resolution: usize,
     density: f64,
@@ -269,7 +172,6 @@ pub(super) fn generate_perlin_texture(
     command_pool: vk::CommandPool,
 ) -> ImageResources {
     let pixel_count = resolution * resolution;
-    let image_size = pixel_count * std::mem::size_of::<Luma<i8>>();
     let image_format = vk::Format::R8_SNORM;
 
     // Create texture image with the given resolution and prepare it for writing from the host.
@@ -308,23 +210,19 @@ pub(super) fn generate_perlin_texture(
     let (staging_buffer, staging_memory) = create_buffer(
         vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
         vk::BufferUsageFlags::TRANSFER_SRC | vk::BufferUsageFlags::TRANSFER_DST,
-        image_size,
+        pixel_count,
         instance,
         physical_device,
         logical_device,
     );
-    with_mapped_slice(staging_memory, image_size, logical_device, |mapped| {
-        // This doesn't sound safe, but let's figure this out later.
-        let mapped = unsafe { MaybeUninit::slice_assume_init_mut(mapped) };
-        let mut image_cpu =
-            ImageBuffer::from_raw(resolution as u32, resolution as u32, mapped).unwrap();
+    with_mapped_slice(staging_memory, pixel_count, logical_device, |mapped| {
         let perlin = Perlin::new(907);
         for y in 0..resolution {
             for x in 0..resolution {
                 let nx = (x as f64) / resolution as f64 * density;
                 let ny = (y as f64) / resolution as f64 * density;
                 let pixel = noise(&perlin, nx, ny);
-                image_cpu.put_pixel(x as u32, y as u32, pixel);
+                mapped[y * resolution + x].write(pixel);
             }
         }
     });
@@ -370,7 +268,7 @@ pub(super) fn generate_perlin_texture(
     texture
 }
 
-fn noise(perlin: &Perlin, x: f64, y: f64) -> Luma<i8> {
+fn noise(perlin: &Perlin, x: f64, y: f64) -> i8 {
     let mut value = 0.;
     let mut bound = 0.;
     for i in 0..10 {
@@ -378,7 +276,7 @@ fn noise(perlin: &Perlin, x: f64, y: f64) -> Luma<i8> {
         value += perlin.get([factor * x, factor * y]) / factor;
         bound += 1. / factor;
     }
-    Luma([float_to_snorm(value / bound)])
+    float_to_snorm(value / bound)
 }
 
 fn float_to_snorm(value: f64) -> i8 {
@@ -463,148 +361,6 @@ fn copy_buffer_to_image(
                 image,
                 vk::ImageLayout::TRANSFER_DST_OPTIMAL,
                 &[region],
-            )
-        };
-    });
-}
-
-fn generate_mipmaps(
-    image: vk::Image,
-    format: vk::Format,
-    tex_width: usize,
-    tex_height: usize,
-    mip_levels: usize,
-    instance: &Instance,
-    physical_device: vk::PhysicalDevice,
-    logical_device: &Device,
-    queue: vk::Queue,
-    command_pool: vk::CommandPool,
-) {
-    let format_properties =
-        unsafe { instance.get_physical_device_format_properties(physical_device, format) };
-    assert!(format_properties
-        .optimal_tiling_features
-        .contains(vk::FormatFeatureFlags::SAMPLED_IMAGE_FILTER_LINEAR));
-
-    onetime_commands(logical_device, queue, command_pool, move |command_buffer| {
-        let mut barrier = *vk::ImageMemoryBarrier::builder()
-            .image(image)
-            .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-            .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-            .subresource_range(vk::ImageSubresourceRange {
-                aspect_mask: vk::ImageAspectFlags::COLOR,
-                base_mip_level: 0, // Will be set before submitting each command.
-                base_array_layer: 0,
-                layer_count: 1,
-                level_count: 1,
-            });
-        let mut mip_width = tex_width;
-        let mut mip_height = tex_height;
-        for i in 1..mip_levels {
-            barrier.subresource_range.base_mip_level = i as u32 - 1;
-            barrier.old_layout = vk::ImageLayout::TRANSFER_DST_OPTIMAL;
-            barrier.new_layout = vk::ImageLayout::TRANSFER_SRC_OPTIMAL;
-            barrier.src_access_mask = vk::AccessFlags::TRANSFER_WRITE;
-            barrier.dst_access_mask = vk::AccessFlags::TRANSFER_READ;
-            unsafe {
-                logical_device.cmd_pipeline_barrier(
-                    command_buffer,
-                    vk::PipelineStageFlags::TRANSFER,
-                    vk::PipelineStageFlags::TRANSFER,
-                    vk::DependencyFlags::empty(),
-                    &[],
-                    &[],
-                    &[barrier],
-                )
-            };
-
-            let blit = vk::ImageBlit::builder()
-                .src_offsets([
-                    vk::Offset3D { x: 0, y: 0, z: 0 },
-                    vk::Offset3D {
-                        x: mip_width as i32,
-                        y: mip_height as i32,
-                        z: 1,
-                    },
-                ])
-                .src_subresource(vk::ImageSubresourceLayers {
-                    aspect_mask: vk::ImageAspectFlags::COLOR,
-                    mip_level: i as u32 - 1,
-                    base_array_layer: 0,
-                    layer_count: 1,
-                })
-                .dst_offsets([
-                    vk::Offset3D { x: 0, y: 0, z: 0 },
-                    vk::Offset3D {
-                        x: if mip_width > 1 {
-                            mip_width as i32 / 2
-                        } else {
-                            1
-                        },
-                        y: if mip_height > 1 {
-                            mip_height as i32 / 2
-                        } else {
-                            1
-                        },
-                        z: 1,
-                    },
-                ])
-                .dst_subresource(vk::ImageSubresourceLayers {
-                    aspect_mask: vk::ImageAspectFlags::COLOR,
-                    mip_level: i as u32,
-                    base_array_layer: 0,
-                    layer_count: 1,
-                });
-            unsafe {
-                logical_device.cmd_blit_image(
-                    command_buffer,
-                    image,
-                    vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
-                    image,
-                    vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-                    &[*blit],
-                    vk::Filter::LINEAR,
-                )
-            };
-
-            barrier.old_layout = vk::ImageLayout::TRANSFER_SRC_OPTIMAL;
-            barrier.new_layout = vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL;
-            barrier.src_access_mask = vk::AccessFlags::TRANSFER_READ;
-            barrier.dst_access_mask = vk::AccessFlags::SHADER_READ;
-            unsafe {
-                logical_device.cmd_pipeline_barrier(
-                    command_buffer,
-                    vk::PipelineStageFlags::TRANSFER,
-                    vk::PipelineStageFlags::FRAGMENT_SHADER,
-                    vk::DependencyFlags::empty(),
-                    &[],
-                    &[],
-                    &[barrier],
-                )
-            };
-
-            if mip_width > 1 {
-                mip_width /= 2;
-            }
-            if mip_height > 1 {
-                mip_height /= 2;
-            }
-        }
-
-        barrier.subresource_range.base_mip_level = mip_levels as u32 - 1;
-        barrier.old_layout = vk::ImageLayout::TRANSFER_DST_OPTIMAL;
-        barrier.new_layout = vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL;
-        barrier.src_access_mask = vk::AccessFlags::TRANSFER_WRITE;
-        barrier.dst_access_mask = vk::AccessFlags::SHADER_READ;
-        unsafe {
-            logical_device.cmd_pipeline_barrier(
-                command_buffer,
-                vk::PipelineStageFlags::TRANSFER,
-                vk::PipelineStageFlags::FRAGMENT_SHADER,
-                vk::DependencyFlags::empty(),
-                &[],
-                &[],
-                &[barrier],
             )
         };
     });

@@ -1,15 +1,14 @@
 use crate::renderer::vertex::Vertex;
 use log::debug;
-use nalgebra::{Vector2, Vector3};
+use nalgebra::Vector3;
 use tobj::LoadOptions;
 
 pub struct Model {
     pub vertices: Vec<Vertex>,
     pub indices: Vec<u32>,
-    pub texture_path: &'static str,
 }
 
-pub fn load_model(obj_path: &str, texture_path: &'static str) -> Model {
+pub fn load_model(obj_path: &str) -> Model {
     let load_options = LoadOptions {
         // Faces can sometimes be given as arbitrary (convex?) polygons, but we only render
         // triangles so let's get the loader to split them up for us.
@@ -26,11 +25,7 @@ pub fn load_model(obj_path: &str, texture_path: &'static str) -> Model {
         "model OBJ loaded, \x1B[1mfile\x1B[0m: {obj_path}, \x1B[1mvertices\x1B[0m: {}",
         vertices.len()
     );
-    Model {
-        vertices,
-        indices,
-        texture_path,
-    }
+    Model { vertices, indices }
 }
 
 fn flatten_models(models: &[tobj::Model]) -> (Vec<Vertex>, Vec<u32>) {
@@ -40,32 +35,16 @@ fn flatten_models(models: &[tobj::Model]) -> (Vec<Vertex>, Vec<u32>) {
     let mut indices = Vec::new();
     for model in models {
         for index in &model.mesh.indices {
-            // Position vectors and texture coordinate vectors are stored as unpacked arrays of
-            // floats.
-            let offset_pos = (3 * *index) as usize;
-            let offset_tex = (2 * *index) as usize;
+            // Position vectors are stored as unpacked arrays of floats.
+            let offset = (3 * *index) as usize;
             let position = Vector3::new(
-                model.mesh.positions[offset_pos],
-                model.mesh.positions[offset_pos + 1],
-                model.mesh.positions[offset_pos + 2],
+                model.mesh.positions[offset],
+                model.mesh.positions[offset + 1],
+                model.mesh.positions[offset + 2],
             );
             // Will be computed from triangle positions later.
             let normal = Vector3::zeros();
-            // Coordinate system in OBJ assumes that 0 is the bottom of the image, but Vulkan uses
-            // an orientation where 0 is the top of the image.
-            let tex = if model.mesh.texcoords.is_empty() {
-                Vector2::new(0., 0.)
-            } else {
-                Vector2::new(
-                    model.mesh.texcoords[offset_tex],
-                    1. - model.mesh.texcoords[offset_tex + 1],
-                )
-            };
-            let vertex = Vertex {
-                position,
-                normal,
-                tex,
-            };
+            let vertex = Vertex { position, normal };
             let index = vertices.len();
             vertices.push(vertex);
             indices.push(index as u32);

@@ -1,10 +1,10 @@
 #version 450
 
-layout(binding = 1) uniform sampler2D tex_sampler;
-layout(binding = 2) uniform Material {
+layout(binding = 1) uniform Material {
     vec3 emit;
 } material;
-layout(binding = 3) uniform Light {
+
+layout(binding = 2) uniform Light {
     vec3 color;
     float ambient_strength;
     vec3 position;
@@ -13,7 +13,6 @@ layout(binding = 3) uniform Light {
 
 layout(location = 0) in vec3 frag_position;
 layout(location = 1) in vec3 frag_normal;
-layout(location = 2) in vec2 frag_tex_coord;
 
 layout(location = 0) out vec4 out_color;
 
