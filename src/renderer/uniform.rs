@@ -51,7 +51,11 @@ pub enum Tonemapper {
     HillAces = 9,
 }
 
-const TONEMAPPERS: &[Tonemapper] = &[Tonemapper::RgbClamping, Tonemapper::NarkowiczAces];
+const TONEMAPPERS: &[Tonemapper] = &[
+    Tonemapper::RgbClamping,
+    Tonemapper::Reinhard,
+    Tonemapper::NarkowiczAces,
+];
 
 impl Tonemapper {
     fn name(&self) -> &'static str {

@@ -16,6 +16,7 @@ layout(binding = 1) uniform Filters {
 layout(location = 0) out vec4 out_color;
 
 const uint TONEMAPPER_RGB_CLAMPING = 0;
+const uint TONEMAPPER_REINHARD = 4;
 const uint TONEMAPPER_NARKOWICZ_ACES = 8;
 
 // https://docs.unity3d.com/Packages/com.unity.shadergraph@6.9/manual/White-Balance-Node.html
@@ -57,6 +58,12 @@ vec3 tonemapper_rgb_clamping(vec3 color) {
     return clamp(color, 0, 1);
 }
 
+vec3 tonemapper_reinhard(vec3 color) {
+    float old_luminance = dot(color, vec3(0.299, 0.587, 0.114));
+    float new_luminance = old_luminance / (1 + old_luminance);
+    return clamp(color / old_luminance * new_luminance, 0, 1);
+}
+
 vec3 tonemapper_narkowicz_aces(vec3 color) {
     return clamp((color * (2.51 * color + 0.03)) / (color * (2.43 * color + 0.59) + 0.14), 0, 1);
 }
@@ -64,6 +71,8 @@ vec3 tonemapper_narkowicz_aces(vec3 color) {
 vec3 apply_tone_mapping(vec3 color) {
     if (filters.tonemapper == TONEMAPPER_RGB_CLAMPING) {
         return tonemapper_rgb_clamping(color);
+    } else if (filters.tonemapper == TONEMAPPER_REINHARD) {
+        return tonemapper_reinhard(color);
     } else if (filters.tonemapper == TONEMAPPER_NARKOWICZ_ACES) {
         return tonemapper_narkowicz_aces(color);
     } else {
