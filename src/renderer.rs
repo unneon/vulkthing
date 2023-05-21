@@ -115,7 +115,8 @@ pub struct Object {
     descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
 }
 
-const FRAMES_IN_FLIGHT: usize = 2;
+// TODO: Fix UI interactions with duplicated uniforms and raise this to 2.
+const FRAMES_IN_FLIGHT: usize = 1;
 
 impl Renderer {
     pub fn draw_frame(
@@ -295,6 +296,7 @@ impl Renderer {
             color: world.light.color,
             position: world.light.position,
             ambient_strength: world.light.ambient_strength,
+            diffuse_strength: world.light.diffuse_strength,
         };
         self.light.write(self.flight_index, light);
     }

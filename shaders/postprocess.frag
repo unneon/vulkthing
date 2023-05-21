@@ -9,10 +9,14 @@ layout(binding = 1) uniform Filters {
     float contrast;
     float brightness;
     float saturation;
+    uint tonemapper;
     float gamma;
 } filters;
 
 layout(location = 0) out vec4 out_color;
+
+const uint TONEMAPPER_RGB_CLAMPING = 0;
+const uint TONEMAPPER_NARKOWICZ_ACES = 8;
 
 // https://docs.unity3d.com/Packages/com.unity.shadergraph@6.9/manual/White-Balance-Node.html
 vec3 apply_white_balance(vec3 color, float temperature, float tint) {
@@ -49,32 +53,50 @@ vec3 apply_white_balance(vec3 color, float temperature, float tint) {
     return LMS_2_LIN_MAT * lms;
 }
 
+vec3 tonemapper_rgb_clamping(vec3 color) {
+    return clamp(color, 0, 1);
+}
+
+vec3 tonemapper_narkowicz_aces(vec3 color) {
+    return clamp((color * (2.51 * color + 0.03)) / (color * (2.43 * color + 0.59) + 0.14), 0, 1);
+}
+
+vec3 apply_tone_mapping(vec3 color) {
+    if (filters.tonemapper == TONEMAPPER_RGB_CLAMPING) {
+        return tonemapper_rgb_clamping(color);
+    } else if (filters.tonemapper == TONEMAPPER_NARKOWICZ_ACES) {
+        return tonemapper_narkowicz_aces(color);
+    } else {
+        return vec3(1, 0, 0);
+    }
+}
+
 void main() {
+    // Assume the colors computed by the lighting shader are in [0, infinity) HDR.
     vec3 color = textureLod(render, gl_FragCoord.xy, 0).rgb;
-    color = clamp(color, 0, 1);
 
-    // Apply camera exposure.
+    // Apply camera exposure. Assumes exposure is non-negative.
     color = color * filters.exposure;
-    color = clamp(color, 0, 1);
 
-    // Apply white balancing.
+    // Apply white balancing. Formulae are complex enough that something might go below 0.
     color = apply_white_balance(color, filters.temperature, filters.tint);
-    color = clamp(color, 0, 1);
+    color = max(color, 0);
 
-    // Apply contrast and brightness in a single formula. Clamping is unnecessary.
+    // Apply contrast and brightness in a single formula. Only clamp after both.
     color = filters.contrast * (color - 0.5) + 0.5 + filters.brightness;
-    color = clamp(color, 0, 1);
+    color = max(color, 0);
 
-    // Apply color filter.
+    // Apply color filter. Assumes color filter is non-negative.
     color = color * filters.color_filter;
-    color = clamp(color, 0, 1);
 
-    // Apply saturation. Greyscale is weighted, as human eyes perceive some colors as brighter than others.
+    // Apply saturation. Greyscale is weighted, as human eyes perceive some colors as brighter than others. Result can
+    // negative if saturation is outside [0, 1] range, and the shader should be able to handle that?
     float greyscale = dot(color, vec3(0.299, 0.587, 0.114));
     color = mix(vec3(greyscale), color, filters.saturation);
-    color = clamp(color, 0, 1);
+    color = max(color, 0);
 
-    // TODO: Tone mapping.
+    // Apply tone mapping, bringing the colors from [0, infinity] HDR to [0, 1] SDR.
+    color = apply_tone_mapping(color);
 
     // Apply gamma correction. As the last step, the exponent will get multipled with the exponent from conversion to
     // sRGB color space. Doesn't require clamping, as [0,1] to a real power is still [0,1].

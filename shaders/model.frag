@@ -8,6 +8,7 @@ layout(binding = 3) uniform Light {
     vec3 color;
     float ambient_strength;
     vec3 position;
+    float diffuse_strength;
 } light;
 
 layout(location = 0) in vec3 frag_position;
@@ -21,7 +22,7 @@ void main() {
     vec3 light_dir = normalize(light.position - frag_position);
 
     vec3 ambient = light.ambient_strength * light.color * object_color;
-    vec3 diffuse = max(dot(frag_normal, light_dir), 0) * light.color * object_color;
+    vec3 diffuse = max(dot(frag_normal, light_dir), 0) * light.diffuse_strength * light.color * object_color;
     vec3 emit = material.emit;
 
     vec3 result = ambient + diffuse + emit;

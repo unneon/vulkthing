@@ -1290,11 +1290,11 @@ fn create_postprocess_descriptor_sets(
     pool: vk::DescriptorPool,
     logical_device: &Device,
 ) -> [vk::DescriptorSet; FRAMES_IN_FLIGHT] {
-    let layouts = [layout, layout];
+    let layouts = [layout; FRAMES_IN_FLIGHT];
     let descriptor_set_alloc_info = vk::DescriptorSetAllocateInfo::builder()
         .descriptor_pool(pool)
         .set_layouts(&layouts);
-    let descriptor_sets: [vk::DescriptorSet; 2] =
+    let descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT] =
         unsafe { logical_device.allocate_descriptor_sets(&descriptor_set_alloc_info) }
             .unwrap()
             .try_into()

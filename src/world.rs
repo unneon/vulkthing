@@ -22,6 +22,7 @@ pub struct Light {
     pub position: Vector3<f32>,
     pub color: Vector3<f32>,
     pub ambient_strength: f32,
+    pub diffuse_strength: f32,
     pub movement: bool,
     pub speed: f32,
     radius: f32,
@@ -45,6 +46,7 @@ impl World {
             position: Vector3::new(-light_radius, 0., SUN_Z),
             color: sun_color,
             ambient_strength: 0.05,
+            diffuse_strength: 4.,
             movement: true,
             speed: 0.2,
             radius: light_radius,
@@ -98,6 +100,18 @@ impl Editable for World {
         changed |= ui.slider("Light speed", 0., 1., &mut self.light.speed);
         changed |= ui.slider("Light radius", 0., 1000., &mut self.light.radius);
         changed |= ui.slider("Light argument", 0., 2. * PI, &mut self.light.argument);
+        changed |= ui.slider(
+            "Light ambient strength",
+            0.,
+            0.3,
+            &mut self.light.ambient_strength,
+        );
+        changed |= ui.slider(
+            "Light diffuse strength",
+            0.,
+            32.,
+            &mut self.light.diffuse_strength,
+        );
         changed
     }
 }
