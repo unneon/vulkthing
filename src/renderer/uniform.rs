@@ -20,6 +20,7 @@ pub struct Light {
     pub ambient_strength: f32,
     pub position: Vector3<f32>,
     pub diffuse_strength: f32,
+    pub use_ray_tracing: u32,
 }
 
 #[repr(C)]

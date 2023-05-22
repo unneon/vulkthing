@@ -27,6 +27,7 @@ pub struct Light {
     pub speed: f32,
     radius: f32,
     pub argument: f32,
+    pub use_ray_tracing: bool,
 }
 
 const SUN_SCALE: f32 = 5.;
@@ -51,6 +52,7 @@ impl World {
             speed: 0.2,
             radius: light_radius,
             argument: 0.,
+            use_ray_tracing: true,
         };
         let planet = Entity {
             position: Vector3::new(0., 0., 0.),
@@ -112,6 +114,7 @@ impl Editable for World {
             32.,
             &mut self.light.diffuse_strength,
         );
+        changed |= ui.checkbox("Use ray tracing", &mut self.light.use_ray_tracing);
         changed
     }
 }

@@ -136,6 +136,20 @@ impl Renderer {
             queue,
             command_pools[0],
         );
+        for object in &objects {
+            for i in 0..FRAMES_IN_FLIGHT {
+                let acceleration_structures = [tlas.acceleration_structure];
+                let mut tlas_write = *vk::WriteDescriptorSetAccelerationStructureKHR::builder()
+                    .acceleration_structures(&acceleration_structures);
+                let mut descriptor_writes = [*vk::WriteDescriptorSet::builder()
+                    .dst_set(object.descriptor_sets[i])
+                    .dst_binding(3)
+                    .descriptor_type(vk::DescriptorType::ACCELERATION_STRUCTURE_KHR)
+                    .push_next(&mut tlas_write)];
+                descriptor_writes[0].descriptor_count = 1;
+                unsafe { logical_device.update_descriptor_sets(&descriptor_writes, &[]) };
+            }
+        }
 
         let noise_texture = util::generate_perlin_texture(
             1024,
@@ -575,7 +589,7 @@ fn select_swapchain_extent(
 }
 
 fn select_swapchain_present_mode(_available: &[vk::PresentModeKHR]) -> vk::PresentModeKHR {
-    vk::PresentModeKHR::FIFO
+    vk::PresentModeKHR::MAILBOX
 }
 
 fn create_swapchain(
@@ -779,7 +793,17 @@ fn create_descriptor_set_layout(logical_device: &Device) -> vk::DescriptorSetLay
         .descriptor_count(1)
         .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
         .stage_flags(vk::ShaderStageFlags::FRAGMENT);
-    let layout_bindings = [*mvp_layout_binding, *material_binding, *light_binding];
+    let tlas_binding = vk::DescriptorSetLayoutBinding::builder()
+        .binding(3)
+        .descriptor_count(1)
+        .descriptor_type(vk::DescriptorType::ACCELERATION_STRUCTURE_KHR)
+        .stage_flags(vk::ShaderStageFlags::FRAGMENT);
+    let layout_bindings = [
+        *mvp_layout_binding,
+        *material_binding,
+        *light_binding,
+        *tlas_binding,
+    ];
     let layout_info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(&layout_bindings);
     unsafe { logical_device.create_descriptor_set_layout(&layout_info, None) }.unwrap()
 }
@@ -1224,10 +1248,16 @@ fn create_index_buffer(
 }
 
 fn create_object_descriptor_pool(logical_device: &Device) -> vk::DescriptorPool {
-    let pool_sizes = [vk::DescriptorPoolSize {
-        ty: vk::DescriptorType::UNIFORM_BUFFER,
-        descriptor_count: 6 * FRAMES_IN_FLIGHT as u32,
-    }];
+    let pool_sizes = [
+        vk::DescriptorPoolSize {
+            ty: vk::DescriptorType::UNIFORM_BUFFER,
+            descriptor_count: 6 * FRAMES_IN_FLIGHT as u32,
+        },
+        vk::DescriptorPoolSize {
+            ty: vk::DescriptorType::ACCELERATION_STRUCTURE_KHR,
+            descriptor_count: 2 * FRAMES_IN_FLIGHT as u32,
+        },
+    ];
     let pool_info = vk::DescriptorPoolCreateInfo::builder()
         .pool_sizes(&pool_sizes)
         .max_sets(2 * FRAMES_IN_FLIGHT as u32)

@@ -302,6 +302,7 @@ impl Renderer {
             position: world.light.position,
             ambient_strength: world.light.ambient_strength,
             diffuse_strength: world.light.diffuse_strength,
+            use_ray_tracing: if world.light.use_ray_tracing { 1 } else { 0 },
         };
         self.light.write(self.flight_index, light);
     }
