@@ -1,14 +1,67 @@
 use crate::renderer::{ImageResources, FRAMES_IN_FLIGHT};
+use ash::extensions::khr::BufferDeviceAddress;
 use ash::{vk, Device, Instance};
 use log::debug;
 use noise::{NoiseFn, Perlin};
 use std::mem::MaybeUninit;
 
+pub struct Buffer {
+    pub buffer: vk::Buffer,
+    pub memory: vk::DeviceMemory,
+}
+
 pub struct UniformBuffer<T> {
-    buffer: vk::Buffer,
-    memory: vk::DeviceMemory,
+    buffer: Buffer,
     mapping: *mut T,
     aligned_size: usize,
+}
+
+impl Buffer {
+    pub fn create(
+        properties: vk::MemoryPropertyFlags,
+        usage: vk::BufferUsageFlags,
+        size: usize,
+        instance: &Instance,
+        physical_device: vk::PhysicalDevice,
+        logical_device: &Device,
+    ) -> Buffer {
+        let create_info = vk::BufferCreateInfo::builder()
+            .size(size as u64)
+            .usage(usage)
+            .sharing_mode(vk::SharingMode::EXCLUSIVE);
+        let buffer = unsafe { logical_device.create_buffer(&create_info, None) }.unwrap();
+        let requirements = unsafe { logical_device.get_buffer_memory_requirements(buffer) };
+        let memory_type_index = find_memory_type(
+            properties,
+            requirements.memory_type_bits,
+            instance,
+            physical_device,
+        );
+        let mut memory_info = vk::MemoryAllocateInfo::builder()
+            .allocation_size(requirements.size)
+            .memory_type_index(memory_type_index);
+
+        let mut allocate_flags;
+        if usage.contains(vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS) {
+            allocate_flags = *vk::MemoryAllocateFlagsInfoKHR::builder()
+                .flags(vk::MemoryAllocateFlags::DEVICE_ADDRESS);
+            memory_info = memory_info.push_next(&mut allocate_flags);
+        }
+
+        let memory = unsafe { logical_device.allocate_memory(&memory_info, None) }.unwrap();
+        unsafe { logical_device.bind_buffer_memory(buffer, memory, 0) }.unwrap();
+        Buffer { buffer, memory }
+    }
+
+    pub fn device_address(&self, buffer_device_address_ext: &BufferDeviceAddress) -> u64 {
+        let info = *vk::BufferDeviceAddressInfoKHR::builder().buffer(self.buffer);
+        unsafe { buffer_device_address_ext.get_buffer_device_address(&info) }
+    }
+
+    pub fn cleanup(&self, dev: &Device) {
+        unsafe { dev.destroy_buffer(self.buffer, None) };
+        unsafe { dev.free_memory(self.memory, None) };
+    }
 }
 
 impl<T> UniformBuffer<T> {
@@ -22,7 +75,7 @@ impl<T> UniformBuffer<T> {
         let aligned_size = data_size
             .next_multiple_of(properties.limits.min_uniform_buffer_offset_alignment as usize);
         let buffer_size = aligned_size * FRAMES_IN_FLIGHT;
-        let (buffer, memory) = create_buffer(
+        let buffer = Buffer::create(
             vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
             vk::BufferUsageFlags::UNIFORM_BUFFER,
             buffer_size,
@@ -31,12 +84,16 @@ impl<T> UniformBuffer<T> {
             logical_device,
         );
         let mapping = unsafe {
-            logical_device.map_memory(memory, 0, buffer_size as u64, vk::MemoryMapFlags::empty())
+            logical_device.map_memory(
+                buffer.memory,
+                0,
+                buffer_size as u64,
+                vk::MemoryMapFlags::empty(),
+            )
         }
         .unwrap() as *mut T;
         UniformBuffer {
             buffer,
-            memory,
             mapping,
             aligned_size,
         }
@@ -56,43 +113,14 @@ impl<T> UniformBuffer<T> {
 
     pub fn descriptor(&self, flight_index: usize) -> vk::DescriptorBufferInfo {
         *vk::DescriptorBufferInfo::builder()
-            .buffer(self.buffer)
+            .buffer(self.buffer.buffer)
             .offset((flight_index * self.aligned_size) as u64)
             .range(std::mem::size_of::<T>() as u64)
     }
 
     pub fn cleanup(&self, dev: &Device) {
-        unsafe { dev.destroy_buffer(self.buffer, None) };
-        unsafe { dev.free_memory(self.memory, None) };
+        self.buffer.cleanup(dev);
     }
-}
-
-pub fn create_buffer(
-    properties: vk::MemoryPropertyFlags,
-    usage: vk::BufferUsageFlags,
-    size: usize,
-    instance: &Instance,
-    physical_device: vk::PhysicalDevice,
-    logical_device: &Device,
-) -> (vk::Buffer, vk::DeviceMemory) {
-    let buffer_info = vk::BufferCreateInfo::builder()
-        .size(size as u64)
-        .usage(usage)
-        .sharing_mode(vk::SharingMode::EXCLUSIVE);
-    let buffer = unsafe { logical_device.create_buffer(&buffer_info, None) }.unwrap();
-    let requirements = unsafe { logical_device.get_buffer_memory_requirements(buffer) };
-    let memory_type_index = find_memory_type(
-        properties,
-        requirements.memory_type_bits,
-        instance,
-        physical_device,
-    );
-    let memory_info = vk::MemoryAllocateInfo::builder()
-        .allocation_size(requirements.size)
-        .memory_type_index(memory_type_index);
-    let memory = unsafe { logical_device.allocate_memory(&memory_info, None) }.unwrap();
-    unsafe { logical_device.bind_buffer_memory(buffer, memory, 0) }.unwrap();
-    (buffer, memory)
 }
 
 pub fn create_image(
@@ -207,7 +235,7 @@ pub(super) fn generate_perlin_texture(
     // bar and/or unified memory support. This would just let me generate the noise straight to GPU
     // memory? Device parameters seem to support it, but I have to read up on the performance
     // implications.
-    let (staging_buffer, staging_memory) = create_buffer(
+    let staging = Buffer::create(
         vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
         vk::BufferUsageFlags::TRANSFER_SRC | vk::BufferUsageFlags::TRANSFER_DST,
         pixel_count,
@@ -215,7 +243,7 @@ pub(super) fn generate_perlin_texture(
         physical_device,
         logical_device,
     );
-    with_mapped_slice(staging_memory, pixel_count, logical_device, |mapped| {
+    with_mapped_slice(staging.memory, pixel_count, logical_device, |mapped| {
         let perlin = Perlin::new(907);
         for y in 0..resolution {
             for x in 0..resolution {
@@ -227,7 +255,7 @@ pub(super) fn generate_perlin_texture(
         }
     });
     copy_buffer_to_image(
-        staging_buffer,
+        staging.buffer,
         image,
         resolution,
         resolution,
@@ -235,8 +263,7 @@ pub(super) fn generate_perlin_texture(
         queue,
         command_pool,
     );
-    unsafe { logical_device.destroy_buffer(staging_buffer, None) };
-    unsafe { logical_device.free_memory(staging_memory, None) };
+    staging.cleanup(logical_device);
 
     transition_image_layout(
         image,
@@ -403,7 +430,7 @@ pub fn with_mapped_slice<T, R>(
     result
 }
 
-fn onetime_commands<R>(
+pub fn onetime_commands<R>(
     logical_device: &Device,
     queue: vk::Queue,
     command_pool: vk::CommandPool,

@@ -9,7 +9,7 @@ mod util;
 pub mod vertex;
 
 use crate::renderer::uniform::{Filters, Light, Material, ModelViewProjection};
-use crate::renderer::util::UniformBuffer;
+use crate::renderer::util::{Buffer, UniformBuffer};
 use crate::world::{Entity, World};
 use ash::extensions::ext::DebugUtils;
 use ash::extensions::khr::{Surface, Swapchain};
@@ -102,11 +102,10 @@ struct Synchronization {
 }
 
 pub struct Object {
-    vertex_buffer: vk::Buffer,
-    vertex_buffer_memory: vk::DeviceMemory,
-    index_count: usize,
-    index_buffer: vk::Buffer,
-    index_buffer_memory: vk::DeviceMemory,
+    triangle_count: usize,
+    raw_vertex_count: usize,
+    vertex: Buffer,
+    index: Buffer,
     mvp: UniformBuffer<ModelViewProjection>,
     material: UniformBuffer<Material>,
     descriptor_pool: vk::DescriptorPool,
@@ -222,9 +221,9 @@ impl Renderer {
                 &[object.descriptor_sets[self.flight_index]],
                 &[],
             );
-            dev.cmd_bind_vertex_buffers(buf, 0, &[object.vertex_buffer], &[0]);
-            dev.cmd_bind_index_buffer(buf, object.index_buffer, 0, vk::IndexType::UINT32);
-            dev.cmd_draw_indexed(buf, object.index_count as u32, 1, 0, 0, 0);
+            dev.cmd_bind_vertex_buffers(buf, 0, &[object.vertex.buffer], &[0]);
+            dev.cmd_bind_index_buffer(buf, object.index.buffer, 0, vk::IndexType::UINT32);
+            dev.cmd_draw_indexed(buf, 3 * object.triangle_count as u32, 1, 0, 0, 0);
         }
 
         dev.cmd_end_render_pass(buf);

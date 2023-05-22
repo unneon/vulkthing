@@ -4,6 +4,7 @@ use crate::renderer::device::{select_device, DeviceInfo};
 use crate::renderer::pipeline::{build_simple_pipeline, SimplePipeline, SimpleVertexLayout};
 use crate::renderer::traits::VertexOps;
 use crate::renderer::uniform::{Filters, Light, Material, ModelViewProjection};
+use crate::renderer::util::{onetime_commands, Buffer};
 use crate::renderer::vertex::Vertex;
 use crate::renderer::{
     util, ImageResources, Object, Renderer, Synchronization, UniformBuffer, VulkanExtensions,
@@ -12,7 +13,10 @@ use crate::renderer::{
 use crate::window::Window;
 use crate::{VULKAN_APP_NAME, VULKAN_APP_VERSION, VULKAN_ENGINE_NAME, VULKAN_ENGINE_VERSION};
 use ash::extensions::ext::DebugUtils;
-use ash::extensions::khr::{Surface, Swapchain};
+use ash::extensions::khr::{
+    AccelerationStructure, BufferDeviceAddress, DeferredHostOperations, Surface, Swapchain,
+};
+use ash::vk::{ExtDescriptorIndexingFn, KhrRayQueryFn, KhrShaderFloatControlsFn, KhrSpirv14Fn};
 use ash::{vk, Device, Entry, Instance};
 use nalgebra::Matrix4;
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
@@ -113,6 +117,15 @@ impl Renderer {
             );
             objects.push(object);
         }
+
+        create_acceleration_structures(
+            &objects[0],
+            &instance,
+            physical_device,
+            &logical_device,
+            queue,
+            command_pools[0],
+        );
 
         let noise_texture = util::generate_perlin_texture(
             1024,
@@ -323,10 +336,8 @@ impl Synchronization {
 impl Object {
     pub fn cleanup(&self, dev: &Device) {
         unsafe { dev.free_descriptor_sets(self.descriptor_pool, &self.descriptor_sets) }.unwrap();
-        unsafe { dev.destroy_buffer(self.vertex_buffer, None) };
-        unsafe { dev.free_memory(self.vertex_buffer_memory, None) };
-        unsafe { dev.destroy_buffer(self.index_buffer, None) };
-        unsafe { dev.free_memory(self.index_buffer_memory, None) };
+        self.vertex.cleanup(dev);
+        self.index.cleanup(dev);
         self.mvp.cleanup(dev);
         self.material.cleanup(dev);
     }
@@ -409,7 +420,7 @@ fn create_instance(window: &Window, entry: &Entry) -> Instance {
         .application_version(app_version)
         .engine_name(&engine_name)
         .engine_version(engine_version)
-        .api_version(vk::API_VERSION_1_0);
+        .api_version(vk::API_VERSION_1_1);
 
     // Enable Vulkan validation layers. This should be later disabled in non-development builds.
     let layer_names = [b"VK_LAYER_KHRONOS_validation\0".as_ptr() as *const i8];
@@ -457,9 +468,26 @@ fn create_logical_device(
         .sampler_anisotropy(true)
         .fill_mode_non_solid(true);
 
+    let mut bda_features =
+        *vk::PhysicalDeviceBufferDeviceAddressFeaturesKHR::builder().buffer_device_address(true);
+    let mut rq_features = *vk::PhysicalDeviceRayQueryFeaturesKHR::builder().ray_query(true);
+    let mut as_features =
+        *vk::PhysicalDeviceAccelerationStructureFeaturesKHR::builder().acceleration_structure(true);
+
     // Using validation layers on a device level shouldn't be necessary on newer Vulkan version
     // (since which one?), but it's good to keep it for compatibility.
     let layer_names = [b"VK_LAYER_KHRONOS_validation\0".as_ptr() as *const i8];
+
+    let extension_names = [
+        AccelerationStructure::name().as_ptr(),
+        BufferDeviceAddress::name().as_ptr(),
+        DeferredHostOperations::name().as_ptr(),
+        ExtDescriptorIndexingFn::name().as_ptr(),
+        KhrRayQueryFn::name().as_ptr(),
+        KhrShaderFloatControlsFn::name().as_ptr(),
+        KhrSpirv14Fn::name().as_ptr(),
+        Swapchain::name().as_ptr(),
+    ];
 
     unsafe {
         instance.create_device(
@@ -468,7 +496,10 @@ fn create_logical_device(
                 .queue_create_infos(std::slice::from_ref(&queue_create))
                 .enabled_features(&physical_device_features)
                 .enabled_layer_names(&layer_names)
-                .enabled_extension_names(&[Swapchain::name().as_ptr()]),
+                .enabled_extension_names(&extension_names)
+                .push_next(&mut bda_features)
+                .push_next(&mut rq_features)
+                .push_next(&mut as_features),
             None,
         )
     }
@@ -1043,7 +1074,7 @@ pub fn create_object(
     queue: vk::Queue,
     command_pool: vk::CommandPool,
 ) -> Object {
-    let (vertex_buffer, vertex_buffer_memory) = create_vertex_buffer(
+    let vertex = create_vertex_buffer(
         &model.vertices,
         instance,
         physical_device,
@@ -1051,7 +1082,7 @@ pub fn create_object(
         queue,
         command_pool,
     );
-    let (index_buffer, index_buffer_memory) = create_index_buffer(
+    let index = create_index_buffer(
         &model.indices,
         instance,
         physical_device,
@@ -1070,11 +1101,10 @@ pub fn create_object(
         logical_device,
     );
     Object {
-        vertex_buffer,
-        vertex_buffer_memory,
-        index_count: model.indices.len(),
-        index_buffer,
-        index_buffer_memory,
+        triangle_count: model.indices.len() / 3,
+        raw_vertex_count: model.vertices.len(),
+        vertex,
+        index,
         mvp,
         material,
         descriptor_pool,
@@ -1089,11 +1119,11 @@ fn create_vertex_buffer(
     logical_device: &Device,
     queue: vk::Queue,
     command_pool: vk::CommandPool,
-) -> (vk::Buffer, vk::DeviceMemory) {
+) -> Buffer {
     let vertex_size = std::mem::size_of::<Vertex>();
     let vertex_count = vertex_data.len();
     let vertex_buffer_size = vertex_size * vertex_count;
-    let (staging_buffer, staging_memory) = util::create_buffer(
+    let staging = Buffer::create(
         vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
         vk::BufferUsageFlags::TRANSFER_SRC,
         vertex_buffer_size,
@@ -1101,28 +1131,30 @@ fn create_vertex_buffer(
         physical_device,
         logical_device,
     );
-    let (vertex_buffer, vertex_buffer_memory) = util::create_buffer(
+    let vertex = Buffer::create(
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
-        vk::BufferUsageFlags::VERTEX_BUFFER | vk::BufferUsageFlags::TRANSFER_DST,
+        vk::BufferUsageFlags::VERTEX_BUFFER
+            | vk::BufferUsageFlags::TRANSFER_DST
+            | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS
+            | vk::BufferUsageFlags::ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_KHR,
         vertex_buffer_size,
         instance,
         physical_device,
         logical_device,
     );
-    util::with_mapped_slice(staging_memory, vertex_count, logical_device, |mapped| {
+    util::with_mapped_slice(staging.memory, vertex_count, logical_device, |mapped| {
         MaybeUninit::write_slice(mapped, vertex_data);
     });
     util::copy_buffer(
-        staging_buffer,
-        vertex_buffer,
+        staging.buffer,
+        vertex.buffer,
         vertex_buffer_size,
         logical_device,
         queue,
         command_pool,
     );
-    unsafe { logical_device.destroy_buffer(staging_buffer, None) };
-    unsafe { logical_device.free_memory(staging_memory, None) };
-    (vertex_buffer, vertex_buffer_memory)
+    staging.cleanup(logical_device);
+    vertex
 }
 
 fn create_index_buffer(
@@ -1132,10 +1164,10 @@ fn create_index_buffer(
     logical_device: &Device,
     queue: vk::Queue,
     command_pool: vk::CommandPool,
-) -> (vk::Buffer, vk::DeviceMemory) {
+) -> Buffer {
     let index_size = std::mem::size_of_val(&index_data[0]);
     let index_buffer_size = index_size * index_data.len();
-    let (staging_buffer, staging_memory) = util::create_buffer(
+    let staging = Buffer::create(
         vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
         vk::BufferUsageFlags::TRANSFER_SRC,
         index_buffer_size,
@@ -1143,28 +1175,30 @@ fn create_index_buffer(
         physical_device,
         logical_device,
     );
-    let (index_buffer, index_buffer_memory) = util::create_buffer(
+    let index = Buffer::create(
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
-        vk::BufferUsageFlags::INDEX_BUFFER | vk::BufferUsageFlags::TRANSFER_DST,
+        vk::BufferUsageFlags::INDEX_BUFFER
+            | vk::BufferUsageFlags::TRANSFER_DST
+            | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS
+            | vk::BufferUsageFlags::ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_KHR,
         index_buffer_size,
         instance,
         physical_device,
         logical_device,
     );
-    util::with_mapped_slice(staging_memory, index_data.len(), logical_device, |mapped| {
+    util::with_mapped_slice(staging.memory, index_data.len(), logical_device, |mapped| {
         MaybeUninit::write_slice(mapped, index_data);
     });
     util::copy_buffer(
-        staging_buffer,
-        index_buffer,
+        staging.buffer,
+        index.buffer,
         index_buffer_size,
         logical_device,
         queue,
         command_pool,
     );
-    unsafe { logical_device.destroy_buffer(staging_buffer, None) };
-    unsafe { logical_device.free_memory(staging_memory, None) };
-    (index_buffer, index_buffer_memory)
+    staging.cleanup(logical_device);
+    index
 }
 
 fn create_object_descriptor_pool(logical_device: &Device) -> vk::DescriptorPool {
@@ -1276,6 +1310,100 @@ fn create_postprocess_descriptor_sets(
         unsafe { logical_device.update_descriptor_sets(&descriptor_writes, &[]) };
     }
     descriptor_sets
+}
+
+fn create_acceleration_structures(
+    object: &Object,
+    instance: &Instance,
+    physical_device: vk::PhysicalDevice,
+    logical_device: &Device,
+    queue: vk::Queue,
+    command_pool: vk::CommandPool,
+) {
+    let as_ext = AccelerationStructure::new(&instance, &logical_device);
+    let bda_ext = BufferDeviceAddress::new(&instance, &logical_device);
+
+    let vertex_address = object.vertex.device_address(&bda_ext);
+    let index_address = object.index.device_address(&bda_ext);
+    let triangles = *vk::AccelerationStructureGeometryTrianglesDataKHR::builder()
+        .vertex_format(vk::Format::R32G32B32_SFLOAT)
+        .vertex_data(vk::DeviceOrHostAddressConstKHR {
+            device_address: vertex_address,
+        })
+        .vertex_stride(std::mem::size_of::<Vertex>() as u64)
+        .index_type(vk::IndexType::UINT32)
+        .index_data(vk::DeviceOrHostAddressConstKHR {
+            device_address: index_address,
+        })
+        .transform_data(vk::DeviceOrHostAddressConstKHR::default())
+        .max_vertex(object.raw_vertex_count as u32);
+    let geometry = *vk::AccelerationStructureGeometryKHR::builder()
+        .geometry_type(vk::GeometryTypeKHR::TRIANGLES)
+        .flags(vk::GeometryFlagsKHR::OPAQUE)
+        .geometry(vk::AccelerationStructureGeometryDataKHR { triangles });
+    let range_info = *vk::AccelerationStructureBuildRangeInfoKHR::builder()
+        .first_vertex(0)
+        .primitive_count(object.triangle_count as u32)
+        .primitive_offset(0)
+        .transform_offset(0);
+
+    let geometries = [geometry];
+    let mut blas_info = *vk::AccelerationStructureBuildGeometryInfoKHR::builder()
+        .ty(vk::AccelerationStructureTypeKHR::BOTTOM_LEVEL)
+        .mode(vk::BuildAccelerationStructureModeKHR::BUILD)
+        .flags(vk::BuildAccelerationStructureFlagsKHR::PREFER_FAST_TRACE)
+        .geometries(&geometries);
+
+    let size_info = unsafe {
+        as_ext.get_acceleration_structure_build_sizes(
+            vk::AccelerationStructureBuildTypeKHR::DEVICE,
+            &blas_info,
+            &[range_info.primitive_count],
+        )
+    };
+
+    let scratch = Buffer::create(
+        vk::MemoryPropertyFlags::DEVICE_LOCAL,
+        vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS | vk::BufferUsageFlags::STORAGE_BUFFER,
+        size_info.build_scratch_size as usize,
+        &instance,
+        physical_device,
+        &logical_device,
+    );
+
+    let blas_buffer = Buffer::create(
+        vk::MemoryPropertyFlags::DEVICE_LOCAL,
+        vk::BufferUsageFlags::ACCELERATION_STRUCTURE_STORAGE_KHR,
+        size_info.acceleration_structure_size as usize,
+        &instance,
+        physical_device,
+        &logical_device,
+    );
+    let blas_create_info = *vk::AccelerationStructureCreateInfoKHR::builder()
+        .ty(vk::AccelerationStructureTypeKHR::BOTTOM_LEVEL)
+        .size(size_info.acceleration_structure_size)
+        .buffer(blas_buffer.buffer);
+    let blas = unsafe { as_ext.create_acceleration_structure(&blas_create_info, None) }.unwrap();
+
+    blas_info.dst_acceleration_structure = blas;
+    blas_info.scratch_data.device_address = scratch.device_address(&bda_ext);
+
+    let blas_range_infos = [range_info];
+    let all_blas_build_infos = [blas_info];
+    let all_blas_range_infos = [blas_range_infos.as_slice()];
+    onetime_commands(&logical_device, queue, command_pool, |command_buffer| {
+        unsafe {
+            as_ext.cmd_build_acceleration_structures(
+                command_buffer,
+                &all_blas_build_infos,
+                &all_blas_range_infos,
+            )
+        };
+    });
+
+    scratch.cleanup(&logical_device);
+    unsafe { as_ext.destroy_acceleration_structure(blas, None) };
+    blas_buffer.cleanup(&logical_device);
 }
 
 fn create_sync(logical_device: &Device) -> Synchronization {
