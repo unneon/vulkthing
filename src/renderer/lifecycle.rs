@@ -7,8 +7,8 @@ use crate::renderer::uniform::{Filters, Light, Material, ModelViewProjection};
 use crate::renderer::util::{onetime_commands, Buffer};
 use crate::renderer::vertex::Vertex;
 use crate::renderer::{
-    util, ImageResources, Object, Renderer, Synchronization, UniformBuffer, VulkanExtensions,
-    FRAMES_IN_FLIGHT,
+    util, ImageResources, Object, RaytraceResources, Renderer, Synchronization, UniformBuffer,
+    VulkanExtensions, FRAMES_IN_FLIGHT,
 };
 use crate::window::Window;
 use crate::{VULKAN_APP_NAME, VULKAN_APP_VERSION, VULKAN_ENGINE_NAME, VULKAN_ENGINE_VERSION};
@@ -16,7 +16,9 @@ use ash::extensions::ext::DebugUtils;
 use ash::extensions::khr::{
     AccelerationStructure, BufferDeviceAddress, DeferredHostOperations, Surface, Swapchain,
 };
-use ash::vk::{ExtDescriptorIndexingFn, KhrRayQueryFn, KhrShaderFloatControlsFn, KhrSpirv14Fn};
+use ash::vk::{
+    ExtDescriptorIndexingFn, KhrRayQueryFn, KhrShaderFloatControlsFn, KhrSpirv14Fn, Packed24_8,
+};
 use ash::{vk, Device, Entry, Instance};
 use nalgebra::Matrix4;
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
@@ -118,8 +120,16 @@ impl Renderer {
             objects.push(object);
         }
 
-        create_acceleration_structures(
+        let blas = create_blas(
             &objects[0],
+            &instance,
+            physical_device,
+            &logical_device,
+            queue,
+            command_pools[0],
+        );
+        let tlas = create_tlas(
+            &blas,
             &instance,
             physical_device,
             &logical_device,
@@ -179,6 +189,8 @@ impl Renderer {
             object_descriptor_pool,
             noise_texture,
             noise_sampler,
+            blas,
+            tlas,
             interface_renderer: None,
         }
     }
@@ -353,6 +365,13 @@ impl ImageResources {
     }
 }
 
+impl RaytraceResources {
+    fn cleanup(&self, dev: &Device, as_ext: &AccelerationStructure) {
+        unsafe { as_ext.destroy_acceleration_structure(self.acceleration_structure, None) };
+        self.buffer.cleanup(dev);
+    }
+}
+
 impl Drop for Renderer {
     fn drop(&mut self) {
         unsafe {
@@ -368,6 +387,9 @@ impl Drop for Renderer {
             }
             dev.destroy_descriptor_pool(self.object_descriptor_pool, None);
             self.light.cleanup(dev);
+            let as_ext = AccelerationStructure::new(&self.instance, &self.logical_device);
+            self.tlas.cleanup(dev, &as_ext);
+            self.blas.cleanup(dev, &as_ext);
 
             self.sync.cleanup(dev);
             for pool in &self.command_pools {
@@ -1312,14 +1334,14 @@ fn create_postprocess_descriptor_sets(
     descriptor_sets
 }
 
-fn create_acceleration_structures(
+fn create_blas(
     object: &Object,
     instance: &Instance,
     physical_device: vk::PhysicalDevice,
     logical_device: &Device,
     queue: vk::Queue,
     command_pool: vk::CommandPool,
-) {
+) -> RaytraceResources {
     let as_ext = AccelerationStructure::new(&instance, &logical_device);
     let bda_ext = BufferDeviceAddress::new(&instance, &logical_device);
 
@@ -1402,8 +1424,142 @@ fn create_acceleration_structures(
     });
 
     scratch.cleanup(&logical_device);
-    unsafe { as_ext.destroy_acceleration_structure(blas, None) };
-    blas_buffer.cleanup(&logical_device);
+
+    RaytraceResources {
+        acceleration_structure: blas,
+        buffer: blas_buffer,
+        primitive_count: object.triangle_count,
+    }
+}
+
+fn create_tlas(
+    blas: &RaytraceResources,
+    instance: &Instance,
+    physical_device: vk::PhysicalDevice,
+    logical_device: &Device,
+    queue: vk::Queue,
+    command_pool: vk::CommandPool,
+) -> RaytraceResources {
+    let as_ext = AccelerationStructure::new(&instance, &logical_device);
+    let bda_ext = BufferDeviceAddress::new(&instance, &logical_device);
+
+    let instanced = vk::AccelerationStructureInstanceKHR {
+        transform: vk::TransformMatrixKHR {
+            matrix: [1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1., 0.],
+        },
+        instance_custom_index_and_mask: Packed24_8::new(0, 0xff),
+        instance_shader_binding_table_record_offset_and_flags: Packed24_8::new(
+            0,
+            vk::GeometryInstanceFlagsKHR::TRIANGLE_FACING_CULL_DISABLE.as_raw() as u8,
+        ),
+        acceleration_structure_reference: vk::AccelerationStructureReferenceKHR {
+            device_handle: unsafe {
+                as_ext.get_acceleration_structure_device_address(
+                    &vk::AccelerationStructureDeviceAddressInfoKHR::builder()
+                        .acceleration_structure(blas.acceleration_structure),
+                )
+            },
+        },
+    };
+
+    let instances_buffer = Buffer::create(
+        vk::MemoryPropertyFlags::DEVICE_LOCAL,
+        vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS
+            | vk::BufferUsageFlags::ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_KHR
+            | vk::BufferUsageFlags::TRANSFER_DST,
+        std::mem::size_of::<vk::AccelerationStructureInstanceKHR>(),
+        instance,
+        physical_device,
+        logical_device,
+    );
+    instances_buffer.fill_from_slice(
+        &[instanced],
+        instance,
+        physical_device,
+        logical_device,
+        queue,
+        command_pool,
+    );
+    let instances_address = instances_buffer.device_address(&bda_ext);
+
+    let instances_vk = *vk::AccelerationStructureGeometryInstancesDataKHR::builder().data(
+        vk::DeviceOrHostAddressConstKHR {
+            device_address: instances_address,
+        },
+    );
+
+    let tlas_geometry = *vk::AccelerationStructureGeometryKHR::builder()
+        .geometry_type(vk::GeometryTypeKHR::INSTANCES)
+        .geometry(vk::AccelerationStructureGeometryDataKHR {
+            instances: instances_vk,
+        });
+    let tlas_geometries = [tlas_geometry];
+    let mut tlas_info = *vk::AccelerationStructureBuildGeometryInfoKHR::builder()
+        .flags(vk::BuildAccelerationStructureFlagsKHR::PREFER_FAST_TRACE)
+        .geometries(&tlas_geometries)
+        .mode(vk::BuildAccelerationStructureModeKHR::BUILD)
+        .ty(vk::AccelerationStructureTypeKHR::TOP_LEVEL);
+
+    let tlas_size_info = unsafe {
+        as_ext.get_acceleration_structure_build_sizes(
+            vk::AccelerationStructureBuildTypeKHR::DEVICE,
+            &tlas_info,
+            &[blas.primitive_count as u32],
+        )
+    };
+
+    let tlas_buffer = Buffer::create(
+        vk::MemoryPropertyFlags::DEVICE_LOCAL,
+        vk::BufferUsageFlags::ACCELERATION_STRUCTURE_STORAGE_KHR,
+        tlas_size_info.acceleration_structure_size as usize,
+        &instance,
+        physical_device,
+        &logical_device,
+    );
+    let tlas_create_info = *vk::AccelerationStructureCreateInfoKHR::builder()
+        .ty(vk::AccelerationStructureTypeKHR::TOP_LEVEL)
+        .size(tlas_size_info.acceleration_structure_size)
+        .buffer(tlas_buffer.buffer);
+    let tlas = unsafe { as_ext.create_acceleration_structure(&tlas_create_info, None) }.unwrap();
+
+    let tlas_scratch = Buffer::create(
+        vk::MemoryPropertyFlags::DEVICE_LOCAL,
+        vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS | vk::BufferUsageFlags::STORAGE_BUFFER,
+        tlas_size_info.build_scratch_size as usize,
+        &instance,
+        physical_device,
+        &logical_device,
+    );
+
+    tlas_info.dst_acceleration_structure = tlas;
+    tlas_info.scratch_data.device_address = tlas_scratch.device_address(&bda_ext);
+
+    let tlas_range_info = *vk::AccelerationStructureBuildRangeInfoKHR::builder()
+        .first_vertex(0)
+        .primitive_count(1)
+        .primitive_offset(0)
+        .transform_offset(0);
+    let tlas_range_infos = [tlas_range_info];
+    let all_tlas_build_infos = [tlas_info];
+    let all_tlas_range_infos = [tlas_range_infos.as_slice()];
+    onetime_commands(&logical_device, queue, command_pool, |command_buffer| {
+        unsafe {
+            as_ext.cmd_build_acceleration_structures(
+                command_buffer,
+                &all_tlas_build_infos,
+                &all_tlas_range_infos,
+            )
+        };
+    });
+
+    tlas_scratch.cleanup(&logical_device);
+    instances_buffer.cleanup(&logical_device);
+
+    RaytraceResources {
+        acceleration_structure: tlas,
+        buffer: tlas_buffer,
+        primitive_count: 1,
+    }
 }
 
 fn create_sync(logical_device: &Device) -> Synchronization {

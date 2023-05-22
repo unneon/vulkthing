@@ -53,6 +53,38 @@ impl Buffer {
         Buffer { buffer, memory }
     }
 
+    pub fn fill_from_slice<T: Copy>(
+        &self,
+        data: &[T],
+        instance: &Instance,
+        physical_device: vk::PhysicalDevice,
+        logical_device: &Device,
+        queue: vk::Queue,
+        command_pool: vk::CommandPool,
+    ) {
+        let buffer_size = data.len() * std::mem::size_of::<T>();
+        let staging = Buffer::create(
+            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+            vk::BufferUsageFlags::TRANSFER_SRC,
+            buffer_size,
+            instance,
+            physical_device,
+            logical_device,
+        );
+        with_mapped_slice(staging.memory, data.len(), logical_device, |mapped| {
+            MaybeUninit::write_slice(mapped, data);
+        });
+        copy_buffer(
+            staging.buffer,
+            self.buffer,
+            buffer_size,
+            logical_device,
+            queue,
+            command_pool,
+        );
+        staging.cleanup(logical_device);
+    }
+
     pub fn device_address(&self, buffer_device_address_ext: &BufferDeviceAddress) -> u64 {
         let info = *vk::BufferDeviceAddressInfoKHR::builder().buffer(self.buffer);
         unsafe { buffer_device_address_ext.get_buffer_device_address(&info) }

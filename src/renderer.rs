@@ -80,6 +80,8 @@ pub struct Renderer {
     objects: Vec<Object>,
     noise_texture: ImageResources,
     noise_sampler: vk::Sampler,
+    tlas: RaytraceResources,
+    blas: RaytraceResources,
 
     interface_renderer: Option<imgui_rs_vulkan_renderer::Renderer>,
 }
@@ -93,6 +95,12 @@ struct ImageResources {
     image: vk::Image,
     memory: vk::DeviceMemory,
     view: vk::ImageView,
+}
+
+struct RaytraceResources {
+    acceleration_structure: vk::AccelerationStructureKHR,
+    buffer: Buffer,
+    primitive_count: usize,
 }
 
 struct Synchronization {
