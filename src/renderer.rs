@@ -1,4 +1,5 @@
 mod debug;
+mod descriptors;
 mod device;
 mod lifecycle;
 mod pipeline;
@@ -8,6 +9,7 @@ pub mod uniform;
 mod util;
 pub mod vertex;
 
+use crate::renderer::descriptors::DescriptorMetadata;
 use crate::renderer::uniform::{Filters, Light, Material, ModelViewProjection};
 use crate::renderer::util::{Buffer, UniformBuffer};
 use crate::world::{Entity, World};
@@ -38,7 +40,7 @@ pub struct Renderer {
 
     // Description of the main render pass. Doesn't contain any information about the objects yet,
     // only low-level data format descriptions.
-    object_descriptor_set_layout: vk::DescriptorSetLayout,
+    object_descriptor_metadata: DescriptorMetadata,
     render_pipeline_layout: vk::PipelineLayout,
     render_pass: vk::RenderPass,
     render_pipeline: vk::Pipeline,
@@ -46,11 +48,10 @@ pub struct Renderer {
     // Description of the postprocessing pass, and also the actual descriptor pool. Necessary,
     // because the postprocessing pass depends on swapchain extent and needs to have the descriptor
     // set updated after window resize.
-    postprocess_descriptor_set_layout: vk::DescriptorSetLayout,
+    postprocess_descriptor_metadata: DescriptorMetadata,
     postprocess_pipeline_layout: vk::PipelineLayout,
     postprocess_pass: vk::RenderPass,
     postprocess_pipeline: vk::Pipeline,
-    postprocess_descriptor_pool: vk::DescriptorPool,
 
     // All resources that depend on swapchain extent (window size). So swapchain description, memory
     // used for all framebuffer attachments, framebuffers, and the mentioned postprocess descriptor
@@ -76,10 +77,7 @@ pub struct Renderer {
     // And finally resources specific to this renderer. So various buffers related to objects we
     // actually render, their descriptor sets and the like.
     light: UniformBuffer<Light>,
-    object_descriptor_pool: vk::DescriptorPool,
     objects: Vec<Object>,
-    noise_texture: ImageResources,
-    noise_sampler: vk::Sampler,
     tlas: RaytraceResources,
     blas: RaytraceResources,
 
@@ -116,7 +114,6 @@ pub struct Object {
     index: Buffer,
     mvp: UniformBuffer<ModelViewProjection>,
     material: UniformBuffer<Material>,
-    descriptor_pool: vk::DescriptorPool,
     descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
 }
 

@@ -1,9 +1,11 @@
-use crate::renderer::{ImageResources, FRAMES_IN_FLIGHT};
+use crate::renderer::FRAMES_IN_FLIGHT;
 use ash::extensions::khr::BufferDeviceAddress;
 use ash::{vk, Device, Instance};
-use log::debug;
-use noise::{NoiseFn, Perlin};
 use std::mem::MaybeUninit;
+
+pub trait AnyUniformBuffer {
+    fn descriptor(&self, flight_index: usize) -> vk::DescriptorBufferInfo;
+}
 
 pub struct Buffer {
     pub buffer: vk::Buffer,
@@ -155,6 +157,12 @@ impl<T> UniformBuffer<T> {
     }
 }
 
+impl<T> AnyUniformBuffer for UniformBuffer<T> {
+    fn descriptor(&self, flight_index: usize) -> vk::DescriptorBufferInfo {
+        self.descriptor(flight_index)
+    }
+}
+
 pub fn create_image(
     format: vk::Format,
     memory: vk::MemoryPropertyFlags,
@@ -220,209 +228,6 @@ pub fn create_image_view(
             layer_count: 1,
         });
     unsafe { logical_device.create_image_view(&view_info, None) }.unwrap()
-}
-
-pub(super) fn generate_perlin_texture(
-    resolution: usize,
-    density: f64,
-    instance: &Instance,
-    physical_device: vk::PhysicalDevice,
-    logical_device: &Device,
-    queue: vk::Queue,
-    command_pool: vk::CommandPool,
-) -> ImageResources {
-    let pixel_count = resolution * resolution;
-    let image_format = vk::Format::R8_SNORM;
-
-    // Create texture image with the given resolution and prepare it for writing from the host.
-    let (image, memory) = create_image(
-        image_format,
-        vk::MemoryPropertyFlags::DEVICE_LOCAL,
-        vk::ImageTiling::OPTIMAL,
-        vk::ImageUsageFlags::TRANSFER_DST | vk::ImageUsageFlags::SAMPLED,
-        resolution,
-        resolution,
-        1,
-        vk::SampleCountFlags::TYPE_1,
-        instance,
-        physical_device,
-        logical_device,
-    );
-    transition_image_layout(
-        image,
-        vk::AccessFlags::empty(),
-        vk::AccessFlags::TRANSFER_WRITE,
-        vk::ImageLayout::UNDEFINED,
-        vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-        vk::PipelineStageFlags::TOP_OF_PIPE,
-        vk::PipelineStageFlags::TRANSFER,
-        1,
-        logical_device,
-        queue,
-        command_pool,
-    );
-
-    // Rust image library actually lets you specify a custom buffer, and passing in a
-    // Vulkan-allocated one seems to work nicely. I kind of wonder whether I should add resizable
-    // bar and/or unified memory support. This would just let me generate the noise straight to GPU
-    // memory? Device parameters seem to support it, but I have to read up on the performance
-    // implications.
-    let staging = Buffer::create(
-        vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-        vk::BufferUsageFlags::TRANSFER_SRC | vk::BufferUsageFlags::TRANSFER_DST,
-        pixel_count,
-        instance,
-        physical_device,
-        logical_device,
-    );
-    with_mapped_slice(staging.memory, pixel_count, logical_device, |mapped| {
-        let perlin = Perlin::new(907);
-        for y in 0..resolution {
-            for x in 0..resolution {
-                let nx = (x as f64) / resolution as f64 * density;
-                let ny = (y as f64) / resolution as f64 * density;
-                let pixel = noise(&perlin, nx, ny);
-                mapped[y * resolution + x].write(pixel);
-            }
-        }
-    });
-    copy_buffer_to_image(
-        staging.buffer,
-        image,
-        resolution,
-        resolution,
-        logical_device,
-        queue,
-        command_pool,
-    );
-    staging.cleanup(logical_device);
-
-    transition_image_layout(
-        image,
-        vk::AccessFlags::TRANSFER_WRITE,
-        vk::AccessFlags::SHADER_READ,
-        vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-        vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-        vk::PipelineStageFlags::TRANSFER,
-        vk::PipelineStageFlags::FRAGMENT_SHADER,
-        1,
-        logical_device,
-        queue,
-        command_pool,
-    );
-
-    let view = create_image_view(
-        image,
-        image_format,
-        vk::ImageAspectFlags::COLOR,
-        1,
-        logical_device,
-    );
-    let texture = ImageResources {
-        image,
-        memory,
-        view,
-    };
-    debug!("perlin noise generated, \x1B[1msize\x1B[0m: {resolution}x{resolution}");
-    texture
-}
-
-fn noise(perlin: &Perlin, x: f64, y: f64) -> i8 {
-    let mut value = 0.;
-    let mut bound = 0.;
-    for i in 0..10 {
-        let factor = (1 << i) as f64;
-        value += perlin.get([factor * x, factor * y]) / factor;
-        bound += 1. / factor;
-    }
-    float_to_snorm(value / bound)
-}
-
-fn float_to_snorm(value: f64) -> i8 {
-    (value * 127.).round() as i8
-}
-
-pub fn transition_image_layout(
-    image: vk::Image,
-    src_access_mask: vk::AccessFlags,
-    dst_access_mask: vk::AccessFlags,
-    old_layout: vk::ImageLayout,
-    new_layout: vk::ImageLayout,
-    src_stage_mask: vk::PipelineStageFlags,
-    dst_stage_mask: vk::PipelineStageFlags,
-    mip_levels: usize,
-    logical_device: &Device,
-    queue: vk::Queue,
-    command_pool: vk::CommandPool,
-) {
-    onetime_commands(logical_device, queue, command_pool, move |command_buffer| {
-        let barrier = vk::ImageMemoryBarrier::builder()
-            .src_access_mask(src_access_mask)
-            .dst_access_mask(dst_access_mask)
-            .old_layout(old_layout)
-            .new_layout(new_layout)
-            .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-            .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-            .image(image)
-            .subresource_range(vk::ImageSubresourceRange {
-                aspect_mask: vk::ImageAspectFlags::COLOR,
-                base_mip_level: 0,
-                level_count: mip_levels as u32,
-                base_array_layer: 0,
-                layer_count: 1,
-            });
-        unsafe {
-            logical_device.cmd_pipeline_barrier(
-                command_buffer,
-                src_stage_mask,
-                dst_stage_mask,
-                vk::DependencyFlags::empty(),
-                &[],
-                &[],
-                &[*barrier],
-            )
-        };
-    });
-}
-
-fn copy_buffer_to_image(
-    buffer: vk::Buffer,
-    image: vk::Image,
-    width: usize,
-    height: usize,
-    logical_device: &Device,
-    queue: vk::Queue,
-    command_pool: vk::CommandPool,
-) {
-    onetime_commands(logical_device, queue, command_pool, move |command_buffer| {
-        let region = vk::BufferImageCopy {
-            buffer_offset: 0,
-            buffer_row_length: 0,
-            buffer_image_height: 0,
-            image_subresource: vk::ImageSubresourceLayers {
-                aspect_mask: vk::ImageAspectFlags::COLOR,
-                mip_level: 0,
-                base_array_layer: 0,
-                layer_count: 1,
-            },
-            image_offset: vk::Offset3D { x: 0, y: 0, z: 0 },
-            image_extent: vk::Extent3D {
-                width: width as u32,
-                height: height as u32,
-                depth: 1,
-            },
-        };
-
-        unsafe {
-            logical_device.cmd_copy_buffer_to_image(
-                command_buffer,
-                buffer,
-                image,
-                vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-                &[region],
-            )
-        };
-    });
 }
 
 pub fn copy_buffer(
