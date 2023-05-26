@@ -1,28 +1,39 @@
 use crate::renderer::shader::create_shader;
 use ash::{vk, Device};
 
-pub struct SimplePipeline<'a> {
+pub struct Pipeline {
+    pub pipeline: vk::Pipeline,
+    pub layout: vk::PipelineLayout,
+}
+
+pub struct PipelineConfig<'a> {
     pub vertex_shader_path: &'a str,
     pub fragment_shader_path: &'a str,
-    pub vertex_layout: Option<SimpleVertexLayout>,
+    pub vertex_layout: Option<VertexLayout>,
     pub msaa_samples: vk::SampleCountFlags,
     pub polygon_mode: vk::PolygonMode,
     pub descriptor_set_layout: vk::DescriptorSetLayout,
-    pub color_attachment: vk::AttachmentDescription,
-    pub depth_attachment: Option<vk::AttachmentDescription>,
-    pub resolve_attachment: Option<vk::AttachmentDescription>,
+    pub depth_test: bool,
+    pub pass: vk::RenderPass,
     pub logical_device: &'a Device,
     pub swapchain_extent: vk::Extent2D,
 }
 
-pub struct SimpleVertexLayout {
+pub struct VertexLayout {
     pub stride: usize,
     pub attribute_descriptions: Vec<vk::VertexInputAttributeDescription>,
 }
 
-pub fn build_simple_pipeline(
-    config: SimplePipeline,
-) -> (vk::Pipeline, vk::PipelineLayout, vk::RenderPass) {
+impl Pipeline {
+    pub fn cleanup(&self, dev: &Device) {
+        unsafe {
+            dev.destroy_pipeline(self.pipeline, None);
+            dev.destroy_pipeline_layout(self.layout, None);
+        }
+    }
+}
+
+pub fn create_pipeline(config: PipelineConfig) -> Pipeline {
     // Build shaders from GLSL paths. This can build and cache SPIR-V by spawning glslc as a
     // subprocess.
     let vertex_shader = create_shader(
@@ -117,15 +128,9 @@ pub fn build_simple_pipeline(
     // TODO: AMD recommends using reversed 1 0 depth to improve float distribution?
     // TODO: AMD recommends to make the near value as high as possible.
     let depth_stencil = *vk::PipelineDepthStencilStateCreateInfo::builder()
-        .depth_test_enable(config.depth_attachment.is_some())
-        .depth_write_enable(config.depth_attachment.is_some())
-        .depth_compare_op(vk::CompareOp::LESS)
-        .depth_bounds_test_enable(false)
-        .min_depth_bounds(0.)
-        .max_depth_bounds(1.)
-        .stencil_test_enable(false)
-        .front(vk::StencilOpState::default())
-        .back(vk::StencilOpState::default());
+        .depth_test_enable(config.depth_test)
+        .depth_write_enable(config.depth_test)
+        .depth_compare_op(vk::CompareOp::LESS);
 
     // I would like to make these things static too, but it would require recreating the pipeline on
     // window resize. This doesn't sound too bad, games run in fullscreen anyway.
@@ -134,55 +139,13 @@ pub fn build_simple_pipeline(
     // I think this is meant to be shared between multiple pipelines? You have to bind this along
     // with the descriptor set, so the intended use case is probably having a single descriptor set
     // and multiple associated pipelines that use it with slightly different parameters.
-    let pipeline_layout_info = *vk::PipelineLayoutCreateInfo::builder()
+    let layout_create_info = *vk::PipelineLayoutCreateInfo::builder()
         .set_layouts(std::slice::from_ref(&config.descriptor_set_layout))
         .push_constant_ranges(&[]);
-    let pipeline_layout = unsafe {
+    let layout = unsafe {
         config
             .logical_device
-            .create_pipeline_layout(&pipeline_layout_info, None)
-    }
-    .unwrap();
-
-    // Configure the attachment order. This is only long because Rust makes it kind of verbose. Also
-    // this needs to match the order used when creating framebuffers.
-    let color_reference = *vk::AttachmentReference::builder()
-        .attachment(0)
-        .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL);
-    let depth_reference = *vk::AttachmentReference::builder()
-        .attachment(1)
-        .layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
-    let resolve_reference = *vk::AttachmentReference::builder()
-        .attachment(if config.depth_attachment.is_some() {
-            2
-        } else {
-            1
-        })
-        .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL);
-    let mut subpass = vk::SubpassDescription::builder()
-        .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
-        .color_attachments(std::slice::from_ref(&color_reference));
-    if config.depth_attachment.is_some() {
-        subpass = subpass.depth_stencil_attachment(&depth_reference);
-    }
-    if config.resolve_attachment.is_some() {
-        subpass = subpass.resolve_attachments(std::slice::from_ref(&resolve_reference));
-    }
-    let subpass = *subpass;
-    let mut attachments = vec![config.color_attachment];
-    if let Some(depth_attachment) = config.depth_attachment {
-        attachments.push(depth_attachment);
-    }
-    if let Some(resolve_attachment) = config.resolve_attachment {
-        attachments.push(resolve_attachment);
-    }
-    let render_pass_info = vk::RenderPassCreateInfo::builder()
-        .attachments(&attachments)
-        .subpasses(std::slice::from_ref(&subpass));
-    let render_pass = unsafe {
-        config
-            .logical_device
-            .create_render_pass(&render_pass_info, None)
+            .create_pipeline_layout(&layout_create_info, None)
     }
     .unwrap();
 
@@ -198,8 +161,8 @@ pub fn build_simple_pipeline(
         .color_blend_state(&color_blending)
         .depth_stencil_state(&depth_stencil)
         .dynamic_state(&dynamic_state)
-        .layout(pipeline_layout)
-        .render_pass(render_pass)
+        .layout(layout)
+        .render_pass(config.pass)
         .subpass(0);
 
     // Apparently creating pipelines can be batched? Probably worth it when there are many pipeline
@@ -216,5 +179,5 @@ pub fn build_simple_pipeline(
     }
     .unwrap()[0];
 
-    (pipeline, pipeline_layout, render_pass)
+    Pipeline { pipeline, layout }
 }

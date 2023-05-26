@@ -10,6 +10,7 @@ mod util;
 pub mod vertex;
 
 use crate::renderer::descriptors::DescriptorMetadata;
+use crate::renderer::pipeline::Pipeline;
 use crate::renderer::uniform::{Filters, Light, Material, ModelViewProjection};
 use crate::renderer::util::{Buffer, UniformBuffer};
 use crate::world::{Entity, World};
@@ -41,17 +42,15 @@ pub struct Renderer {
     // Description of the main render pass. Doesn't contain any information about the objects yet,
     // only low-level data format descriptions.
     object_descriptor_metadata: DescriptorMetadata,
-    render_pipeline_layout: vk::PipelineLayout,
+    object_pipeline: Pipeline,
     render_pass: vk::RenderPass,
-    render_pipeline: vk::Pipeline,
 
     // Description of the postprocessing pass, and also the actual descriptor pool. Necessary,
     // because the postprocessing pass depends on swapchain extent and needs to have the descriptor
     // set updated after window resize.
     postprocess_descriptor_metadata: DescriptorMetadata,
-    postprocess_pipeline_layout: vk::PipelineLayout,
+    postprocess_pipeline: Pipeline,
     postprocess_pass: vk::RenderPass,
-    postprocess_pipeline: vk::Pipeline,
 
     // All resources that depend on swapchain extent (window size). So swapchain description, memory
     // used for all framebuffer attachments, framebuffers, and the mentioned postprocess descriptor
@@ -215,14 +214,17 @@ impl Renderer {
             ]);
         dev.cmd_begin_render_pass(buf, &pass_info, vk::SubpassContents::INLINE);
 
-        dev.cmd_bind_pipeline(buf, vk::PipelineBindPoint::GRAPHICS, self.render_pipeline);
-
+        dev.cmd_bind_pipeline(
+            buf,
+            vk::PipelineBindPoint::GRAPHICS,
+            self.object_pipeline.pipeline,
+        );
         for entity in &world.entities {
             let object = &self.objects[entity.gpu_object];
             dev.cmd_bind_descriptor_sets(
                 buf,
                 vk::PipelineBindPoint::GRAPHICS,
-                self.render_pipeline_layout,
+                self.object_pipeline.layout,
                 0,
                 &[object.descriptor_sets[self.flight_index]],
                 &[],
@@ -254,13 +256,12 @@ impl Renderer {
         dev.cmd_bind_pipeline(
             buf,
             vk::PipelineBindPoint::GRAPHICS,
-            self.postprocess_pipeline,
+            self.postprocess_pipeline.pipeline,
         );
-
         dev.cmd_bind_descriptor_sets(
             buf,
             vk::PipelineBindPoint::GRAPHICS,
-            self.postprocess_pipeline_layout,
+            self.postprocess_pipeline.layout,
             0,
             &[self.postprocess_descriptor_sets[self.flight_index]],
             &[],

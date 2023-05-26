@@ -5,7 +5,7 @@ use crate::renderer::descriptors::{
     DescriptorValue,
 };
 use crate::renderer::device::{select_device, DeviceInfo};
-use crate::renderer::pipeline::{build_simple_pipeline, SimplePipeline, SimpleVertexLayout};
+use crate::renderer::pipeline::{create_pipeline, Pipeline, PipelineConfig, VertexLayout};
 use crate::renderer::traits::VertexOps;
 use crate::renderer::uniform::{Filters, Light, Material, ModelViewProjection};
 use crate::renderer::util::{onetime_commands, Buffer};
@@ -71,12 +71,10 @@ impl Renderer {
             color,
             depth,
             offscreen,
-            render_pipeline,
-            render_pipeline_layout,
+            object_pipeline,
             render_pass,
             render_framebuffer,
             postprocess_pipeline,
-            postprocess_pipeline_layout,
             postprocess_pass,
             postprocess_framebuffers,
             postprocess_descriptor_sets,
@@ -161,12 +159,10 @@ impl Renderer {
             offscreen_sampler,
             filters,
             object_descriptor_metadata,
-            render_pipeline,
-            render_pipeline_layout,
+            object_pipeline,
             render_pass,
             postprocess_descriptor_metadata,
             postprocess_pipeline,
-            postprocess_pipeline_layout,
             postprocess_pass,
             swapchain_extent,
             swapchain,
@@ -228,12 +224,10 @@ impl Renderer {
             color,
             depth,
             offscreen,
-            render_pipeline,
-            render_pipeline_layout,
+            object_pipeline,
             render_pass,
             render_framebuffer,
             postprocess_pipeline,
-            postprocess_pipeline_layout,
             postprocess_pass,
             postprocess_framebuffers,
             postprocess_descriptor_sets,
@@ -260,12 +254,10 @@ impl Renderer {
         self.color = color;
         self.depth = depth;
         self.offscreen = offscreen;
-        self.render_pipeline = render_pipeline;
-        self.render_pipeline_layout = render_pipeline_layout;
+        self.object_pipeline = object_pipeline;
         self.render_pass = render_pass;
         self.render_framebuffer = render_framebuffer;
         self.postprocess_pipeline = postprocess_pipeline;
-        self.postprocess_pipeline_layout = postprocess_pipeline_layout;
         self.postprocess_pass = postprocess_pass;
         self.postprocess_framebuffers = postprocess_framebuffers;
         self.postprocess_descriptor_sets = postprocess_descriptor_sets;
@@ -288,37 +280,28 @@ impl Renderer {
     }
 
     fn cleanup_swapchain(&mut self) {
+        let dev = &self.logical_device;
         unsafe {
-            self.logical_device
-                .free_descriptor_sets(
-                    self.postprocess_descriptor_metadata.pool,
-                    &self.postprocess_descriptor_sets,
-                )
-                .unwrap();
+            dev.reset_descriptor_pool(
+                self.postprocess_descriptor_metadata.pool,
+                vk::DescriptorPoolResetFlags::empty(),
+            )
+            .unwrap();
             for framebuffer in &self.postprocess_framebuffers {
-                self.logical_device.destroy_framebuffer(*framebuffer, None);
+                dev.destroy_framebuffer(*framebuffer, None);
             }
-            self.logical_device
-                .destroy_framebuffer(self.render_framebuffer, None);
-            self.offscreen.cleanup(&self.logical_device);
-            self.depth.cleanup(&self.logical_device);
-            self.color.cleanup(&self.logical_device);
+            dev.destroy_framebuffer(self.render_framebuffer, None);
+            self.offscreen.cleanup(dev);
+            self.depth.cleanup(dev);
+            self.color.cleanup(dev);
             for image_view in &self.swapchain_image_views {
-                self.logical_device.destroy_image_view(*image_view, None);
+                dev.destroy_image_view(*image_view, None);
             }
             self.swapchain_ext.destroy_swapchain(self.swapchain, None);
-            self.logical_device
-                .destroy_pipeline(self.postprocess_pipeline, None);
-            self.logical_device
-                .destroy_render_pass(self.postprocess_pass, None);
-            self.logical_device
-                .destroy_pipeline_layout(self.postprocess_pipeline_layout, None);
-            self.logical_device
-                .destroy_pipeline(self.render_pipeline, None);
-            self.logical_device
-                .destroy_render_pass(self.render_pass, None);
-            self.logical_device
-                .destroy_pipeline_layout(self.render_pipeline_layout, None);
+            self.object_pipeline.cleanup(dev);
+            self.postprocess_pipeline.cleanup(dev);
+            dev.destroy_render_pass(self.postprocess_pass, None);
+            dev.destroy_render_pass(self.render_pass, None);
         }
     }
 }
@@ -634,12 +617,10 @@ fn create_swapchain_all(
     ImageResources,
     ImageResources,
     ImageResources,
-    vk::Pipeline,
-    vk::PipelineLayout,
+    Pipeline,
     vk::RenderPass,
     vk::Framebuffer,
-    vk::Pipeline,
-    vk::PipelineLayout,
+    Pipeline,
     vk::RenderPass,
     Vec<vk::Framebuffer>,
     [vk::DescriptorSet; FRAMES_IN_FLIGHT],
@@ -692,19 +673,21 @@ fn create_swapchain_all(
     );
     let offscreen =
         create_offscreen_resources(swapchain_extent, instance, physical_device, logical_device);
-    let (render_pipeline, render_pipeline_layout, render_pass) = create_pipeline(
+    let render_pass = create_render_pass(msaa_samples, logical_device);
+    let object_pipeline = create_object_pipeline(
         object_descriptor_metadata,
         msaa_samples,
+        render_pass,
         swapchain_extent,
         logical_device,
     );
-    let (postprocess_pipeline, postprocess_pipeline_layout, postprocess_pass) =
-        create_postprocess_pipeline(
-            postprocess_descriptor_metadata,
-            swapchain_format,
-            swapchain_extent,
-            logical_device,
-        );
+    let postprocess_pass = create_postprocess_pass(swapchain_format, &logical_device);
+    let postprocess_pipeline = create_postprocess_pipeline(
+        postprocess_descriptor_metadata,
+        postprocess_pass,
+        swapchain_extent,
+        logical_device,
+    );
     let offscreen_framebuffer = create_offscreen_framebuffer(
         render_pass,
         offscreen.view,
@@ -734,17 +717,96 @@ fn create_swapchain_all(
         color,
         depth,
         offscreen,
-        render_pipeline,
-        render_pipeline_layout,
+        object_pipeline,
         render_pass,
         offscreen_framebuffer,
         postprocess_pipeline,
-        postprocess_pipeline_layout,
         postprocess_pass,
         framebuffers,
         postprocess_descriptor_sets,
         projection,
     )
+}
+
+fn create_render_pass(
+    msaa_samples: vk::SampleCountFlags,
+    logical_device: &Device,
+) -> vk::RenderPass {
+    let color_attachment = *vk::AttachmentDescription::builder()
+        .format(INTERNAL_HDR_FORMAT)
+        .samples(msaa_samples)
+        .load_op(vk::AttachmentLoadOp::CLEAR)
+        .store_op(vk::AttachmentStoreOp::STORE)
+        .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
+        .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
+        .initial_layout(vk::ImageLayout::UNDEFINED)
+        .final_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL);
+    let depth_attachment = *vk::AttachmentDescription::builder()
+        .format(DEPTH_FORMAT)
+        .samples(msaa_samples)
+        .load_op(vk::AttachmentLoadOp::CLEAR)
+        .store_op(vk::AttachmentStoreOp::DONT_CARE)
+        .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
+        .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
+        .initial_layout(vk::ImageLayout::UNDEFINED)
+        .final_layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+    let resolve_attachment = *vk::AttachmentDescription::builder()
+        .format(INTERNAL_HDR_FORMAT)
+        .samples(vk::SampleCountFlags::TYPE_1)
+        .load_op(vk::AttachmentLoadOp::DONT_CARE)
+        .store_op(vk::AttachmentStoreOp::STORE)
+        .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
+        .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
+        .initial_layout(vk::ImageLayout::UNDEFINED)
+        .final_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL);
+    let attachments = [color_attachment, depth_attachment, resolve_attachment];
+
+    let color_reference = *vk::AttachmentReference::builder()
+        .attachment(0)
+        .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL);
+    let depth_reference = *vk::AttachmentReference::builder()
+        .attachment(1)
+        .layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+    let resolve_reference = *vk::AttachmentReference::builder()
+        .attachment(2)
+        .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL);
+    let subpass = *vk::SubpassDescription::builder()
+        .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
+        .color_attachments(std::slice::from_ref(&color_reference))
+        .depth_stencil_attachment(&depth_reference)
+        .resolve_attachments(std::slice::from_ref(&resolve_reference));
+
+    let create_info = *vk::RenderPassCreateInfo::builder()
+        .attachments(&attachments)
+        .subpasses(std::slice::from_ref(&subpass));
+    unsafe { logical_device.create_render_pass(&create_info, None) }.unwrap()
+}
+
+fn create_postprocess_pass(
+    swapchain_format: vk::SurfaceFormatKHR,
+    logical_device: &Device,
+) -> vk::RenderPass {
+    let color_attachment = *vk::AttachmentDescription::builder()
+        .format(swapchain_format.format)
+        .samples(vk::SampleCountFlags::TYPE_1)
+        .load_op(vk::AttachmentLoadOp::DONT_CARE)
+        .store_op(vk::AttachmentStoreOp::STORE)
+        .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
+        .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
+        .initial_layout(vk::ImageLayout::UNDEFINED)
+        .final_layout(vk::ImageLayout::PRESENT_SRC_KHR);
+
+    let color_reference = *vk::AttachmentReference::builder()
+        .attachment(0)
+        .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL);
+    let subpass = *vk::SubpassDescription::builder()
+        .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
+        .color_attachments(std::slice::from_ref(&color_reference));
+
+    let create_info = *vk::RenderPassCreateInfo::builder()
+        .attachments(&std::slice::from_ref(&color_attachment))
+        .subpasses(std::slice::from_ref(&subpass));
+    unsafe { logical_device.create_render_pass(&create_info, None) }.unwrap()
 }
 
 fn create_object_descriptor_metadata(logical_device: &Device) -> DescriptorMetadata {
@@ -825,87 +887,48 @@ fn create_postprocess_descriptor_sets(
     )
 }
 
-fn create_pipeline(
+fn create_object_pipeline(
     descriptor_metadata: &DescriptorMetadata,
     msaa_samples: vk::SampleCountFlags,
+    render_pass: vk::RenderPass,
     swapchain_extent: vk::Extent2D,
     logical_device: &Device,
-) -> (vk::Pipeline, vk::PipelineLayout, vk::RenderPass) {
-    let color_attachment = *vk::AttachmentDescription::builder()
-        .format(INTERNAL_HDR_FORMAT)
-        .samples(msaa_samples)
-        .load_op(vk::AttachmentLoadOp::CLEAR)
-        .store_op(vk::AttachmentStoreOp::STORE)
-        .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
-        .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
-        .initial_layout(vk::ImageLayout::UNDEFINED)
-        .final_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL);
-    let depth_attachment = *vk::AttachmentDescription::builder()
-        .format(DEPTH_FORMAT)
-        .samples(msaa_samples)
-        .load_op(vk::AttachmentLoadOp::CLEAR)
-        .store_op(vk::AttachmentStoreOp::DONT_CARE)
-        .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
-        .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
-        .initial_layout(vk::ImageLayout::UNDEFINED)
-        .final_layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
-    let resolve_attachment = *vk::AttachmentDescription::builder()
-        .format(INTERNAL_HDR_FORMAT)
-        .samples(vk::SampleCountFlags::TYPE_1)
-        .load_op(vk::AttachmentLoadOp::DONT_CARE)
-        .store_op(vk::AttachmentStoreOp::STORE)
-        .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
-        .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
-        .initial_layout(vk::ImageLayout::UNDEFINED)
-        .final_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL);
-    let pipeline = SimplePipeline {
+) -> Pipeline {
+    create_pipeline(PipelineConfig {
         vertex_shader_path: "shaders/model.vert",
         fragment_shader_path: "shaders/model.frag",
-        vertex_layout: Some(SimpleVertexLayout {
+        vertex_layout: Some(VertexLayout {
             stride: std::mem::size_of::<Vertex>(),
             attribute_descriptions: Vertex::attribute_descriptions(0),
         }),
         msaa_samples,
         polygon_mode: vk::PolygonMode::FILL,
         descriptor_set_layout: descriptor_metadata.set_layout,
-        color_attachment,
-        depth_attachment: Some(depth_attachment),
-        resolve_attachment: Some(resolve_attachment),
+        depth_test: true,
+        pass: render_pass,
         logical_device,
         swapchain_extent,
-    };
-    build_simple_pipeline(pipeline)
+    })
 }
 
 fn create_postprocess_pipeline(
     descriptors: &DescriptorMetadata,
-    swapchain_image_format: vk::SurfaceFormatKHR,
+    postprocess_pass: vk::RenderPass,
     swapchain_extent: vk::Extent2D,
     logical_device: &Device,
-) -> (vk::Pipeline, vk::PipelineLayout, vk::RenderPass) {
-    let color_attachment = *vk::AttachmentDescription::builder()
-        .format(swapchain_image_format.format)
-        .samples(vk::SampleCountFlags::TYPE_1)
-        .load_op(vk::AttachmentLoadOp::DONT_CARE)
-        .store_op(vk::AttachmentStoreOp::STORE)
-        .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
-        .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
-        .initial_layout(vk::ImageLayout::UNDEFINED)
-        .final_layout(vk::ImageLayout::PRESENT_SRC_KHR);
-    let pipeline = SimplePipeline {
+) -> Pipeline {
+    create_pipeline(PipelineConfig {
         vertex_shader_path: "shaders/quad.vert",
         fragment_shader_path: "shaders/postprocess.frag",
         vertex_layout: None,
         msaa_samples: vk::SampleCountFlags::TYPE_1,
         polygon_mode: vk::PolygonMode::FILL,
         descriptor_set_layout: descriptors.set_layout,
-        color_attachment,
-        depth_attachment: None,
-        resolve_attachment: None,
+        depth_test: false,
+        pass: postprocess_pass,
         logical_device,
         swapchain_extent,
-    };
-    build_simple_pipeline(pipeline)
+    })
 }
 
 fn create_command_pools(
