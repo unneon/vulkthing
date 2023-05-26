@@ -24,10 +24,11 @@ use ash::vk::{
     ExtDescriptorIndexingFn, KhrRayQueryFn, KhrShaderFloatControlsFn, KhrSpirv14Fn, Packed24_8,
 };
 use ash::{vk, Device, Entry, Instance};
+use log::warn;
 use nalgebra::Matrix4;
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use std::f32::consts::FRAC_PI_4;
-use std::ffi::CString;
+use std::ffi::{CStr, CString};
 use std::mem::MaybeUninit;
 use winit::dpi::PhysicalSize;
 
@@ -413,8 +414,15 @@ fn create_instance(window: &Window, entry: &Entry) -> Instance {
         .engine_version(engine_version)
         .api_version(vk::API_VERSION_1_1);
 
+    let layers = entry.enumerate_instance_layer_properties().unwrap();
+    let mut layer_names = Vec::new();
+
     // Enable Vulkan validation layers. This should be later disabled in non-development builds.
-    let layer_names = [b"VK_LAYER_KHRONOS_validation\0".as_ptr() as *const i8];
+    if let Some(layer) = find_layer(&layers, "VK_LAYER_KHRONOS_validation") {
+        layer_names.push(layer);
+    } else {
+        warn!("vulkan validation layers not available");
+    }
 
     // Vulkan doesn't appear to have any interesting extensions at this level, physical device
     // extensions are the interesting ones with raytracing and other stuff. This is just for
@@ -431,6 +439,22 @@ fn create_instance(window: &Window, entry: &Entry) -> Instance {
         .enabled_layer_names(&layer_names)
         .enabled_extension_names(&extension_names);
     unsafe { entry.create_instance(&instance_create_info, None) }.unwrap()
+}
+
+fn find_layer(layers: &[vk::LayerProperties], name: &str) -> Option<*const i8> {
+    for layer in layers {
+        let layer_name_slice = unsafe {
+            std::slice::from_raw_parts(
+                layer.layer_name.as_ptr() as *const u8,
+                layer.layer_name.len(),
+            )
+        };
+        let layer_name = CStr::from_bytes_until_nul(layer_name_slice).unwrap();
+        if layer_name.to_str().unwrap() == name {
+            return Some(layer.layer_name.as_ptr());
+        }
+    }
+    None
 }
 
 fn create_surface(window: &Window, entry: &Entry, instance: &Instance) -> vk::SurfaceKHR {
@@ -465,10 +489,6 @@ fn create_logical_device(
     let mut as_features =
         *vk::PhysicalDeviceAccelerationStructureFeaturesKHR::builder().acceleration_structure(true);
 
-    // Using validation layers on a device level shouldn't be necessary on newer Vulkan version
-    // (since which one?), but it's good to keep it for compatibility.
-    let layer_names = [b"VK_LAYER_KHRONOS_validation\0".as_ptr() as *const i8];
-
     let extension_names = [
         AccelerationStructure::name().as_ptr(),
         BufferDeviceAddress::name().as_ptr(),
@@ -486,7 +506,6 @@ fn create_logical_device(
             &vk::DeviceCreateInfo::builder()
                 .queue_create_infos(std::slice::from_ref(&queue_create))
                 .enabled_features(&physical_device_features)
-                .enabled_layer_names(&layer_names)
                 .enabled_extension_names(&extension_names)
                 .push_next(&mut bda_features)
                 .push_next(&mut rq_features)
