@@ -1,4 +1,4 @@
-use ash::extensions::khr::{Surface, Swapchain};
+use ash::extensions::khr::Surface;
 use ash::{vk, Instance};
 use log::{debug, warn};
 use std::ffi::CStr;
@@ -22,8 +22,6 @@ pub fn select_device(
         let properties = unsafe { instance.get_physical_device_properties(device) };
         let queue_families =
             unsafe { instance.get_physical_device_queue_family_properties(device) };
-        let features = unsafe { instance.get_physical_device_features(device) };
-        let extensions = unsafe { instance.enumerate_device_extension_properties(device) }.unwrap();
         let name = unsafe { CStr::from_ptr(properties.device_name.as_ptr()) }
             .to_str()
             .unwrap()
@@ -35,33 +33,6 @@ pub fn select_device(
             warn!("physical device rejected, no suitable queue, \x1B[1mname\x1B[0m: {name}");
             continue;
         };
-
-        if features.sampler_anisotropy == 0 {
-            warn!("physical device rejected, no sampler anisotropy feature, \x1B[1mname\x1B[0m: {name}");
-            continue;
-        }
-
-        // Check whether the GPU supports the swapchain extension. This should be implied by the
-        // presence of the present queue, but we can check this explicitly.
-        if !has_swapchain_extension(&extensions) {
-            warn!("physical device rejected, no swapchain extension, \x1B[1mname\x1B[0m: {name}");
-            continue;
-        }
-
-        // This queries some more details about swapchain support, and apparently this requires the
-        // earlier extension check in order to be correct (not crash?). Also there shouldn't be
-        // devices that support swapchains but no formats or present modes, but let's check anyway
-        // because the tutorial does.
-        let surface_formats =
-            unsafe { surface_extension.get_physical_device_surface_formats(device, surface) }
-                .unwrap();
-        let present_modes =
-            unsafe { surface_extension.get_physical_device_surface_present_modes(device, surface) }
-                .unwrap();
-        if surface_formats.is_empty() || present_modes.is_empty() {
-            warn!("physical device rejected, unsuitable swapchain, \x1B[1mname\x1B[0m: {name}");
-            continue;
-        }
 
         // Let's just select the first GPU for now. Linux seems to sort them by itself, I should
         // think more about selection later.
@@ -94,11 +65,4 @@ fn find_suitable_queue(
         }
     }
     None
-}
-
-fn has_swapchain_extension(extensions: &[vk::ExtensionProperties]) -> bool {
-    extensions.iter().any(|ext| {
-        let ext_name = unsafe { CStr::from_ptr(ext.extension_name.as_ptr()) };
-        ext_name == Swapchain::name()
-    })
 }
