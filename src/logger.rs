@@ -7,12 +7,12 @@ struct Logger {
 }
 
 impl log::Log for Logger {
-    fn enabled(&self, _: &Metadata) -> bool {
-        true
+    fn enabled(&self, metadata: &Metadata) -> bool {
+        metadata.target().starts_with(env!("CARGO_PKG_NAME"))
     }
 
     fn log(&self, record: &Record) {
-        if self.enabled(record.metadata()) && record.target().starts_with(env!("CARGO_PKG_NAME")) {
+        if self.enabled(record.metadata()) {
             let time_now = Instant::now();
             let time = (time_now - self.time_start).as_secs_f64();
             let level = match record.level() {
