@@ -98,7 +98,7 @@ impl Buffer {
     }
 }
 
-impl<T> UniformBuffer<T> {
+impl<T: Copy> UniformBuffer<T> {
     pub fn create(
         instance: &Instance,
         physical_device: vk::PhysicalDevice,
@@ -133,23 +133,12 @@ impl<T> UniformBuffer<T> {
         }
     }
 
-    pub fn write(&self, flight_index: usize, value: T) {
+    pub fn write(&self, flight_index: usize, value: &T) {
         unsafe {
             self.mapping
                 .byte_add(self.aligned_size * flight_index)
-                .write_volatile(value)
+                .write_volatile(*value)
         };
-    }
-
-    pub fn deref(&mut self, flight_index: usize) -> &mut T {
-        unsafe { &mut *self.mapping.byte_add(self.aligned_size * flight_index) }
-    }
-
-    pub fn descriptor(&self, flight_index: usize) -> vk::DescriptorBufferInfo {
-        *vk::DescriptorBufferInfo::builder()
-            .buffer(self.buffer.buffer)
-            .offset((flight_index * self.aligned_size) as u64)
-            .range(std::mem::size_of::<T>() as u64)
     }
 
     pub fn cleanup(&self, dev: &Device) {
@@ -157,9 +146,12 @@ impl<T> UniformBuffer<T> {
     }
 }
 
-impl<T> AnyUniformBuffer for UniformBuffer<T> {
+impl<T: Copy> AnyUniformBuffer for UniformBuffer<T> {
     fn descriptor(&self, flight_index: usize) -> vk::DescriptorBufferInfo {
-        self.descriptor(flight_index)
+        *vk::DescriptorBufferInfo::builder()
+            .buffer(self.buffer.buffer)
+            .offset((flight_index * self.aligned_size) as u64)
+            .range(std::mem::size_of::<T>() as u64)
     }
 }
 

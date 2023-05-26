@@ -50,7 +50,7 @@ impl DescriptorMetadata {
                 .unwrap()
                 .try_into()
                 .unwrap();
-        let mut descriptor_infos = [Vec::new(); FRAMES_IN_FLIGHT];
+        let mut descriptor_infos = [const { Vec::new() }; FRAMES_IN_FLIGHT];
         let mut descriptor_writes: Vec<vk::WriteDescriptorSet> = Vec::new();
         for flight_index in 0..FRAMES_IN_FLIGHT {
             for value in values {

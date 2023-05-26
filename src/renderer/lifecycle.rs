@@ -54,14 +54,11 @@ impl Renderer {
         } = select_device(&instance, &extensions.surface, surface);
         let logical_device = create_logical_device(queue_family, &instance, physical_device);
         let queue = unsafe { logical_device.get_device_queue(queue_family, 0) };
-        let swapchain_extension = Swapchain::new(&instance, &logical_device);
+        let swapchain_ext = Swapchain::new(&instance, &logical_device);
 
         let msaa_samples = util::find_max_msaa_samples(&instance, physical_device);
         let offscreen_sampler = create_offscreen_sampler(&logical_device);
         let filters = UniformBuffer::create(&instance, physical_device, &logical_device);
-        for i in 0..FRAMES_IN_FLIGHT {
-            filters.write(i, Filters::default());
-        }
 
         let object_descriptor_metadata = create_object_descriptor_metadata(&logical_device);
         let postprocess_descriptor_metadata =
@@ -88,7 +85,7 @@ impl Renderer {
             window.window.inner_size(),
             &instance,
             &extensions.surface,
-            &swapchain_extension,
+            &swapchain_ext,
             physical_device,
             &logical_device,
             surface,
@@ -159,7 +156,7 @@ impl Renderer {
             physical_device,
             logical_device,
             queue,
-            swapchain_extension,
+            swapchain_ext,
             msaa_samples,
             offscreen_sampler,
             filters,
@@ -245,7 +242,7 @@ impl Renderer {
             window_size,
             &self.instance,
             &self.extensions.surface,
-            &self.swapchain_extension,
+            &self.swapchain_ext,
             self.physical_device,
             &self.logical_device,
             self.surface,
@@ -309,8 +306,7 @@ impl Renderer {
             for image_view in &self.swapchain_image_views {
                 self.logical_device.destroy_image_view(*image_view, None);
             }
-            self.swapchain_extension
-                .destroy_swapchain(self.swapchain, None);
+            self.swapchain_ext.destroy_swapchain(self.swapchain, None);
             self.logical_device
                 .destroy_pipeline(self.postprocess_pipeline, None);
             self.logical_device

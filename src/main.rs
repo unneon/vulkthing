@@ -7,6 +7,7 @@
 #![feature(maybe_uninit_slice)]
 #![feature(maybe_uninit_write_slice)]
 #![feature(pointer_byte_offsets)]
+#![feature(inline_const)]
 #![allow(incomplete_features)]
 #![allow(clippy::collapsible_match)]
 #![allow(clippy::single_match)]
@@ -27,6 +28,7 @@ use crate::interface::Interface;
 use crate::logger::initialize_logger;
 use crate::model::load_model;
 use crate::planet::generate_planet;
+use crate::renderer::uniform::Filters;
 use crate::renderer::Renderer;
 use crate::window::create_window;
 use crate::world::World;
@@ -56,6 +58,7 @@ fn main() {
     let mut input_state = InputState::new();
     let mut world = World::new();
     let mut last_update = Instant::now();
+    let mut filters = Filters::default();
 
     renderer.create_interface_renderer(&mut interface.ctx);
 
@@ -96,11 +99,7 @@ fn main() {
                 world.update(delta_time, &input_state);
                 input_state.reset_after_frame();
                 interface.apply_cursor(input_state.camera_lock, &window.window);
-                let interface_events = interface.build(
-                    &mut world,
-                    &mut planet,
-                    renderer.filters.deref(renderer.flight_index),
-                );
+                let interface_events = interface.build(&mut world, &mut planet, &mut filters);
                 if interface_events.planet_changed {
                     let planet_model = generate_planet(&planet);
                     renderer.recreate_planet(&planet_model);
@@ -108,6 +107,7 @@ fn main() {
 
                 renderer.draw_frame(
                     &mut world,
+                    &filters,
                     window.window.inner_size(),
                     interface.draw_data(),
                 );

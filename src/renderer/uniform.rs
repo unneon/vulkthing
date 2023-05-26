@@ -3,6 +3,7 @@ use imgui::{Drag, Ui};
 use nalgebra::{Matrix4, Vector3};
 
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct ModelViewProjection {
     pub model: Matrix4<f32>,
     pub view: Matrix4<f32>,
@@ -10,11 +11,13 @@ pub struct ModelViewProjection {
 }
 
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct Material {
     pub emit: Vector3<f32>,
 }
 
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct Light {
     pub color: Vector3<f32>,
     pub ambient_strength: f32,
@@ -24,6 +27,7 @@ pub struct Light {
 }
 
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct Filters {
     pub color_filter: Vector3<f32>,
     pub exposure: f32,

@@ -31,12 +31,12 @@ pub struct Renderer {
     physical_device: vk::PhysicalDevice,
     logical_device: Device,
     queue: vk::Queue,
-    swapchain_extension: Swapchain,
+    swapchain_ext: Swapchain,
 
     // Parameters of the renderer that are required early for creating more important objects.
     msaa_samples: vk::SampleCountFlags,
     offscreen_sampler: vk::Sampler,
-    pub filters: UniformBuffer<Filters>,
+    filters: UniformBuffer<Filters>,
 
     // Description of the main render pass. Doesn't contain any information about the objects yet,
     // only low-level data format descriptions.
@@ -72,7 +72,7 @@ pub struct Renderer {
     command_pools: [vk::CommandPool; FRAMES_IN_FLIGHT],
     command_buffers: [vk::CommandBuffer; FRAMES_IN_FLIGHT],
     sync: Synchronization,
-    pub flight_index: usize,
+    flight_index: usize,
 
     // And finally resources specific to this renderer. So various buffers related to objects we
     // actually render, their descriptor sets and the like.
@@ -117,13 +117,13 @@ pub struct Object {
     descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
 }
 
-// TODO: Fix UI interactions with duplicated uniforms and raise this to 2.
-const FRAMES_IN_FLIGHT: usize = 1;
+const FRAMES_IN_FLIGHT: usize = 2;
 
 impl Renderer {
     pub fn draw_frame(
         &mut self,
-        world: &mut World,
+        world: &World,
+        filters: &Filters,
         window_size: PhysicalSize<u32>,
         ui_draw: &DrawData,
     ) {
@@ -135,6 +135,7 @@ impl Renderer {
             self.update_object_uniforms(world, entity);
         }
         self.update_light_uniform(world);
+        self.update_filters_uniform(filters);
         self.submit_graphics();
         self.submit_present(image_index);
 
@@ -148,7 +149,7 @@ impl Renderer {
 
         dev.wait_for_fences(&[in_flight], true, u64::MAX).unwrap();
 
-        let acquire_result = self.swapchain_extension.acquire_next_image(
+        let acquire_result = self.swapchain_ext.acquire_next_image(
             self.swapchain,
             u64::MAX,
             image_available,
@@ -287,10 +288,10 @@ impl Renderer {
         let material = Material { emit: entity.emit };
         self.objects[entity.gpu_object]
             .mvp
-            .write(self.flight_index, mvp);
+            .write(self.flight_index, &mvp);
         self.objects[entity.gpu_object]
             .material
-            .write(self.flight_index, material);
+            .write(self.flight_index, &material);
     }
 
     fn update_light_uniform(&self, world: &World) {
@@ -301,7 +302,11 @@ impl Renderer {
             diffuse_strength: world.light.diffuse_strength,
             use_ray_tracing: if world.light.use_ray_tracing { 1 } else { 0 },
         };
-        self.light.write(self.flight_index, light);
+        self.light.write(self.flight_index, &light);
+    }
+
+    fn update_filters_uniform(&self, filters: &Filters) {
+        self.filters.write(self.flight_index, filters);
     }
 
     fn submit_graphics(&self) {
@@ -337,10 +342,6 @@ impl Renderer {
             .wait_semaphores(&wait_semaphores)
             .swapchains(&swapchains)
             .image_indices(&image_indices);
-        unsafe {
-            self.swapchain_extension
-                .queue_present(self.queue, &present_info)
-        }
-        .unwrap();
+        unsafe { self.swapchain_ext.queue_present(self.queue, &present_info) }.unwrap();
     }
 }
