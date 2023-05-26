@@ -906,8 +906,8 @@ fn create_object_pipeline(
     logical_device: &Device,
 ) -> Pipeline {
     create_pipeline(PipelineConfig {
-        vertex_shader_path: "shaders/model.vert",
-        fragment_shader_path: "shaders/model.frag",
+        vertex_shader_path: "shaders/object.vert",
+        fragment_shader_path: "shaders/object.frag",
         vertex_layout: Some(VertexLayout {
             stride: std::mem::size_of::<Vertex>(),
             attribute_descriptions: Vertex::attribute_descriptions(0),
@@ -929,7 +929,7 @@ fn create_postprocess_pipeline(
     logical_device: &Device,
 ) -> Pipeline {
     create_pipeline(PipelineConfig {
-        vertex_shader_path: "shaders/quad.vert",
+        vertex_shader_path: "shaders/postprocess.vert",
         fragment_shader_path: "shaders/postprocess.frag",
         vertex_layout: None,
         msaa_samples: vk::SampleCountFlags::TYPE_1,
