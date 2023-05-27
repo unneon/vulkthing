@@ -52,7 +52,7 @@ impl DescriptorMetadata {
                 .unwrap();
         let mut descriptor_infos = [const { Vec::new() }; FRAMES_IN_FLIGHT];
         let mut descriptor_writes: Vec<vk::WriteDescriptorSet> = Vec::new();
-        for flight_index in 0..FRAMES_IN_FLIGHT {
+        for (flight_index, descriptor_info) in descriptor_infos.iter_mut().enumerate() {
             for value in values {
                 let info = match value {
                     DescriptorValue::Buffer(buffer) => {
@@ -64,7 +64,7 @@ impl DescriptorMetadata {
                             .image_view(*view),
                     ),
                 };
-                descriptor_infos[flight_index].push(info);
+                descriptor_info.push(info);
             }
         }
         for flight_index in 0..FRAMES_IN_FLIGHT {

@@ -99,7 +99,7 @@ impl Editable for Parameters {
         let mut changed = false;
         changed |= ui.slider("Resolution", 1, 800, &mut self.resolution);
         changed |= ui.slider("Radius", 10., 200., &mut self.radius);
-        changed |= ui.combo("Noise type", &mut self.noise_type, &NOISE_TYPES, |nt| {
+        changed |= ui.combo("Noise type", &mut self.noise_type, NOISE_TYPES, |nt| {
             nt.name().into()
         });
         changed |= ui.slider("Noise magnitude", 0., 100., &mut self.noise_magnitude);
@@ -129,10 +129,10 @@ pub fn generate_planet(parameters: &Parameters) -> Model {
     for side in SIDES {
         for i in 0..parameters.resolution {
             for j in 0..parameters.resolution {
-                let position_bottom_left = generate_vertex(i, j, &side, &parameters, &noise);
-                let position_bottom_right = generate_vertex(i + 1, j, &side, &parameters, &noise);
-                let position_top_left = generate_vertex(i, j + 1, &side, &parameters, &noise);
-                let position_top_right = generate_vertex(i + 1, j + 1, &side, &parameters, &noise);
+                let position_bottom_left = generate_vertex(i, j, &side, parameters, &noise);
+                let position_bottom_right = generate_vertex(i + 1, j, &side, parameters, &noise);
+                let position_top_left = generate_vertex(i, j + 1, &side, parameters, &noise);
+                let position_top_right = generate_vertex(i + 1, j + 1, &side, parameters, &noise);
                 let normal_first = (position_bottom_right - position_bottom_left)
                     .cross(&(position_top_left - position_bottom_left))
                     .normalize();
@@ -206,6 +206,5 @@ fn generate_vertex(
         ]) as f32
             / factor as f32;
     }
-    let position = direction * (parameters.radius + parameters.noise_magnitude * noise_value);
-    position
+    direction * (parameters.radius + parameters.noise_magnitude * noise_value)
 }

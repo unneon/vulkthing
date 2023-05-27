@@ -369,7 +369,6 @@ impl Drop for Renderer {
                 dev.destroy_command_pool(*pool, None);
             }
 
-            drop(dev);
             self.cleanup_swapchain();
             let dev = &self.logical_device;
 
@@ -700,7 +699,7 @@ fn create_swapchain_all(
         swapchain_extent,
         logical_device,
     );
-    let postprocess_pass = create_postprocess_pass(swapchain_format, &logical_device);
+    let postprocess_pass = create_postprocess_pass(swapchain_format, logical_device);
     let postprocess_pipeline = create_postprocess_pipeline(
         postprocess_descriptor_metadata,
         postprocess_pass,
@@ -724,8 +723,8 @@ fn create_swapchain_all(
     );
     let postprocess_descriptor_sets = create_postprocess_descriptor_sets(
         offscreen.view,
-        &filters,
-        &postprocess_descriptor_metadata,
+        filters,
+        postprocess_descriptor_metadata,
         logical_device,
     );
     let projection = compute_projection(swapchain_extent);
@@ -815,7 +814,7 @@ fn create_postprocess_pass(
         .color_attachments(std::slice::from_ref(&color_reference));
 
     let create_info = *vk::RenderPassCreateInfo::builder()
-        .attachments(&std::slice::from_ref(&color_attachment))
+        .attachments(std::slice::from_ref(&color_attachment))
         .subpasses(std::slice::from_ref(&subpass));
     unsafe { logical_device.create_render_pass(&create_info, None) }.unwrap()
 }
@@ -1154,7 +1153,7 @@ pub fn create_object(
         &mvp,
         &material,
         light_buffer,
-        &descriptor_metadata,
+        descriptor_metadata,
         logical_device,
     );
     Object {
@@ -1265,8 +1264,8 @@ fn create_blas(
     queue: vk::Queue,
     command_pool: vk::CommandPool,
 ) -> RaytraceResources {
-    let as_ext = AccelerationStructure::new(&instance, &logical_device);
-    let bda_ext = BufferDeviceAddress::new(&instance, &logical_device);
+    let as_ext = AccelerationStructure::new(instance, logical_device);
+    let bda_ext = BufferDeviceAddress::new(instance, logical_device);
 
     let vertex_address = object.vertex.device_address(&bda_ext);
     let index_address = object.index.device_address(&bda_ext);
@@ -1311,18 +1310,18 @@ fn create_blas(
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
         vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS | vk::BufferUsageFlags::STORAGE_BUFFER,
         size_info.build_scratch_size as usize,
-        &instance,
+        instance,
         physical_device,
-        &logical_device,
+        logical_device,
     );
 
     let blas_buffer = Buffer::create(
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
         vk::BufferUsageFlags::ACCELERATION_STRUCTURE_STORAGE_KHR,
         size_info.acceleration_structure_size as usize,
-        &instance,
+        instance,
         physical_device,
-        &logical_device,
+        logical_device,
     );
     let blas_create_info = *vk::AccelerationStructureCreateInfoKHR::builder()
         .ty(vk::AccelerationStructureTypeKHR::BOTTOM_LEVEL)
@@ -1336,7 +1335,7 @@ fn create_blas(
     let blas_range_infos = [range_info];
     let all_blas_build_infos = [blas_info];
     let all_blas_range_infos = [blas_range_infos.as_slice()];
-    onetime_commands(&logical_device, queue, command_pool, |command_buffer| {
+    onetime_commands(logical_device, queue, command_pool, |command_buffer| {
         unsafe {
             as_ext.cmd_build_acceleration_structures(
                 command_buffer,
@@ -1346,7 +1345,7 @@ fn create_blas(
         };
     });
 
-    scratch.cleanup(&logical_device);
+    scratch.cleanup(logical_device);
 
     RaytraceResources {
         acceleration_structure: blas,
@@ -1363,8 +1362,8 @@ fn create_tlas(
     queue: vk::Queue,
     command_pool: vk::CommandPool,
 ) -> RaytraceResources {
-    let as_ext = AccelerationStructure::new(&instance, &logical_device);
-    let bda_ext = BufferDeviceAddress::new(&instance, &logical_device);
+    let as_ext = AccelerationStructure::new(instance, logical_device);
+    let bda_ext = BufferDeviceAddress::new(instance, logical_device);
 
     let instanced = vk::AccelerationStructureInstanceKHR {
         transform: vk::TransformMatrixKHR {
@@ -1435,9 +1434,9 @@ fn create_tlas(
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
         vk::BufferUsageFlags::ACCELERATION_STRUCTURE_STORAGE_KHR,
         tlas_size_info.acceleration_structure_size as usize,
-        &instance,
+        instance,
         physical_device,
-        &logical_device,
+        logical_device,
     );
     let tlas_create_info = *vk::AccelerationStructureCreateInfoKHR::builder()
         .ty(vk::AccelerationStructureTypeKHR::TOP_LEVEL)
@@ -1449,9 +1448,9 @@ fn create_tlas(
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
         vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS | vk::BufferUsageFlags::STORAGE_BUFFER,
         tlas_size_info.build_scratch_size as usize,
-        &instance,
+        instance,
         physical_device,
-        &logical_device,
+        logical_device,
     );
 
     tlas_info.dst_acceleration_structure = tlas;
@@ -1465,7 +1464,7 @@ fn create_tlas(
     let tlas_range_infos = [tlas_range_info];
     let all_tlas_build_infos = [tlas_info];
     let all_tlas_range_infos = [tlas_range_infos.as_slice()];
-    onetime_commands(&logical_device, queue, command_pool, |command_buffer| {
+    onetime_commands(logical_device, queue, command_pool, |command_buffer| {
         unsafe {
             as_ext.cmd_build_acceleration_structures(
                 command_buffer,
@@ -1475,8 +1474,8 @@ fn create_tlas(
         };
     });
 
-    tlas_scratch.cleanup(&logical_device);
-    instances_buffer.cleanup(&logical_device);
+    tlas_scratch.cleanup(logical_device);
+    instances_buffer.cleanup(logical_device);
 
     RaytraceResources {
         acceleration_structure: tlas,

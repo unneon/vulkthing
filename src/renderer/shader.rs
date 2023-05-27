@@ -59,7 +59,7 @@ fn compile_shader(glsl_path: &str, spirv_path: &str, stage: vk::ShaderStageFlags
         }
         result => result.unwrap(),
     };
-    std::fs::write(&spirv_path, spirv_data.as_binary_u8()).unwrap();
+    std::fs::write(spirv_path, spirv_data.as_binary_u8()).unwrap();
     debug!("shader GLSL compiled, \x1B[1mfile\x1B[0m: {glsl_path}");
 }
 

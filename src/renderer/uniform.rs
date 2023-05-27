@@ -118,7 +118,7 @@ impl Editable for Filters {
             .range(0., f32::INFINITY)
             .speed(0.01)
             .build(ui, &mut self.saturation);
-        changed |= ui.combo("Tonemapper", &mut tonemapper, &TONEMAPPERS, |tm| {
+        changed |= ui.combo("Tonemapper", &mut tonemapper, TONEMAPPERS, |tm| {
             tm.name().into()
         });
         changed |= Drag::new("Gamma")

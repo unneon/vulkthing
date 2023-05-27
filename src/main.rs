@@ -1,17 +1,12 @@
 #![feature(array_chunks)]
-#![feature(const_cstr_methods)]
-#![feature(const_option)]
-#![feature(const_result_drop)]
-#![feature(generic_const_exprs)]
 #![feature(int_roundings)]
-#![feature(maybe_uninit_slice)]
 #![feature(maybe_uninit_write_slice)]
 #![feature(pointer_byte_offsets)]
 #![feature(inline_const)]
-#![allow(incomplete_features)]
 #![allow(clippy::collapsible_match)]
 #![allow(clippy::single_match)]
 #![allow(clippy::too_many_arguments)]
+#![allow(clippy::type_complexity)]
 
 mod camera;
 mod input;
@@ -106,7 +101,7 @@ fn main() {
                 }
 
                 renderer.draw_frame(
-                    &mut world,
+                    &world,
                     &filters,
                     window.window.inner_size(),
                     interface.draw_data(),
