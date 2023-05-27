@@ -266,8 +266,13 @@ impl Renderer {
     }
 
     pub fn recreate_planet(&mut self, planet_model: &Model) {
+        let as_ext = AccelerationStructure::new(&self.instance, &self.logical_device);
         unsafe { self.logical_device.device_wait_idle() }.unwrap();
+
         self.objects[0].cleanup(&self.logical_device, self.object_descriptor_metadata.pool);
+        self.tlas.cleanup(&self.logical_device, &as_ext);
+        self.blas.cleanup(&self.logical_device, &as_ext);
+
         self.objects[0] = create_object(
             planet_model,
             &self.object_descriptor_metadata,
@@ -278,6 +283,39 @@ impl Renderer {
             self.queue,
             self.command_pools[0],
         );
+        self.blas = create_blas(
+            &self.objects[0],
+            &self.instance,
+            self.physical_device,
+            &self.logical_device,
+            self.queue,
+            self.command_pools[0],
+        );
+        self.tlas = create_tlas(
+            &self.blas,
+            &self.instance,
+            self.physical_device,
+            &self.logical_device,
+            self.queue,
+            self.command_pools[0],
+        );
+        for object in &self.objects {
+            for i in 0..FRAMES_IN_FLIGHT {
+                let acceleration_structures = [self.tlas.acceleration_structure];
+                let mut tlas_write = *vk::WriteDescriptorSetAccelerationStructureKHR::builder()
+                    .acceleration_structures(&acceleration_structures);
+                let mut descriptor_writes = [*vk::WriteDescriptorSet::builder()
+                    .dst_set(object.descriptor_sets[i])
+                    .dst_binding(3)
+                    .descriptor_type(vk::DescriptorType::ACCELERATION_STRUCTURE_KHR)
+                    .push_next(&mut tlas_write)];
+                descriptor_writes[0].descriptor_count = 1;
+                unsafe {
+                    self.logical_device
+                        .update_descriptor_sets(&descriptor_writes, &[])
+                };
+            }
+        }
     }
 
     fn cleanup_swapchain(&mut self) {
