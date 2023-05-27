@@ -114,9 +114,15 @@ impl Interface {
         world: &mut World,
         planet: &mut Parameters,
         filters: &mut Filters,
+        demo: bool,
     ) -> InterfaceEvents {
         let mut planet_changed = false;
         let ui = self.ctx.frame();
+        if demo {
+            return InterfaceEvents {
+                planet_changed: false,
+            };
+        }
         ui.window("Debugging")
             .size([0., 0.], Condition::Always)
             .build(|| {

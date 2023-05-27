@@ -37,10 +37,11 @@ impl World {
     pub fn new() -> World {
         let sun_color = Vector3::new(1., 1., 1.);
         let camera = Camera {
-            position: Vector3::new(-250., 0., 0.),
+            position: Vector3::new(-350., 0., 0.),
             velocity: Vector3::new(0., 0., 0.),
             yaw: 0.,
             pitch: 0.,
+            time: 0.,
         };
         let light_radius = 500.;
         let light = Light {
@@ -74,8 +75,8 @@ impl World {
         }
     }
 
-    pub fn update(&mut self, delta_time: f32, input_state: &InputState) {
-        self.camera.apply_input(input_state, delta_time);
+    pub fn update(&mut self, delta_time: f32, input_state: &InputState, demo: bool) {
+        self.camera.apply_input(input_state, delta_time, demo);
         self.light.update(delta_time);
         self.entities[1].position = self.light.position;
     }
