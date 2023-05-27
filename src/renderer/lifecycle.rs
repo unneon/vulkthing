@@ -72,13 +72,18 @@ impl Renderer {
             color,
             depth,
             offscreen,
+            pathtrace_offscreen,
             object_pipeline,
             render_pass,
             render_framebuffer,
+            pathtrace_framebuffer,
             postprocess_pipeline,
             postprocess_pass,
             postprocess_framebuffers,
             postprocess_descriptor_sets,
+            postprocess_pathtrace_descriptor_sets,
+            pathtrace_pass,
+            pathtrace_pipeline,
             projection,
         ) = create_swapchain_all(
             window.window.inner_size(),
@@ -162,6 +167,10 @@ impl Renderer {
             object_descriptor_metadata,
             object_pipeline,
             render_pass,
+            pathtrace_pass,
+            pathtrace_pipeline,
+            pathtrace_offscreen,
+            pathtrace_framebuffer,
             postprocess_descriptor_metadata,
             postprocess_pipeline,
             postprocess_pass,
@@ -174,6 +183,7 @@ impl Renderer {
             render_framebuffer,
             postprocess_framebuffers,
             postprocess_descriptor_sets,
+            postprocess_pathtrace_descriptor_sets,
             projection,
             command_pools,
             command_buffers,
@@ -225,13 +235,18 @@ impl Renderer {
             color,
             depth,
             offscreen,
+            pathtrace_offscreen,
             object_pipeline,
             render_pass,
             render_framebuffer,
+            pathtrace_framebuffer,
             postprocess_pipeline,
             postprocess_pass,
             postprocess_framebuffers,
             postprocess_descriptor_sets,
+            postprocess_pathtrace_descriptor_sets,
+            pathtrace_pass,
+            pathtrace_pipeline,
             projection,
         ) = create_swapchain_all(
             window_size,
@@ -255,13 +270,18 @@ impl Renderer {
         self.color = color;
         self.depth = depth;
         self.offscreen = offscreen;
+        self.pathtrace_offscreen = pathtrace_offscreen;
         self.object_pipeline = object_pipeline;
         self.render_pass = render_pass;
         self.render_framebuffer = render_framebuffer;
+        self.pathtrace_framebuffer = pathtrace_framebuffer;
         self.postprocess_pipeline = postprocess_pipeline;
         self.postprocess_pass = postprocess_pass;
         self.postprocess_framebuffers = postprocess_framebuffers;
         self.postprocess_descriptor_sets = postprocess_descriptor_sets;
+        self.postprocess_pathtrace_descriptor_sets = postprocess_pathtrace_descriptor_sets;
+        self.pathtrace_pass = pathtrace_pass;
+        self.pathtrace_pipeline = pathtrace_pipeline;
         self.projection = projection;
     }
 
@@ -330,7 +350,9 @@ impl Renderer {
                 dev.destroy_framebuffer(*framebuffer, None);
             }
             dev.destroy_framebuffer(self.render_framebuffer, None);
+            dev.destroy_framebuffer(self.pathtrace_framebuffer, None);
             self.offscreen.cleanup(dev);
+            self.pathtrace_offscreen.cleanup(dev);
             self.depth.cleanup(dev);
             self.color.cleanup(dev);
             for image_view in &self.swapchain_image_views {
@@ -339,8 +361,10 @@ impl Renderer {
             self.swapchain_ext.destroy_swapchain(self.swapchain, None);
             self.object_pipeline.cleanup(dev);
             self.postprocess_pipeline.cleanup(dev);
+            self.pathtrace_pipeline.cleanup(dev);
             dev.destroy_render_pass(self.postprocess_pass, None);
             dev.destroy_render_pass(self.render_pass, None);
+            dev.destroy_render_pass(self.pathtrace_pass, None);
         }
     }
 }
@@ -673,13 +697,18 @@ fn create_swapchain_all(
     ImageResources,
     ImageResources,
     ImageResources,
+    ImageResources,
     Pipeline,
     vk::RenderPass,
+    vk::Framebuffer,
     vk::Framebuffer,
     Pipeline,
     vk::RenderPass,
     Vec<vk::Framebuffer>,
     [vk::DescriptorSet; FRAMES_IN_FLIGHT],
+    [vk::DescriptorSet; FRAMES_IN_FLIGHT],
+    vk::RenderPass,
+    Pipeline,
     Matrix4<f32>,
 ) {
     // Query the surface information again.
@@ -729,6 +758,8 @@ fn create_swapchain_all(
     );
     let offscreen =
         create_offscreen_resources(swapchain_extent, instance, physical_device, logical_device);
+    let pathtrace_offscreen =
+        create_offscreen_resources(swapchain_extent, instance, physical_device, logical_device);
     let render_pass = create_render_pass(msaa_samples, logical_device);
     let object_pipeline = create_object_pipeline(
         object_descriptor_metadata,
@@ -744,12 +775,25 @@ fn create_swapchain_all(
         swapchain_extent,
         logical_device,
     );
+    let pathtrace_pass = create_pathtrace_pass(logical_device);
+    let pathtrace_pipeline = create_pathtrace_pipeline(
+        object_descriptor_metadata,
+        pathtrace_pass,
+        swapchain_extent,
+        logical_device,
+    );
     let offscreen_framebuffer = create_offscreen_framebuffer(
         render_pass,
         offscreen.view,
         swapchain_extent,
         depth.view,
         color.view,
+        logical_device,
+    );
+    let pathtrace_framebuffer = create_pathtrace_framebuffer(
+        pathtrace_pass,
+        pathtrace_offscreen.view,
+        swapchain_extent,
         logical_device,
     );
     let framebuffers = create_framebuffers(
@@ -765,6 +809,12 @@ fn create_swapchain_all(
         postprocess_descriptor_metadata,
         logical_device,
     );
+    let postprocess_pathtrace_descriptor_sets = create_postprocess_descriptor_sets(
+        pathtrace_offscreen.view,
+        filters,
+        postprocess_descriptor_metadata,
+        logical_device,
+    );
     let projection = compute_projection(swapchain_extent);
     (
         swapchain_extent,
@@ -773,13 +823,18 @@ fn create_swapchain_all(
         color,
         depth,
         offscreen,
+        pathtrace_offscreen,
         object_pipeline,
         render_pass,
         offscreen_framebuffer,
+        pathtrace_framebuffer,
         postprocess_pipeline,
         postprocess_pass,
         framebuffers,
         postprocess_descriptor_sets,
+        postprocess_pathtrace_descriptor_sets,
+        pathtrace_pass,
+        pathtrace_pipeline,
         projection,
     )
 }
@@ -857,6 +912,28 @@ fn create_postprocess_pass(
     unsafe { logical_device.create_render_pass(&create_info, None) }.unwrap()
 }
 
+fn create_pathtrace_pass(logical_device: &Device) -> vk::RenderPass {
+    let color_attachment = *vk::AttachmentDescription::builder()
+        .format(INTERNAL_HDR_FORMAT)
+        .samples(vk::SampleCountFlags::TYPE_1)
+        .load_op(vk::AttachmentLoadOp::CLEAR)
+        .store_op(vk::AttachmentStoreOp::STORE)
+        .initial_layout(vk::ImageLayout::UNDEFINED)
+        .final_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL);
+
+    let color_reference = *vk::AttachmentReference::builder()
+        .attachment(0)
+        .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL);
+    let subpass = *vk::SubpassDescription::builder()
+        .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
+        .color_attachments(std::slice::from_ref(&color_reference));
+
+    let create_info = *vk::RenderPassCreateInfo::builder()
+        .attachments(std::slice::from_ref(&color_attachment))
+        .subpasses(std::slice::from_ref(&subpass));
+    unsafe { logical_device.create_render_pass(&create_info, None) }.unwrap()
+}
+
 fn create_object_descriptor_metadata(logical_device: &Device) -> DescriptorMetadata {
     create_descriptor_metadata(DescriptorConfig {
         descriptors: vec![
@@ -915,7 +992,7 @@ fn create_postprocess_descriptor_metadata(
                 stage: vk::ShaderStageFlags::FRAGMENT,
             },
         ],
-        set_count: 1,
+        set_count: 2,
         logical_device,
     })
 }
@@ -951,7 +1028,7 @@ fn create_object_pipeline(
         }),
         msaa_samples,
         polygon_mode: vk::PolygonMode::FILL,
-        descriptor_set_layout: descriptor_metadata.set_layout,
+        descriptor_layouts: &[descriptor_metadata.set_layout],
         depth_test: true,
         pass: render_pass,
         logical_device,
@@ -971,9 +1048,29 @@ fn create_postprocess_pipeline(
         vertex_layout: None,
         msaa_samples: vk::SampleCountFlags::TYPE_1,
         polygon_mode: vk::PolygonMode::FILL,
-        descriptor_set_layout: descriptors.set_layout,
+        descriptor_layouts: &[descriptors.set_layout],
         depth_test: false,
         pass: postprocess_pass,
+        logical_device,
+        swapchain_extent,
+    })
+}
+
+fn create_pathtrace_pipeline(
+    descriptors: &DescriptorMetadata,
+    render_pass: vk::RenderPass,
+    swapchain_extent: vk::Extent2D,
+    logical_device: &Device,
+) -> Pipeline {
+    create_pipeline(PipelineConfig {
+        vertex_shader_path: "shaders/pathtrace.vert",
+        fragment_shader_path: "shaders/pathtrace.frag",
+        vertex_layout: None,
+        msaa_samples: vk::SampleCountFlags::TYPE_1,
+        polygon_mode: vk::PolygonMode::FILL,
+        descriptor_layouts: &[descriptors.set_layout],
+        depth_test: false,
+        pass: render_pass,
         logical_device,
         swapchain_extent,
     })
@@ -1144,6 +1241,22 @@ fn create_offscreen_framebuffer(
     let attachments = [color_image_view, depth_image_view, offscreen_image_view];
     let framebuffer_info = vk::FramebufferCreateInfo::builder()
         .render_pass(pipeline_render_pass)
+        .attachments(&attachments)
+        .width(swapchain_extent.width)
+        .height(swapchain_extent.height)
+        .layers(1);
+    unsafe { logical_device.create_framebuffer(&framebuffer_info, None) }.unwrap()
+}
+
+fn create_pathtrace_framebuffer(
+    pathtrace_pass: vk::RenderPass,
+    offscreen_image_view: vk::ImageView,
+    swapchain_extent: vk::Extent2D,
+    logical_device: &Device,
+) -> vk::Framebuffer {
+    let attachments = [offscreen_image_view];
+    let framebuffer_info = vk::FramebufferCreateInfo::builder()
+        .render_pass(pathtrace_pass)
         .attachments(&attachments)
         .width(swapchain_extent.width)
         .height(swapchain_extent.height)

@@ -58,6 +58,7 @@ fn main() {
     let mut world = World::new();
     let mut last_update = Instant::now();
     let mut filters = Filters::default();
+    let mut path_tracer = false;
 
     renderer.create_interface_renderer(&mut interface.ctx);
 
@@ -98,8 +99,13 @@ fn main() {
                 world.update(delta_time, &input_state, args.demo);
                 input_state.reset_after_frame();
                 interface.apply_cursor(input_state.camera_lock, &window.window);
-                let interface_events =
-                    interface.build(&mut world, &mut planet, &mut filters, args.demo);
+                let interface_events = interface.build(
+                    &mut world,
+                    &mut planet,
+                    &mut filters,
+                    args.demo,
+                    &mut path_tracer,
+                );
                 if interface_events.planet_changed {
                     let planet_model = generate_planet(&planet);
                     renderer.recreate_planet(&planet_model);
@@ -110,6 +116,7 @@ fn main() {
                     &filters,
                     window.window.inner_size(),
                     interface.draw_data(),
+                    path_tracer,
                 );
                 if args.demo {
                     std::thread::sleep(Duration::from_millis(30));

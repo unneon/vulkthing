@@ -12,7 +12,7 @@ pub struct PipelineConfig<'a> {
     pub vertex_layout: Option<VertexLayout>,
     pub msaa_samples: vk::SampleCountFlags,
     pub polygon_mode: vk::PolygonMode,
-    pub descriptor_set_layout: vk::DescriptorSetLayout,
+    pub descriptor_layouts: &'a [vk::DescriptorSetLayout],
     pub depth_test: bool,
     pub pass: vk::RenderPass,
     pub logical_device: &'a Device,
@@ -140,7 +140,7 @@ pub fn create_pipeline(config: PipelineConfig) -> Pipeline {
     // with the descriptor set, so the intended use case is probably having a single descriptor set
     // and multiple associated pipelines that use it with slightly different parameters.
     let layout_create_info = *vk::PipelineLayoutCreateInfo::builder()
-        .set_layouts(std::slice::from_ref(&config.descriptor_set_layout))
+        .set_layouts(config.descriptor_layouts)
         .push_constant_ranges(&[]);
     let layout = unsafe {
         config
