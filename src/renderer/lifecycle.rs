@@ -72,7 +72,6 @@ impl Renderer {
             color,
             depth,
             offscreen,
-            pathtrace_offscreen,
             object_pipeline,
             render_pass,
             render_framebuffer,
@@ -81,7 +80,6 @@ impl Renderer {
             postprocess_pass,
             postprocess_framebuffers,
             postprocess_descriptor_sets,
-            postprocess_pathtrace_descriptor_sets,
             pathtrace_pass,
             pathtrace_pipeline,
             projection,
@@ -169,7 +167,6 @@ impl Renderer {
             render_pass,
             pathtrace_pass,
             pathtrace_pipeline,
-            pathtrace_offscreen,
             pathtrace_framebuffer,
             postprocess_descriptor_metadata,
             postprocess_pipeline,
@@ -183,7 +180,6 @@ impl Renderer {
             render_framebuffer,
             postprocess_framebuffers,
             postprocess_descriptor_sets,
-            postprocess_pathtrace_descriptor_sets,
             projection,
             command_pools,
             command_buffers,
@@ -235,7 +231,6 @@ impl Renderer {
             color,
             depth,
             offscreen,
-            pathtrace_offscreen,
             object_pipeline,
             render_pass,
             render_framebuffer,
@@ -244,7 +239,6 @@ impl Renderer {
             postprocess_pass,
             postprocess_framebuffers,
             postprocess_descriptor_sets,
-            postprocess_pathtrace_descriptor_sets,
             pathtrace_pass,
             pathtrace_pipeline,
             projection,
@@ -270,7 +264,6 @@ impl Renderer {
         self.color = color;
         self.depth = depth;
         self.offscreen = offscreen;
-        self.pathtrace_offscreen = pathtrace_offscreen;
         self.object_pipeline = object_pipeline;
         self.render_pass = render_pass;
         self.render_framebuffer = render_framebuffer;
@@ -279,7 +272,6 @@ impl Renderer {
         self.postprocess_pass = postprocess_pass;
         self.postprocess_framebuffers = postprocess_framebuffers;
         self.postprocess_descriptor_sets = postprocess_descriptor_sets;
-        self.postprocess_pathtrace_descriptor_sets = postprocess_pathtrace_descriptor_sets;
         self.pathtrace_pass = pathtrace_pass;
         self.pathtrace_pipeline = pathtrace_pipeline;
         self.projection = projection;
@@ -352,7 +344,6 @@ impl Renderer {
             dev.destroy_framebuffer(self.render_framebuffer, None);
             dev.destroy_framebuffer(self.pathtrace_framebuffer, None);
             self.offscreen.cleanup(dev);
-            self.pathtrace_offscreen.cleanup(dev);
             self.depth.cleanup(dev);
             self.color.cleanup(dev);
             for image_view in &self.swapchain_image_views {
@@ -697,7 +688,6 @@ fn create_swapchain_all(
     ImageResources,
     ImageResources,
     ImageResources,
-    ImageResources,
     Pipeline,
     vk::RenderPass,
     vk::Framebuffer,
@@ -705,7 +695,6 @@ fn create_swapchain_all(
     Pipeline,
     vk::RenderPass,
     Vec<vk::Framebuffer>,
-    [vk::DescriptorSet; FRAMES_IN_FLIGHT],
     [vk::DescriptorSet; FRAMES_IN_FLIGHT],
     vk::RenderPass,
     Pipeline,
@@ -758,8 +747,6 @@ fn create_swapchain_all(
     );
     let offscreen =
         create_offscreen_resources(swapchain_extent, instance, physical_device, logical_device);
-    let pathtrace_offscreen =
-        create_offscreen_resources(swapchain_extent, instance, physical_device, logical_device);
     let render_pass = create_render_pass(msaa_samples, logical_device);
     let object_pipeline = create_object_pipeline(
         object_descriptor_metadata,
@@ -792,7 +779,7 @@ fn create_swapchain_all(
     );
     let pathtrace_framebuffer = create_pathtrace_framebuffer(
         pathtrace_pass,
-        pathtrace_offscreen.view,
+        offscreen.view,
         swapchain_extent,
         logical_device,
     );
@@ -809,12 +796,6 @@ fn create_swapchain_all(
         postprocess_descriptor_metadata,
         logical_device,
     );
-    let postprocess_pathtrace_descriptor_sets = create_postprocess_descriptor_sets(
-        pathtrace_offscreen.view,
-        filters,
-        postprocess_descriptor_metadata,
-        logical_device,
-    );
     let projection = compute_projection(swapchain_extent);
     (
         swapchain_extent,
@@ -823,7 +804,6 @@ fn create_swapchain_all(
         color,
         depth,
         offscreen,
-        pathtrace_offscreen,
         object_pipeline,
         render_pass,
         offscreen_framebuffer,
@@ -832,7 +812,6 @@ fn create_swapchain_all(
         postprocess_pass,
         framebuffers,
         postprocess_descriptor_sets,
-        postprocess_pathtrace_descriptor_sets,
         pathtrace_pass,
         pathtrace_pipeline,
         projection,

@@ -47,7 +47,6 @@ pub struct Renderer {
 
     pathtrace_pass: vk::RenderPass,
     pathtrace_pipeline: Pipeline,
-    pathtrace_offscreen: ImageResources,
     pathtrace_framebuffer: vk::Framebuffer,
 
     // Description of the postprocessing pass, and also the actual descriptor pool. Necessary,
@@ -69,7 +68,6 @@ pub struct Renderer {
     render_framebuffer: vk::Framebuffer,
     postprocess_framebuffers: Vec<vk::Framebuffer>,
     postprocess_descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
-    postprocess_pathtrace_descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
     projection: Matrix4<f32>,
 
     // Vulkan objects actually used for command recording and synchronization. Also internal
@@ -196,7 +194,7 @@ impl Renderer {
         } else {
             self.record_pathtrace_pass(buf);
         }
-        self.record_postprocess_pass(buf, image_index, ui_draw, path_tracer);
+        self.record_postprocess_pass(buf, image_index, ui_draw);
         self.logical_device.end_command_buffer(buf).unwrap();
     }
 
@@ -288,7 +286,6 @@ impl Renderer {
         buf: vk::CommandBuffer,
         image_index: u32,
         ui_draw: &DrawData,
-        path_tracer: bool,
     ) {
         let dev = &self.logical_device;
         let pass_info = vk::RenderPassBeginInfo::builder()
@@ -300,11 +297,6 @@ impl Renderer {
             });
         dev.cmd_begin_render_pass(buf, &pass_info, vk::SubpassContents::INLINE);
 
-        let descriptor_sets = if path_tracer {
-            self.postprocess_pathtrace_descriptor_sets
-        } else {
-            self.postprocess_descriptor_sets
-        };
         dev.cmd_bind_pipeline(
             buf,
             vk::PipelineBindPoint::GRAPHICS,
@@ -315,7 +307,7 @@ impl Renderer {
             vk::PipelineBindPoint::GRAPHICS,
             self.postprocess_pipeline.layout,
             0,
-            &[descriptor_sets[self.flight_index]],
+            &[self.postprocess_descriptor_sets[self.flight_index]],
             &[],
         );
         dev.cmd_draw(buf, 6, 1, 0, 0);
