@@ -112,7 +112,10 @@ impl Editable for Parameters {
 impl Default for Parameters {
     fn default() -> Parameters {
         Parameters {
+            #[cfg(not(debug_assertions))]
             resolution: 400,
+            #[cfg(debug_assertions)]
+            resolution: 20,
             radius: 100.,
             noise_type: 3,
             noise_magnitude: 20.,

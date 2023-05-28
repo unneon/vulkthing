@@ -1,4 +1,5 @@
 use crate::renderer::shader::create_shader;
+use crate::renderer::util::Dev;
 use ash::{vk, Device};
 
 pub struct Pipeline {
@@ -15,7 +16,7 @@ pub struct PipelineConfig<'a> {
     pub descriptor_layouts: &'a [vk::DescriptorSetLayout],
     pub depth_test: bool,
     pub pass: vk::RenderPass,
-    pub logical_device: &'a Device,
+    pub dev: &'a Dev,
     pub swapchain_extent: vk::Extent2D,
 }
 
@@ -39,12 +40,12 @@ pub fn create_pipeline(config: PipelineConfig) -> Pipeline {
     let vertex_shader = create_shader(
         config.vertex_shader_path,
         vk::ShaderStageFlags::VERTEX,
-        config.logical_device,
+        config.dev,
     );
     let fragment_shader = create_shader(
         config.fragment_shader_path,
         vk::ShaderStageFlags::FRAGMENT,
-        config.logical_device,
+        config.dev,
     );
     let shader_stages = [vertex_shader.stage_info, fragment_shader.stage_info];
 
@@ -142,12 +143,7 @@ pub fn create_pipeline(config: PipelineConfig) -> Pipeline {
     let layout_create_info = *vk::PipelineLayoutCreateInfo::builder()
         .set_layouts(config.descriptor_layouts)
         .push_constant_ranges(&[]);
-    let layout = unsafe {
-        config
-            .logical_device
-            .create_pipeline_layout(&layout_create_info, None)
-    }
-    .unwrap();
+    let layout = unsafe { config.dev.create_pipeline_layout(&layout_create_info, None) }.unwrap();
 
     // If Vulkan wasn't a C api where you have to pass array pointers, this entire function would be
     // a struct literal.
@@ -171,7 +167,7 @@ pub fn create_pipeline(config: PipelineConfig) -> Pipeline {
     // for now. Also, pipeline caches are a thing and probably reduce the impact of this on
     // subsequent loads.
     let pipeline = unsafe {
-        config.logical_device.create_graphics_pipelines(
+        config.dev.create_graphics_pipelines(
             vk::PipelineCache::null(),
             std::slice::from_ref(&pipeline_info),
             None,

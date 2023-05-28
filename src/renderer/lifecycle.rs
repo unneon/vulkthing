@@ -8,10 +8,12 @@ use crate::renderer::device::{select_device, DeviceInfo};
 use crate::renderer::pipeline::{create_pipeline, Pipeline, PipelineConfig, VertexLayout};
 use crate::renderer::traits::VertexOps;
 use crate::renderer::uniform::{Filters, Light, Material, ModelViewProjection};
-use crate::renderer::util::{onetime_commands, Buffer};
+use crate::renderer::util::{
+    create_image, create_image_view, find_max_msaa_samples, Buffer, Ctx, Dev,
+};
 use crate::renderer::vertex::Vertex;
 use crate::renderer::{
-    util, ImageResources, Object, RaytraceResources, Renderer, Synchronization, UniformBuffer,
+    ImageResources, Object, RaytraceResources, Renderer, Synchronization, UniformBuffer,
     VulkanExtensions, FRAMES_IN_FLIGHT,
 };
 use crate::window::Window;
@@ -29,7 +31,6 @@ use nalgebra::Matrix4;
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use std::f32::consts::FRAC_PI_4;
 use std::ffi::{CStr, CString};
-use std::mem::MaybeUninit;
 use winit::dpi::PhysicalSize;
 
 // Format used for passing HDR data between render passes to enable realistic differences in
@@ -54,16 +55,21 @@ impl Renderer {
             queue_family,
         } = select_device(&instance, &extensions.surface, surface);
         let logical_device = create_logical_device(queue_family, &instance, physical_device);
-        let queue = unsafe { logical_device.get_device_queue(queue_family, 0) };
-        let swapchain_ext = Swapchain::new(&instance, &logical_device);
+        let dev = Dev {
+            logical: logical_device,
+            physical: physical_device,
+            instance,
+        };
+        let queue = unsafe { dev.get_device_queue(queue_family, 0) };
+        let swapchain_ext = Swapchain::new(&dev.instance, &dev);
 
-        let msaa_samples = util::find_max_msaa_samples(&instance, physical_device);
-        let offscreen_sampler = create_offscreen_sampler(&logical_device);
-        let filters = UniformBuffer::create(&instance, physical_device, &logical_device);
+        let msaa_samples = find_max_msaa_samples(&dev);
+        let offscreen_sampler = create_offscreen_sampler(&dev);
+        let filters = UniformBuffer::create(&dev);
 
-        let object_descriptor_metadata = create_object_descriptor_metadata(&logical_device);
+        let object_descriptor_metadata = create_object_descriptor_metadata(&dev);
         let postprocess_descriptor_metadata =
-            create_postprocess_descriptor_metadata(offscreen_sampler, &logical_device);
+            create_postprocess_descriptor_metadata(offscreen_sampler, &dev);
 
         let (
             swapchain_extent,
@@ -85,55 +91,35 @@ impl Renderer {
             projection,
         ) = create_swapchain_all(
             window.window.inner_size(),
-            &instance,
             &extensions.surface,
             &swapchain_ext,
-            physical_device,
-            &logical_device,
             surface,
             msaa_samples,
             &filters,
             &object_descriptor_metadata,
             &postprocess_descriptor_metadata,
+            &dev,
         );
 
-        let command_pools = create_command_pools(queue_family, &logical_device);
-        let command_buffers = create_command_buffers(&logical_device, &command_pools);
-        let sync = create_sync(&logical_device);
+        let command_pools = create_command_pools(queue_family, &dev);
+        let command_buffers = create_command_buffers(&command_pools, &dev);
+        let sync = create_sync(&dev);
+        let ctx = Ctx {
+            dev: &dev,
+            queue,
+            command_pool: command_pools[0],
+        };
 
-        let light = UniformBuffer::create(&instance, physical_device, &logical_device);
+        let light = UniformBuffer::create(&dev);
 
         let mut objects = Vec::new();
         for model in models {
-            let object = create_object(
-                model,
-                &object_descriptor_metadata,
-                &light,
-                &instance,
-                physical_device,
-                &logical_device,
-                queue,
-                command_pools[0],
-            );
+            let object = create_object(model, &object_descriptor_metadata, &light, &ctx);
             objects.push(object);
         }
 
-        let blas = create_blas(
-            &objects[0],
-            &instance,
-            physical_device,
-            &logical_device,
-            queue,
-            command_pools[0],
-        );
-        let tlas = create_tlas(
-            &blas,
-            &instance,
-            physical_device,
-            &logical_device,
-            queue,
-            command_pools[0],
-        );
+        let blas = create_blas(&objects[0], &ctx);
+        let tlas = create_tlas(&blas, &ctx);
         for object in &objects {
             for i in 0..FRAMES_IN_FLIGHT {
                 let acceleration_structures = [tlas.acceleration_structure];
@@ -145,18 +131,16 @@ impl Renderer {
                     .descriptor_type(vk::DescriptorType::ACCELERATION_STRUCTURE_KHR)
                     .push_next(&mut tlas_write)];
                 descriptor_writes[0].descriptor_count = 1;
-                unsafe { logical_device.update_descriptor_sets(&descriptor_writes, &[]) };
+                unsafe { dev.update_descriptor_sets(&descriptor_writes, &[]) };
             }
         }
 
         Renderer {
             _entry: entry,
-            instance,
             extensions,
             debug_messenger,
             surface,
-            physical_device,
-            logical_device,
+            dev,
             queue,
             swapchain_ext,
             msaa_samples,
@@ -196,9 +180,9 @@ impl Renderer {
     pub fn create_interface_renderer(&mut self, imgui: &mut imgui::Context) {
         self.interface_renderer = Some(
             imgui_rs_vulkan_renderer::Renderer::with_default_allocator(
-                &self.instance,
-                self.physical_device,
-                self.logical_device.clone(),
+                &self.dev.instance,
+                self.dev.physical,
+                self.dev.logical.clone(),
                 self.queue,
                 self.command_pools[0],
                 self.postprocess_pass,
@@ -217,7 +201,7 @@ impl Renderer {
         // First, wait for the GPU work to end. It's possible to pass an old swapchain while
         // creating the new one which results in a faster (?) transition, but in the interest of
         // simplicity let's skip that for now.
-        unsafe { self.logical_device.device_wait_idle() }.unwrap();
+        unsafe { self.dev.device_wait_idle() }.unwrap();
 
         // This destroys swapchain resources including the framebuffer, but we should also consider
         // surface information obtained during physical device selection as outdated. These can
@@ -244,16 +228,14 @@ impl Renderer {
             projection,
         ) = create_swapchain_all(
             window_size,
-            &self.instance,
             &self.extensions.surface,
             &self.swapchain_ext,
-            self.physical_device,
-            &self.logical_device,
             self.surface,
             self.msaa_samples,
             &self.filters,
             &self.object_descriptor_metadata,
             &self.postprocess_descriptor_metadata,
+            &self.dev,
         );
 
         // Doing the assignments at the end guarantees any operation won't fail in the middle, and
@@ -278,39 +260,26 @@ impl Renderer {
     }
 
     pub fn recreate_planet(&mut self, planet_model: &Model) {
-        let as_ext = AccelerationStructure::new(&self.instance, &self.logical_device);
-        unsafe { self.logical_device.device_wait_idle() }.unwrap();
+        let ctx = Ctx {
+            dev: &self.dev,
+            queue: self.queue,
+            command_pool: self.command_pools[0],
+        };
+        let as_ext = AccelerationStructure::new(&self.dev.instance, &self.dev);
+        unsafe { self.dev.device_wait_idle() }.unwrap();
 
-        self.objects[0].cleanup(&self.logical_device, self.object_descriptor_metadata.pool);
-        self.tlas.cleanup(&self.logical_device, &as_ext);
-        self.blas.cleanup(&self.logical_device, &as_ext);
+        self.objects[0].cleanup(&self.dev, self.object_descriptor_metadata.pool);
+        self.tlas.cleanup(&self.dev, &as_ext);
+        self.blas.cleanup(&self.dev, &as_ext);
 
         self.objects[0] = create_object(
             planet_model,
             &self.object_descriptor_metadata,
             &self.light,
-            &self.instance,
-            self.physical_device,
-            &self.logical_device,
-            self.queue,
-            self.command_pools[0],
+            &ctx,
         );
-        self.blas = create_blas(
-            &self.objects[0],
-            &self.instance,
-            self.physical_device,
-            &self.logical_device,
-            self.queue,
-            self.command_pools[0],
-        );
-        self.tlas = create_tlas(
-            &self.blas,
-            &self.instance,
-            self.physical_device,
-            &self.logical_device,
-            self.queue,
-            self.command_pools[0],
-        );
+        self.blas = create_blas(&self.objects[0], &ctx);
+        self.tlas = create_tlas(&self.blas, &ctx);
         for object in &self.objects {
             for i in 0..FRAMES_IN_FLIGHT {
                 let acceleration_structures = [self.tlas.acceleration_structure];
@@ -322,40 +291,38 @@ impl Renderer {
                     .descriptor_type(vk::DescriptorType::ACCELERATION_STRUCTURE_KHR)
                     .push_next(&mut tlas_write)];
                 descriptor_writes[0].descriptor_count = 1;
-                unsafe {
-                    self.logical_device
-                        .update_descriptor_sets(&descriptor_writes, &[])
-                };
+                unsafe { self.dev.update_descriptor_sets(&descriptor_writes, &[]) };
             }
         }
     }
 
     fn cleanup_swapchain(&mut self) {
-        let dev = &self.logical_device;
         unsafe {
-            dev.reset_descriptor_pool(
-                self.postprocess_descriptor_metadata.pool,
-                vk::DescriptorPoolResetFlags::empty(),
-            )
-            .unwrap();
+            self.dev
+                .reset_descriptor_pool(
+                    self.postprocess_descriptor_metadata.pool,
+                    vk::DescriptorPoolResetFlags::empty(),
+                )
+                .unwrap();
             for framebuffer in &self.postprocess_framebuffers {
-                dev.destroy_framebuffer(*framebuffer, None);
+                self.dev.destroy_framebuffer(*framebuffer, None);
             }
-            dev.destroy_framebuffer(self.render_framebuffer, None);
-            dev.destroy_framebuffer(self.pathtrace_framebuffer, None);
-            self.offscreen.cleanup(dev);
-            self.depth.cleanup(dev);
-            self.color.cleanup(dev);
+            self.dev.destroy_framebuffer(self.render_framebuffer, None);
+            self.dev
+                .destroy_framebuffer(self.pathtrace_framebuffer, None);
+            self.offscreen.cleanup(&self.dev);
+            self.depth.cleanup(&self.dev);
+            self.color.cleanup(&self.dev);
             for image_view in &self.swapchain_image_views {
-                dev.destroy_image_view(*image_view, None);
+                self.dev.destroy_image_view(*image_view, None);
             }
             self.swapchain_ext.destroy_swapchain(self.swapchain, None);
-            self.object_pipeline.cleanup(dev);
-            self.postprocess_pipeline.cleanup(dev);
-            self.pathtrace_pipeline.cleanup(dev);
-            dev.destroy_render_pass(self.postprocess_pass, None);
-            dev.destroy_render_pass(self.render_pass, None);
-            dev.destroy_render_pass(self.pathtrace_pass, None);
+            self.object_pipeline.cleanup(&self.dev);
+            self.postprocess_pipeline.cleanup(&self.dev);
+            self.pathtrace_pipeline.cleanup(&self.dev);
+            self.dev.destroy_render_pass(self.postprocess_pass, None);
+            self.dev.destroy_render_pass(self.render_pass, None);
+            self.dev.destroy_render_pass(self.pathtrace_pass, None);
         }
     }
 }
@@ -404,39 +371,31 @@ impl RaytraceResources {
 impl Drop for Renderer {
     fn drop(&mut self) {
         unsafe {
-            let dev = &self.logical_device;
-            dev.device_wait_idle().unwrap();
+            self.dev.device_wait_idle().unwrap();
 
             drop(self.interface_renderer.take());
-
             for object in &self.objects {
-                object.cleanup(dev, self.object_descriptor_metadata.pool);
+                object.cleanup(&self.dev, self.object_descriptor_metadata.pool);
             }
-            self.light.cleanup(dev);
-            let as_ext = AccelerationStructure::new(&self.instance, &self.logical_device);
-            self.tlas.cleanup(dev, &as_ext);
-            self.blas.cleanup(dev, &as_ext);
-
-            self.sync.cleanup(dev);
+            self.light.cleanup(&self.dev);
+            let as_ext = AccelerationStructure::new(&self.dev.instance, &self.dev);
+            self.tlas.cleanup(&self.dev, &as_ext);
+            self.blas.cleanup(&self.dev, &as_ext);
+            self.sync.cleanup(&self.dev);
             for pool in &self.command_pools {
-                dev.destroy_command_pool(*pool, None);
+                self.dev.destroy_command_pool(*pool, None);
             }
-
             self.cleanup_swapchain();
-            let dev = &self.logical_device;
-
-            self.object_descriptor_metadata.cleanup(dev);
-            self.postprocess_descriptor_metadata.cleanup(dev);
-
-            self.filters.cleanup(dev);
-            dev.destroy_sampler(self.offscreen_sampler, None);
-
-            dev.destroy_device(None);
+            self.object_descriptor_metadata.cleanup(&self.dev);
+            self.postprocess_descriptor_metadata.cleanup(&self.dev);
+            self.filters.cleanup(&self.dev);
+            self.dev.destroy_sampler(self.offscreen_sampler, None);
+            self.dev.destroy_device(None);
             self.extensions.surface.destroy_surface(self.surface, None);
             self.extensions
                 .debug
                 .destroy_debug_utils_messenger(self.debug_messenger, None);
-            self.instance.destroy_instance(None);
+            self.dev.instance.destroy_instance(None);
         }
     }
 }
@@ -651,19 +610,19 @@ fn create_swapchain(
 fn create_swapchain_image_views(
     swapchain: vk::SwapchainKHR,
     format: vk::SurfaceFormatKHR,
-    logical_device: &Device,
     extension: &Swapchain,
+    dev: &Dev,
 ) -> Vec<vk::ImageView> {
     // Create image views. Not really interesting for now, as I only use normal color settings.
     let images = unsafe { extension.get_swapchain_images(swapchain) }.unwrap();
     let mut image_views = vec![vk::ImageView::null(); images.len()];
     for i in 0..images.len() {
-        image_views[i] = util::create_image_view(
+        image_views[i] = create_image_view(
             images[i],
             format.format,
             vk::ImageAspectFlags::COLOR,
             1,
-            logical_device,
+            dev,
         );
     }
     image_views
@@ -671,16 +630,14 @@ fn create_swapchain_image_views(
 
 fn create_swapchain_all(
     window_size: PhysicalSize<u32>,
-    instance: &Instance,
     surface_ext: &Surface,
     swapchain_ext: &Swapchain,
-    physical_device: vk::PhysicalDevice,
-    logical_device: &Device,
     surface: vk::SurfaceKHR,
     msaa_samples: vk::SampleCountFlags,
     filters: &UniformBuffer<Filters>,
     object_descriptor_metadata: &DescriptorMetadata,
     postprocess_descriptor_metadata: &DescriptorMetadata,
+    dev: &Dev,
 ) -> (
     vk::Extent2D,
     vk::SwapchainKHR,
@@ -702,14 +659,13 @@ fn create_swapchain_all(
 ) {
     // Query the surface information again.
     let surface_capabilities =
-        unsafe { surface_ext.get_physical_device_surface_capabilities(physical_device, surface) }
+        unsafe { surface_ext.get_physical_device_surface_capabilities(dev.physical, surface) }
             .unwrap();
     let surface_formats = {
-        unsafe { surface_ext.get_physical_device_surface_formats(physical_device, surface) }
-            .unwrap()
+        unsafe { surface_ext.get_physical_device_surface_formats(dev.physical, surface) }.unwrap()
     };
     let present_modes =
-        unsafe { surface_ext.get_physical_device_surface_present_modes(physical_device, surface) }
+        unsafe { surface_ext.get_physical_device_surface_present_modes(dev.physical, surface) }
             .unwrap();
     assert!(!present_modes.is_empty());
 
@@ -730,71 +686,53 @@ fn create_swapchain_all(
         surface_capabilities,
     );
     let swapchain_image_views =
-        create_swapchain_image_views(swapchain, swapchain_format, logical_device, swapchain_ext);
-    let color = create_color_resources(
-        swapchain_extent,
-        msaa_samples,
-        instance,
-        physical_device,
-        logical_device,
-    );
-    let depth = create_depth_resources(
-        swapchain_extent,
-        msaa_samples,
-        instance,
-        physical_device,
-        logical_device,
-    );
-    let offscreen =
-        create_offscreen_resources(swapchain_extent, instance, physical_device, logical_device);
-    let render_pass = create_render_pass(msaa_samples, logical_device);
+        create_swapchain_image_views(swapchain, swapchain_format, swapchain_ext, dev);
+    let color = create_color_resources(swapchain_extent, msaa_samples, dev);
+    let depth = create_depth_resources(swapchain_extent, msaa_samples, dev);
+    let offscreen = create_offscreen_resources(swapchain_extent, dev);
+    let render_pass = create_render_pass(msaa_samples, dev);
     let object_pipeline = create_object_pipeline(
         object_descriptor_metadata,
         msaa_samples,
         render_pass,
         swapchain_extent,
-        logical_device,
+        dev,
     );
-    let postprocess_pass = create_postprocess_pass(swapchain_format, logical_device);
+    let postprocess_pass = create_postprocess_pass(swapchain_format, dev);
     let postprocess_pipeline = create_postprocess_pipeline(
         postprocess_descriptor_metadata,
         postprocess_pass,
         swapchain_extent,
-        logical_device,
+        dev,
     );
-    let pathtrace_pass = create_pathtrace_pass(logical_device);
+    let pathtrace_pass = create_pathtrace_pass(dev);
     let pathtrace_pipeline = create_pathtrace_pipeline(
         object_descriptor_metadata,
         pathtrace_pass,
         swapchain_extent,
-        logical_device,
+        dev,
     );
-    let offscreen_framebuffer = create_offscreen_framebuffer(
+    let offscreen_framebuffer = create_render_framebuffers(
         render_pass,
-        offscreen.view,
-        swapchain_extent,
-        depth.view,
         color.view,
-        logical_device,
-    );
-    let pathtrace_framebuffer = create_pathtrace_framebuffer(
-        pathtrace_pass,
+        depth.view,
         offscreen.view,
         swapchain_extent,
-        logical_device,
+        dev,
     );
-    let framebuffers = create_framebuffers(
+    let pathtrace_framebuffer =
+        create_pathtrace_framebuffer(pathtrace_pass, offscreen.view, swapchain_extent, dev);
+    let framebuffers = create_postprocess_framebuffers(
         postprocess_pass,
-        swapchain_image_count,
         &swapchain_image_views,
         swapchain_extent,
-        logical_device,
+        dev,
     );
     let postprocess_descriptor_sets = create_postprocess_descriptor_sets(
         offscreen.view,
         filters,
         postprocess_descriptor_metadata,
-        logical_device,
+        dev,
     );
     let projection = compute_projection(swapchain_extent);
     (
@@ -818,10 +756,7 @@ fn create_swapchain_all(
     )
 }
 
-fn create_render_pass(
-    msaa_samples: vk::SampleCountFlags,
-    logical_device: &Device,
-) -> vk::RenderPass {
+fn create_render_pass(msaa_samples: vk::SampleCountFlags, dev: &Dev) -> vk::RenderPass {
     let color_attachment = *vk::AttachmentDescription::builder()
         .format(INTERNAL_HDR_FORMAT)
         .samples(msaa_samples)
@@ -863,13 +798,10 @@ fn create_render_pass(
     let create_info = *vk::RenderPassCreateInfo::builder()
         .attachments(&attachments)
         .subpasses(std::slice::from_ref(&subpass));
-    unsafe { logical_device.create_render_pass(&create_info, None) }.unwrap()
+    unsafe { dev.create_render_pass(&create_info, None) }.unwrap()
 }
 
-fn create_postprocess_pass(
-    swapchain_format: vk::SurfaceFormatKHR,
-    logical_device: &Device,
-) -> vk::RenderPass {
+fn create_postprocess_pass(swapchain_format: vk::SurfaceFormatKHR, dev: &Dev) -> vk::RenderPass {
     let color_attachment = *vk::AttachmentDescription::builder()
         .format(swapchain_format.format)
         .samples(vk::SampleCountFlags::TYPE_1)
@@ -888,10 +820,10 @@ fn create_postprocess_pass(
     let create_info = *vk::RenderPassCreateInfo::builder()
         .attachments(std::slice::from_ref(&color_attachment))
         .subpasses(std::slice::from_ref(&subpass));
-    unsafe { logical_device.create_render_pass(&create_info, None) }.unwrap()
+    unsafe { dev.create_render_pass(&create_info, None) }.unwrap()
 }
 
-fn create_pathtrace_pass(logical_device: &Device) -> vk::RenderPass {
+fn create_pathtrace_pass(dev: &Dev) -> vk::RenderPass {
     let color_attachment = *vk::AttachmentDescription::builder()
         .format(INTERNAL_HDR_FORMAT)
         .samples(vk::SampleCountFlags::TYPE_1)
@@ -910,10 +842,10 @@ fn create_pathtrace_pass(logical_device: &Device) -> vk::RenderPass {
     let create_info = *vk::RenderPassCreateInfo::builder()
         .attachments(std::slice::from_ref(&color_attachment))
         .subpasses(std::slice::from_ref(&subpass));
-    unsafe { logical_device.create_render_pass(&create_info, None) }.unwrap()
+    unsafe { dev.create_render_pass(&create_info, None) }.unwrap()
 }
 
-fn create_object_descriptor_metadata(logical_device: &Device) -> DescriptorMetadata {
+fn create_object_descriptor_metadata(dev: &Dev) -> DescriptorMetadata {
     create_descriptor_metadata(DescriptorConfig {
         descriptors: vec![
             Descriptor {
@@ -934,7 +866,7 @@ fn create_object_descriptor_metadata(logical_device: &Device) -> DescriptorMetad
             },
         ],
         set_count: 2,
-        logical_device,
+        dev,
     })
 }
 
@@ -943,7 +875,7 @@ fn create_object_descriptor_sets(
     material: &UniformBuffer<Material>,
     light: &UniformBuffer<Light>,
     metadata: &DescriptorMetadata,
-    logical_device: &Device,
+    dev: &Dev,
 ) -> [vk::DescriptorSet; FRAMES_IN_FLIGHT] {
     metadata.create_sets(
         &[
@@ -952,14 +884,11 @@ fn create_object_descriptor_sets(
             DescriptorValue::Buffer(light),
             // TLAS needs to be written separately later.
         ],
-        logical_device,
+        dev,
     )
 }
 
-fn create_postprocess_descriptor_metadata(
-    sampler: vk::Sampler,
-    logical_device: &Device,
-) -> DescriptorMetadata {
+fn create_postprocess_descriptor_metadata(sampler: vk::Sampler, dev: &Dev) -> DescriptorMetadata {
     create_descriptor_metadata(DescriptorConfig {
         descriptors: vec![
             Descriptor {
@@ -972,7 +901,7 @@ fn create_postprocess_descriptor_metadata(
             },
         ],
         set_count: 2,
-        logical_device,
+        dev,
     })
 }
 
@@ -980,23 +909,23 @@ fn create_postprocess_descriptor_sets(
     offscreen_view: vk::ImageView,
     filters: &UniformBuffer<Filters>,
     metadata: &DescriptorMetadata,
-    logical_device: &Device,
+    dev: &Dev,
 ) -> [vk::DescriptorSet; FRAMES_IN_FLIGHT] {
     metadata.create_sets(
         &[
             DescriptorValue::Image(offscreen_view),
             DescriptorValue::Buffer(filters),
         ],
-        logical_device,
+        dev,
     )
 }
 
 fn create_object_pipeline(
     descriptor_metadata: &DescriptorMetadata,
     msaa_samples: vk::SampleCountFlags,
-    render_pass: vk::RenderPass,
+    pass: vk::RenderPass,
     swapchain_extent: vk::Extent2D,
-    logical_device: &Device,
+    dev: &Dev,
 ) -> Pipeline {
     create_pipeline(PipelineConfig {
         vertex_shader_path: "shaders/object.vert",
@@ -1009,17 +938,17 @@ fn create_object_pipeline(
         polygon_mode: vk::PolygonMode::FILL,
         descriptor_layouts: &[descriptor_metadata.set_layout],
         depth_test: true,
-        pass: render_pass,
-        logical_device,
+        pass,
+        dev,
         swapchain_extent,
     })
 }
 
 fn create_postprocess_pipeline(
     descriptors: &DescriptorMetadata,
-    postprocess_pass: vk::RenderPass,
+    pass: vk::RenderPass,
     swapchain_extent: vk::Extent2D,
-    logical_device: &Device,
+    dev: &Dev,
 ) -> Pipeline {
     create_pipeline(PipelineConfig {
         vertex_shader_path: "shaders/postprocess.vert",
@@ -1029,17 +958,17 @@ fn create_postprocess_pipeline(
         polygon_mode: vk::PolygonMode::FILL,
         descriptor_layouts: &[descriptors.set_layout],
         depth_test: false,
-        pass: postprocess_pass,
-        logical_device,
+        pass,
+        dev,
         swapchain_extent,
     })
 }
 
 fn create_pathtrace_pipeline(
     descriptors: &DescriptorMetadata,
-    render_pass: vk::RenderPass,
+    pass: vk::RenderPass,
     swapchain_extent: vk::Extent2D,
-    logical_device: &Device,
+    dev: &Dev,
 ) -> Pipeline {
     create_pipeline(PipelineConfig {
         vertex_shader_path: "shaders/pathtrace.vert",
@@ -1049,27 +978,24 @@ fn create_pathtrace_pipeline(
         polygon_mode: vk::PolygonMode::FILL,
         descriptor_layouts: &[descriptors.set_layout],
         depth_test: false,
-        pass: render_pass,
-        logical_device,
+        pass,
+        dev,
         swapchain_extent,
     })
 }
 
-fn create_command_pools(
-    queue_family: u32,
-    logical_device: &Device,
-) -> [vk::CommandPool; FRAMES_IN_FLIGHT] {
+fn create_command_pools(queue_family: u32, dev: &Dev) -> [vk::CommandPool; FRAMES_IN_FLIGHT] {
     let command_pool_info = vk::CommandPoolCreateInfo::builder().queue_family_index(queue_family);
     let mut pools = [vk::CommandPool::null(); FRAMES_IN_FLIGHT];
     for pool in &mut pools {
-        *pool = unsafe { logical_device.create_command_pool(&command_pool_info, None) }.unwrap();
+        *pool = unsafe { dev.create_command_pool(&command_pool_info, None) }.unwrap();
     }
     pools
 }
 
 fn create_command_buffers(
-    logical_device: &Device,
     command_pools: &[vk::CommandPool; FRAMES_IN_FLIGHT],
+    dev: &Dev,
 ) -> [vk::CommandBuffer; FRAMES_IN_FLIGHT] {
     let mut buffers = [vk::CommandBuffer::null(); FRAMES_IN_FLIGHT];
     for (i, buffer) in buffers.iter_mut().enumerate() {
@@ -1077,7 +1003,7 @@ fn create_command_buffers(
             .command_pool(command_pools[i])
             .level(vk::CommandBufferLevel::PRIMARY)
             .command_buffer_count(1);
-        *buffer = unsafe { logical_device.allocate_command_buffers(&buffer_info) }.unwrap()[0];
+        *buffer = unsafe { dev.allocate_command_buffers(&buffer_info) }.unwrap()[0];
     }
     buffers
 }
@@ -1085,11 +1011,9 @@ fn create_command_buffers(
 fn create_color_resources(
     swapchain_extent: vk::Extent2D,
     msaa_samples: vk::SampleCountFlags,
-    instance: &Instance,
-    physical_device: vk::PhysicalDevice,
-    logical_device: &Device,
+    dev: &Dev,
 ) -> ImageResources {
-    let (image, memory) = util::create_image(
+    let (image, memory) = create_image(
         INTERNAL_HDR_FORMAT,
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
         vk::ImageTiling::OPTIMAL,
@@ -1101,16 +1025,14 @@ fn create_color_resources(
         swapchain_extent.height as usize,
         1,
         msaa_samples,
-        instance,
-        physical_device,
-        logical_device,
+        dev,
     );
-    let view = util::create_image_view(
+    let view = create_image_view(
         image,
         INTERNAL_HDR_FORMAT,
         vk::ImageAspectFlags::COLOR,
         1,
-        logical_device,
+        dev,
     );
     ImageResources {
         image,
@@ -1119,13 +1041,8 @@ fn create_color_resources(
     }
 }
 
-fn create_offscreen_resources(
-    swapchain_extent: vk::Extent2D,
-    instance: &Instance,
-    physical_device: vk::PhysicalDevice,
-    logical_device: &Device,
-) -> ImageResources {
-    let (image, memory) = util::create_image(
+fn create_offscreen_resources(swapchain_extent: vk::Extent2D, dev: &Dev) -> ImageResources {
+    let (image, memory) = create_image(
         INTERNAL_HDR_FORMAT,
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
         vk::ImageTiling::OPTIMAL,
@@ -1134,16 +1051,14 @@ fn create_offscreen_resources(
         swapchain_extent.height as usize,
         1,
         vk::SampleCountFlags::TYPE_1,
-        instance,
-        physical_device,
-        logical_device,
+        dev,
     );
-    let view = util::create_image_view(
+    let view = create_image_view(
         image,
         INTERNAL_HDR_FORMAT,
         vk::ImageAspectFlags::COLOR,
         1,
-        logical_device,
+        dev,
     );
     ImageResources {
         image,
@@ -1155,11 +1070,9 @@ fn create_offscreen_resources(
 fn create_depth_resources(
     swapchain_extent: vk::Extent2D,
     msaa_samples: vk::SampleCountFlags,
-    instance: &Instance,
-    physical_device: vk::PhysicalDevice,
-    logical_device: &Device,
+    dev: &Dev,
 ) -> ImageResources {
-    let (image, memory) = util::create_image(
+    let (image, memory) = create_image(
         DEPTH_FORMAT,
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
         vk::ImageTiling::OPTIMAL,
@@ -1168,17 +1081,9 @@ fn create_depth_resources(
         swapchain_extent.height as usize,
         1,
         msaa_samples,
-        instance,
-        physical_device,
-        logical_device,
+        dev,
     );
-    let view = util::create_image_view(
-        image,
-        DEPTH_FORMAT,
-        vk::ImageAspectFlags::DEPTH,
-        1,
-        logical_device,
-    );
+    let view = create_image_view(image, DEPTH_FORMAT, vk::ImageAspectFlags::DEPTH, 1, dev);
     ImageResources {
         image,
         memory,
@@ -1186,106 +1091,81 @@ fn create_depth_resources(
     }
 }
 
-fn create_framebuffers(
-    postprocess_pass: vk::RenderPass,
-    swapchain_image_count: usize,
-    swapchain_image_views: &[vk::ImageView],
+fn create_render_framebuffers(
+    render_pass: vk::RenderPass,
+    color_view: vk::ImageView,
+    depth_view: vk::ImageView,
+    offscreen_view: vk::ImageView,
     swapchain_extent: vk::Extent2D,
-    logical_device: &Device,
+    dev: &Dev,
+) -> vk::Framebuffer {
+    let attachments = [color_view, depth_view, offscreen_view];
+    let framebuffer_info = vk::FramebufferCreateInfo::builder()
+        .render_pass(render_pass)
+        .attachments(&attachments)
+        .width(swapchain_extent.width)
+        .height(swapchain_extent.height)
+        .layers(1);
+    unsafe { dev.create_framebuffer(&framebuffer_info, None) }.unwrap()
+}
+
+fn create_postprocess_framebuffers(
+    postprocess_pass: vk::RenderPass,
+    swapchain_views: &[vk::ImageView],
+    swapchain_extent: vk::Extent2D,
+    dev: &Dev,
 ) -> Vec<vk::Framebuffer> {
-    let mut framebuffers = vec![vk::Framebuffer::null(); swapchain_image_count];
-    for i in 0..swapchain_image_count {
-        let attachments = [swapchain_image_views[i]];
+    let mut framebuffers = Vec::new();
+    for view in swapchain_views {
+        let attachments = [*view];
         let framebuffer_info = vk::FramebufferCreateInfo::builder()
             .render_pass(postprocess_pass)
             .attachments(&attachments)
             .width(swapchain_extent.width)
             .height(swapchain_extent.height)
             .layers(1);
-        let framebuffer =
-            unsafe { logical_device.create_framebuffer(&framebuffer_info, None) }.unwrap();
-        framebuffers[i] = framebuffer;
+        let framebuffer = unsafe { dev.create_framebuffer(&framebuffer_info, None) }.unwrap();
+        framebuffers.push(framebuffer);
     }
     framebuffers
 }
 
-fn create_offscreen_framebuffer(
-    pipeline_render_pass: vk::RenderPass,
-    offscreen_image_view: vk::ImageView,
-    swapchain_extent: vk::Extent2D,
-    depth_image_view: vk::ImageView,
-    color_image_view: vk::ImageView,
-    logical_device: &Device,
-) -> vk::Framebuffer {
-    let attachments = [color_image_view, depth_image_view, offscreen_image_view];
-    let framebuffer_info = vk::FramebufferCreateInfo::builder()
-        .render_pass(pipeline_render_pass)
-        .attachments(&attachments)
-        .width(swapchain_extent.width)
-        .height(swapchain_extent.height)
-        .layers(1);
-    unsafe { logical_device.create_framebuffer(&framebuffer_info, None) }.unwrap()
-}
-
 fn create_pathtrace_framebuffer(
     pathtrace_pass: vk::RenderPass,
-    offscreen_image_view: vk::ImageView,
+    offscreen_view: vk::ImageView,
     swapchain_extent: vk::Extent2D,
-    logical_device: &Device,
+    dev: &Dev,
 ) -> vk::Framebuffer {
-    let attachments = [offscreen_image_view];
+    let attachments = [offscreen_view];
     let framebuffer_info = vk::FramebufferCreateInfo::builder()
         .render_pass(pathtrace_pass)
         .attachments(&attachments)
         .width(swapchain_extent.width)
         .height(swapchain_extent.height)
         .layers(1);
-    unsafe { logical_device.create_framebuffer(&framebuffer_info, None) }.unwrap()
+    unsafe { dev.create_framebuffer(&framebuffer_info, None) }.unwrap()
 }
 
-fn create_offscreen_sampler(logical_device: &Device) -> vk::Sampler {
+fn create_offscreen_sampler(dev: &Dev) -> vk::Sampler {
     let sampler_info = vk::SamplerCreateInfo::builder()
         .address_mode_u(vk::SamplerAddressMode::CLAMP_TO_BORDER)
         .address_mode_v(vk::SamplerAddressMode::CLAMP_TO_BORDER)
         .unnormalized_coordinates(true);
-    unsafe { logical_device.create_sampler(&sampler_info, None) }.unwrap()
+    unsafe { dev.create_sampler(&sampler_info, None) }.unwrap()
 }
 
 pub fn create_object(
     model: &Model,
     descriptor_metadata: &DescriptorMetadata,
     light_buffer: &UniformBuffer<Light>,
-    instance: &Instance,
-    physical_device: vk::PhysicalDevice,
-    logical_device: &Device,
-    queue: vk::Queue,
-    command_pool: vk::CommandPool,
+    ctx: &Ctx,
 ) -> Object {
-    let vertex = create_vertex_buffer(
-        &model.vertices,
-        instance,
-        physical_device,
-        logical_device,
-        queue,
-        command_pool,
-    );
-    let index = create_index_buffer(
-        &model.indices,
-        instance,
-        physical_device,
-        logical_device,
-        queue,
-        command_pool,
-    );
-    let mvp = UniformBuffer::create(instance, physical_device, logical_device);
-    let material = UniformBuffer::create(instance, physical_device, logical_device);
-    let descriptor_sets = create_object_descriptor_sets(
-        &mvp,
-        &material,
-        light_buffer,
-        descriptor_metadata,
-        logical_device,
-    );
+    let vertex = create_vertex_buffer(&model.vertices, ctx);
+    let index = create_index_buffer(&model.indices, ctx);
+    let mvp = UniformBuffer::create(ctx.dev);
+    let material = UniformBuffer::create(ctx.dev);
+    let descriptor_sets =
+        create_object_descriptor_sets(&mvp, &material, light_buffer, descriptor_metadata, ctx.dev);
     Object {
         triangle_count: model.indices.len() / 3,
         raw_vertex_count: model.vertices.len(),
@@ -1297,105 +1177,39 @@ pub fn create_object(
     }
 }
 
-fn create_vertex_buffer(
-    vertex_data: &[Vertex],
-    instance: &Instance,
-    physical_device: vk::PhysicalDevice,
-    logical_device: &Device,
-    queue: vk::Queue,
-    command_pool: vk::CommandPool,
-) -> Buffer {
-    let vertex_size = std::mem::size_of::<Vertex>();
-    let vertex_count = vertex_data.len();
-    let vertex_buffer_size = vertex_size * vertex_count;
-    let staging = Buffer::create(
-        vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-        vk::BufferUsageFlags::TRANSFER_SRC,
-        vertex_buffer_size,
-        instance,
-        physical_device,
-        logical_device,
-    );
+fn create_vertex_buffer(vertex_data: &[Vertex], ctx: &Ctx) -> Buffer {
+    let size = std::mem::size_of::<Vertex>() * vertex_data.len();
     let vertex = Buffer::create(
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
         vk::BufferUsageFlags::VERTEX_BUFFER
             | vk::BufferUsageFlags::TRANSFER_DST
             | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS
             | vk::BufferUsageFlags::ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_KHR,
-        vertex_buffer_size,
-        instance,
-        physical_device,
-        logical_device,
+        size,
+        ctx.dev,
     );
-    util::with_mapped_slice(staging.memory, vertex_count, logical_device, |mapped| {
-        MaybeUninit::write_slice(mapped, vertex_data);
-    });
-    util::copy_buffer(
-        staging.buffer,
-        vertex.buffer,
-        vertex_buffer_size,
-        logical_device,
-        queue,
-        command_pool,
-    );
-    staging.cleanup(logical_device);
+    vertex.fill_from_slice(vertex_data, ctx);
     vertex
 }
 
-fn create_index_buffer(
-    index_data: &[u32],
-    instance: &Instance,
-    physical_device: vk::PhysicalDevice,
-    logical_device: &Device,
-    queue: vk::Queue,
-    command_pool: vk::CommandPool,
-) -> Buffer {
-    let index_size = std::mem::size_of_val(&index_data[0]);
-    let index_buffer_size = index_size * index_data.len();
-    let staging = Buffer::create(
-        vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-        vk::BufferUsageFlags::TRANSFER_SRC,
-        index_buffer_size,
-        instance,
-        physical_device,
-        logical_device,
-    );
+fn create_index_buffer(index_data: &[u32], ctx: &Ctx) -> Buffer {
+    let size = std::mem::size_of_val(&index_data[0]) * index_data.len();
     let index = Buffer::create(
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
         vk::BufferUsageFlags::INDEX_BUFFER
             | vk::BufferUsageFlags::TRANSFER_DST
             | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS
             | vk::BufferUsageFlags::ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_KHR,
-        index_buffer_size,
-        instance,
-        physical_device,
-        logical_device,
+        size,
+        ctx.dev,
     );
-    util::with_mapped_slice(staging.memory, index_data.len(), logical_device, |mapped| {
-        MaybeUninit::write_slice(mapped, index_data);
-    });
-    util::copy_buffer(
-        staging.buffer,
-        index.buffer,
-        index_buffer_size,
-        logical_device,
-        queue,
-        command_pool,
-    );
-    staging.cleanup(logical_device);
+    index.fill_from_slice(index_data, ctx);
     index
 }
 
-fn create_blas(
-    object: &Object,
-    instance: &Instance,
-    physical_device: vk::PhysicalDevice,
-    logical_device: &Device,
-    queue: vk::Queue,
-    command_pool: vk::CommandPool,
-) -> RaytraceResources {
-    let as_ext = AccelerationStructure::new(instance, logical_device);
-    let bda_ext = BufferDeviceAddress::new(instance, logical_device);
+fn create_blas(object: &Object, ctx: &Ctx) -> RaytraceResources {
+    let as_ext = AccelerationStructure::new(&ctx.dev.instance, ctx.dev);
+    let bda_ext = BufferDeviceAddress::new(&ctx.dev.instance, ctx.dev);
 
     let vertex_address = object.vertex.device_address(&bda_ext);
     let index_address = object.index.device_address(&bda_ext);
@@ -1440,18 +1254,14 @@ fn create_blas(
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
         vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS | vk::BufferUsageFlags::STORAGE_BUFFER,
         size_info.build_scratch_size as usize,
-        instance,
-        physical_device,
-        logical_device,
+        ctx.dev,
     );
 
     let blas_buffer = Buffer::create(
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
         vk::BufferUsageFlags::ACCELERATION_STRUCTURE_STORAGE_KHR,
         size_info.acceleration_structure_size as usize,
-        instance,
-        physical_device,
-        logical_device,
+        ctx.dev,
     );
     let blas_create_info = *vk::AccelerationStructureCreateInfoKHR::builder()
         .ty(vk::AccelerationStructureTypeKHR::BOTTOM_LEVEL)
@@ -1465,17 +1275,17 @@ fn create_blas(
     let blas_range_infos = [range_info];
     let all_blas_build_infos = [blas_info];
     let all_blas_range_infos = [blas_range_infos.as_slice()];
-    onetime_commands(logical_device, queue, command_pool, |command_buffer| {
+    ctx.execute(|buf| {
         unsafe {
             as_ext.cmd_build_acceleration_structures(
-                command_buffer,
+                buf,
                 &all_blas_build_infos,
                 &all_blas_range_infos,
             )
         };
     });
 
-    scratch.cleanup(logical_device);
+    scratch.cleanup(ctx.dev);
 
     RaytraceResources {
         acceleration_structure: blas,
@@ -1484,16 +1294,9 @@ fn create_blas(
     }
 }
 
-fn create_tlas(
-    blas: &RaytraceResources,
-    instance: &Instance,
-    physical_device: vk::PhysicalDevice,
-    logical_device: &Device,
-    queue: vk::Queue,
-    command_pool: vk::CommandPool,
-) -> RaytraceResources {
-    let as_ext = AccelerationStructure::new(instance, logical_device);
-    let bda_ext = BufferDeviceAddress::new(instance, logical_device);
+fn create_tlas(blas: &RaytraceResources, ctx: &Ctx) -> RaytraceResources {
+    let as_ext = AccelerationStructure::new(&ctx.dev.instance, ctx.dev);
+    let bda_ext = BufferDeviceAddress::new(&ctx.dev.instance, ctx.dev);
 
     let instanced = vk::AccelerationStructureInstanceKHR {
         transform: vk::TransformMatrixKHR {
@@ -1520,18 +1323,9 @@ fn create_tlas(
             | vk::BufferUsageFlags::ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_KHR
             | vk::BufferUsageFlags::TRANSFER_DST,
         std::mem::size_of::<vk::AccelerationStructureInstanceKHR>(),
-        instance,
-        physical_device,
-        logical_device,
+        ctx.dev,
     );
-    instances_buffer.fill_from_slice(
-        &[instanced],
-        instance,
-        physical_device,
-        logical_device,
-        queue,
-        command_pool,
-    );
+    instances_buffer.fill_from_slice(&[instanced], ctx);
     let instances_address = instances_buffer.device_address(&bda_ext);
 
     let instances_vk = *vk::AccelerationStructureGeometryInstancesDataKHR::builder().data(
@@ -1564,9 +1358,7 @@ fn create_tlas(
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
         vk::BufferUsageFlags::ACCELERATION_STRUCTURE_STORAGE_KHR,
         tlas_size_info.acceleration_structure_size as usize,
-        instance,
-        physical_device,
-        logical_device,
+        ctx.dev,
     );
     let tlas_create_info = *vk::AccelerationStructureCreateInfoKHR::builder()
         .ty(vk::AccelerationStructureTypeKHR::TOP_LEVEL)
@@ -1578,9 +1370,7 @@ fn create_tlas(
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
         vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS | vk::BufferUsageFlags::STORAGE_BUFFER,
         tlas_size_info.build_scratch_size as usize,
-        instance,
-        physical_device,
-        logical_device,
+        ctx.dev,
     );
 
     tlas_info.dst_acceleration_structure = tlas;
@@ -1594,18 +1384,18 @@ fn create_tlas(
     let tlas_range_infos = [tlas_range_info];
     let all_tlas_build_infos = [tlas_info];
     let all_tlas_range_infos = [tlas_range_infos.as_slice()];
-    onetime_commands(logical_device, queue, command_pool, |command_buffer| {
+    ctx.execute(|buf| {
         unsafe {
             as_ext.cmd_build_acceleration_structures(
-                command_buffer,
+                buf,
                 &all_tlas_build_infos,
                 &all_tlas_range_infos,
             )
         };
     });
 
-    tlas_scratch.cleanup(logical_device);
-    instances_buffer.cleanup(logical_device);
+    tlas_scratch.cleanup(ctx.dev);
+    instances_buffer.cleanup(ctx.dev);
 
     RaytraceResources {
         acceleration_structure: tlas,
@@ -1614,18 +1404,16 @@ fn create_tlas(
     }
 }
 
-fn create_sync(logical_device: &Device) -> Synchronization {
+fn create_sync(dev: &Dev) -> Synchronization {
     let semaphore_info = vk::SemaphoreCreateInfo::builder();
     let fence_info = vk::FenceCreateInfo::builder().flags(vk::FenceCreateFlags::SIGNALED);
     let mut image_available: [vk::Semaphore; FRAMES_IN_FLIGHT] = Default::default();
     let mut render_finished: [vk::Semaphore; FRAMES_IN_FLIGHT] = Default::default();
     let mut in_flight: [vk::Fence; FRAMES_IN_FLIGHT] = Default::default();
     for i in 0..FRAMES_IN_FLIGHT {
-        image_available[i] =
-            unsafe { logical_device.create_semaphore(&semaphore_info, None) }.unwrap();
-        render_finished[i] =
-            unsafe { logical_device.create_semaphore(&semaphore_info, None) }.unwrap();
-        in_flight[i] = unsafe { logical_device.create_fence(&fence_info, None) }.unwrap();
+        image_available[i] = unsafe { dev.create_semaphore(&semaphore_info, None) }.unwrap();
+        render_finished[i] = unsafe { dev.create_semaphore(&semaphore_info, None) }.unwrap();
+        in_flight[i] = unsafe { dev.create_fence(&fence_info, None) }.unwrap();
     }
     Synchronization {
         image_available,

@@ -12,11 +12,11 @@ pub mod vertex;
 use crate::renderer::descriptors::DescriptorMetadata;
 use crate::renderer::pipeline::Pipeline;
 use crate::renderer::uniform::{Filters, Light, Material, ModelViewProjection};
-use crate::renderer::util::{Buffer, UniformBuffer};
+use crate::renderer::util::{Buffer, Dev, UniformBuffer};
 use crate::world::{Entity, World};
 use ash::extensions::ext::DebugUtils;
 use ash::extensions::khr::{Surface, Swapchain};
-use ash::{vk, Device, Entry, Instance};
+use ash::{vk, Entry};
 use imgui::DrawData;
 use nalgebra::Matrix4;
 use winit::dpi::PhysicalSize;
@@ -25,12 +25,10 @@ pub struct Renderer {
     // Immutable parts of the renderer. These can't change in the current design, but recovering
     // from GPU crashes might require doing something with these later?
     _entry: Entry,
-    instance: Instance,
     extensions: VulkanExtensions,
     debug_messenger: vk::DebugUtilsMessengerEXT,
     surface: vk::SurfaceKHR,
-    physical_device: vk::PhysicalDevice,
-    logical_device: Device,
+    dev: Dev,
     queue: vk::Queue,
     swapchain_ext: Swapchain,
 
@@ -147,11 +145,12 @@ impl Renderer {
     }
 
     unsafe fn prepare_command_buffer(&mut self, window_size: PhysicalSize<u32>) -> Option<u32> {
-        let dev = &self.logical_device;
         let image_available = self.sync.image_available[self.flight_index];
         let in_flight = self.sync.in_flight[self.flight_index];
 
-        dev.wait_for_fences(&[in_flight], true, u64::MAX).unwrap();
+        self.dev
+            .wait_for_fences(&[in_flight], true, u64::MAX)
+            .unwrap();
 
         let acquire_result = self.swapchain_ext.acquire_next_image(
             self.swapchain,
@@ -165,12 +164,13 @@ impl Renderer {
         }
         let (image_index, _is_suboptimal) = acquire_result.unwrap();
 
-        dev.reset_fences(&[in_flight]).unwrap();
-        dev.reset_command_pool(
-            self.command_pools[self.flight_index],
-            vk::CommandPoolResetFlags::empty(),
-        )
-        .unwrap();
+        self.dev.reset_fences(&[in_flight]).unwrap();
+        self.dev
+            .reset_command_pool(
+                self.command_pools[self.flight_index],
+                vk::CommandPoolResetFlags::empty(),
+            )
+            .unwrap();
 
         Some(image_index)
     }
@@ -186,20 +186,17 @@ impl Renderer {
 
         let begin_info = vk::CommandBufferBeginInfo::builder()
             .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
-        self.logical_device
-            .begin_command_buffer(buf, &begin_info)
-            .unwrap();
+        self.dev.begin_command_buffer(buf, &begin_info).unwrap();
         if !path_tracer {
             self.record_render_pass(buf, world);
         } else {
             self.record_pathtrace_pass(buf);
         }
         self.record_postprocess_pass(buf, image_index, ui_draw);
-        self.logical_device.end_command_buffer(buf).unwrap();
+        self.dev.end_command_buffer(buf).unwrap();
     }
 
     unsafe fn record_render_pass(&self, buf: vk::CommandBuffer, world: &World) {
-        let dev = &self.logical_device;
         let pass_info = vk::RenderPassBeginInfo::builder()
             .render_pass(self.render_pass)
             .framebuffer(self.render_framebuffer)
@@ -222,16 +219,17 @@ impl Renderer {
                     },
                 },
             ]);
-        dev.cmd_begin_render_pass(buf, &pass_info, vk::SubpassContents::INLINE);
+        self.dev
+            .cmd_begin_render_pass(buf, &pass_info, vk::SubpassContents::INLINE);
 
-        dev.cmd_bind_pipeline(
+        self.dev.cmd_bind_pipeline(
             buf,
             vk::PipelineBindPoint::GRAPHICS,
             self.object_pipeline.pipeline,
         );
         for entity in &world.entities {
             let object = &self.objects[entity.gpu_object];
-            dev.cmd_bind_descriptor_sets(
+            self.dev.cmd_bind_descriptor_sets(
                 buf,
                 vk::PipelineBindPoint::GRAPHICS,
                 self.object_pipeline.layout,
@@ -239,16 +237,18 @@ impl Renderer {
                 &[object.descriptor_sets[self.flight_index]],
                 &[],
             );
-            dev.cmd_bind_vertex_buffers(buf, 0, &[object.vertex.buffer], &[0]);
-            dev.cmd_bind_index_buffer(buf, object.index.buffer, 0, vk::IndexType::UINT32);
-            dev.cmd_draw_indexed(buf, 3 * object.triangle_count as u32, 1, 0, 0, 0);
+            self.dev
+                .cmd_bind_vertex_buffers(buf, 0, &[object.vertex.buffer], &[0]);
+            self.dev
+                .cmd_bind_index_buffer(buf, object.index.buffer, 0, vk::IndexType::UINT32);
+            self.dev
+                .cmd_draw_indexed(buf, 3 * object.triangle_count as u32, 1, 0, 0, 0);
         }
 
-        dev.cmd_end_render_pass(buf);
+        self.dev.cmd_end_render_pass(buf);
     }
 
     unsafe fn record_pathtrace_pass(&self, buf: vk::CommandBuffer) {
-        let dev = &self.logical_device;
         let pass_info = vk::RenderPassBeginInfo::builder()
             .render_pass(self.pathtrace_pass)
             .framebuffer(self.pathtrace_framebuffer)
@@ -261,14 +261,15 @@ impl Renderer {
                     float32: [0., 0., 0., 0.],
                 },
             }]);
-        dev.cmd_begin_render_pass(buf, &pass_info, vk::SubpassContents::INLINE);
+        self.dev
+            .cmd_begin_render_pass(buf, &pass_info, vk::SubpassContents::INLINE);
 
-        dev.cmd_bind_pipeline(
+        self.dev.cmd_bind_pipeline(
             buf,
             vk::PipelineBindPoint::GRAPHICS,
             self.pathtrace_pipeline.pipeline,
         );
-        dev.cmd_bind_descriptor_sets(
+        self.dev.cmd_bind_descriptor_sets(
             buf,
             vk::PipelineBindPoint::GRAPHICS,
             self.pathtrace_pipeline.layout,
@@ -276,9 +277,9 @@ impl Renderer {
             &[self.objects[0].descriptor_sets[self.flight_index]],
             &[],
         );
-        dev.cmd_draw(buf, 6, 1, 0, 0);
+        self.dev.cmd_draw(buf, 6, 1, 0, 0);
 
-        dev.cmd_end_render_pass(buf);
+        self.dev.cmd_end_render_pass(buf);
     }
 
     unsafe fn record_postprocess_pass(
@@ -287,7 +288,6 @@ impl Renderer {
         image_index: u32,
         ui_draw: &DrawData,
     ) {
-        let dev = &self.logical_device;
         let pass_info = vk::RenderPassBeginInfo::builder()
             .render_pass(self.postprocess_pass)
             .framebuffer(self.postprocess_framebuffers[image_index as usize])
@@ -295,14 +295,15 @@ impl Renderer {
                 offset: vk::Offset2D { x: 0, y: 0 },
                 extent: self.swapchain_extent,
             });
-        dev.cmd_begin_render_pass(buf, &pass_info, vk::SubpassContents::INLINE);
+        self.dev
+            .cmd_begin_render_pass(buf, &pass_info, vk::SubpassContents::INLINE);
 
-        dev.cmd_bind_pipeline(
+        self.dev.cmd_bind_pipeline(
             buf,
             vk::PipelineBindPoint::GRAPHICS,
             self.postprocess_pipeline.pipeline,
         );
-        dev.cmd_bind_descriptor_sets(
+        self.dev.cmd_bind_descriptor_sets(
             buf,
             vk::PipelineBindPoint::GRAPHICS,
             self.postprocess_pipeline.layout,
@@ -310,7 +311,7 @@ impl Renderer {
             &[self.postprocess_descriptor_sets[self.flight_index]],
             &[],
         );
-        dev.cmd_draw(buf, 6, 1, 0, 0);
+        self.dev.cmd_draw(buf, 6, 1, 0, 0);
 
         self.interface_renderer
             .as_mut()
@@ -318,7 +319,7 @@ impl Renderer {
             .cmd_draw(buf, ui_draw)
             .unwrap();
 
-        dev.cmd_end_render_pass(buf);
+        self.dev.cmd_end_render_pass(buf);
     }
 
     fn update_object_uniforms(&self, world: &World, entity: &Entity) {
@@ -368,7 +369,7 @@ impl Renderer {
             .command_buffers(&command_buffers)
             .signal_semaphores(&signal_semaphores);
         unsafe {
-            self.logical_device.queue_submit(
+            self.dev.queue_submit(
                 self.queue,
                 &[*submit_info],
                 self.sync.in_flight[self.flight_index],

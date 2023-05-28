@@ -1,4 +1,4 @@
-use crate::renderer::util::AnyUniformBuffer;
+use crate::renderer::util::{AnyUniformBuffer, Dev};
 use crate::renderer::FRAMES_IN_FLIGHT;
 use ash::{vk, Device};
 
@@ -11,7 +11,7 @@ pub struct DescriptorMetadata {
 pub struct DescriptorConfig<'a> {
     pub descriptors: Vec<Descriptor>,
     pub set_count: usize,
-    pub logical_device: &'a Device,
+    pub dev: &'a Dev,
 }
 
 pub struct Descriptor {
@@ -122,12 +122,7 @@ pub fn create_descriptor_metadata(config: DescriptorConfig) -> DescriptorMetadat
         .pool_sizes(&pool_sizes)
         .max_sets((config.set_count * FRAMES_IN_FLIGHT) as u32)
         .flags(vk::DescriptorPoolCreateFlags::FREE_DESCRIPTOR_SET);
-    let pool = unsafe {
-        config
-            .logical_device
-            .create_descriptor_pool(&pool_info, None)
-    }
-    .unwrap();
+    let pool = unsafe { config.dev.create_descriptor_pool(&pool_info, None) }.unwrap();
 
     let mut bindings = Vec::new();
     for (index, desc) in config.descriptors.iter().enumerate() {
@@ -142,12 +137,8 @@ pub fn create_descriptor_metadata(config: DescriptorConfig) -> DescriptorMetadat
         bindings.push(*binding);
     }
     let layout_info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(&bindings);
-    let set_layout = unsafe {
-        config
-            .logical_device
-            .create_descriptor_set_layout(&layout_info, None)
-    }
-    .unwrap();
+    let set_layout =
+        unsafe { config.dev.create_descriptor_set_layout(&layout_info, None) }.unwrap();
 
     DescriptorMetadata {
         pool,
