@@ -59,6 +59,7 @@ fn main() {
     let mut last_update = Instant::now();
     let mut filters = Filters::default();
     let mut path_tracer = false;
+    let mut old_size = window.window.inner_size();
 
     renderer.create_interface_renderer(&mut interface.ctx);
 
@@ -79,7 +80,15 @@ fn main() {
                 interface.apply_window(&event);
                 match event {
                     WindowEvent::KeyboardInput { input, .. } => input_state.apply_keyboard(input),
-                    WindowEvent::Resized(new_size) => renderer.recreate_swapchain(new_size),
+                    WindowEvent::Resized(new_size) => {
+                        // On app launch under GNOME/Wayland, winit will send a resize event even if
+                        // the size happens to be the same (the focus status also seems to change).
+                        // Let's avoid rebuilding the pipelines in this case.
+                        if new_size != old_size {
+                            renderer.recreate_swapchain(new_size);
+                            old_size = new_size;
+                        }
+                    }
                     WindowEvent::CloseRequested => control_flow.set_exit(),
                     _ => (),
                 }
