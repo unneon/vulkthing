@@ -10,9 +10,7 @@ use crate::renderer::raytracing::{create_blas, create_tlas};
 use crate::renderer::swapchain::{create_swapchain, Swapchain};
 use crate::renderer::traits::VertexOps;
 use crate::renderer::uniform::{Filters, Light, Material, ModelViewProjection};
-use crate::renderer::util::{
-    create_image, create_image_view, find_max_msaa_samples, Buffer, Ctx, Dev,
-};
+use crate::renderer::util::{find_max_msaa_samples, Buffer, Ctx, Dev};
 use crate::renderer::vertex::Vertex;
 use crate::renderer::{
     ImageResources, Object, Renderer, Synchronization, UniformBuffer, VulkanExtensions,
@@ -341,16 +339,6 @@ impl Object {
     }
 }
 
-impl ImageResources {
-    fn cleanup(&self, dev: &Device) {
-        unsafe {
-            dev.destroy_image_view(self.view, None);
-            dev.destroy_image(self.image, None);
-            dev.free_memory(self.memory, None);
-        }
-    }
-}
-
 impl Drop for Renderer {
     fn drop(&mut self) {
         unsafe {
@@ -538,9 +526,9 @@ fn create_swapchain_all(
     Matrix4<f32>,
 ) {
     let swapchain = create_swapchain(surface, window_size, dev, surface_ext, swapchain_ext);
-    let color = create_color_resources(swapchain.extent, msaa_samples, dev);
-    let depth = create_depth_resources(swapchain.extent, msaa_samples, dev);
-    let offscreen = create_offscreen_resources(swapchain.extent, dev);
+    let color = create_color(swapchain.extent, msaa_samples, dev);
+    let depth = create_depth(swapchain.extent, msaa_samples, dev);
+    let offscreen = create_offscreen(swapchain.extent, dev);
     let render_pass = create_render_pass(msaa_samples, dev);
     let object_pipeline = create_object_pipeline(
         object_descriptor_metadata,
@@ -857,87 +845,51 @@ fn create_command_buffers(
     buffers
 }
 
-fn create_color_resources(
+fn create_color(
     swapchain_extent: vk::Extent2D,
     msaa_samples: vk::SampleCountFlags,
     dev: &Dev,
 ) -> ImageResources {
-    let (image, memory) = create_image(
+    ImageResources::create(
         INTERNAL_HDR_FORMAT,
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
         vk::ImageTiling::OPTIMAL,
-        // Transient attachment lets the drivers lazily allocate memory for the framebuffer
-        // attachment, and for some implementation this actually doesn't allocate memory at all. See
-        // "Lazily ALlocated Memory" section of the Vulkan specification.
         vk::ImageUsageFlags::TRANSIENT_ATTACHMENT | vk::ImageUsageFlags::COLOR_ATTACHMENT,
-        swapchain_extent.width as usize,
-        swapchain_extent.height as usize,
-        1,
+        vk::ImageAspectFlags::COLOR,
+        swapchain_extent,
         msaa_samples,
         dev,
-    );
-    let view = create_image_view(
-        image,
-        INTERNAL_HDR_FORMAT,
-        vk::ImageAspectFlags::COLOR,
-        1,
-        dev,
-    );
-    ImageResources {
-        image,
-        memory,
-        view,
-    }
+    )
 }
 
-fn create_offscreen_resources(swapchain_extent: vk::Extent2D, dev: &Dev) -> ImageResources {
-    let (image, memory) = create_image(
+fn create_offscreen(swapchain_extent: vk::Extent2D, dev: &Dev) -> ImageResources {
+    ImageResources::create(
         INTERNAL_HDR_FORMAT,
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
         vk::ImageTiling::OPTIMAL,
         vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::SAMPLED,
-        swapchain_extent.width as usize,
-        swapchain_extent.height as usize,
-        1,
+        vk::ImageAspectFlags::COLOR,
+        swapchain_extent,
         vk::SampleCountFlags::TYPE_1,
         dev,
-    );
-    let view = create_image_view(
-        image,
-        INTERNAL_HDR_FORMAT,
-        vk::ImageAspectFlags::COLOR,
-        1,
-        dev,
-    );
-    ImageResources {
-        image,
-        memory,
-        view,
-    }
+    )
 }
 
-fn create_depth_resources(
+fn create_depth(
     swapchain_extent: vk::Extent2D,
     msaa_samples: vk::SampleCountFlags,
     dev: &Dev,
 ) -> ImageResources {
-    let (image, memory) = create_image(
+    ImageResources::create(
         DEPTH_FORMAT,
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
         vk::ImageTiling::OPTIMAL,
         vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
-        swapchain_extent.width as usize,
-        swapchain_extent.height as usize,
-        1,
+        vk::ImageAspectFlags::DEPTH,
+        swapchain_extent,
         msaa_samples,
         dev,
-    );
-    let view = create_image_view(image, DEPTH_FORMAT, vk::ImageAspectFlags::DEPTH, 1, dev);
-    ImageResources {
-        image,
-        memory,
-        view,
-    }
+    )
 }
 
 fn create_render_framebuffers(

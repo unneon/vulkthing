@@ -51,7 +51,7 @@ pub fn create_swapchain(
         present_mode,
         swapchain_ext,
     );
-    let image_views = create_image_views(handle, format, swapchain_ext, dev);
+    let image_views = create_image_views(handle, format.format, swapchain_ext, dev);
     Swapchain {
         handle,
         format,
@@ -144,20 +144,19 @@ fn create_handle(
 
 fn create_image_views(
     swapchain: vk::SwapchainKHR,
-    format: vk::SurfaceFormatKHR,
+    format: vk::Format,
     swapchain_ext: &SwapchainKhr,
     dev: &Dev,
 ) -> Vec<vk::ImageView> {
     let images = unsafe { swapchain_ext.get_swapchain_images(swapchain) }.unwrap();
-    let mut image_views = vec![vk::ImageView::null(); images.len()];
-    for i in 0..images.len() {
-        image_views[i] = create_image_view(
-            images[i],
-            format.format,
+    let mut image_views = Vec::new();
+    for image in images {
+        image_views.push(create_image_view(
+            image,
+            format,
             vk::ImageAspectFlags::COLOR,
-            1,
             dev,
-        );
+        ));
     }
     image_views
 }

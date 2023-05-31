@@ -26,6 +26,12 @@ pub struct Buffer {
     pub memory: vk::DeviceMemory,
 }
 
+pub struct ImageResources {
+    image: vk::Image,
+    memory: vk::DeviceMemory,
+    pub view: vk::ImageView,
+}
+
 pub struct UniformBuffer<T> {
     buffer: Buffer,
     mapping: *mut T,
@@ -145,6 +151,35 @@ impl Ctx<'_> {
     }
 }
 
+impl ImageResources {
+    pub fn create(
+        format: vk::Format,
+        memory: vk::MemoryPropertyFlags,
+        tiling: vk::ImageTiling,
+        usage: vk::ImageUsageFlags,
+        aspect: vk::ImageAspectFlags,
+        extent: vk::Extent2D,
+        samples: vk::SampleCountFlags,
+        dev: &Dev,
+    ) -> ImageResources {
+        let (image, memory) = create_image(format, memory, tiling, usage, extent, samples, dev);
+        let view = create_image_view(image, format, aspect, dev);
+        ImageResources {
+            image,
+            memory,
+            view,
+        }
+    }
+
+    pub fn cleanup(&self, dev: &Device) {
+        unsafe {
+            dev.destroy_image_view(self.view, None);
+            dev.destroy_image(self.image, None);
+            dev.free_memory(self.memory, None);
+        }
+    }
+}
+
 impl<T: Copy> UniformBuffer<T> {
     pub fn create(dev: &Dev) -> UniformBuffer<T> {
         let properties = unsafe { dev.instance.get_physical_device_properties(dev.physical) };
@@ -203,20 +238,18 @@ pub fn create_image(
     memory: vk::MemoryPropertyFlags,
     tiling: vk::ImageTiling,
     usage: vk::ImageUsageFlags,
-    width: usize,
-    height: usize,
-    mip_levels: usize,
+    extent: vk::Extent2D,
     samples: vk::SampleCountFlags,
     dev: &Dev,
 ) -> (vk::Image, vk::DeviceMemory) {
     let image_info = vk::ImageCreateInfo::builder()
         .image_type(vk::ImageType::TYPE_2D)
         .extent(vk::Extent3D {
-            width: width as u32,
-            height: height as u32,
+            width: extent.width,
+            height: extent.height,
             depth: 1,
         })
-        .mip_levels(mip_levels as u32)
+        .mip_levels(1)
         .array_layers(1)
         .format(format)
         .tiling(tiling)
@@ -241,7 +274,6 @@ pub fn create_image_view(
     image: vk::Image,
     format: vk::Format,
     aspect_mask: vk::ImageAspectFlags,
-    mip_levels: usize,
     dev: &Dev,
 ) -> vk::ImageView {
     let view_info = vk::ImageViewCreateInfo::builder()
@@ -251,7 +283,7 @@ pub fn create_image_view(
         .subresource_range(vk::ImageSubresourceRange {
             aspect_mask,
             base_mip_level: 0,
-            level_count: mip_levels as u32,
+            level_count: 1,
             base_array_layer: 0,
             layer_count: 1,
         });

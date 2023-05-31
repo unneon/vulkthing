@@ -16,7 +16,7 @@ use crate::renderer::pipeline::Pipeline;
 use crate::renderer::raytracing::RaytraceResources;
 use crate::renderer::swapchain::Swapchain;
 use crate::renderer::uniform::{Filters, Light, Material, ModelViewProjection};
-use crate::renderer::util::{Buffer, Dev, UniformBuffer};
+use crate::renderer::util::{Buffer, Dev, ImageResources, UniformBuffer};
 use crate::world::{Entity, World};
 use ash::extensions::ext::DebugUtils;
 use ash::extensions::khr::{Surface, Swapchain as SwapchainKhr};
@@ -90,12 +90,6 @@ pub struct Renderer {
 struct VulkanExtensions {
     debug: DebugUtils,
     surface: Surface,
-}
-
-struct ImageResources {
-    image: vk::Image,
-    memory: vk::DeviceMemory,
-    view: vk::ImageView,
 }
 
 struct Synchronization {
