@@ -5,8 +5,8 @@ pub struct InputState {
     right_pressed: bool,
     forward_pressed: bool,
     backward_pressed: bool,
-    up_pressed: bool,
-    down_pressed: bool,
+    roll_pos_pressed: bool,
+    roll_neg_pressed: bool,
     jump: Click,
     sprint: bool,
     mouse_dx: f32,
@@ -27,8 +27,8 @@ impl InputState {
             right_pressed: false,
             forward_pressed: false,
             backward_pressed: false,
-            up_pressed: false,
-            down_pressed: false,
+            roll_pos_pressed: false,
+            roll_neg_pressed: false,
             jump: Click::default(),
             sprint: false,
             mouse_dx: 0.,
@@ -43,8 +43,8 @@ impl InputState {
             Some(VirtualKeyCode::A) => self.left_pressed = input.state == ElementState::Pressed,
             Some(VirtualKeyCode::S) => self.backward_pressed = input.state == ElementState::Pressed,
             Some(VirtualKeyCode::D) => self.right_pressed = input.state == ElementState::Pressed,
-            Some(VirtualKeyCode::Q) => self.down_pressed = input.state == ElementState::Pressed,
-            Some(VirtualKeyCode::E) => self.up_pressed = input.state == ElementState::Pressed,
+            Some(VirtualKeyCode::Q) => self.roll_neg_pressed = input.state == ElementState::Pressed,
+            Some(VirtualKeyCode::E) => self.roll_pos_pressed = input.state == ElementState::Pressed,
             Some(VirtualKeyCode::Space) => self.jump.apply(input.state),
             Some(VirtualKeyCode::LShift) => self.sprint = input.state == ElementState::Pressed,
             Some(VirtualKeyCode::F) => self.camera_lock = input.state == ElementState::Pressed,
@@ -70,17 +70,6 @@ impl InputState {
         }
         if self.right_pressed {
             sum += 1.;
-        }
-        sum
-    }
-
-    pub fn movement_vertical(&self) -> f32 {
-        let mut sum = 0.;
-        if self.up_pressed {
-            sum += 1.;
-        }
-        if self.down_pressed {
-            sum -= 1.;
         }
         sum
     }
@@ -119,6 +108,17 @@ impl InputState {
         } else {
             0.
         }
+    }
+
+    pub fn camera_roll(&self) -> f32 {
+        let mut sum = 0.;
+        if self.roll_pos_pressed {
+            sum += 1.;
+        }
+        if self.roll_neg_pressed {
+            sum -= 1.;
+        }
+        sum
     }
 }
 

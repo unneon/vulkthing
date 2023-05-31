@@ -2,7 +2,7 @@ use crate::camera::Camera;
 use crate::input::InputState;
 use crate::interface::Editable;
 use imgui::Ui;
-use nalgebra::Vector3;
+use nalgebra::{UnitQuaternion, Vector3};
 use std::f32::consts::PI;
 
 pub struct World {
@@ -39,8 +39,7 @@ impl World {
         let camera = Camera {
             position: Vector3::new(-350., 0., 0.),
             velocity: Vector3::new(0., 0., 0.),
-            yaw: 0.,
-            pitch: 0.,
+            rotation: UnitQuaternion::from_euler_angles(0., 0., 0.),
             time: 0.,
         };
         let light_radius = 500.;
