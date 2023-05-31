@@ -3,6 +3,7 @@ mod descriptors;
 mod device;
 mod lifecycle;
 mod pipeline;
+mod raytracing;
 mod shader;
 mod swapchain;
 mod traits;
@@ -12,6 +13,7 @@ pub mod vertex;
 
 use crate::renderer::descriptors::DescriptorMetadata;
 use crate::renderer::pipeline::Pipeline;
+use crate::renderer::raytracing::RaytraceResources;
 use crate::renderer::swapchain::Swapchain;
 use crate::renderer::uniform::{Filters, Light, Material, ModelViewProjection};
 use crate::renderer::util::{Buffer, Dev, UniformBuffer};
@@ -94,12 +96,6 @@ struct ImageResources {
     image: vk::Image,
     memory: vk::DeviceMemory,
     view: vk::ImageView,
-}
-
-struct RaytraceResources {
-    acceleration_structure: vk::AccelerationStructureKHR,
-    buffer: Buffer,
-    primitive_count: usize,
 }
 
 struct Synchronization {
