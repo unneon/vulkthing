@@ -4,6 +4,7 @@ mod device;
 mod lifecycle;
 mod pipeline;
 mod shader;
+mod swapchain;
 mod traits;
 pub mod uniform;
 mod util;
@@ -11,11 +12,12 @@ pub mod vertex;
 
 use crate::renderer::descriptors::DescriptorMetadata;
 use crate::renderer::pipeline::Pipeline;
+use crate::renderer::swapchain::Swapchain;
 use crate::renderer::uniform::{Filters, Light, Material, ModelViewProjection};
 use crate::renderer::util::{Buffer, Dev, UniformBuffer};
 use crate::world::{Entity, World};
 use ash::extensions::ext::DebugUtils;
-use ash::extensions::khr::{Surface, Swapchain};
+use ash::extensions::khr::{Surface, Swapchain as SwapchainKhr};
 use ash::{vk, Entry};
 use imgui::DrawData;
 use nalgebra::Matrix4;
@@ -30,7 +32,7 @@ pub struct Renderer {
     surface: vk::SurfaceKHR,
     dev: Dev,
     queue: vk::Queue,
-    swapchain_ext: Swapchain,
+    swapchain_ext: SwapchainKhr,
 
     // Parameters of the renderer that are required early for creating more important objects.
     msaa_samples: vk::SampleCountFlags,
@@ -57,9 +59,7 @@ pub struct Renderer {
     // All resources that depend on swapchain extent (window size). So swapchain description, memory
     // used for all framebuffer attachments, framebuffers, and the mentioned postprocess descriptor
     // set. Projection matrix depends on the monitor aspect ratio, so it's included too.
-    pub swapchain_extent: vk::Extent2D,
-    swapchain: vk::SwapchainKHR,
-    swapchain_image_views: Vec<vk::ImageView>,
+    pub swapchain: Swapchain,
     color: ImageResources,
     depth: ImageResources,
     offscreen: ImageResources,
@@ -153,7 +153,7 @@ impl Renderer {
             .unwrap();
 
         let acquire_result = self.swapchain_ext.acquire_next_image(
-            self.swapchain,
+            self.swapchain.handle,
             u64::MAX,
             image_available,
             vk::Fence::null(),
@@ -204,7 +204,7 @@ impl Renderer {
             // scissor already offers the same functionality?
             .render_area(vk::Rect2D {
                 offset: vk::Offset2D { x: 0, y: 0 },
-                extent: self.swapchain_extent,
+                extent: self.swapchain.extent,
             })
             .clear_values(&[
                 vk::ClearValue {
@@ -254,7 +254,7 @@ impl Renderer {
             .framebuffer(self.pathtrace_framebuffer)
             .render_area(vk::Rect2D {
                 offset: vk::Offset2D { x: 0, y: 0 },
-                extent: self.swapchain_extent,
+                extent: self.swapchain.extent,
             })
             .clear_values(&[vk::ClearValue {
                 color: vk::ClearColorValue {
@@ -293,7 +293,7 @@ impl Renderer {
             .framebuffer(self.postprocess_framebuffers[image_index as usize])
             .render_area(vk::Rect2D {
                 offset: vk::Offset2D { x: 0, y: 0 },
-                extent: self.swapchain_extent,
+                extent: self.swapchain.extent,
             });
         self.dev
             .cmd_begin_render_pass(buf, &pass_info, vk::SubpassContents::INLINE);
@@ -382,7 +382,7 @@ impl Renderer {
         let render_finished = self.sync.render_finished[self.flight_index];
 
         let wait_semaphores = [render_finished];
-        let swapchains = [self.swapchain];
+        let swapchains = [self.swapchain.handle];
         let image_indices = [image_index];
         let present_info = vk::PresentInfoKHR::builder()
             .wait_semaphores(&wait_semaphores)

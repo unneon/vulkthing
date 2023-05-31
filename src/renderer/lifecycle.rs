@@ -6,6 +6,7 @@ use crate::renderer::descriptors::{
 };
 use crate::renderer::device::{select_device, DeviceInfo};
 use crate::renderer::pipeline::{create_pipeline, Pipeline, PipelineConfig, VertexLayout};
+use crate::renderer::swapchain::{create_swapchain, Swapchain};
 use crate::renderer::traits::VertexOps;
 use crate::renderer::uniform::{Filters, Light, Material, ModelViewProjection};
 use crate::renderer::util::{
@@ -20,7 +21,8 @@ use crate::window::Window;
 use crate::{VULKAN_APP_NAME, VULKAN_APP_VERSION, VULKAN_ENGINE_NAME, VULKAN_ENGINE_VERSION};
 use ash::extensions::ext::DebugUtils;
 use ash::extensions::khr::{
-    AccelerationStructure, BufferDeviceAddress, DeferredHostOperations, Surface, Swapchain,
+    AccelerationStructure, BufferDeviceAddress, DeferredHostOperations, Surface,
+    Swapchain as SwapchainKhr,
 };
 use ash::vk::{
     ExtDescriptorIndexingFn, KhrRayQueryFn, KhrShaderFloatControlsFn, KhrSpirv14Fn, Packed24_8,
@@ -61,7 +63,7 @@ impl Renderer {
             instance,
         };
         let queue = unsafe { dev.get_device_queue(queue_family, 0) };
-        let swapchain_ext = Swapchain::new(&dev.instance, &dev);
+        let swapchain_ext = SwapchainKhr::new(&dev.instance, &dev);
 
         let msaa_samples = find_max_msaa_samples(&dev);
         let offscreen_sampler = create_offscreen_sampler(&dev);
@@ -72,9 +74,7 @@ impl Renderer {
             create_postprocess_descriptor_metadata(offscreen_sampler, &dev);
 
         let (
-            swapchain_extent,
             swapchain,
-            swapchain_image_views,
             color,
             depth,
             offscreen,
@@ -155,9 +155,7 @@ impl Renderer {
             postprocess_descriptor_metadata,
             postprocess_pipeline,
             postprocess_pass,
-            swapchain_extent,
             swapchain,
-            swapchain_image_views,
             color,
             depth,
             offscreen,
@@ -209,9 +207,7 @@ impl Renderer {
         self.cleanup_swapchain();
 
         let (
-            swapchain_extent,
             swapchain,
-            swapchain_image_views,
             color,
             depth,
             offscreen,
@@ -240,9 +236,7 @@ impl Renderer {
 
         // Doing the assignments at the end guarantees any operation won't fail in the middle, and
         // makes it possible to easily compare new values to old ones.
-        self.swapchain_extent = swapchain_extent;
         self.swapchain = swapchain;
-        self.swapchain_image_views = swapchain_image_views;
         self.color = color;
         self.depth = depth;
         self.offscreen = offscreen;
@@ -313,10 +307,7 @@ impl Renderer {
             self.offscreen.cleanup(&self.dev);
             self.depth.cleanup(&self.dev);
             self.color.cleanup(&self.dev);
-            for image_view in &self.swapchain_image_views {
-                self.dev.destroy_image_view(*image_view, None);
-            }
-            self.swapchain_ext.destroy_swapchain(self.swapchain, None);
+            self.swapchain.cleanup(&self.dev);
             self.object_pipeline.cleanup(&self.dev);
             self.postprocess_pipeline.cleanup(&self.dev);
             self.pathtrace_pipeline.cleanup(&self.dev);
@@ -508,7 +499,7 @@ fn create_logical_device(
         KhrRayQueryFn::name().as_ptr(),
         KhrShaderFloatControlsFn::name().as_ptr(),
         KhrSpirv14Fn::name().as_ptr(),
-        Swapchain::name().as_ptr(),
+        SwapchainKhr::name().as_ptr(),
     ];
 
     unsafe {
@@ -527,111 +518,10 @@ fn create_logical_device(
     .unwrap()
 }
 
-fn select_swapchain_image_count(capabilities: vk::SurfaceCapabilitiesKHR) -> usize {
-    // Use triple buffering, even if the platform allows to only use double buffering. The Vulkan
-    // tutorial recommends setting this to min_image_count + 1 to prevent waiting for the image due
-    // to driver overhead, but I think that after triple buffering, adding more images shouldn't be
-    // able to fix any internal driver problems. It's also not covered by the Khronos
-    // recommendation.
-    // https://github.com/KhronosGroup/Vulkan-Samples
-    let no_image_limit = capabilities.max_image_count == 0;
-    let preferred_image_count = capabilities.min_image_count.max(3) as usize;
-    if no_image_limit {
-        preferred_image_count
-    } else {
-        preferred_image_count.min(capabilities.max_image_count as usize)
-    }
-}
-
-fn select_swapchain_format(formats: &[vk::SurfaceFormatKHR]) -> vk::SurfaceFormatKHR {
-    for format in formats {
-        if format.format == vk::Format::B8G8R8A8_SRGB
-            && format.color_space == vk::ColorSpaceKHR::SRGB_NONLINEAR
-        {
-            return *format;
-        }
-    }
-    formats[0]
-}
-
-fn select_swapchain_extent(
-    capabilities: vk::SurfaceCapabilitiesKHR,
-    window_size: PhysicalSize<u32>,
-) -> vk::Extent2D {
-    if capabilities.current_extent.width != u32::MAX {
-        return capabilities.current_extent;
-    }
-    vk::Extent2D {
-        width: window_size.width.clamp(
-            capabilities.min_image_extent.width,
-            capabilities.max_image_extent.width,
-        ),
-        height: window_size.height.clamp(
-            capabilities.min_image_extent.height,
-            capabilities.max_image_extent.height,
-        ),
-    }
-}
-
-fn select_swapchain_present_mode(_available: &[vk::PresentModeKHR]) -> vk::PresentModeKHR {
-    vk::PresentModeKHR::MAILBOX
-}
-
-fn create_swapchain(
-    format: vk::SurfaceFormatKHR,
-    extent: vk::Extent2D,
-    present_mode: vk::PresentModeKHR,
-    image_count: usize,
-    extension: &Swapchain,
-    surface: vk::SurfaceKHR,
-    surface_capabilities: vk::SurfaceCapabilitiesKHR,
-) -> vk::SwapchainKHR {
-    // Create the swapchain for presenting images to display. Set to prefer triple buffering
-    // right now, should be possible to change on laptops or integrated GPUs? Also requires
-    // specifying a bunch of display-related parameters, which aren't very interesting as they
-    // were mostly decided on previously.
-    let create_info = vk::SwapchainCreateInfoKHR::builder()
-        .surface(surface)
-        .min_image_count(image_count as u32)
-        .image_format(format.format)
-        .image_color_space(format.color_space)
-        .image_extent(extent)
-        .image_array_layers(1)
-        .image_usage(vk::ImageUsageFlags::COLOR_ATTACHMENT)
-        .image_sharing_mode(vk::SharingMode::EXCLUSIVE)
-        .pre_transform(surface_capabilities.current_transform)
-        .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE)
-        .present_mode(present_mode)
-        .clipped(true)
-        .old_swapchain(vk::SwapchainKHR::null());
-    unsafe { extension.create_swapchain(&create_info, None) }.unwrap()
-}
-
-fn create_swapchain_image_views(
-    swapchain: vk::SwapchainKHR,
-    format: vk::SurfaceFormatKHR,
-    extension: &Swapchain,
-    dev: &Dev,
-) -> Vec<vk::ImageView> {
-    // Create image views. Not really interesting for now, as I only use normal color settings.
-    let images = unsafe { extension.get_swapchain_images(swapchain) }.unwrap();
-    let mut image_views = vec![vk::ImageView::null(); images.len()];
-    for i in 0..images.len() {
-        image_views[i] = create_image_view(
-            images[i],
-            format.format,
-            vk::ImageAspectFlags::COLOR,
-            1,
-            dev,
-        );
-    }
-    image_views
-}
-
 fn create_swapchain_all(
     window_size: PhysicalSize<u32>,
     surface_ext: &Surface,
-    swapchain_ext: &Swapchain,
+    swapchain_ext: &SwapchainKhr,
     surface: vk::SurfaceKHR,
     msaa_samples: vk::SampleCountFlags,
     filters: &UniformBuffer<Filters>,
@@ -639,9 +529,7 @@ fn create_swapchain_all(
     postprocess_descriptor_metadata: &DescriptorMetadata,
     dev: &Dev,
 ) -> (
-    vk::Extent2D,
-    vk::SwapchainKHR,
-    Vec<vk::ImageView>,
+    Swapchain,
     ImageResources,
     ImageResources,
     ImageResources,
@@ -657,59 +545,30 @@ fn create_swapchain_all(
     Pipeline,
     Matrix4<f32>,
 ) {
-    // Query the surface information again.
-    let surface_capabilities =
-        unsafe { surface_ext.get_physical_device_surface_capabilities(dev.physical, surface) }
-            .unwrap();
-    let surface_formats = {
-        unsafe { surface_ext.get_physical_device_surface_formats(dev.physical, surface) }.unwrap()
-    };
-    let present_modes =
-        unsafe { surface_ext.get_physical_device_surface_present_modes(dev.physical, surface) }
-            .unwrap();
-    assert!(!present_modes.is_empty());
-
-    let swapchain_image_count = select_swapchain_image_count(surface_capabilities);
-
-    // Repeat creating the swapchain, except not using any Renderer members that heavily depend
-    // on the swapchain (such as depth and color buffers).
-    let swapchain_format = select_swapchain_format(&surface_formats);
-    let swapchain_extent = select_swapchain_extent(surface_capabilities, window_size);
-    let swapchain_present_mode = select_swapchain_present_mode(&present_modes);
-    let swapchain = create_swapchain(
-        swapchain_format,
-        swapchain_extent,
-        swapchain_present_mode,
-        swapchain_image_count,
-        swapchain_ext,
-        surface,
-        surface_capabilities,
-    );
-    let swapchain_image_views =
-        create_swapchain_image_views(swapchain, swapchain_format, swapchain_ext, dev);
-    let color = create_color_resources(swapchain_extent, msaa_samples, dev);
-    let depth = create_depth_resources(swapchain_extent, msaa_samples, dev);
-    let offscreen = create_offscreen_resources(swapchain_extent, dev);
+    let swapchain = create_swapchain(surface, window_size, dev, surface_ext, swapchain_ext);
+    let color = create_color_resources(swapchain.extent, msaa_samples, dev);
+    let depth = create_depth_resources(swapchain.extent, msaa_samples, dev);
+    let offscreen = create_offscreen_resources(swapchain.extent, dev);
     let render_pass = create_render_pass(msaa_samples, dev);
     let object_pipeline = create_object_pipeline(
         object_descriptor_metadata,
         msaa_samples,
         render_pass,
-        swapchain_extent,
+        swapchain.extent,
         dev,
     );
-    let postprocess_pass = create_postprocess_pass(swapchain_format, dev);
+    let postprocess_pass = create_postprocess_pass(swapchain.format, dev);
     let postprocess_pipeline = create_postprocess_pipeline(
         postprocess_descriptor_metadata,
         postprocess_pass,
-        swapchain_extent,
+        swapchain.extent,
         dev,
     );
     let pathtrace_pass = create_pathtrace_pass(dev);
     let pathtrace_pipeline = create_pathtrace_pipeline(
         object_descriptor_metadata,
         pathtrace_pass,
-        swapchain_extent,
+        swapchain.extent,
         dev,
     );
     let offscreen_framebuffer = create_render_framebuffers(
@@ -717,28 +576,26 @@ fn create_swapchain_all(
         color.view,
         depth.view,
         offscreen.view,
-        swapchain_extent,
+        swapchain.extent,
         dev,
     );
     let pathtrace_framebuffer =
-        create_pathtrace_framebuffer(pathtrace_pass, offscreen.view, swapchain_extent, dev);
-    let framebuffers = create_postprocess_framebuffers(
-        postprocess_pass,
-        &swapchain_image_views,
-        swapchain_extent,
-        dev,
-    );
+        create_pathtrace_framebuffer(pathtrace_pass, offscreen.view, swapchain.extent, dev);
     let postprocess_descriptor_sets = create_postprocess_descriptor_sets(
         offscreen.view,
         filters,
         postprocess_descriptor_metadata,
         dev,
     );
-    let projection = compute_projection(swapchain_extent);
+    let framebuffers = create_postprocess_framebuffers(
+        postprocess_pass,
+        &swapchain.image_views,
+        swapchain.extent,
+        dev,
+    );
+    let projection = compute_projection(swapchain.extent);
     (
-        swapchain_extent,
         swapchain,
-        swapchain_image_views,
         color,
         depth,
         offscreen,

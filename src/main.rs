@@ -51,8 +51,8 @@ fn main() {
     let planet_model = generate_planet(&planet);
     let mut renderer = Renderer::new(&window, &[planet_model, cube_model]);
     let mut interface = Interface::new(
-        renderer.swapchain_extent.width as usize,
-        renderer.swapchain_extent.height as usize,
+        renderer.swapchain.extent.width as usize,
+        renderer.swapchain.extent.height as usize,
     );
     let mut input_state = InputState::new();
     let mut world = World::new();
