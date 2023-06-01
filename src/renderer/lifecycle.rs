@@ -537,7 +537,7 @@ fn create_swapchain_all(
         swapchain.extent,
         dev,
     );
-    let postprocess_pass = create_postprocess_pass(swapchain.format, dev);
+    let postprocess_pass = create_postprocess_pass(swapchain.format.format, dev);
     let postprocess_pipeline = create_postprocess_pipeline(
         postprocess_descriptor_metadata,
         postprocess_pass,
@@ -598,7 +598,7 @@ fn create_render_pass(msaa_samples: vk::SampleCountFlags, dev: &Dev) -> vk::Rend
         .format(INTERNAL_HDR_FORMAT)
         .samples(msaa_samples)
         .load_op(vk::AttachmentLoadOp::CLEAR)
-        .store_op(vk::AttachmentStoreOp::STORE)
+        .store_op(vk::AttachmentStoreOp::DONT_CARE)
         .initial_layout(vk::ImageLayout::UNDEFINED)
         .final_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL);
     let depth_attachment = *vk::AttachmentDescription::builder()
@@ -638,9 +638,9 @@ fn create_render_pass(msaa_samples: vk::SampleCountFlags, dev: &Dev) -> vk::Rend
     unsafe { dev.create_render_pass(&create_info, None) }.unwrap()
 }
 
-fn create_postprocess_pass(swapchain_format: vk::SurfaceFormatKHR, dev: &Dev) -> vk::RenderPass {
+fn create_postprocess_pass(swapchain_format: vk::Format, dev: &Dev) -> vk::RenderPass {
     let color_attachment = *vk::AttachmentDescription::builder()
-        .format(swapchain_format.format)
+        .format(swapchain_format)
         .samples(vk::SampleCountFlags::TYPE_1)
         .load_op(vk::AttachmentLoadOp::DONT_CARE)
         .store_op(vk::AttachmentStoreOp::STORE)
@@ -664,7 +664,7 @@ fn create_pathtrace_pass(dev: &Dev) -> vk::RenderPass {
     let color_attachment = *vk::AttachmentDescription::builder()
         .format(INTERNAL_HDR_FORMAT)
         .samples(vk::SampleCountFlags::TYPE_1)
-        .load_op(vk::AttachmentLoadOp::CLEAR)
+        .load_op(vk::AttachmentLoadOp::DONT_CARE)
         .store_op(vk::AttachmentStoreOp::STORE)
         .initial_layout(vk::ImageLayout::UNDEFINED)
         .final_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL);
@@ -884,7 +884,7 @@ fn create_depth(
         DEPTH_FORMAT,
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
         vk::ImageTiling::OPTIMAL,
-        vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
+        vk::ImageUsageFlags::TRANSIENT_ATTACHMENT | vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
         vk::ImageAspectFlags::DEPTH,
         swapchain_extent,
         msaa_samples,
