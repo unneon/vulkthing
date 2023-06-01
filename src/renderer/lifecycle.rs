@@ -737,7 +737,7 @@ fn create_postprocess_descriptor_metadata(sampler: vk::Sampler, dev: &Dev) -> De
                 stage: vk::ShaderStageFlags::FRAGMENT,
             },
         ],
-        set_count: 2,
+        set_count: 1,
         dev,
     })
 }
