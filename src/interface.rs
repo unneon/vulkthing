@@ -115,7 +115,6 @@ impl Interface {
         planet: &mut Parameters,
         filters: &mut Filters,
         demo: bool,
-        path_tracer: &mut bool,
     ) -> InterfaceEvents {
         let mut planet_changed = false;
         let ui = self.ctx.frame();
@@ -130,7 +129,6 @@ impl Interface {
                 section(ui, world);
                 planet_changed = section(ui, planet);
                 section(ui, filters);
-                ui.checkbox("Reference path tracer", path_tracer);
             });
         InterfaceEvents { planet_changed }
     }

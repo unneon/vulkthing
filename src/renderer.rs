@@ -47,10 +47,6 @@ pub struct Renderer {
     object_pipeline: Pipeline,
     render_pass: vk::RenderPass,
 
-    pathtrace_pass: vk::RenderPass,
-    pathtrace_pipeline: Pipeline,
-    pathtrace_framebuffer: vk::Framebuffer,
-
     // Description of the postprocessing pass, and also the actual descriptor pool. Necessary,
     // because the postprocessing pass depends on swapchain extent and needs to have the descriptor
     // set updated after window resize.
@@ -117,12 +113,11 @@ impl Renderer {
         filters: &Filters,
         window_size: PhysicalSize<u32>,
         ui_draw: &DrawData,
-        path_tracer: bool,
     ) {
         let Some(image_index) = (unsafe { self.prepare_command_buffer(window_size) }) else {
             return;
         };
-        unsafe { self.record_command_buffer(image_index, world, ui_draw, path_tracer) };
+        unsafe { self.record_command_buffer(image_index, world, ui_draw) };
         for entity in &world.entities {
             self.update_object_uniforms(world, entity);
         }
@@ -170,18 +165,13 @@ impl Renderer {
         image_index: u32,
         world: &World,
         ui_draw: &DrawData,
-        path_tracer: bool,
     ) {
         let buf = self.command_buffers[self.flight_index];
 
         let begin_info = vk::CommandBufferBeginInfo::builder()
             .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
         self.dev.begin_command_buffer(buf, &begin_info).unwrap();
-        if !path_tracer {
-            self.record_render_pass(buf, world);
-        } else {
-            self.record_pathtrace_pass(buf);
-        }
+        self.record_render_pass(buf, world);
         self.record_postprocess_pass(buf, image_index, ui_draw);
         self.dev.end_command_buffer(buf).unwrap();
     }
@@ -234,40 +224,6 @@ impl Renderer {
             self.dev
                 .cmd_draw_indexed(buf, 3 * object.triangle_count as u32, 1, 0, 0, 0);
         }
-
-        self.dev.cmd_end_render_pass(buf);
-    }
-
-    unsafe fn record_pathtrace_pass(&self, buf: vk::CommandBuffer) {
-        let pass_info = vk::RenderPassBeginInfo::builder()
-            .render_pass(self.pathtrace_pass)
-            .framebuffer(self.pathtrace_framebuffer)
-            .render_area(vk::Rect2D {
-                offset: vk::Offset2D { x: 0, y: 0 },
-                extent: self.swapchain.extent,
-            })
-            .clear_values(&[vk::ClearValue {
-                color: vk::ClearColorValue {
-                    float32: [0., 0., 0., 0.],
-                },
-            }]);
-        self.dev
-            .cmd_begin_render_pass(buf, &pass_info, vk::SubpassContents::INLINE);
-
-        self.dev.cmd_bind_pipeline(
-            buf,
-            vk::PipelineBindPoint::GRAPHICS,
-            self.pathtrace_pipeline.pipeline,
-        );
-        self.dev.cmd_bind_descriptor_sets(
-            buf,
-            vk::PipelineBindPoint::GRAPHICS,
-            self.pathtrace_pipeline.layout,
-            0,
-            &[self.objects[0].descriptor_sets[self.flight_index]],
-            &[],
-        );
-        self.dev.cmd_draw(buf, 6, 1, 0, 0);
 
         self.dev.cmd_end_render_pass(buf);
     }
