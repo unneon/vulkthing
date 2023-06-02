@@ -1,6 +1,7 @@
 #![feature(array_chunks)]
 #![feature(int_roundings)]
 #![feature(maybe_uninit_write_slice)]
+#![feature(option_as_slice)]
 #![feature(pointer_byte_offsets)]
 #![feature(inline_const)]
 #![allow(clippy::collapsible_match)]

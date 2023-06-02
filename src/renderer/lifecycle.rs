@@ -5,6 +5,7 @@ use crate::renderer::descriptors::{
     DescriptorValue,
 };
 use crate::renderer::device::{select_device, DeviceInfo};
+use crate::renderer::graph::{create_pass, AttachmentConfig, Pass};
 use crate::renderer::pipeline::{create_pipeline, Pipeline, PipelineConfig, VertexLayout};
 use crate::renderer::raytracing::{create_blas, create_tlas};
 use crate::renderer::swapchain::{create_swapchain, Swapchain};
@@ -35,7 +36,7 @@ use winit::dpi::PhysicalSize;
 // Format used for passing HDR data between render passes to enable realistic differences in
 // lighting parameters and improve postprocessing effect quality, not related to monitor HDR.
 // Support for this format is required by the Vulkan specification.
-const INTERNAL_HDR_FORMAT: vk::Format = vk::Format::R16G16B16A16_SFLOAT;
+const COLOR_FORMAT: vk::Format = vk::Format::R16G16B16A16_SFLOAT;
 
 const DEPTH_FORMAT: vk::Format = vk::Format::D32_SFLOAT;
 
@@ -142,10 +143,10 @@ impl Renderer {
             filters,
             object_descriptor_metadata,
             object_pipeline,
-            render_pass,
+            render: render_pass,
             postprocess_descriptor_metadata,
             postprocess_pipeline,
-            postprocess_pass,
+            postprocess: postprocess_pass,
             swapchain,
             color,
             depth,
@@ -174,7 +175,7 @@ impl Renderer {
                 self.dev.logical.clone(),
                 self.queue,
                 self.command_pools[0],
-                self.postprocess_pass,
+                self.postprocess.pass,
                 imgui,
                 Some(imgui_rs_vulkan_renderer::Options {
                     in_flight_frames: FRAMES_IN_FLIGHT,
@@ -229,10 +230,10 @@ impl Renderer {
         self.depth = depth;
         self.offscreen = offscreen;
         self.object_pipeline = object_pipeline;
-        self.render_pass = render_pass;
+        self.render = render_pass;
         self.render_framebuffer = render_framebuffer;
         self.postprocess_pipeline = postprocess_pipeline;
-        self.postprocess_pass = postprocess_pass;
+        self.postprocess = postprocess_pass;
         self.postprocess_framebuffers = postprocess_framebuffers;
         self.postprocess_descriptor_sets = postprocess_descriptor_sets;
         self.projection = projection;
@@ -293,8 +294,8 @@ impl Renderer {
             self.swapchain.cleanup(&self.dev);
             self.object_pipeline.cleanup(&self.dev);
             self.postprocess_pipeline.cleanup(&self.dev);
-            self.dev.destroy_render_pass(self.postprocess_pass, None);
-            self.dev.destroy_render_pass(self.render_pass, None);
+            self.render.cleanup(&self.dev);
+            self.postprocess.cleanup(&self.dev);
         }
     }
 }
@@ -498,10 +499,10 @@ fn create_swapchain_all(
     ImageResources,
     ImageResources,
     Pipeline,
-    vk::RenderPass,
+    Pass,
     vk::Framebuffer,
     Pipeline,
-    vk::RenderPass,
+    Pass,
     Vec<vk::Framebuffer>,
     [vk::DescriptorSet; FRAMES_IN_FLIGHT],
     Matrix4<f32>,
@@ -510,23 +511,23 @@ fn create_swapchain_all(
     let color = create_color(swapchain.extent, msaa_samples, dev);
     let depth = create_depth(swapchain.extent, msaa_samples, dev);
     let offscreen = create_offscreen(swapchain.extent, dev);
-    let render_pass = create_render_pass(msaa_samples, dev);
+    let render = create_render_pass(msaa_samples, swapchain.extent, dev);
     let object_pipeline = create_object_pipeline(
         object_descriptor_metadata,
         msaa_samples,
-        render_pass,
+        render.pass,
         swapchain.extent,
         dev,
     );
-    let postprocess_pass = create_postprocess_pass(swapchain.format.format, dev);
+    let postprocess = create_postprocess_pass(swapchain.format.format, swapchain.extent, dev);
     let postprocess_pipeline = create_postprocess_pipeline(
         postprocess_descriptor_metadata,
-        postprocess_pass,
+        postprocess.pass,
         swapchain.extent,
         dev,
     );
     let offscreen_framebuffer = create_render_framebuffers(
-        render_pass,
+        render.pass,
         color.view,
         depth.view,
         offscreen.view,
@@ -540,7 +541,7 @@ fn create_swapchain_all(
         dev,
     );
     let framebuffers = create_postprocess_framebuffers(
-        postprocess_pass,
+        postprocess.pass,
         &swapchain.image_views,
         swapchain.extent,
         dev,
@@ -552,81 +553,39 @@ fn create_swapchain_all(
         depth,
         offscreen,
         object_pipeline,
-        render_pass,
+        render,
         offscreen_framebuffer,
         postprocess_pipeline,
-        postprocess_pass,
+        postprocess,
         framebuffers,
         postprocess_descriptor_sets,
         projection,
     )
 }
 
-fn create_render_pass(msaa_samples: vk::SampleCountFlags, dev: &Dev) -> vk::RenderPass {
-    let color_attachment = *vk::AttachmentDescription::builder()
-        .format(INTERNAL_HDR_FORMAT)
-        .samples(msaa_samples)
-        .load_op(vk::AttachmentLoadOp::CLEAR)
-        .store_op(vk::AttachmentStoreOp::DONT_CARE)
-        .initial_layout(vk::ImageLayout::UNDEFINED)
-        .final_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL);
-    let depth_attachment = *vk::AttachmentDescription::builder()
-        .format(DEPTH_FORMAT)
-        .samples(msaa_samples)
-        .load_op(vk::AttachmentLoadOp::CLEAR)
-        .store_op(vk::AttachmentStoreOp::DONT_CARE)
-        .initial_layout(vk::ImageLayout::UNDEFINED)
-        .final_layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
-    let resolve_attachment = *vk::AttachmentDescription::builder()
-        .format(INTERNAL_HDR_FORMAT)
-        .samples(vk::SampleCountFlags::TYPE_1)
-        .load_op(vk::AttachmentLoadOp::DONT_CARE)
-        .store_op(vk::AttachmentStoreOp::STORE)
-        .initial_layout(vk::ImageLayout::UNDEFINED)
-        .final_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL);
-    let attachments = [color_attachment, depth_attachment, resolve_attachment];
-
-    let color_reference = *vk::AttachmentReference::builder()
-        .attachment(0)
-        .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL);
-    let depth_reference = *vk::AttachmentReference::builder()
-        .attachment(1)
-        .layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
-    let resolve_reference = *vk::AttachmentReference::builder()
-        .attachment(2)
-        .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL);
-    let subpass = *vk::SubpassDescription::builder()
-        .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
-        .color_attachments(std::slice::from_ref(&color_reference))
-        .depth_stencil_attachment(&depth_reference)
-        .resolve_attachments(std::slice::from_ref(&resolve_reference));
-
-    let create_info = *vk::RenderPassCreateInfo::builder()
-        .attachments(&attachments)
-        .subpasses(std::slice::from_ref(&subpass));
-    unsafe { dev.create_render_pass(&create_info, None) }.unwrap()
+fn create_render_pass(msaa_samples: vk::SampleCountFlags, extent: vk::Extent2D, dev: &Dev) -> Pass {
+    let attachments = [
+        AttachmentConfig::new(COLOR_FORMAT)
+            .samples(msaa_samples)
+            .clear_color([0., 0., 0., 0.])
+            .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL),
+        AttachmentConfig::new(DEPTH_FORMAT)
+            .samples(msaa_samples)
+            .clear_depth(1.)
+            .layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL),
+        AttachmentConfig::new(COLOR_FORMAT)
+            .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+            .store(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+            .resolve(),
+    ];
+    create_pass(extent, dev, &attachments)
 }
 
-fn create_postprocess_pass(swapchain_format: vk::Format, dev: &Dev) -> vk::RenderPass {
-    let color_attachment = *vk::AttachmentDescription::builder()
-        .format(swapchain_format)
-        .samples(vk::SampleCountFlags::TYPE_1)
-        .load_op(vk::AttachmentLoadOp::DONT_CARE)
-        .store_op(vk::AttachmentStoreOp::STORE)
-        .initial_layout(vk::ImageLayout::UNDEFINED)
-        .final_layout(vk::ImageLayout::PRESENT_SRC_KHR);
-
-    let color_reference = *vk::AttachmentReference::builder()
-        .attachment(0)
-        .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL);
-    let subpass = *vk::SubpassDescription::builder()
-        .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
-        .color_attachments(std::slice::from_ref(&color_reference));
-
-    let create_info = *vk::RenderPassCreateInfo::builder()
-        .attachments(std::slice::from_ref(&color_attachment))
-        .subpasses(std::slice::from_ref(&subpass));
-    unsafe { dev.create_render_pass(&create_info, None) }.unwrap()
+fn create_postprocess_pass(format: vk::Format, extent: vk::Extent2D, dev: &Dev) -> Pass {
+    let attachments = [AttachmentConfig::new(format)
+        .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+        .store(vk::ImageLayout::PRESENT_SRC_KHR)];
+    create_pass(extent, dev, &attachments)
 }
 
 fn create_object_descriptor_metadata(dev: &Dev) -> DescriptorMetadata {
@@ -778,7 +737,7 @@ fn create_color(
     dev: &Dev,
 ) -> ImageResources {
     ImageResources::create(
-        INTERNAL_HDR_FORMAT,
+        COLOR_FORMAT,
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
         vk::ImageTiling::OPTIMAL,
         vk::ImageUsageFlags::TRANSIENT_ATTACHMENT | vk::ImageUsageFlags::COLOR_ATTACHMENT,
@@ -791,7 +750,7 @@ fn create_color(
 
 fn create_offscreen(swapchain_extent: vk::Extent2D, dev: &Dev) -> ImageResources {
     ImageResources::create(
-        INTERNAL_HDR_FORMAT,
+        COLOR_FORMAT,
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
         vk::ImageTiling::OPTIMAL,
         vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::SAMPLED,

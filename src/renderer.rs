@@ -1,6 +1,7 @@
 mod debug;
 mod descriptors;
 mod device;
+mod graph;
 mod lifecycle;
 mod pipeline;
 mod raytracing;
@@ -12,6 +13,7 @@ mod util;
 pub mod vertex;
 
 use crate::renderer::descriptors::DescriptorMetadata;
+use crate::renderer::graph::Pass;
 use crate::renderer::pipeline::Pipeline;
 use crate::renderer::raytracing::RaytraceResources;
 use crate::renderer::swapchain::Swapchain;
@@ -45,14 +47,14 @@ pub struct Renderer {
     // only low-level data format descriptions.
     object_descriptor_metadata: DescriptorMetadata,
     object_pipeline: Pipeline,
-    render_pass: vk::RenderPass,
+    render: Pass,
 
     // Description of the postprocessing pass, and also the actual descriptor pool. Necessary,
     // because the postprocessing pass depends on swapchain extent and needs to have the descriptor
     // set updated after window resize.
     postprocess_descriptor_metadata: DescriptorMetadata,
     postprocess_pipeline: Pipeline,
-    postprocess_pass: vk::RenderPass,
+    postprocess: Pass,
 
     // All resources that depend on swapchain extent (window size). So swapchain description, memory
     // used for all framebuffer attachments, framebuffers, and the mentioned postprocess descriptor
@@ -177,30 +179,9 @@ impl Renderer {
     }
 
     unsafe fn record_render_pass(&self, buf: vk::CommandBuffer, world: &World) {
-        let pass_info = vk::RenderPassBeginInfo::builder()
-            .render_pass(self.render_pass)
-            .framebuffer(self.render_framebuffer)
-            // I don't quite understand when render area should be anything else. It seems like
-            // scissor already offers the same functionality?
-            .render_area(vk::Rect2D {
-                offset: vk::Offset2D { x: 0, y: 0 },
-                extent: self.swapchain.extent,
-            })
-            .clear_values(&[
-                vk::ClearValue {
-                    color: vk::ClearColorValue {
-                        float32: [0., 0., 0., 0.],
-                    },
-                },
-                vk::ClearValue {
-                    depth_stencil: vk::ClearDepthStencilValue {
-                        depth: 1.,
-                        stencil: 0,
-                    },
-                },
-            ]);
+        let pass = self.render.begin(self.render_framebuffer);
         self.dev
-            .cmd_begin_render_pass(buf, &pass_info, vk::SubpassContents::INLINE);
+            .cmd_begin_render_pass(buf, &pass, vk::SubpassContents::INLINE);
 
         self.dev.cmd_bind_pipeline(
             buf,
@@ -234,15 +215,11 @@ impl Renderer {
         image_index: u32,
         ui_draw: &DrawData,
     ) {
-        let pass_info = vk::RenderPassBeginInfo::builder()
-            .render_pass(self.postprocess_pass)
-            .framebuffer(self.postprocess_framebuffers[image_index as usize])
-            .render_area(vk::Rect2D {
-                offset: vk::Offset2D { x: 0, y: 0 },
-                extent: self.swapchain.extent,
-            });
+        let pass = self
+            .postprocess
+            .begin(self.postprocess_framebuffers[image_index as usize]);
         self.dev
-            .cmd_begin_render_pass(buf, &pass_info, vk::SubpassContents::INLINE);
+            .cmd_begin_render_pass(buf, &pass, vk::SubpassContents::INLINE);
 
         self.dev.cmd_bind_pipeline(
             buf,
