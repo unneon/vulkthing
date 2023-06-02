@@ -18,7 +18,7 @@ use crate::renderer::pipeline::Pipeline;
 use crate::renderer::raytracing::RaytraceResources;
 use crate::renderer::swapchain::Swapchain;
 use crate::renderer::uniform::{Filters, Light, Material, ModelViewProjection};
-use crate::renderer::util::{Buffer, Dev, ImageResources, UniformBuffer};
+use crate::renderer::util::{Buffer, Dev, UniformBuffer};
 use crate::world::{Entity, World};
 use ash::extensions::ext::DebugUtils;
 use ash::extensions::khr::{Surface, Swapchain as SwapchainKhr};
@@ -60,11 +60,6 @@ pub struct Renderer {
     // used for all framebuffer attachments, framebuffers, and the mentioned postprocess descriptor
     // set. Projection matrix depends on the monitor aspect ratio, so it's included too.
     pub swapchain: Swapchain,
-    color: ImageResources,
-    depth: ImageResources,
-    offscreen: ImageResources,
-    render_framebuffer: vk::Framebuffer,
-    postprocess_framebuffers: Vec<vk::Framebuffer>,
     postprocess_descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
     projection: Matrix4<f32>,
 
@@ -131,7 +126,7 @@ impl Renderer {
         self.flight_index = (self.flight_index + 1) % FRAMES_IN_FLIGHT;
     }
 
-    unsafe fn prepare_command_buffer(&mut self, window_size: PhysicalSize<u32>) -> Option<u32> {
+    unsafe fn prepare_command_buffer(&mut self, window_size: PhysicalSize<u32>) -> Option<usize> {
         let image_available = self.sync.image_available[self.flight_index];
         let in_flight = self.sync.in_flight[self.flight_index];
 
@@ -159,12 +154,12 @@ impl Renderer {
             )
             .unwrap();
 
-        Some(image_index)
+        Some(image_index as usize)
     }
 
     unsafe fn record_command_buffer(
         &mut self,
-        image_index: u32,
+        image_index: usize,
         world: &World,
         ui_draw: &DrawData,
     ) {
@@ -179,7 +174,7 @@ impl Renderer {
     }
 
     unsafe fn record_render_pass(&self, buf: vk::CommandBuffer, world: &World) {
-        let pass = self.render.begin(self.render_framebuffer);
+        let pass = self.render.begin();
         self.dev
             .cmd_begin_render_pass(buf, &pass, vk::SubpassContents::INLINE);
 
@@ -212,12 +207,10 @@ impl Renderer {
     unsafe fn record_postprocess_pass(
         &mut self,
         buf: vk::CommandBuffer,
-        image_index: u32,
+        image_index: usize,
         ui_draw: &DrawData,
     ) {
-        let pass = self
-            .postprocess
-            .begin(self.postprocess_framebuffers[image_index as usize]);
+        let pass = self.postprocess.begin_to_swapchain(image_index);
         self.dev
             .cmd_begin_render_pass(buf, &pass, vk::SubpassContents::INLINE);
 
@@ -301,12 +294,12 @@ impl Renderer {
         .unwrap();
     }
 
-    fn submit_present(&self, image_index: u32) {
+    fn submit_present(&self, image_index: usize) {
         let render_finished = self.sync.render_finished[self.flight_index];
 
         let wait_semaphores = [render_finished];
         let swapchains = [self.swapchain.handle];
-        let image_indices = [image_index];
+        let image_indices = [image_index as u32];
         let present_info = vk::PresentInfoKHR::builder()
             .wait_semaphores(&wait_semaphores)
             .swapchains(&swapchains)

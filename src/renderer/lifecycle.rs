@@ -14,8 +14,7 @@ use crate::renderer::uniform::{Filters, Light, Material, ModelViewProjection};
 use crate::renderer::util::{find_max_msaa_samples, Buffer, Ctx, Dev};
 use crate::renderer::vertex::Vertex;
 use crate::renderer::{
-    ImageResources, Object, Renderer, Synchronization, UniformBuffer, VulkanExtensions,
-    FRAMES_IN_FLIGHT,
+    Object, Renderer, Synchronization, UniformBuffer, VulkanExtensions, FRAMES_IN_FLIGHT,
 };
 use crate::window::Window;
 use crate::{VULKAN_APP_NAME, VULKAN_APP_VERSION, VULKAN_ENGINE_NAME, VULKAN_ENGINE_VERSION};
@@ -73,15 +72,10 @@ impl Renderer {
 
         let (
             swapchain,
-            color,
-            depth,
-            offscreen,
             object_pipeline,
-            render_pass,
-            render_framebuffer,
+            render,
             postprocess_pipeline,
-            postprocess_pass,
-            postprocess_framebuffers,
+            postprocess,
             postprocess_descriptor_sets,
             projection,
         ) = create_swapchain_all(
@@ -143,16 +137,11 @@ impl Renderer {
             filters,
             object_descriptor_metadata,
             object_pipeline,
-            render: render_pass,
+            render,
             postprocess_descriptor_metadata,
             postprocess_pipeline,
-            postprocess: postprocess_pass,
+            postprocess,
             swapchain,
-            color,
-            depth,
-            offscreen,
-            render_framebuffer,
-            postprocess_framebuffers,
             postprocess_descriptor_sets,
             projection,
             command_pools,
@@ -200,15 +189,10 @@ impl Renderer {
 
         let (
             swapchain,
-            color,
-            depth,
-            offscreen,
             object_pipeline,
             render_pass,
-            render_framebuffer,
             postprocess_pipeline,
             postprocess_pass,
-            postprocess_framebuffers,
             postprocess_descriptor_sets,
             projection,
         ) = create_swapchain_all(
@@ -226,15 +210,10 @@ impl Renderer {
         // Doing the assignments at the end guarantees any operation won't fail in the middle, and
         // makes it possible to easily compare new values to old ones.
         self.swapchain = swapchain;
-        self.color = color;
-        self.depth = depth;
-        self.offscreen = offscreen;
         self.object_pipeline = object_pipeline;
         self.render = render_pass;
-        self.render_framebuffer = render_framebuffer;
         self.postprocess_pipeline = postprocess_pipeline;
         self.postprocess = postprocess_pass;
-        self.postprocess_framebuffers = postprocess_framebuffers;
         self.postprocess_descriptor_sets = postprocess_descriptor_sets;
         self.projection = projection;
     }
@@ -284,13 +263,6 @@ impl Renderer {
                     vk::DescriptorPoolResetFlags::empty(),
                 )
                 .unwrap();
-            for framebuffer in &self.postprocess_framebuffers {
-                self.dev.destroy_framebuffer(*framebuffer, None);
-            }
-            self.dev.destroy_framebuffer(self.render_framebuffer, None);
-            self.offscreen.cleanup(&self.dev);
-            self.depth.cleanup(&self.dev);
-            self.color.cleanup(&self.dev);
             self.swapchain.cleanup(&self.dev);
             self.object_pipeline.cleanup(&self.dev);
             self.postprocess_pipeline.cleanup(&self.dev);
@@ -495,22 +467,14 @@ fn create_swapchain_all(
     dev: &Dev,
 ) -> (
     Swapchain,
-    ImageResources,
-    ImageResources,
-    ImageResources,
     Pipeline,
     Pass,
-    vk::Framebuffer,
     Pipeline,
     Pass,
-    Vec<vk::Framebuffer>,
     [vk::DescriptorSet; FRAMES_IN_FLIGHT],
     Matrix4<f32>,
 ) {
     let swapchain = create_swapchain(surface, window_size, dev, surface_ext, swapchain_ext);
-    let color = create_color(swapchain.extent, msaa_samples, dev);
-    let depth = create_depth(swapchain.extent, msaa_samples, dev);
-    let offscreen = create_offscreen(swapchain.extent, dev);
     let render = create_render_pass(msaa_samples, swapchain.extent, dev);
     let object_pipeline = create_object_pipeline(
         object_descriptor_metadata,
@@ -519,45 +483,27 @@ fn create_swapchain_all(
         swapchain.extent,
         dev,
     );
-    let postprocess = create_postprocess_pass(swapchain.format.format, swapchain.extent, dev);
+    let postprocess =
+        create_postprocess_pass(swapchain.format.format, &swapchain, swapchain.extent, dev);
     let postprocess_pipeline = create_postprocess_pipeline(
         postprocess_descriptor_metadata,
         postprocess.pass,
         swapchain.extent,
         dev,
     );
-    let offscreen_framebuffer = create_render_framebuffers(
-        render.pass,
-        color.view,
-        depth.view,
-        offscreen.view,
-        swapchain.extent,
-        dev,
-    );
     let postprocess_descriptor_sets = create_postprocess_descriptor_sets(
-        offscreen.view,
+        render.resources[2].view,
         filters,
         postprocess_descriptor_metadata,
-        dev,
-    );
-    let framebuffers = create_postprocess_framebuffers(
-        postprocess.pass,
-        &swapchain.image_views,
-        swapchain.extent,
         dev,
     );
     let projection = compute_projection(swapchain.extent);
     (
         swapchain,
-        color,
-        depth,
-        offscreen,
         object_pipeline,
         render,
-        offscreen_framebuffer,
         postprocess_pipeline,
         postprocess,
-        framebuffers,
         postprocess_descriptor_sets,
         projection,
     )
@@ -576,15 +522,22 @@ fn create_render_pass(msaa_samples: vk::SampleCountFlags, extent: vk::Extent2D, 
         AttachmentConfig::new(COLOR_FORMAT)
             .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
             .store(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-            .resolve(),
+            .resolve()
+            .usage(vk::ImageUsageFlags::SAMPLED),
     ];
     create_pass(extent, dev, &attachments)
 }
 
-fn create_postprocess_pass(format: vk::Format, extent: vk::Extent2D, dev: &Dev) -> Pass {
+fn create_postprocess_pass(
+    format: vk::Format,
+    swapchain: &Swapchain,
+    extent: vk::Extent2D,
+    dev: &Dev,
+) -> Pass {
     let attachments = [AttachmentConfig::new(format)
         .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
-        .store(vk::ImageLayout::PRESENT_SRC_KHR)];
+        .store(vk::ImageLayout::PRESENT_SRC_KHR)
+        .swapchain(&swapchain.image_views)];
     create_pass(extent, dev, &attachments)
 }
 
@@ -729,92 +682,6 @@ fn create_command_buffers(
         *buffer = unsafe { dev.allocate_command_buffers(&buffer_info) }.unwrap()[0];
     }
     buffers
-}
-
-fn create_color(
-    swapchain_extent: vk::Extent2D,
-    msaa_samples: vk::SampleCountFlags,
-    dev: &Dev,
-) -> ImageResources {
-    ImageResources::create(
-        COLOR_FORMAT,
-        vk::MemoryPropertyFlags::DEVICE_LOCAL,
-        vk::ImageTiling::OPTIMAL,
-        vk::ImageUsageFlags::TRANSIENT_ATTACHMENT | vk::ImageUsageFlags::COLOR_ATTACHMENT,
-        vk::ImageAspectFlags::COLOR,
-        swapchain_extent,
-        msaa_samples,
-        dev,
-    )
-}
-
-fn create_offscreen(swapchain_extent: vk::Extent2D, dev: &Dev) -> ImageResources {
-    ImageResources::create(
-        COLOR_FORMAT,
-        vk::MemoryPropertyFlags::DEVICE_LOCAL,
-        vk::ImageTiling::OPTIMAL,
-        vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::SAMPLED,
-        vk::ImageAspectFlags::COLOR,
-        swapchain_extent,
-        vk::SampleCountFlags::TYPE_1,
-        dev,
-    )
-}
-
-fn create_depth(
-    swapchain_extent: vk::Extent2D,
-    msaa_samples: vk::SampleCountFlags,
-    dev: &Dev,
-) -> ImageResources {
-    ImageResources::create(
-        DEPTH_FORMAT,
-        vk::MemoryPropertyFlags::DEVICE_LOCAL,
-        vk::ImageTiling::OPTIMAL,
-        vk::ImageUsageFlags::TRANSIENT_ATTACHMENT | vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
-        vk::ImageAspectFlags::DEPTH,
-        swapchain_extent,
-        msaa_samples,
-        dev,
-    )
-}
-
-fn create_render_framebuffers(
-    render_pass: vk::RenderPass,
-    color_view: vk::ImageView,
-    depth_view: vk::ImageView,
-    offscreen_view: vk::ImageView,
-    swapchain_extent: vk::Extent2D,
-    dev: &Dev,
-) -> vk::Framebuffer {
-    let attachments = [color_view, depth_view, offscreen_view];
-    let framebuffer_info = vk::FramebufferCreateInfo::builder()
-        .render_pass(render_pass)
-        .attachments(&attachments)
-        .width(swapchain_extent.width)
-        .height(swapchain_extent.height)
-        .layers(1);
-    unsafe { dev.create_framebuffer(&framebuffer_info, None) }.unwrap()
-}
-
-fn create_postprocess_framebuffers(
-    postprocess_pass: vk::RenderPass,
-    swapchain_views: &[vk::ImageView],
-    swapchain_extent: vk::Extent2D,
-    dev: &Dev,
-) -> Vec<vk::Framebuffer> {
-    let mut framebuffers = Vec::new();
-    for view in swapchain_views {
-        let attachments = [*view];
-        let framebuffer_info = vk::FramebufferCreateInfo::builder()
-            .render_pass(postprocess_pass)
-            .attachments(&attachments)
-            .width(swapchain_extent.width)
-            .height(swapchain_extent.height)
-            .layers(1);
-        let framebuffer = unsafe { dev.create_framebuffer(&framebuffer_info, None) }.unwrap();
-        framebuffers.push(framebuffer);
-    }
-    framebuffers
 }
 
 fn create_offscreen_sampler(dev: &Dev) -> vk::Sampler {
