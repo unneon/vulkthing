@@ -34,7 +34,7 @@ void main() {
         rayQueryInitializeEXT(query, tlas, gl_RayFlagsTerminateOnFirstHitEXT, 0xff, frag_position, 0.01, light_dir, 1000.);
         rayQueryProceedEXT(query);
         if (rayQueryGetIntersectionTypeEXT(query, true) != gl_RayQueryCommittedIntersectionNoneEXT) {
-            diffuse = vec3(0);
+            diffuse *= 0.02;
         }
     }
 

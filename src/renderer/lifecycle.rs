@@ -765,7 +765,7 @@ fn create_sync(dev: &Dev) -> Synchronization {
 
 fn compute_projection(swapchain_extent: vk::Extent2D) -> Matrix4<f32> {
     let aspect_ratio = swapchain_extent.width as f32 / swapchain_extent.height as f32;
-    let mut proj = Matrix4::new_perspective(aspect_ratio, FRAC_PI_4, 1., 10000.);
+    let mut proj = Matrix4::new_perspective(aspect_ratio, FRAC_PI_4, 0.01, 100000.);
     proj[(1, 1)] *= -1.;
     proj
 }

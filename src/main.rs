@@ -4,6 +4,7 @@
 #![feature(option_as_slice)]
 #![feature(pointer_byte_offsets)]
 #![feature(inline_const)]
+#![feature(iter_array_chunks)]
 #![allow(clippy::collapsible_match)]
 #![allow(clippy::single_match)]
 #![allow(clippy::too_many_arguments)]
@@ -15,6 +16,7 @@ mod input;
 mod interface;
 mod logger;
 mod model;
+mod physics;
 mod planet;
 mod renderer;
 mod window;
@@ -25,6 +27,7 @@ use crate::input::InputState;
 use crate::interface::Interface;
 use crate::logger::initialize_logger;
 use crate::model::load_model;
+use crate::physics::Physics;
 use crate::planet::generate_planet;
 use crate::renderer::uniform::Filters;
 use crate::renderer::Renderer;
@@ -50,6 +53,7 @@ fn main() {
     let cube_model = load_model("assets/cube.obj");
     let mut planet = planet::Parameters::default();
     let planet_model = generate_planet(&planet);
+    let mut physics = Physics::new(&planet_model);
     let mut renderer = Renderer::new(&window, &[planet_model, cube_model]);
     let mut interface = Interface::new(
         renderer.swapchain.extent.width as usize,
@@ -105,7 +109,8 @@ fn main() {
                 let curr_update = Instant::now();
                 let delta_time = (curr_update - last_update).as_secs_f32();
                 last_update = curr_update;
-                world.update(delta_time, &input_state, args.demo);
+                physics.step(delta_time);
+                world.update(delta_time, &input_state, &physics, args.demo);
                 input_state.reset_after_frame();
                 interface.apply_cursor(input_state.camera_lock, &window.window);
                 let interface_events =

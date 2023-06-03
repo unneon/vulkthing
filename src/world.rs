@@ -1,6 +1,7 @@
 use crate::camera::Camera;
 use crate::input::InputState;
 use crate::interface::Editable;
+use crate::physics::Physics;
 use imgui::Ui;
 use nalgebra::{UnitQuaternion, Vector3};
 use std::f32::consts::PI;
@@ -30,7 +31,7 @@ pub struct Light {
     pub use_ray_tracing: bool,
 }
 
-const SUN_SCALE: f32 = 5.;
+const SUN_SCALE: f32 = 1.;
 const SUN_Z: f32 = 200.;
 
 impl World {
@@ -62,7 +63,7 @@ impl World {
         };
         let sun = Entity {
             position: light.position,
-            scale: Vector3::new(SUN_SCALE, SUN_SCALE, SUN_SCALE),
+            scale: Vector3::new(SUN_SCALE, SUN_SCALE, SUN_SCALE).scale(0.5),
             emit: sun_color,
             gpu_object: 1,
         };
@@ -74,9 +75,16 @@ impl World {
         }
     }
 
-    pub fn update(&mut self, delta_time: f32, input_state: &InputState, demo: bool) {
+    pub fn update(
+        &mut self,
+        delta_time: f32,
+        input_state: &InputState,
+        physics: &Physics,
+        demo: bool,
+    ) {
         self.camera.apply_input(input_state, delta_time, demo);
         self.light.update(delta_time);
+        self.light.position = *physics.get_ball_position();
         self.entities[1].position = self.light.position;
     }
 }
