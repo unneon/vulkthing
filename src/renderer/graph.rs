@@ -229,10 +229,7 @@ pub fn create_pass(extent: vk::Extent2D, dev: &Dev, configs: &[AttachmentConfig]
         .layers(1);
     if let Some(swapchain_index) = swapchain_index {
         for image in swapchain_views.unwrap() {
-            unsafe {
-                *(info.p_attachments.offset(swapchain_index as isize) as *mut vk::ImageView) =
-                    *image
-            };
+            unsafe { *(info.p_attachments.add(swapchain_index) as *mut vk::ImageView) = *image };
             let framebuffer = unsafe { dev.create_framebuffer(&info, None) }.unwrap();
             framebuffers.push(framebuffer);
         }

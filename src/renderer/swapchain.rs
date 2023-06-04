@@ -113,7 +113,7 @@ fn select_extent(
 }
 
 fn select_present_mode(_present_modes: &[vk::PresentModeKHR]) -> vk::PresentModeKHR {
-    vk::PresentModeKHR::MAILBOX
+    vk::PresentModeKHR::FIFO
 }
 
 fn create_handle(

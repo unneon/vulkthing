@@ -40,7 +40,7 @@ const COLOR_FORMAT: vk::Format = vk::Format::R16G16B16A16_SFLOAT;
 const DEPTH_FORMAT: vk::Format = vk::Format::D32_SFLOAT;
 
 impl Renderer {
-    pub fn new(window: &Window, models: &[Model]) -> Renderer {
+    pub fn new(window: &Window, models: &[&Model]) -> Renderer {
         let entry = unsafe { Entry::load() }.unwrap();
         let instance = create_instance(window, &entry);
         let extensions = VulkanExtensions {

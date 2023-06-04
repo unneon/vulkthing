@@ -27,7 +27,6 @@ use crate::input::InputState;
 use crate::interface::Interface;
 use crate::logger::initialize_logger;
 use crate::model::load_model;
-use crate::physics::Physics;
 use crate::planet::generate_planet;
 use crate::renderer::uniform::Filters;
 use crate::renderer::Renderer;
@@ -53,14 +52,13 @@ fn main() {
     let cube_model = load_model("assets/cube.obj");
     let mut planet = planet::Parameters::default();
     let planet_model = generate_planet(&planet);
-    let mut physics = Physics::new(&planet_model);
-    let mut renderer = Renderer::new(&window, &[planet_model, cube_model]);
+    let mut renderer = Renderer::new(&window, &[&planet_model, &cube_model]);
     let mut interface = Interface::new(
         renderer.swapchain.extent.width as usize,
         renderer.swapchain.extent.height as usize,
     );
     let mut input_state = InputState::new();
-    let mut world = World::new();
+    let mut world = World::new(&planet_model);
     let mut last_update = Instant::now();
     let mut filters = Filters::default();
     let mut old_size = window.window.inner_size();
@@ -109,8 +107,7 @@ fn main() {
                 let curr_update = Instant::now();
                 let delta_time = (curr_update - last_update).as_secs_f32();
                 last_update = curr_update;
-                physics.step(delta_time);
-                world.update(delta_time, &input_state, &physics, args.demo);
+                world.update(delta_time, &input_state, args.demo);
                 input_state.reset_after_frame();
                 interface.apply_cursor(input_state.camera_lock, &window.window);
                 let interface_events =

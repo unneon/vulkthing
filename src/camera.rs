@@ -28,12 +28,11 @@ impl Camera {
             normalize_or_zero(right * input.movement_horizontal() + front * input.movement_depth())
                 * movement_speed
                 * delta_time;
-        self.rotation = self.rotation
-            * UnitQuaternion::from_euler_angles(
-                input.camera_roll() * delta_time,
-                input.camera_pitch() * CAMERA_SENSITIVITY,
-                -input.camera_yaw() * CAMERA_SENSITIVITY,
-            );
+        self.rotation *= UnitQuaternion::from_euler_angles(
+            input.camera_roll() * delta_time,
+            input.camera_pitch() * CAMERA_SENSITIVITY,
+            -input.camera_yaw() * CAMERA_SENSITIVITY,
+        );
     }
 
     fn apply_demo(&mut self, delta_time: f32) {

@@ -239,9 +239,7 @@ impl Renderer {
     }
 
     fn update_object_uniforms(&self, world: &World, entity: &Entity) {
-        let model = Matrix4::identity()
-            .prepend_translation(&entity.position)
-            .prepend_nonuniform_scaling(&entity.scale);
+        let model = Matrix4::new_translation(&entity.position);
         let mvp = ModelViewProjection {
             model,
             view: world.camera.view_matrix(),

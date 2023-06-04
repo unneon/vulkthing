@@ -1,22 +1,25 @@
 use crate::camera::Camera;
 use crate::input::InputState;
 use crate::interface::Editable;
+use crate::model::Model;
 use crate::physics::Physics;
 use imgui::Ui;
 use nalgebra::{UnitQuaternion, Vector3};
+use rapier3d::dynamics::RigidBodyHandle;
 use std::f32::consts::PI;
 
 pub struct World {
     pub camera: Camera,
     pub light: Light,
     pub entities: [Entity; 2],
+    physics: Physics,
 }
 
 pub struct Entity {
     pub position: Vector3<f32>,
-    pub scale: Vector3<f32>,
     pub emit: Vector3<f32>,
     pub gpu_object: usize,
+    pub rigid_body: Option<RigidBodyHandle>,
 }
 
 pub struct Light {
@@ -31,11 +34,8 @@ pub struct Light {
     pub use_ray_tracing: bool,
 }
 
-const SUN_SCALE: f32 = 1.;
-const SUN_Z: f32 = 200.;
-
 impl World {
-    pub fn new() -> World {
+    pub fn new(planet_model: &Model) -> World {
         let sun_color = Vector3::new(1., 1., 1.);
         let camera = Camera {
             position: Vector3::new(-350., 0., 0.),
@@ -45,7 +45,7 @@ impl World {
         };
         let light_radius = 500.;
         let light = Light {
-            position: Vector3::new(-light_radius, 0., SUN_Z),
+            position: Vector3::new(0.1, 0.1, 200.),
             color: sun_color,
             ambient_strength: 0.05,
             diffuse_strength: 4.,
@@ -55,47 +55,39 @@ impl World {
             argument: 0.,
             use_ray_tracing: true,
         };
+        let mut physics = Physics::new();
+        physics.insert_static(physics.trimesh(planet_model));
         let planet = Entity {
             position: Vector3::new(0., 0., 0.),
-            scale: Vector3::new(1., 1., 1.),
             emit: Vector3::new(0., 0., 0.),
             gpu_object: 0,
+            rigid_body: None,
         };
+        let sun_collider = physics.cube(2.);
         let sun = Entity {
             position: light.position,
-            scale: Vector3::new(SUN_SCALE, SUN_SCALE, SUN_SCALE).scale(0.5),
             emit: sun_color,
             gpu_object: 1,
+            rigid_body: Some(physics.insert(light.position, sun_collider)),
         };
         let entities = [planet, sun];
         World {
             camera,
             light,
             entities,
+            physics,
         }
     }
 
-    pub fn update(
-        &mut self,
-        delta_time: f32,
-        input_state: &InputState,
-        physics: &Physics,
-        demo: bool,
-    ) {
+    pub fn update(&mut self, delta_time: f32, input_state: &InputState, demo: bool) {
+        self.physics.step(delta_time);
         self.camera.apply_input(input_state, delta_time, demo);
-        self.light.update(delta_time);
-        self.light.position = *physics.get_ball_position();
-        self.entities[1].position = self.light.position;
-    }
-}
-
-impl Light {
-    fn update(&mut self, delta_time: f32) {
-        if self.movement {
-            self.argument = (self.argument + self.speed * delta_time).rem_euclid(2. * PI);
-            self.position.x = -self.radius * self.argument.cos();
-            self.position.y = -self.radius * self.argument.sin();
+        for entity in &mut self.entities {
+            if let Some(rigid_body) = entity.rigid_body {
+                entity.position = self.physics.get_translation(rigid_body);
+            }
         }
+        self.light.position = self.entities[1].position;
     }
 }
 
