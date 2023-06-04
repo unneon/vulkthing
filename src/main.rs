@@ -32,8 +32,9 @@ use crate::renderer::vertex::GrassBlade;
 use crate::renderer::Renderer;
 use crate::window::create_window;
 use crate::world::World;
-use nalgebra::Vector3;
+use nalgebra::{Rotation3, Unit, Vector3};
 use rand::Rng;
+use std::f32::consts::PI;
 use std::time::Instant;
 use winit::event::{DeviceEvent, Event, StartCause, WindowEvent};
 
@@ -46,8 +47,6 @@ const WALK_SPEED: f32 = 1.;
 const SPRINT_SPEED: f32 = 100.;
 const CAMERA_SENSITIVITY: f32 = 0.01;
 
-const GRASS_BLADE_COUNT: usize = 10000;
-
 fn main() {
     initialize_logger();
     let window = create_window();
@@ -57,12 +56,37 @@ fn main() {
     let planet_model = generate_planet(&planet);
     let mut grass_blades = Vec::new();
     let mut rng = rand::thread_rng();
-    for _ in 0..GRASS_BLADE_COUNT {
-        let x = rng.gen_range((-2.)..2.);
-        let y = rng.gen_range((-5.)..5.);
-        grass_blades.push(GrassBlade {
-            position: Vector3::new(x, y, 0.),
-        });
+    for triangle in planet_model.vertices.array_chunks::<3>() {
+        let d1 = triangle[1].position - triangle[0].position;
+        let d2 = triangle[2].position - triangle[0].position;
+        for _ in 0..16 {
+            let mut t1: f32 = rng.gen();
+            let mut t2: f32 = rng.gen();
+            if t1 > t2 {
+                t1 = 1. - t1;
+                t2 = 1. - t2;
+            }
+            let position = triangle[0].position + t1 * d1 + t2 * d2;
+            let up = position.normalize();
+            let angle = rng.gen_range((0.)..(2. * PI));
+            // https://math.stackexchange.com/a/4112622
+            let right = (Rotation3::from_axis_angle(&Unit::new_normalize(up), angle)
+                * Vector3::new(
+                    up.z.copysign(up.x),
+                    up.z.copysign(up.y),
+                    -(up.x.abs() + up.y.abs()).copysign(up.z),
+                ))
+            .normalize();
+            let front = up.cross(&right).normalize();
+            grass_blades.push(GrassBlade {
+                position,
+                up,
+                right,
+                front,
+                width: 0.03,
+                height: 0.5,
+            });
+        }
     }
     let mut renderer = Renderer::new(
         &window,

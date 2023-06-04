@@ -45,7 +45,7 @@ impl World {
                 translation: Vector3::new(0., 0., 0.),
                 rotation: UnitQuaternion::identity(),
             },
-            diffuse: Vector3::new(1., 1., 1.),
+            diffuse: Vector3::new(0., 1., 0.),
             emit: Vector3::new(0., 0., 0.),
             gpu_object: 0,
             gpu_pipeline: 0,
@@ -64,7 +64,7 @@ impl World {
         };
         let grass = Entity {
             transform: Transform::Static {
-                translation: camera.position + Vector3::new(3., 0., -1.5),
+                translation: Vector3::zeros(),
                 rotation: UnitQuaternion::identity(),
             },
             diffuse: Vector3::new(0., 1., 0.),

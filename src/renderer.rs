@@ -21,7 +21,6 @@ use crate::renderer::uniform::{
 };
 use crate::renderer::util::{Buffer, Dev, UniformBuffer};
 use crate::world::{Entity, World};
-use crate::GRASS_BLADE_COUNT;
 use ash::extensions::ext::DebugUtils;
 use ash::extensions::khr::{Surface, Swapchain as SwapchainKhr};
 use ash::{vk, Entry};
@@ -78,6 +77,7 @@ pub struct Renderer {
     light: UniformBuffer<Light>,
     frag_settings: UniformBuffer<FragSettings>,
     objects: Vec<Object>,
+    blade_count: usize,
     blades: Buffer,
     tlas: RaytraceResources,
     blas: RaytraceResources,
@@ -226,7 +226,7 @@ impl Renderer {
                 if pipeline_index == 0 {
                     1
                 } else {
-                    GRASS_BLADE_COUNT as u32
+                    self.blade_count as u32
                 },
                 0,
                 0,

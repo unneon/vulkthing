@@ -28,9 +28,10 @@ layout(location = 0) out vec4 out_color;
 void main() {
     vec3 object_color = material.diffuse;
     vec3 light_dir = normalize(light.position - frag_position);
+    vec3 normal = gl_FrontFacing ? frag_normal : -frag_normal;
 
     vec3 ambient = light.ambient_strength * light.color * object_color;
-    vec3 diffuse = max(dot(frag_normal, light_dir), 0) * light.diffuse_strength * light.color * object_color;
+    vec3 diffuse = max(dot(normal, light_dir), 0) * light.diffuse_strength * light.color * object_color;
     vec3 emit = material.emit;
 
     if (settings.ray_traced_shadows) {
