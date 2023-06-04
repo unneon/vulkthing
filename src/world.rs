@@ -63,9 +63,9 @@ impl World {
         }
     }
 
-    pub fn update(&mut self, delta_time: f32, input_state: &InputState, demo: bool) {
+    pub fn update(&mut self, delta_time: f32, input_state: &InputState) {
         self.physics.step(delta_time);
-        self.camera.apply_input(input_state, delta_time, demo);
+        self.camera.apply_input(input_state, delta_time);
     }
 
     pub fn light(&self) -> Light {

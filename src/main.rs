@@ -11,7 +11,6 @@
 #![allow(clippy::type_complexity)]
 
 mod camera;
-mod cli;
 mod config;
 mod input;
 mod interface;
@@ -23,7 +22,6 @@ mod renderer;
 mod window;
 mod world;
 
-use crate::cli::Args;
 use crate::config::{DEFAULT_FRAG_SETTINGS, DEFAULT_PLANET, DEFAULT_POSTPROCESSING};
 use crate::input::InputState;
 use crate::interface::Interface;
@@ -33,8 +31,7 @@ use crate::planet::generate_planet;
 use crate::renderer::Renderer;
 use crate::window::create_window;
 use crate::world::World;
-use clap::Parser;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use winit::event::{DeviceEvent, Event, StartCause, WindowEvent};
 
 const VULKAN_APP_NAME: &str = "Vulkthing";
@@ -48,8 +45,7 @@ const CAMERA_SENSITIVITY: f32 = 0.01;
 
 fn main() {
     initialize_logger();
-    let args = Args::parse();
-    let window = create_window(args.demo);
+    let window = create_window();
     let cube_model = load_model("assets/cube.obj");
     let mut planet = DEFAULT_PLANET;
     let planet_model = generate_planet(&planet);
@@ -109,15 +105,11 @@ fn main() {
                 let curr_update = Instant::now();
                 let delta_time = (curr_update - last_update).as_secs_f32();
                 last_update = curr_update;
-                world.update(delta_time, &input_state, args.demo);
+                world.update(delta_time, &input_state);
                 input_state.reset_after_frame();
                 interface.apply_cursor(input_state.camera_lock, &window.window);
-                let interface_events = interface.build(
-                    &mut planet,
-                    &mut frag_settings,
-                    &mut postprocessing,
-                    args.demo,
-                );
+                let interface_events =
+                    interface.build(&mut planet, &mut frag_settings, &mut postprocessing);
                 if interface_events.planet_changed {
                     let planet_model = generate_planet(&planet);
                     renderer.recreate_planet(&planet_model);
@@ -130,9 +122,6 @@ fn main() {
                     window.window.inner_size(),
                     interface.draw_data(),
                 );
-                if args.demo {
-                    std::thread::sleep(Duration::from_millis(30));
-                }
             }
             // This event is only sent after MainEventsCleared, during which we render
             // unconditionally.

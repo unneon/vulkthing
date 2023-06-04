@@ -10,11 +10,7 @@ pub struct Camera {
 }
 
 impl Camera {
-    pub fn apply_input(&mut self, input: &InputState, delta_time: f32, demo: bool) {
-        if demo {
-            self.apply_demo(delta_time);
-            return;
-        }
+    pub fn apply_input(&mut self, input: &InputState, delta_time: f32) {
         let front = self.front_direction();
         let up = self.up_direction();
         let right = front.cross(&up);
@@ -33,13 +29,6 @@ impl Camera {
             input.camera_pitch() * CAMERA_SENSITIVITY,
             -input.camera_yaw() * CAMERA_SENSITIVITY,
         );
-    }
-
-    fn apply_demo(&mut self, delta_time: f32) {
-        self.time += delta_time;
-        let arg = 0.1 * self.time;
-        self.position = self.position.norm() * Vector3::new(-arg.cos(), -arg.sin(), 0.);
-        self.rotation = UnitQuaternion::from_euler_angles(0., 0., arg);
     }
 
     pub fn view_matrix(&self) -> Matrix4<f32> {

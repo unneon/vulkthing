@@ -27,15 +27,11 @@ impl Interface {
         planet: &mut Planet,
         frag_settings: &mut FragSettings,
         postprocessing: &mut Postprocessing,
-        demo: bool,
     ) -> InterfaceEvents {
         let ui = self.ctx.frame();
         let mut events = InterfaceEvents {
             planet_changed: false,
         };
-        if demo {
-            return events;
-        }
         ui.window("Debugging")
             .size([0., 0.], Condition::Always)
             .build(|| {
