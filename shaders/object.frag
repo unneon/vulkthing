@@ -11,10 +11,13 @@ layout(binding = 2) uniform Light {
     float ambient_strength;
     vec3 position;
     float diffuse_strength;
-    uint use_ray_tracing;
 } light;
 
-layout(binding = 3) uniform accelerationStructureEXT tlas;
+layout(binding = 3) uniform FragSettings {
+    bool ray_traced_shadows;
+} settings;
+
+layout(binding = 4) uniform accelerationStructureEXT tlas;
 
 layout(location = 0) in vec3 frag_position;
 layout(location = 1) in vec3 frag_normal;
@@ -29,7 +32,7 @@ void main() {
     vec3 diffuse = max(dot(frag_normal, light_dir), 0) * light.diffuse_strength * light.color * object_color;
     vec3 emit = material.emit;
 
-    if (light.use_ray_tracing != 0) {
+    if (settings.ray_traced_shadows) {
         rayQueryEXT query;
         rayQueryInitializeEXT(query, tlas, gl_RayFlagsTerminateOnFirstHitEXT, 0xff, frag_position, 0.01, light_dir, 1000.);
         rayQueryProceedEXT(query);

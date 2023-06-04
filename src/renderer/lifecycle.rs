@@ -10,7 +10,7 @@ use crate::renderer::pipeline::{create_pipeline, Pipeline, PipelineConfig, Verte
 use crate::renderer::raytracing::{create_blas, create_tlas};
 use crate::renderer::swapchain::{create_swapchain, Swapchain};
 use crate::renderer::traits::VertexOps;
-use crate::renderer::uniform::{Filters, Light, Material, ModelViewProjection};
+use crate::renderer::uniform::{Filters, FragSettings, Light, Material, ModelViewProjection};
 use crate::renderer::util::{find_max_msaa_samples, Buffer, Ctx, Dev};
 use crate::renderer::vertex::Vertex;
 use crate::renderer::{
@@ -100,10 +100,17 @@ impl Renderer {
         };
 
         let light = UniformBuffer::create(&dev);
+        let frag_settings = UniformBuffer::create(&dev);
 
         let mut objects = Vec::new();
         for model in models {
-            let object = create_object(model, &object_descriptor_metadata, &light, &ctx);
+            let object = create_object(
+                model,
+                &object_descriptor_metadata,
+                &light,
+                &frag_settings,
+                &ctx,
+            );
             objects.push(object);
         }
 
@@ -116,7 +123,7 @@ impl Renderer {
                     .acceleration_structures(&acceleration_structures);
                 let mut descriptor_writes = [*vk::WriteDescriptorSet::builder()
                     .dst_set(object.descriptor_sets[i])
-                    .dst_binding(3)
+                    .dst_binding(4)
                     .descriptor_type(vk::DescriptorType::ACCELERATION_STRUCTURE_KHR)
                     .push_next(&mut tlas_write)];
                 descriptor_writes[0].descriptor_count = 1;
@@ -149,6 +156,7 @@ impl Renderer {
             sync,
             flight_index: 0,
             light,
+            frag_settings,
             objects,
             blas,
             tlas,
@@ -235,6 +243,7 @@ impl Renderer {
             planet_model,
             &self.object_descriptor_metadata,
             &self.light,
+            &self.frag_settings,
             &ctx,
         );
         self.blas = create_blas(&self.objects[0], &ctx);
@@ -246,7 +255,7 @@ impl Renderer {
                     .acceleration_structures(&acceleration_structures);
                 let mut descriptor_writes = [*vk::WriteDescriptorSet::builder()
                     .dst_set(object.descriptor_sets[i])
-                    .dst_binding(3)
+                    .dst_binding(4)
                     .descriptor_type(vk::DescriptorType::ACCELERATION_STRUCTURE_KHR)
                     .push_next(&mut tlas_write)];
                 descriptor_writes[0].descriptor_count = 1;
@@ -306,6 +315,7 @@ impl Drop for Renderer {
                 object.cleanup(&self.dev, self.object_descriptor_metadata.pool);
             }
             self.light.cleanup(&self.dev);
+            self.frag_settings.cleanup(&self.dev);
             let as_ext = AccelerationStructure::new(&self.dev.instance, &self.dev);
             self.tlas.cleanup(&self.dev, &as_ext);
             self.blas.cleanup(&self.dev, &as_ext);
@@ -557,6 +567,10 @@ fn create_object_descriptor_metadata(dev: &Dev) -> DescriptorMetadata {
                 stage: vk::ShaderStageFlags::FRAGMENT,
             },
             Descriptor {
+                kind: DescriptorKind::UniformBuffer,
+                stage: vk::ShaderStageFlags::FRAGMENT,
+            },
+            Descriptor {
                 kind: DescriptorKind::AccelerationStructure,
                 stage: vk::ShaderStageFlags::FRAGMENT,
             },
@@ -570,6 +584,7 @@ fn create_object_descriptor_sets(
     mvp: &UniformBuffer<ModelViewProjection>,
     material: &UniformBuffer<Material>,
     light: &UniformBuffer<Light>,
+    frag_settings: &UniformBuffer<FragSettings>,
     metadata: &DescriptorMetadata,
     dev: &Dev,
 ) -> [vk::DescriptorSet; FRAMES_IN_FLIGHT] {
@@ -578,6 +593,7 @@ fn create_object_descriptor_sets(
             DescriptorValue::Buffer(mvp),
             DescriptorValue::Buffer(material),
             DescriptorValue::Buffer(light),
+            DescriptorValue::Buffer(frag_settings),
             // TLAS needs to be written separately later.
         ],
         dev,
@@ -695,15 +711,22 @@ fn create_offscreen_sampler(dev: &Dev) -> vk::Sampler {
 pub fn create_object(
     model: &Model,
     descriptor_metadata: &DescriptorMetadata,
-    light_buffer: &UniformBuffer<Light>,
+    light: &UniformBuffer<Light>,
+    frag_settings: &UniformBuffer<FragSettings>,
     ctx: &Ctx,
 ) -> Object {
     let vertex = create_vertex_buffer(&model.vertices, ctx);
     let index = create_index_buffer(&model.indices, ctx);
     let mvp = UniformBuffer::create(ctx.dev);
     let material = UniformBuffer::create(ctx.dev);
-    let descriptor_sets =
-        create_object_descriptor_sets(&mvp, &material, light_buffer, descriptor_metadata, ctx.dev);
+    let descriptor_sets = create_object_descriptor_sets(
+        &mvp,
+        &material,
+        light,
+        frag_settings,
+        descriptor_metadata,
+        ctx.dev,
+    );
     Object {
         triangle_count: model.indices.len() / 3,
         raw_vertex_count: model.vertices.len(),

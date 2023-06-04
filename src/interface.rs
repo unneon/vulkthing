@@ -1,6 +1,5 @@
 use crate::planet::Parameters;
-use crate::renderer::uniform::Filters;
-use crate::world::World;
+use crate::renderer::uniform::{Filters, FragSettings};
 use imgui::{Condition, Context, DrawData, FontSource, TreeNodeFlags, Ui};
 use winit::dpi::PhysicalPosition;
 use winit::event::{ElementState, MouseButton, VirtualKeyCode, WindowEvent};
@@ -111,8 +110,8 @@ impl Interface {
 
     pub fn build(
         &mut self,
-        world: &mut World,
         planet: &mut Parameters,
+        frag_settings: &mut FragSettings,
         filters: &mut Filters,
         demo: bool,
     ) -> InterfaceEvents {
@@ -126,8 +125,8 @@ impl Interface {
         ui.window("Debugging")
             .size([0., 0.], Condition::Always)
             .build(|| {
-                section(ui, world);
                 planet_changed = section(ui, planet);
+                section(ui, frag_settings);
                 section(ui, filters);
             });
         InterfaceEvents { planet_changed }
@@ -135,6 +134,16 @@ impl Interface {
 
     pub fn draw_data(&mut self) -> &DrawData {
         self.ctx.render()
+    }
+}
+
+impl Editable for FragSettings {
+    fn name(&self) -> &str {
+        "Fragment shader"
+    }
+
+    fn widget(&mut self, ui: &Ui) -> bool {
+        ui.checkbox("Ray-traced shadows", &mut self.use_ray_tracing)
     }
 }
 

@@ -1,33 +1,31 @@
 use crate::camera::Camera;
 use crate::input::InputState;
-use crate::interface::Editable;
 use crate::model::Model;
 use crate::physics::Physics;
-use imgui::Ui;
-use nalgebra::{UnitQuaternion, Vector3};
+use crate::renderer::uniform::Light;
+use nalgebra::{Matrix4, UnitQuaternion, Vector3};
 use rapier3d::dynamics::RigidBodyHandle;
 
 pub struct World {
-    pub camera: Camera,
-    pub light: Light,
-    pub entities: [Entity; 2],
+    camera: Camera,
+    entities: [Entity; 2],
     physics: Physics,
 }
 
 pub struct Entity {
-    pub position: Vector3<f32>,
-    pub rotation: UnitQuaternion<f32>,
-    pub emit: Vector3<f32>,
-    pub gpu_object: usize,
-    pub rigid_body: Option<RigidBodyHandle>,
+    transform: Transform,
+    emit: Vector3<f32>,
+    gpu_object: usize,
 }
 
-pub struct Light {
-    pub position: Vector3<f32>,
-    pub color: Vector3<f32>,
-    pub ambient_strength: f32,
-    pub diffuse_strength: f32,
-    pub use_ray_tracing: bool,
+enum Transform {
+    Static {
+        translation: Vector3<f32>,
+        rotation: UnitQuaternion<f32>,
+    },
+    Dynamic {
+        rigid_body: RigidBodyHandle,
+    },
 }
 
 impl World {
@@ -38,35 +36,28 @@ impl World {
             rotation: UnitQuaternion::from_euler_angles(0., 0., 0.),
             time: 0.,
         };
-        let light = Light {
-            position: Vector3::new(0.1, 0.1, 200.),
-            color: Vector3::new(1., 1., 1.),
-            ambient_strength: 0.05,
-            diffuse_strength: 4.,
-            use_ray_tracing: true,
-        };
         let mut physics = Physics::new();
         let planet_collider = physics.trimesh(planet_model);
         let planet = Entity {
-            position: Vector3::new(0., 0., 0.),
-            rotation: UnitQuaternion::identity(),
+            transform: Transform::Static {
+                translation: Vector3::new(0., 0., 0.),
+                rotation: UnitQuaternion::identity(),
+            },
             emit: Vector3::new(0., 0., 0.),
             gpu_object: 0,
-            rigid_body: None,
         };
-        physics.insert_static(planet_collider);
-        let sun_collider = physics.cube(2.);
+        physics.insert_static(planet_collider.friction(0.));
+        let sun_collider = physics.cube(2.).restitution(0.7);
         let sun = Entity {
-            position: light.position,
-            rotation: UnitQuaternion::identity(),
-            emit: light.color,
+            transform: Transform::Dynamic {
+                rigid_body: physics.insert(Vector3::new(0.1, 0.1, 200.), sun_collider),
+            },
+            emit: Vector3::new(1., 1., 1.),
             gpu_object: 1,
-            rigid_body: Some(physics.insert(light.position, sun_collider)),
         };
         let entities = [planet, sun];
         World {
             camera,
-            light,
             entities,
             physics,
         }
@@ -75,36 +66,50 @@ impl World {
     pub fn update(&mut self, delta_time: f32, input_state: &InputState, demo: bool) {
         self.physics.step(delta_time);
         self.camera.apply_input(input_state, delta_time, demo);
-        for entity in &mut self.entities {
-            if let Some(rigid_body) = entity.rigid_body {
-                entity.position = self.physics.get_translation(rigid_body);
-                entity.rotation = self.physics.get_rotation(rigid_body);
-            }
+    }
+
+    pub fn light(&self) -> Light {
+        Light {
+            position: self.entities[1].translation(&self),
+            color: self.entities[1].emit,
+            ambient_strength: 0.05,
+            diffuse_strength: 4.,
         }
-        self.light.position = self.entities[1].position;
+    }
+
+    pub fn view_matrix(&self) -> Matrix4<f32> {
+        self.camera.view_matrix()
+    }
+
+    pub fn entities(&self) -> &[Entity] {
+        &self.entities
     }
 }
 
-impl Editable for World {
-    fn name(&self) -> &str {
-        "World"
+impl Entity {
+    pub fn translation(&self, world: &World) -> Vector3<f32> {
+        match self.transform {
+            Transform::Static { translation, .. } => translation,
+            Transform::Dynamic { rigid_body } => world.physics.get_translation(rigid_body),
+        }
     }
 
-    fn widget(&mut self, ui: &Ui) -> bool {
-        let mut changed = false;
-        changed |= ui.slider(
-            "Light ambient strength",
-            0.,
-            0.3,
-            &mut self.light.ambient_strength,
-        );
-        changed |= ui.slider(
-            "Light diffuse strength",
-            0.,
-            32.,
-            &mut self.light.diffuse_strength,
-        );
-        changed |= ui.checkbox("Use ray tracing", &mut self.light.use_ray_tracing);
-        changed
+    pub fn rotation(&self, world: &World) -> UnitQuaternion<f32> {
+        match self.transform {
+            Transform::Static { rotation, .. } => rotation,
+            Transform::Dynamic { rigid_body } => world.physics.get_rotation(rigid_body),
+        }
+    }
+
+    pub fn model_matrix(&self, world: &World) -> Matrix4<f32> {
+        Matrix4::new_translation(&self.translation(world)) * self.rotation(world).to_homogeneous()
+    }
+
+    pub fn emit(&self) -> Vector3<f32> {
+        self.emit
+    }
+
+    pub fn gpu_object(&self) -> usize {
+        self.gpu_object
     }
 }

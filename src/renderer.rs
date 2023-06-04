@@ -17,7 +17,7 @@ use crate::renderer::graph::Pass;
 use crate::renderer::pipeline::Pipeline;
 use crate::renderer::raytracing::RaytraceResources;
 use crate::renderer::swapchain::Swapchain;
-use crate::renderer::uniform::{Filters, Light, Material, ModelViewProjection};
+use crate::renderer::uniform::{Filters, FragSettings, Light, Material, ModelViewProjection};
 use crate::renderer::util::{Buffer, Dev, UniformBuffer};
 use crate::world::{Entity, World};
 use ash::extensions::ext::DebugUtils;
@@ -73,6 +73,7 @@ pub struct Renderer {
     // And finally resources specific to this renderer. So various buffers related to objects we
     // actually render, their descriptor sets and the like.
     light: UniformBuffer<Light>,
+    frag_settings: UniformBuffer<FragSettings>,
     objects: Vec<Object>,
     tlas: RaytraceResources,
     blas: RaytraceResources,
@@ -107,6 +108,7 @@ impl Renderer {
     pub fn draw_frame(
         &mut self,
         world: &World,
+        frag_settings: &FragSettings,
         filters: &Filters,
         window_size: PhysicalSize<u32>,
         ui_draw: &DrawData,
@@ -115,10 +117,11 @@ impl Renderer {
             return;
         };
         unsafe { self.record_command_buffer(image_index, world, ui_draw) };
-        for entity in &world.entities {
+        for entity in world.entities() {
             self.update_object_uniforms(world, entity);
         }
         self.update_light_uniform(world);
+        self.update_frag_settings_uniform(frag_settings);
         self.update_filters_uniform(filters);
         self.submit_graphics();
         self.submit_present(image_index);
@@ -183,8 +186,8 @@ impl Renderer {
             vk::PipelineBindPoint::GRAPHICS,
             self.object_pipeline.pipeline,
         );
-        for entity in &world.entities {
-            let object = &self.objects[entity.gpu_object];
+        for entity in world.entities() {
+            let object = &self.objects[entity.gpu_object()];
             self.dev.cmd_bind_descriptor_sets(
                 buf,
                 vk::PipelineBindPoint::GRAPHICS,
@@ -239,30 +242,28 @@ impl Renderer {
     }
 
     fn update_object_uniforms(&self, world: &World, entity: &Entity) {
-        let model = Matrix4::new_translation(&entity.position) * entity.rotation.to_homogeneous();
         let mvp = ModelViewProjection {
-            model,
-            view: world.camera.view_matrix(),
+            model: entity.model_matrix(world),
+            view: world.view_matrix(),
             proj: self.projection,
         };
-        let material = Material { emit: entity.emit };
-        self.objects[entity.gpu_object]
+        let material = Material {
+            emit: entity.emit(),
+        };
+        self.objects[entity.gpu_object()]
             .mvp
             .write(self.flight_index, &mvp);
-        self.objects[entity.gpu_object]
+        self.objects[entity.gpu_object()]
             .material
             .write(self.flight_index, &material);
     }
 
     fn update_light_uniform(&self, world: &World) {
-        let light = Light {
-            color: world.light.color,
-            position: world.light.position,
-            ambient_strength: world.light.ambient_strength,
-            diffuse_strength: world.light.diffuse_strength,
-            use_ray_tracing: if world.light.use_ray_tracing { 1 } else { 0 },
-        };
-        self.light.write(self.flight_index, &light);
+        self.light.write(self.flight_index, &world.light());
+    }
+
+    fn update_frag_settings_uniform(&self, frag_settings: &FragSettings) {
+        self.frag_settings.write(self.flight_index, frag_settings);
     }
 
     fn update_filters_uniform(&self, filters: &Filters) {

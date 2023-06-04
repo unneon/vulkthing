@@ -12,6 +12,7 @@
 
 mod camera;
 mod cli;
+mod config;
 mod input;
 mod interface;
 mod logger;
@@ -23,6 +24,7 @@ mod window;
 mod world;
 
 use crate::cli::Args;
+use crate::config::DEFAULT_FRAG_SETTINGS;
 use crate::input::InputState;
 use crate::interface::Interface;
 use crate::logger::initialize_logger;
@@ -60,6 +62,7 @@ fn main() {
     let mut input_state = InputState::new();
     let mut world = World::new(&planet_model);
     let mut last_update = Instant::now();
+    let mut frag_settings = DEFAULT_FRAG_SETTINGS;
     let mut filters = Filters::default();
     let mut old_size = window.window.inner_size();
 
@@ -111,7 +114,7 @@ fn main() {
                 input_state.reset_after_frame();
                 interface.apply_cursor(input_state.camera_lock, &window.window);
                 let interface_events =
-                    interface.build(&mut world, &mut planet, &mut filters, args.demo);
+                    interface.build(&mut planet, &mut frag_settings, &mut filters, args.demo);
                 if interface_events.planet_changed {
                     let planet_model = generate_planet(&planet);
                     renderer.recreate_planet(&planet_model);
@@ -119,6 +122,7 @@ fn main() {
 
                 renderer.draw_frame(
                     &world,
+                    &frag_settings,
                     &filters,
                     window.window.inner_size(),
                     interface.draw_data(),

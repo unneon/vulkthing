@@ -23,7 +23,13 @@ pub struct Light {
     pub ambient_strength: f32,
     pub position: Vector3<f32>,
     pub diffuse_strength: f32,
-    pub use_ray_tracing: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct FragSettings {
+    pub use_ray_tracing: bool,
+    pub _pad0: [u8; 3],
 }
 
 #[repr(C)]
