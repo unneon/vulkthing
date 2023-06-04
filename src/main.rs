@@ -62,7 +62,7 @@ fn main() {
         for _ in 0..16 {
             let mut t1: f32 = rng.gen();
             let mut t2: f32 = rng.gen();
-            if t1 > t2 {
+            if t1 + t2 > 1. {
                 t1 = 1. - t1;
                 t2 = 1. - t2;
             }
