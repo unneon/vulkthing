@@ -3,6 +3,7 @@ use log::debug;
 use nalgebra::Vector3;
 use tobj::LoadOptions;
 
+#[derive(Debug)]
 pub struct Model {
     pub vertices: Vec<Vertex>,
     pub indices: Vec<u32>,
@@ -19,16 +20,15 @@ pub fn load_model(obj_path: &str) -> Model {
         ..Default::default()
     };
     let models = tobj::load_obj(obj_path, &load_options).unwrap().0;
-    let (mut vertices, indices) = flatten_models(&models);
-    scale_mesh(&mut vertices);
+    let model = flatten_models(&models);
     debug!(
         "model OBJ loaded, \x1B[1mfile\x1B[0m: {obj_path}, \x1B[1mvertices\x1B[0m: {}",
-        vertices.len()
+        model.vertices.len()
     );
-    Model { vertices, indices }
+    model
 }
 
-fn flatten_models(models: &[tobj::Model]) -> (Vec<Vertex>, Vec<u32>) {
+fn flatten_models(models: &[tobj::Model]) -> Model {
     // OBJ format supports quite complex models with many materials and meshes, but temporarily
     // let's just throw all of it into a single vertex buffer.
     let mut vertices = Vec::new();
@@ -58,18 +58,5 @@ fn flatten_models(models: &[tobj::Model]) -> (Vec<Vertex>, Vec<u32>) {
         v2.normal = normal;
         v3.normal = normal;
     }
-    (vertices, indices)
-}
-
-fn scale_mesh(vertices: &mut [Vertex]) {
-    let mut min = Vector3::new(f32::INFINITY, f32::INFINITY, f32::INFINITY);
-    let mut max = Vector3::new(f32::NEG_INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY);
-    for vertex in vertices.iter_mut() {
-        min = min.inf(&vertex.position);
-        max = max.sup(&vertex.position);
-    }
-    for vertex in vertices.iter_mut() {
-        vertex.position =
-            ((vertex.position - min).component_div(&(max - min)) * 2.).add_scalar(-1.);
-    }
+    Model { vertices, indices }
 }

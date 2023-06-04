@@ -8,7 +8,7 @@ use rapier3d::dynamics::RigidBodyHandle;
 
 pub struct World {
     camera: Camera,
-    entities: [Entity; 2],
+    entities: [Entity; 3],
     physics: Physics,
 }
 
@@ -55,7 +55,15 @@ impl World {
             emit: Vector3::new(1., 1., 1.),
             gpu_object: 1,
         };
-        let entities = [planet, sun];
+        let grass = Entity {
+            transform: Transform::Static {
+                translation: camera.position + Vector3::new(3., 0., -1.5),
+                rotation: UnitQuaternion::identity(),
+            },
+            emit: Vector3::new(0., 1., 0.),
+            gpu_object: 2,
+        };
+        let entities = [planet, sun, grass];
         World {
             camera,
             entities,

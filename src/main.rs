@@ -47,9 +47,10 @@ fn main() {
     initialize_logger();
     let window = create_window();
     let cube_model = load_model("assets/cube.obj");
+    let grass_model = load_model("assets/grass.obj");
     let mut planet = DEFAULT_PLANET;
     let planet_model = generate_planet(&planet);
-    let mut renderer = Renderer::new(&window, &[&planet_model, &cube_model]);
+    let mut renderer = Renderer::new(&window, &[&planet_model, &cube_model, &grass_model]);
     let mut interface = Interface::new(
         renderer.swapchain.extent.width as usize,
         renderer.swapchain.extent.height as usize,

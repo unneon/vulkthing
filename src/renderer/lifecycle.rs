@@ -577,7 +577,7 @@ fn create_object_descriptor_metadata(dev: &Dev) -> DescriptorMetadata {
                 stage: vk::ShaderStageFlags::FRAGMENT,
             },
         ],
-        set_count: 2,
+        set_count: 3,
         dev,
     })
 }
