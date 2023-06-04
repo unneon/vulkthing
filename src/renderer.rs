@@ -7,7 +7,6 @@ mod pipeline;
 mod raytracing;
 mod shader;
 mod swapchain;
-mod traits;
 pub mod uniform;
 mod util;
 pub mod vertex;
@@ -22,6 +21,7 @@ use crate::renderer::uniform::{
 };
 use crate::renderer::util::{Buffer, Dev, UniformBuffer};
 use crate::world::{Entity, World};
+use crate::GRASS_BLADE_COUNT;
 use ash::extensions::ext::DebugUtils;
 use ash::extensions::khr::{Surface, Swapchain as SwapchainKhr};
 use ash::{vk, Entry};
@@ -49,6 +49,7 @@ pub struct Renderer {
     // only low-level data format descriptions.
     object_descriptor_metadata: DescriptorMetadata,
     object_pipeline: Pipeline,
+    grass_pipeline: Pipeline,
     render: Pass,
 
     // Description of the postprocessing pass, and also the actual descriptor pool. Necessary,
@@ -77,6 +78,7 @@ pub struct Renderer {
     light: UniformBuffer<Light>,
     frag_settings: UniformBuffer<FragSettings>,
     objects: Vec<Object>,
+    blades: Buffer,
     tlas: RaytraceResources,
     blas: RaytraceResources,
 
@@ -183,27 +185,53 @@ impl Renderer {
         self.dev
             .cmd_begin_render_pass(buf, &pass, vk::SubpassContents::INLINE);
 
-        self.dev.cmd_bind_pipeline(
-            buf,
-            vk::PipelineBindPoint::GRAPHICS,
-            self.object_pipeline.pipeline,
-        );
+        let mut pipeline_index = usize::MAX;
+        let mut pipeline = &self.object_pipeline;
         for entity in world.entities() {
             let object = &self.objects[entity.gpu_object()];
+            if entity.gpu_pipeline() != pipeline_index {
+                pipeline_index = entity.gpu_pipeline();
+                if pipeline_index == 0 {
+                    pipeline = &self.object_pipeline;
+                } else {
+                    pipeline = &self.grass_pipeline;
+                }
+                self.dev
+                    .cmd_bind_pipeline(buf, vk::PipelineBindPoint::GRAPHICS, pipeline.pipeline);
+            }
             self.dev.cmd_bind_descriptor_sets(
                 buf,
                 vk::PipelineBindPoint::GRAPHICS,
-                self.object_pipeline.layout,
+                pipeline.layout,
                 0,
                 &[object.descriptor_sets[self.flight_index]],
                 &[],
             );
-            self.dev
-                .cmd_bind_vertex_buffers(buf, 0, &[object.vertex.buffer], &[0]);
+            if pipeline_index == 0 {
+                self.dev
+                    .cmd_bind_vertex_buffers(buf, 0, &[object.vertex.buffer], &[0]);
+            } else {
+                self.dev.cmd_bind_vertex_buffers(
+                    buf,
+                    0,
+                    &[object.vertex.buffer, self.blades.buffer],
+                    &[0, 0],
+                );
+            }
             self.dev
                 .cmd_bind_index_buffer(buf, object.index.buffer, 0, vk::IndexType::UINT32);
-            self.dev
-                .cmd_draw_indexed(buf, 3 * object.triangle_count as u32, 1, 0, 0, 0);
+            self.dev.cmd_draw_indexed(
+                buf,
+                3 * object.triangle_count as u32,
+                if pipeline_index == 0 {
+                    1
+                } else {
+                    GRASS_BLADE_COUNT as u32
+                },
+                0,
+                0,
+                0,
+            );
         }
 
         self.dev.cmd_end_render_pass(buf);
@@ -250,6 +278,8 @@ impl Renderer {
             proj: self.projection,
         };
         let material = Material {
+            diffuse: entity.diffuse(),
+            _pad0: 0.,
             emit: entity.emit(),
         };
         self.objects[entity.gpu_object()]

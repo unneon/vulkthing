@@ -10,19 +10,16 @@ pub struct Pipeline {
 pub struct PipelineConfig<'a> {
     pub vertex_shader_path: &'a str,
     pub fragment_shader_path: &'a str,
-    pub vertex_layout: Option<VertexLayout>,
+    pub vertex_bindings: &'a [vk::VertexInputBindingDescription],
+    pub vertex_attributes: &'a [vk::VertexInputAttributeDescription],
     pub msaa_samples: vk::SampleCountFlags,
     pub polygon_mode: vk::PolygonMode,
+    pub cull_mode: vk::CullModeFlags,
     pub descriptor_layouts: &'a [vk::DescriptorSetLayout],
     pub depth_test: bool,
     pub pass: vk::RenderPass,
     pub dev: &'a Dev,
     pub swapchain_extent: vk::Extent2D,
-}
-
-pub struct VertexLayout {
-    pub stride: usize,
-    pub attribute_descriptions: Vec<vk::VertexInputAttributeDescription>,
 }
 
 impl Pipeline {
@@ -49,23 +46,9 @@ pub fn create_pipeline(config: PipelineConfig) -> Pipeline {
     );
     let shader_stages = [vertex_shader.stage_info, fragment_shader.stage_info];
 
-    // Vertex data can be spread over many buffers for data locality reasons, and also be bound per
-    // instance for instancing. But for this project I'll use either a bindless design or mesh
-    // shaders eventually so this probably shouldn't matter. Not 100% sure.
-    let (vertex_binding_descriptions, vertex_attribute_descriptions) =
-        if let Some(vertex_layout) = config.vertex_layout {
-            let vertex_binding_descriptions = vec![*vk::VertexInputBindingDescription::builder()
-                .binding(0)
-                .stride(vertex_layout.stride as u32)
-                .input_rate(vk::VertexInputRate::VERTEX)];
-            let vertex_attribute_descriptions = vertex_layout.attribute_descriptions;
-            (vertex_binding_descriptions, vertex_attribute_descriptions)
-        } else {
-            (vec![], vec![])
-        };
     let vertex_input = *vk::PipelineVertexInputStateCreateInfo::builder()
-        .vertex_binding_descriptions(&vertex_binding_descriptions)
-        .vertex_attribute_descriptions(&vertex_attribute_descriptions);
+        .vertex_binding_descriptions(config.vertex_bindings)
+        .vertex_attribute_descriptions(config.vertex_attributes);
 
     // Apparently triangle strips only make sense on older hardware, so I won't be using any other
     // options.
@@ -96,7 +79,7 @@ pub fn create_pipeline(config: PipelineConfig) -> Pipeline {
         .rasterizer_discard_enable(false)
         .polygon_mode(config.polygon_mode)
         .line_width(1.)
-        .cull_mode(vk::CullModeFlags::BACK)
+        .cull_mode(config.cull_mode)
         .front_face(vk::FrontFace::COUNTER_CLOCKWISE)
         .depth_bias_enable(false)
         .depth_bias_constant_factor(0.)

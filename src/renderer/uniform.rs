@@ -13,6 +13,8 @@ pub struct ModelViewProjection {
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct Material {
+    pub diffuse: Vector3<f32>,
+    pub _pad0: f32,
     pub emit: Vector3<f32>,
 }
 

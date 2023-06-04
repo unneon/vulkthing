@@ -28,9 +28,12 @@ use crate::interface::Interface;
 use crate::logger::initialize_logger;
 use crate::model::load_model;
 use crate::planet::generate_planet;
+use crate::renderer::vertex::GrassBlade;
 use crate::renderer::Renderer;
 use crate::window::create_window;
 use crate::world::World;
+use nalgebra::Vector3;
+use rand::Rng;
 use std::time::Instant;
 use winit::event::{DeviceEvent, Event, StartCause, WindowEvent};
 
@@ -43,6 +46,8 @@ const WALK_SPEED: f32 = 1.;
 const SPRINT_SPEED: f32 = 100.;
 const CAMERA_SENSITIVITY: f32 = 0.01;
 
+const GRASS_BLADE_COUNT: usize = 10000;
+
 fn main() {
     initialize_logger();
     let window = create_window();
@@ -50,7 +55,20 @@ fn main() {
     let grass_model = load_model("assets/grass.obj");
     let mut planet = DEFAULT_PLANET;
     let planet_model = generate_planet(&planet);
-    let mut renderer = Renderer::new(&window, &[&planet_model, &cube_model, &grass_model]);
+    let mut grass_blades = Vec::new();
+    let mut rng = rand::thread_rng();
+    for _ in 0..GRASS_BLADE_COUNT {
+        let x = rng.gen_range((-2.)..2.);
+        let y = rng.gen_range((-5.)..5.);
+        grass_blades.push(GrassBlade {
+            position: Vector3::new(x, y, 0.),
+        });
+    }
+    let mut renderer = Renderer::new(
+        &window,
+        &[&planet_model, &cube_model, &grass_model],
+        &grass_blades,
+    );
     let mut interface = Interface::new(
         renderer.swapchain.extent.width as usize,
         renderer.swapchain.extent.height as usize,

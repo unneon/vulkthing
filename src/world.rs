@@ -14,8 +14,10 @@ pub struct World {
 
 pub struct Entity {
     transform: Transform,
+    diffuse: Vector3<f32>,
     emit: Vector3<f32>,
     gpu_object: usize,
+    gpu_pipeline: usize,
 }
 
 enum Transform {
@@ -43,25 +45,32 @@ impl World {
                 translation: Vector3::new(0., 0., 0.),
                 rotation: UnitQuaternion::identity(),
             },
+            diffuse: Vector3::new(1., 1., 1.),
             emit: Vector3::new(0., 0., 0.),
             gpu_object: 0,
+            gpu_pipeline: 0,
         };
         physics.insert_static(planet_collider.friction(0.));
         let sun_collider = physics.cube(2.).restitution(0.7);
         let sun = Entity {
             transform: Transform::Dynamic {
-                rigid_body: physics.insert(Vector3::new(-0.2, 0., 200.), sun_collider),
+                rigid_body: physics
+                    .insert(camera.position + Vector3::new(-3., 5., 5.), sun_collider),
             },
+            diffuse: Vector3::new(0., 0., 0.),
             emit: Vector3::new(1., 1., 1.),
             gpu_object: 1,
+            gpu_pipeline: 0,
         };
         let grass = Entity {
             transform: Transform::Static {
                 translation: camera.position + Vector3::new(3., 0., -1.5),
                 rotation: UnitQuaternion::identity(),
             },
-            emit: Vector3::new(0., 1., 0.),
+            diffuse: Vector3::new(0., 1., 0.),
+            emit: Vector3::new(0., 0., 0.),
             gpu_object: 2,
+            gpu_pipeline: 1,
         };
         let entities = [planet, sun, grass];
         World {
@@ -113,11 +122,19 @@ impl Entity {
         Matrix4::new_translation(&self.translation(world)) * self.rotation(world).to_homogeneous()
     }
 
+    pub fn diffuse(&self) -> Vector3<f32> {
+        self.diffuse
+    }
+
     pub fn emit(&self) -> Vector3<f32> {
         self.emit
     }
 
     pub fn gpu_object(&self) -> usize {
         self.gpu_object
+    }
+
+    pub fn gpu_pipeline(&self) -> usize {
+        self.gpu_pipeline
     }
 }

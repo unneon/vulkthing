@@ -12,13 +12,13 @@ pub const DEFAULT_PLANET: Planet = Planet {
 };
 
 pub const DEFAULT_FRAG_SETTINGS: FragSettings = FragSettings {
-    use_ray_tracing: true,
+    use_ray_tracing: false,
     _pad0: [0; 3],
 };
 
 pub const DEFAULT_POSTPROCESSING: Postprocessing = Postprocessing {
     exposure: 1.,
-    temperature: -0.7,
+    temperature: 0.,
     tint: 0.,
     contrast: 1.,
     brightness: 0.,

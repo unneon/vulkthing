@@ -6,15 +6,14 @@ use crate::renderer::descriptors::{
 };
 use crate::renderer::device::{select_device, DeviceInfo};
 use crate::renderer::graph::{create_pass, AttachmentConfig, Pass};
-use crate::renderer::pipeline::{create_pipeline, Pipeline, PipelineConfig, VertexLayout};
+use crate::renderer::pipeline::{create_pipeline, Pipeline, PipelineConfig};
 use crate::renderer::raytracing::{create_blas, create_tlas};
 use crate::renderer::swapchain::{create_swapchain, Swapchain};
-use crate::renderer::traits::VertexOps;
 use crate::renderer::uniform::{
     FragSettings, Light, Material, ModelViewProjection, Postprocessing,
 };
 use crate::renderer::util::{find_max_msaa_samples, Buffer, Ctx, Dev};
-use crate::renderer::vertex::Vertex;
+use crate::renderer::vertex::{GrassBlade, Vertex};
 use crate::renderer::{
     Object, Renderer, Synchronization, UniformBuffer, VulkanExtensions, FRAMES_IN_FLIGHT,
 };
@@ -42,7 +41,7 @@ const COLOR_FORMAT: vk::Format = vk::Format::R16G16B16A16_SFLOAT;
 const DEPTH_FORMAT: vk::Format = vk::Format::D32_SFLOAT;
 
 impl Renderer {
-    pub fn new(window: &Window, models: &[&Model]) -> Renderer {
+    pub fn new(window: &Window, models: &[&Model], blades_data: &[GrassBlade]) -> Renderer {
         let entry = unsafe { Entry::load() }.unwrap();
         let instance = create_instance(window, &entry);
         let extensions = VulkanExtensions {
@@ -75,6 +74,7 @@ impl Renderer {
         let (
             swapchain,
             object_pipeline,
+            grass_pipeline,
             render,
             postprocess_pipeline,
             postprocess,
@@ -115,6 +115,7 @@ impl Renderer {
             );
             objects.push(object);
         }
+        let blades = create_blade_buffer(blades_data, &ctx);
 
         let blas = create_blas(&objects[0], &ctx);
         let tlas = create_tlas(&blas, &ctx);
@@ -146,6 +147,7 @@ impl Renderer {
             postprocessing,
             object_descriptor_metadata,
             object_pipeline,
+            grass_pipeline,
             render,
             postprocess_descriptor_metadata,
             postprocess_pipeline,
@@ -160,6 +162,7 @@ impl Renderer {
             light,
             frag_settings,
             objects,
+            blades,
             blas,
             tlas,
             interface_renderer: None,
@@ -200,6 +203,7 @@ impl Renderer {
         let (
             swapchain,
             object_pipeline,
+            grass_pipeline,
             render_pass,
             postprocess_pipeline,
             postprocess_pass,
@@ -221,6 +225,7 @@ impl Renderer {
         // makes it possible to easily compare new values to old ones.
         self.swapchain = swapchain;
         self.object_pipeline = object_pipeline;
+        self.grass_pipeline = grass_pipeline;
         self.render = render_pass;
         self.postprocess_pipeline = postprocess_pipeline;
         self.postprocess = postprocess_pass;
@@ -276,6 +281,7 @@ impl Renderer {
                 .unwrap();
             self.swapchain.cleanup(&self.dev);
             self.object_pipeline.cleanup(&self.dev);
+            self.grass_pipeline.cleanup(&self.dev);
             self.postprocess_pipeline.cleanup(&self.dev);
             self.render.cleanup(&self.dev);
             self.postprocess.cleanup(&self.dev);
@@ -316,6 +322,7 @@ impl Drop for Renderer {
             for object in &self.objects {
                 object.cleanup(&self.dev, self.object_descriptor_metadata.pool);
             }
+            self.blades.cleanup(&self.dev);
             self.light.cleanup(&self.dev);
             self.frag_settings.cleanup(&self.dev);
             let as_ext = AccelerationStructure::new(&self.dev.instance, &self.dev);
@@ -480,6 +487,7 @@ fn create_swapchain_all(
 ) -> (
     Swapchain,
     Pipeline,
+    Pipeline,
     Pass,
     Pipeline,
     Pass,
@@ -489,6 +497,13 @@ fn create_swapchain_all(
     let swapchain = create_swapchain(surface, window_size, dev, surface_ext, swapchain_ext);
     let render = create_render_pass(msaa_samples, swapchain.extent, dev);
     let object_pipeline = create_object_pipeline(
+        object_descriptor_metadata,
+        msaa_samples,
+        render.pass,
+        swapchain.extent,
+        dev,
+    );
+    let grass_pipeline = create_grass_pipeline(
         object_descriptor_metadata,
         msaa_samples,
         render.pass,
@@ -513,6 +528,7 @@ fn create_swapchain_all(
     (
         swapchain,
         object_pipeline,
+        grass_pipeline,
         render,
         postprocess_pipeline,
         postprocess,
@@ -644,12 +660,81 @@ fn create_object_pipeline(
     create_pipeline(PipelineConfig {
         vertex_shader_path: "shaders/object.vert",
         fragment_shader_path: "shaders/object.frag",
-        vertex_layout: Some(VertexLayout {
-            stride: std::mem::size_of::<Vertex>(),
-            attribute_descriptions: Vertex::attribute_descriptions(0),
-        }),
+        vertex_bindings: &[vk::VertexInputBindingDescription {
+            binding: 0,
+            stride: 24,
+            input_rate: vk::VertexInputRate::VERTEX,
+        }],
+        vertex_attributes: &[
+            vk::VertexInputAttributeDescription {
+                binding: 0,
+                location: 0,
+                format: vk::Format::R32G32B32_SFLOAT,
+                offset: 0,
+            },
+            vk::VertexInputAttributeDescription {
+                binding: 0,
+                location: 1,
+                format: vk::Format::R32G32B32_SFLOAT,
+                offset: 12,
+            },
+        ],
         msaa_samples,
         polygon_mode: vk::PolygonMode::FILL,
+        cull_mode: vk::CullModeFlags::BACK,
+        descriptor_layouts: &[descriptor_metadata.set_layout],
+        depth_test: true,
+        pass,
+        dev,
+        swapchain_extent,
+    })
+}
+
+fn create_grass_pipeline(
+    descriptor_metadata: &DescriptorMetadata,
+    msaa_samples: vk::SampleCountFlags,
+    pass: vk::RenderPass,
+    swapchain_extent: vk::Extent2D,
+    dev: &Dev,
+) -> Pipeline {
+    create_pipeline(PipelineConfig {
+        vertex_shader_path: "shaders/grass.vert",
+        fragment_shader_path: "shaders/grass.frag",
+        vertex_bindings: &[
+            vk::VertexInputBindingDescription {
+                binding: 0,
+                stride: 24,
+                input_rate: vk::VertexInputRate::VERTEX,
+            },
+            vk::VertexInputBindingDescription {
+                binding: 1,
+                stride: 12,
+                input_rate: vk::VertexInputRate::INSTANCE,
+            },
+        ],
+        vertex_attributes: &[
+            vk::VertexInputAttributeDescription {
+                binding: 0,
+                location: 0,
+                format: vk::Format::R32G32B32_SFLOAT,
+                offset: 0,
+            },
+            vk::VertexInputAttributeDescription {
+                binding: 0,
+                location: 1,
+                format: vk::Format::R32G32B32_SFLOAT,
+                offset: 12,
+            },
+            vk::VertexInputAttributeDescription {
+                binding: 1,
+                location: 2,
+                format: vk::Format::R32G32B32_SFLOAT,
+                offset: 0,
+            },
+        ],
+        msaa_samples,
+        polygon_mode: vk::PolygonMode::FILL,
+        cull_mode: vk::CullModeFlags::NONE,
         descriptor_layouts: &[descriptor_metadata.set_layout],
         depth_test: true,
         pass,
@@ -667,9 +752,11 @@ fn create_postprocess_pipeline(
     create_pipeline(PipelineConfig {
         vertex_shader_path: "shaders/postprocess.vert",
         fragment_shader_path: "shaders/postprocess.frag",
-        vertex_layout: None,
+        vertex_bindings: &[],
+        vertex_attributes: &[],
         msaa_samples: vk::SampleCountFlags::TYPE_1,
         polygon_mode: vk::PolygonMode::FILL,
+        cull_mode: vk::CullModeFlags::BACK,
         descriptor_layouts: &[descriptors.set_layout],
         depth_test: false,
         pass,
@@ -768,6 +855,18 @@ fn create_index_buffer(index_data: &[u32], ctx: &Ctx) -> Buffer {
     );
     index.fill_from_slice(index_data, ctx);
     index
+}
+
+fn create_blade_buffer(blades_data: &[GrassBlade], ctx: &Ctx) -> Buffer {
+    let size = std::mem::size_of::<GrassBlade>() * blades_data.len();
+    let blades = Buffer::create(
+        vk::MemoryPropertyFlags::DEVICE_LOCAL,
+        vk::BufferUsageFlags::VERTEX_BUFFER | vk::BufferUsageFlags::TRANSFER_DST,
+        size,
+        ctx.dev,
+    );
+    blades.fill_from_slice(blades_data, ctx);
+    blades
 }
 
 fn create_sync(dev: &Dev) -> Synchronization {
