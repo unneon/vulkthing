@@ -1,6 +1,6 @@
-use crate::interface::Editable;
-use imgui::{Drag, Ui};
+use crate::interface::EnumInterface;
 use nalgebra::{Matrix4, Vector3};
+use std::borrow::Cow;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -34,7 +34,7 @@ pub struct FragSettings {
 
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct Filters {
+pub struct Postprocessing {
     pub color_filter: Vector3<f32>,
     pub exposure: f32,
     pub temperature: f32,
@@ -62,16 +62,16 @@ pub enum Tonemapper {
     HillAces = 9,
 }
 
-const TONEMAPPERS: &[Tonemapper] = &[
-    Tonemapper::RgbClamping,
-    Tonemapper::Reinhard,
-    Tonemapper::NarkowiczAces,
-    Tonemapper::HillAces,
-];
+impl EnumInterface for Tonemapper {
+    const VALUES: &'static [Self] = &[
+        Tonemapper::RgbClamping,
+        Tonemapper::Reinhard,
+        Tonemapper::NarkowiczAces,
+        Tonemapper::HillAces,
+    ];
 
-impl Tonemapper {
-    fn name(&self) -> &'static str {
-        match self {
+    fn label(&self) -> Cow<str> {
+        Cow::Borrowed(match self {
             Tonemapper::RgbClamping => "RGB Clamping",
             Tonemapper::TumblinRushmeier => "Tumblin Rushmeier",
             Tonemapper::Schlick => "Schlick",
@@ -82,74 +82,6 @@ impl Tonemapper {
             Tonemapper::Uchimura => "Uchimura",
             Tonemapper::NarkowiczAces => "Narkowicz ACES",
             Tonemapper::HillAces => "Hill ACES",
-        }
-    }
-}
-
-impl Editable for Filters {
-    fn name(&self) -> &str {
-        "Postprocessing"
-    }
-
-    fn widget(&mut self, ui: &Ui) -> bool {
-        let mut color_filter = [
-            self.color_filter.x,
-            self.color_filter.y,
-            self.color_filter.z,
-        ];
-        let mut tonemapper = TONEMAPPERS
-            .iter()
-            .enumerate()
-            .find(|(_, tm)| **tm == self.tonemapper)
-            .unwrap()
-            .0;
-        let mut changed = false;
-
-        changed |= Drag::new("Exposure")
-            .range(0., f32::INFINITY)
-            .speed(0.01)
-            .build(ui, &mut self.exposure);
-        changed |= ui.slider("Temperature", -1.67, 1.67, &mut self.temperature);
-        changed |= ui.slider("Tint", -1.67, 1.67, &mut self.tint);
-        changed |= Drag::new("Contrast")
-            .range(0., f32::INFINITY)
-            .speed(0.01)
-            .build(ui, &mut self.contrast);
-        changed |= Drag::new("Brightness")
-            .range(0., f32::INFINITY)
-            .speed(0.01)
-            .build(ui, &mut self.brightness);
-        changed |= ui.color_edit3("Color filter", &mut color_filter);
-        changed |= Drag::new("Saturation")
-            .range(0., f32::INFINITY)
-            .speed(0.01)
-            .build(ui, &mut self.saturation);
-        changed |= ui.combo("Tonemapper", &mut tonemapper, TONEMAPPERS, |tm| {
-            tm.name().into()
-        });
-        changed |= Drag::new("Gamma")
-            .range(0., f32::INFINITY)
-            .speed(0.01)
-            .build(ui, &mut self.gamma);
-
-        self.color_filter = Vector3::new(color_filter[0], color_filter[1], color_filter[2]);
-        self.tonemapper = TONEMAPPERS[tonemapper];
-        changed
-    }
-}
-
-impl Default for Filters {
-    fn default() -> Self {
-        Filters {
-            exposure: 1.,
-            temperature: -0.7,
-            tint: 0.,
-            contrast: 1.,
-            brightness: 0.,
-            color_filter: Vector3::new(1., 1., 1.),
-            saturation: 1.,
-            tonemapper: Tonemapper::HillAces,
-            gamma: 1.,
-        }
+        })
     }
 }

@@ -10,7 +10,9 @@ use crate::renderer::pipeline::{create_pipeline, Pipeline, PipelineConfig, Verte
 use crate::renderer::raytracing::{create_blas, create_tlas};
 use crate::renderer::swapchain::{create_swapchain, Swapchain};
 use crate::renderer::traits::VertexOps;
-use crate::renderer::uniform::{Filters, FragSettings, Light, Material, ModelViewProjection};
+use crate::renderer::uniform::{
+    FragSettings, Light, Material, ModelViewProjection, Postprocessing,
+};
 use crate::renderer::util::{find_max_msaa_samples, Buffer, Ctx, Dev};
 use crate::renderer::vertex::Vertex;
 use crate::renderer::{
@@ -64,7 +66,7 @@ impl Renderer {
 
         let msaa_samples = find_max_msaa_samples(&dev);
         let offscreen_sampler = create_offscreen_sampler(&dev);
-        let filters = UniformBuffer::create(&dev);
+        let postprocessing = UniformBuffer::create(&dev);
 
         let object_descriptor_metadata = create_object_descriptor_metadata(&dev);
         let postprocess_descriptor_metadata =
@@ -84,7 +86,7 @@ impl Renderer {
             &swapchain_ext,
             surface,
             msaa_samples,
-            &filters,
+            &postprocessing,
             &object_descriptor_metadata,
             &postprocess_descriptor_metadata,
             &dev,
@@ -141,7 +143,7 @@ impl Renderer {
             swapchain_ext,
             msaa_samples,
             offscreen_sampler,
-            filters,
+            postprocessing,
             object_descriptor_metadata,
             object_pipeline,
             render,
@@ -209,7 +211,7 @@ impl Renderer {
             &self.swapchain_ext,
             self.surface,
             self.msaa_samples,
-            &self.filters,
+            &self.postprocessing,
             &self.object_descriptor_metadata,
             &self.postprocess_descriptor_metadata,
             &self.dev,
@@ -326,7 +328,7 @@ impl Drop for Renderer {
             self.cleanup_swapchain();
             self.object_descriptor_metadata.cleanup(&self.dev);
             self.postprocess_descriptor_metadata.cleanup(&self.dev);
-            self.filters.cleanup(&self.dev);
+            self.postprocessing.cleanup(&self.dev);
             self.dev.destroy_sampler(self.offscreen_sampler, None);
             self.dev.destroy_device(None);
             self.extensions.surface.destroy_surface(self.surface, None);
@@ -471,7 +473,7 @@ fn create_swapchain_all(
     swapchain_ext: &SwapchainKhr,
     surface: vk::SurfaceKHR,
     msaa_samples: vk::SampleCountFlags,
-    filters: &UniformBuffer<Filters>,
+    postprocessing: &UniformBuffer<Postprocessing>,
     object_descriptor_metadata: &DescriptorMetadata,
     postprocess_descriptor_metadata: &DescriptorMetadata,
     dev: &Dev,
@@ -503,7 +505,7 @@ fn create_swapchain_all(
     );
     let postprocess_descriptor_sets = create_postprocess_descriptor_sets(
         render.resources[2].view,
-        filters,
+        postprocessing,
         postprocess_descriptor_metadata,
         dev,
     );
@@ -619,14 +621,14 @@ fn create_postprocess_descriptor_metadata(sampler: vk::Sampler, dev: &Dev) -> De
 
 fn create_postprocess_descriptor_sets(
     offscreen_view: vk::ImageView,
-    filters: &UniformBuffer<Filters>,
+    postprocessing: &UniformBuffer<Postprocessing>,
     metadata: &DescriptorMetadata,
     dev: &Dev,
 ) -> [vk::DescriptorSet; FRAMES_IN_FLIGHT] {
     metadata.create_sets(
         &[
             DescriptorValue::Image(offscreen_view),
-            DescriptorValue::Buffer(filters),
+            DescriptorValue::Buffer(postprocessing),
         ],
         dev,
     )

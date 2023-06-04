@@ -17,7 +17,9 @@ use crate::renderer::graph::Pass;
 use crate::renderer::pipeline::Pipeline;
 use crate::renderer::raytracing::RaytraceResources;
 use crate::renderer::swapchain::Swapchain;
-use crate::renderer::uniform::{Filters, FragSettings, Light, Material, ModelViewProjection};
+use crate::renderer::uniform::{
+    FragSettings, Light, Material, ModelViewProjection, Postprocessing,
+};
 use crate::renderer::util::{Buffer, Dev, UniformBuffer};
 use crate::world::{Entity, World};
 use ash::extensions::ext::DebugUtils;
@@ -41,7 +43,7 @@ pub struct Renderer {
     // Parameters of the renderer that are required early for creating more important objects.
     msaa_samples: vk::SampleCountFlags,
     offscreen_sampler: vk::Sampler,
-    filters: UniformBuffer<Filters>,
+    postprocessing: UniformBuffer<Postprocessing>,
 
     // Description of the main render pass. Doesn't contain any information about the objects yet,
     // only low-level data format descriptions.
@@ -109,7 +111,7 @@ impl Renderer {
         &mut self,
         world: &World,
         frag_settings: &FragSettings,
-        filters: &Filters,
+        postprocessing: &Postprocessing,
         window_size: PhysicalSize<u32>,
         ui_draw: &DrawData,
     ) {
@@ -120,9 +122,9 @@ impl Renderer {
         for entity in world.entities() {
             self.update_object_uniforms(world, entity);
         }
-        self.update_light_uniform(world);
-        self.update_frag_settings_uniform(frag_settings);
-        self.update_filters_uniform(filters);
+        self.light.write(self.flight_index, &world.light());
+        self.frag_settings.write(self.flight_index, frag_settings);
+        self.postprocessing.write(self.flight_index, postprocessing);
         self.submit_graphics();
         self.submit_present(image_index);
 
@@ -256,18 +258,6 @@ impl Renderer {
         self.objects[entity.gpu_object()]
             .material
             .write(self.flight_index, &material);
-    }
-
-    fn update_light_uniform(&self, world: &World) {
-        self.light.write(self.flight_index, &world.light());
-    }
-
-    fn update_frag_settings_uniform(&self, frag_settings: &FragSettings) {
-        self.frag_settings.write(self.flight_index, frag_settings);
-    }
-
-    fn update_filters_uniform(&self, filters: &Filters) {
-        self.filters.write(self.flight_index, filters);
     }
 
     fn submit_graphics(&self) {

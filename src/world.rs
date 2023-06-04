@@ -50,7 +50,7 @@ impl World {
         let sun_collider = physics.cube(2.).restitution(0.7);
         let sun = Entity {
             transform: Transform::Dynamic {
-                rigid_body: physics.insert(Vector3::new(0.1, 0.1, 200.), sun_collider),
+                rigid_body: physics.insert(Vector3::new(-0.2, 0., 200.), sun_collider),
             },
             emit: Vector3::new(1., 1., 1.),
             gpu_object: 1,
@@ -70,7 +70,7 @@ impl World {
 
     pub fn light(&self) -> Light {
         Light {
-            position: self.entities[1].translation(&self),
+            position: self.entities[1].translation(self),
             color: self.entities[1].emit,
             ambient_strength: 0.05,
             diffuse_strength: 4.,

@@ -24,13 +24,12 @@ mod window;
 mod world;
 
 use crate::cli::Args;
-use crate::config::DEFAULT_FRAG_SETTINGS;
+use crate::config::{DEFAULT_FRAG_SETTINGS, DEFAULT_PLANET, DEFAULT_POSTPROCESSING};
 use crate::input::InputState;
 use crate::interface::Interface;
 use crate::logger::initialize_logger;
 use crate::model::load_model;
 use crate::planet::generate_planet;
-use crate::renderer::uniform::Filters;
 use crate::renderer::Renderer;
 use crate::window::create_window;
 use crate::world::World;
@@ -52,7 +51,7 @@ fn main() {
     let args = Args::parse();
     let window = create_window(args.demo);
     let cube_model = load_model("assets/cube.obj");
-    let mut planet = planet::Parameters::default();
+    let mut planet = DEFAULT_PLANET;
     let planet_model = generate_planet(&planet);
     let mut renderer = Renderer::new(&window, &[&planet_model, &cube_model]);
     let mut interface = Interface::new(
@@ -63,7 +62,7 @@ fn main() {
     let mut world = World::new(&planet_model);
     let mut last_update = Instant::now();
     let mut frag_settings = DEFAULT_FRAG_SETTINGS;
-    let mut filters = Filters::default();
+    let mut postprocessing = DEFAULT_POSTPROCESSING;
     let mut old_size = window.window.inner_size();
 
     renderer.create_interface_renderer(&mut interface.ctx);
@@ -113,8 +112,12 @@ fn main() {
                 world.update(delta_time, &input_state, args.demo);
                 input_state.reset_after_frame();
                 interface.apply_cursor(input_state.camera_lock, &window.window);
-                let interface_events =
-                    interface.build(&mut planet, &mut frag_settings, &mut filters, args.demo);
+                let interface_events = interface.build(
+                    &mut planet,
+                    &mut frag_settings,
+                    &mut postprocessing,
+                    args.demo,
+                );
                 if interface_events.planet_changed {
                     let planet_model = generate_planet(&planet);
                     renderer.recreate_planet(&planet_model);
@@ -123,7 +126,7 @@ fn main() {
                 renderer.draw_frame(
                     &world,
                     &frag_settings,
-                    &filters,
+                    &postprocessing,
                     window.window.inner_size(),
                     interface.draw_data(),
                 );

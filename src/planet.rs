@@ -1,23 +1,25 @@
-use crate::interface::Editable;
+use crate::interface::EnumInterface;
 use crate::model::Model;
 use crate::renderer::vertex::Vertex;
-use imgui::Ui;
 use nalgebra::Vector3;
 use noise::{
     NoiseFn, OpenSimplex, Perlin, PerlinSurflet, RidgedMulti, Simplex, SuperSimplex, Value,
 };
+use rand::random;
+use std::borrow::Cow;
 
 #[derive(Clone, PartialEq)]
-pub struct Parameters {
-    resolution: usize,
-    radius: f32,
-    noise_type: usize,
-    noise_magnitude: f32,
-    noise_scale: f32,
-    noise_layers: usize,
+pub struct Planet {
+    pub resolution: usize,
+    pub radius: f32,
+    pub noise_type: NoiseType,
+    pub noise_magnitude: f32,
+    pub noise_scale: f32,
+    pub noise_layers: usize,
 }
 
-enum NoiseType {
+#[derive(Clone, Copy, PartialEq)]
+pub enum NoiseType {
     OpenSimplex,
     Perlin,
     PerlinSurflet,
@@ -32,16 +34,6 @@ struct Side {
     dx: Vector3<f32>,
     dy: Vector3<f32>,
 }
-
-const NOISE_TYPES: &[NoiseType] = &[
-    NoiseType::OpenSimplex,
-    NoiseType::Perlin,
-    NoiseType::PerlinSurflet,
-    NoiseType::Ridge,
-    NoiseType::Simplex,
-    NoiseType::SuperSimplex,
-    NoiseType::Value,
-];
 
 const SIDES: [Side; 6] = [
     Side {
@@ -76,9 +68,19 @@ const SIDES: [Side; 6] = [
     },
 ];
 
-impl NoiseType {
-    fn name(&self) -> &'static str {
-        match self {
+impl EnumInterface for NoiseType {
+    const VALUES: &'static [Self] = &[
+        NoiseType::OpenSimplex,
+        NoiseType::Perlin,
+        NoiseType::PerlinSurflet,
+        NoiseType::Ridge,
+        NoiseType::Simplex,
+        NoiseType::SuperSimplex,
+        NoiseType::Value,
+    ];
+
+    fn label(&self) -> Cow<str> {
+        Cow::Borrowed(match self {
             NoiseType::OpenSimplex => "OpenSimplex",
             NoiseType::Perlin => "Perlin",
             NoiseType::PerlinSurflet => "Perlin surflet",
@@ -86,46 +88,11 @@ impl NoiseType {
             NoiseType::Simplex => "Simplex",
             NoiseType::SuperSimplex => "SuperSimplex",
             NoiseType::Value => "Value",
-        }
+        })
     }
 }
 
-impl Editable for Parameters {
-    fn name(&self) -> &str {
-        "Planet generation"
-    }
-
-    fn widget(&mut self, ui: &Ui) -> bool {
-        let mut changed = false;
-        changed |= ui.slider("Resolution", 1, 800, &mut self.resolution);
-        changed |= ui.slider("Radius", 10., 200., &mut self.radius);
-        changed |= ui.combo("Noise type", &mut self.noise_type, NOISE_TYPES, |nt| {
-            nt.name().into()
-        });
-        changed |= ui.slider("Noise magnitude", 0., 100., &mut self.noise_magnitude);
-        changed |= ui.slider("Noise scale", 0., 64., &mut self.noise_scale);
-        changed |= ui.slider("Noise layers", 0, 16, &mut self.noise_layers);
-        changed
-    }
-}
-
-impl Default for Parameters {
-    fn default() -> Parameters {
-        Parameters {
-            #[cfg(not(debug_assertions))]
-            resolution: 400,
-            #[cfg(debug_assertions)]
-            resolution: 20,
-            radius: 100.,
-            noise_type: 3,
-            noise_magnitude: 20.,
-            noise_scale: 6.,
-            noise_layers: 4,
-        }
-    }
-}
-
-pub fn generate_planet(parameters: &Parameters) -> Model {
+pub fn generate_planet(parameters: &Planet) -> Model {
     let mut vertices = Vec::new();
     let mut indices = Vec::new();
     let noise = select_noise(parameters);
@@ -175,9 +142,9 @@ pub fn generate_planet(parameters: &Parameters) -> Model {
     Model { vertices, indices }
 }
 
-fn select_noise(parameters: &Parameters) -> Box<dyn NoiseFn<f64, 3>> {
-    let seed = 907;
-    match NOISE_TYPES[parameters.noise_type] {
+fn select_noise(parameters: &Planet) -> Box<dyn NoiseFn<f64, 3>> {
+    let seed = random();
+    match parameters.noise_type {
         NoiseType::OpenSimplex => Box::new(OpenSimplex::new(seed)),
         NoiseType::Perlin => Box::new(Perlin::new(seed)),
         NoiseType::PerlinSurflet => Box::new(PerlinSurflet::new(seed)),
@@ -192,7 +159,7 @@ fn generate_vertex(
     i: usize,
     j: usize,
     side: &Side,
-    parameters: &Parameters,
+    parameters: &Planet,
     noise: &dyn NoiseFn<f64, 3>,
 ) -> Vector3<f32> {
     let direction = (side.base

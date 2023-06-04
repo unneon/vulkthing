@@ -1,7 +1,7 @@
 #version 450
 
 layout(binding = 0) uniform sampler2D render;
-layout(binding = 1) uniform Filters {
+layout(binding = 1) uniform Postprocessing {
     vec3 color_filter;
     float exposure;
     float temperature;
@@ -11,7 +11,7 @@ layout(binding = 1) uniform Filters {
     float saturation;
     uint tonemapper;
     float gamma;
-} filters;
+} postprocessing;
 
 layout(location = 0) out vec4 out_color;
 
@@ -92,13 +92,13 @@ vec3 tonemapper_hill_aces(vec3 color) {
 }
 
 vec3 apply_tone_mapping(vec3 color) {
-    if (filters.tonemapper == TONEMAPPER_RGB_CLAMPING) {
+    if (postprocessing.tonemapper == TONEMAPPER_RGB_CLAMPING) {
         return tonemapper_rgb_clamping(color);
-    } else if (filters.tonemapper == TONEMAPPER_REINHARD) {
+    } else if (postprocessing.tonemapper == TONEMAPPER_REINHARD) {
         return tonemapper_reinhard(color);
-    } else if (filters.tonemapper == TONEMAPPER_NARKOWICZ_ACES) {
+    } else if (postprocessing.tonemapper == TONEMAPPER_NARKOWICZ_ACES) {
         return tonemapper_narkowicz_aces(color);
-    } else if (filters.tonemapper == TONEMAPPER_HILL_ACES) {
+    } else if (postprocessing.tonemapper == TONEMAPPER_HILL_ACES) {
         return tonemapper_hill_aces(color);
     } else {
         return vec3(1, 0, 0);
@@ -110,23 +110,23 @@ void main() {
     vec3 color = textureLod(render, gl_FragCoord.xy, 0).rgb;
 
     // Apply camera exposure. Assumes exposure is non-negative.
-    color = color * filters.exposure;
+    color = color * postprocessing.exposure;
 
     // Apply white balancing. Formulae are complex enough that something might go below 0.
-    color = apply_white_balance(color, filters.temperature, filters.tint);
+    color = apply_white_balance(color, postprocessing.temperature, postprocessing.tint);
     color = max(color, 0);
 
     // Apply contrast and brightness in a single formula. Only clamp after both.
-    color = filters.contrast * (color - 0.5) + 0.5 + filters.brightness;
+    color = postprocessing.contrast * (color - 0.5) + 0.5 + postprocessing.brightness;
     color = max(color, 0);
 
     // Apply color filter. Assumes color filter is non-negative.
-    color = color * filters.color_filter;
+    color = color * postprocessing.color_filter;
 
     // Apply saturation. Greyscale is weighted, as human eyes perceive some colors as brighter than others. Result can
     // negative if saturation is outside [0, 1] range, and the shader should be able to handle that?
     float greyscale = dot(color, vec3(0.299, 0.587, 0.114));
-    color = mix(vec3(greyscale), color, filters.saturation);
+    color = mix(vec3(greyscale), color, postprocessing.saturation);
     color = max(color, 0);
 
     // Apply tone mapping, bringing the colors from [0, infinity] HDR to [0, 1] SDR.
@@ -134,7 +134,7 @@ void main() {
 
     // Apply gamma correction. As the last step, the exponent will get multipled with the exponent from conversion to
     // sRGB color space. Doesn't require clamping, as [0,1] to a real power is still [0,1].
-    color = pow(color, vec3(filters.gamma));
+    color = pow(color, vec3(postprocessing.gamma));
 
     out_color = vec4(color, 1);
 }
