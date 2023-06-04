@@ -1,5 +1,5 @@
 use crate::model::Model;
-use nalgebra::{Point3, Vector3};
+use nalgebra::{Point3, UnitQuaternion, Vector3};
 use rapier3d::prelude::*;
 
 pub struct Physics {
@@ -82,5 +82,9 @@ impl Physics {
 
     pub fn get_translation(&self, rigid_body: RigidBodyHandle) -> Vector3<f32> {
         *self.rigid_body_set[rigid_body].translation()
+    }
+
+    pub fn get_rotation(&self, rigid_body: RigidBodyHandle) -> UnitQuaternion<f32> {
+        *self.rigid_body_set[rigid_body].rotation()
     }
 }

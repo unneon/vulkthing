@@ -6,7 +6,6 @@ use crate::physics::Physics;
 use imgui::Ui;
 use nalgebra::{UnitQuaternion, Vector3};
 use rapier3d::dynamics::RigidBodyHandle;
-use std::f32::consts::PI;
 
 pub struct World {
     pub camera: Camera,
@@ -17,6 +16,7 @@ pub struct World {
 
 pub struct Entity {
     pub position: Vector3<f32>,
+    pub rotation: UnitQuaternion<f32>,
     pub emit: Vector3<f32>,
     pub gpu_object: usize,
     pub rigid_body: Option<RigidBodyHandle>,
@@ -27,46 +27,39 @@ pub struct Light {
     pub color: Vector3<f32>,
     pub ambient_strength: f32,
     pub diffuse_strength: f32,
-    pub movement: bool,
-    pub speed: f32,
-    radius: f32,
-    pub argument: f32,
     pub use_ray_tracing: bool,
 }
 
 impl World {
     pub fn new(planet_model: &Model) -> World {
-        let sun_color = Vector3::new(1., 1., 1.);
         let camera = Camera {
             position: Vector3::new(-350., 0., 0.),
             velocity: Vector3::new(0., 0., 0.),
             rotation: UnitQuaternion::from_euler_angles(0., 0., 0.),
             time: 0.,
         };
-        let light_radius = 500.;
         let light = Light {
             position: Vector3::new(0.1, 0.1, 200.),
-            color: sun_color,
+            color: Vector3::new(1., 1., 1.),
             ambient_strength: 0.05,
             diffuse_strength: 4.,
-            movement: true,
-            speed: 0.2,
-            radius: light_radius,
-            argument: 0.,
             use_ray_tracing: true,
         };
         let mut physics = Physics::new();
-        physics.insert_static(physics.trimesh(planet_model));
+        let planet_collider = physics.trimesh(planet_model);
         let planet = Entity {
             position: Vector3::new(0., 0., 0.),
+            rotation: UnitQuaternion::identity(),
             emit: Vector3::new(0., 0., 0.),
             gpu_object: 0,
             rigid_body: None,
         };
+        physics.insert_static(planet_collider);
         let sun_collider = physics.cube(2.);
         let sun = Entity {
             position: light.position,
-            emit: sun_color,
+            rotation: UnitQuaternion::identity(),
+            emit: light.color,
             gpu_object: 1,
             rigid_body: Some(physics.insert(light.position, sun_collider)),
         };
@@ -85,6 +78,7 @@ impl World {
         for entity in &mut self.entities {
             if let Some(rigid_body) = entity.rigid_body {
                 entity.position = self.physics.get_translation(rigid_body);
+                entity.rotation = self.physics.get_rotation(rigid_body);
             }
         }
         self.light.position = self.entities[1].position;
@@ -98,10 +92,6 @@ impl Editable for World {
 
     fn widget(&mut self, ui: &Ui) -> bool {
         let mut changed = false;
-        changed |= ui.checkbox("Light movement", &mut self.light.movement);
-        changed |= ui.slider("Light speed", 0., 1., &mut self.light.speed);
-        changed |= ui.slider("Light radius", 0., 1000., &mut self.light.radius);
-        changed |= ui.slider("Light argument", 0., 2. * PI, &mut self.light.argument);
         changed |= ui.slider(
             "Light ambient strength",
             0.,

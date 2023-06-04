@@ -239,7 +239,7 @@ impl Renderer {
     }
 
     fn update_object_uniforms(&self, world: &World, entity: &Entity) {
-        let model = Matrix4::new_translation(&entity.position);
+        let model = Matrix4::new_translation(&entity.position) * entity.rotation.to_homogeneous();
         let mvp = ModelViewProjection {
             model,
             view: world.camera.view_matrix(),
