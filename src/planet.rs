@@ -16,6 +16,7 @@ pub struct Planet {
     pub noise_magnitude: f32,
     pub noise_scale: f32,
     pub noise_layers: usize,
+    pub chunk_count: usize,
 }
 
 #[derive(Clone, Copy, PartialEq)]

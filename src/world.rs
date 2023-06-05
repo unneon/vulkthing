@@ -1,4 +1,5 @@
 use crate::camera::first_person::FirstPersonCamera;
+use crate::camera::Camera;
 use crate::config::{DEFAULT_CAMERA, DEFAULT_SUN_POSITION};
 use crate::input::InputState;
 use crate::model::Model;
@@ -9,7 +10,7 @@ use rapier3d::dynamics::RigidBodyHandle;
 use rapier3d::prelude::*;
 
 pub struct World {
-    camera: FirstPersonCamera,
+    camera: Box<dyn Camera>,
     camera_rigid_body_handle: RigidBodyHandle,
     entities: [Entity; 2],
     physics: Physics,
@@ -38,7 +39,7 @@ const AVERAGE_MALE_SHOULDER_WIDTH: f32 = 0.465;
 
 impl World {
     pub fn new(planet_model: &Model) -> World {
-        let camera = DEFAULT_CAMERA;
+        let camera = Box::new(DEFAULT_CAMERA);
         let mut physics = Physics::new();
         let camera_rigid_body = RigidBodyBuilder::dynamic()
             .translation(camera.position)
@@ -58,7 +59,7 @@ impl World {
                 translation: Vector3::zeros(),
                 rotation: UnitQuaternion::identity(),
             },
-            diffuse: Vector3::new(0.2, 0.8, 0.03).scale(0.7),
+            diffuse: Vector3::new(0.2, 0.8, 0.03).scale(0.3),
             emit: Vector3::zeros(),
             gpu_object: 0,
         };
@@ -82,11 +83,11 @@ impl World {
     }
 
     pub fn update(&mut self, delta_time: f32, input_state: &InputState) {
-        self.camera.apply_input(input_state);
+        self.camera.apply_input(input_state, delta_time);
         self.update_player(input_state);
         self.physics.step(delta_time);
-        self.camera.position = self.physics.get_translation(self.camera_rigid_body_handle)
-            + Vector3::new(0., 0., AVERAGE_MALE_EYE_HEIGHT / 2.);
+        // self.camera.position = self.physics.get_translation(self.camera_rigid_body_handle)
+        //     + Vector3::new(0., 0., AVERAGE_MALE_EYE_HEIGHT / 2.);
     }
 
     pub fn update_player(&mut self, input_state: &InputState) {
@@ -96,14 +97,14 @@ impl World {
             .get_mut(self.camera_rigid_body_handle)
             .unwrap();
         rigid_body.reset_forces(true);
-        let can_accelerate =
-            rigid_body.linvel().dot(&self.camera.walk_direction) <= 16. * 1.42 * 1.42;
-        if can_accelerate {
-            rigid_body.add_force(16. * self.camera.walk_direction, true);
-        }
-        if input_state.movement_jumps() > 0 {
-            rigid_body.apply_impulse(Vector3::new(0., 0., 4.), true);
-        }
+        // let can_accelerate =
+        //     rigid_body.linvel().dot(&self.camera.walk_direction) <= 16. * 1.42 * 1.42;
+        // if can_accelerate {
+        //     rigid_body.add_force(16. * self.camera.walk_direction, true);
+        // }
+        // if input_state.movement_jumps() > 0 {
+        //     rigid_body.apply_impulse(Vector3::new(0., 0., 4.), true);
+        // }
     }
 
     pub fn light(&self) -> Light {

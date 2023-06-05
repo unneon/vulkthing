@@ -47,11 +47,12 @@ impl Interface {
                     changed |= ui.slider("Noise magnitude", 0., 100., &mut planet.noise_magnitude);
                     changed |= ui.slider("Noise scale", 0., 64., &mut planet.noise_scale);
                     changed |= ui.slider("Noise layers", 0, 16, &mut planet.noise_layers);
+                    changed |= ui.slider("Chunk count", 1, 255, &mut planet.chunk_count);
+                    planet.chunk_count += planet.chunk_count % 2 - 1;
                     events.planet_changed = changed;
                 }
                 if ui.collapsing_header("Grass", TreeNodeFlags::DEFAULT_OPEN) {
                     let mut changed = false;
-                    changed |= ui.slider("Render distance", 1., 1024., &mut grass.render_distance);
                     changed |= ui.slider(
                         "Blades per planet triangle",
                         1,
@@ -71,7 +72,7 @@ impl Interface {
                         1.,
                         &mut grass.height_noise_frequency,
                     );
-                    ui.slider("Width", 0.01, 0.5, &mut grass.width);
+                    ui.slider("Width", 0.01, 100., &mut grass.width);
                     events.grass_changed = changed;
                 }
                 ui.checkbox("Ray-traced shadows", &mut frag_settings.use_ray_tracing);
