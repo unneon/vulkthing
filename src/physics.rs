@@ -64,7 +64,7 @@ impl Physics {
     pub fn step(&mut self, delta_time: f32) {
         self.integration_parameters.dt = delta_time;
         self.physics_pipeline.step(
-            &Vector3::new(0., 0., 0.),
+            &Vector3::new(0., 0., -9.81),
             &self.integration_parameters,
             &mut self.island_manager,
             &mut self.broad_phase,

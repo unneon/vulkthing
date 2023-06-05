@@ -13,11 +13,7 @@ pub const DEFAULT_PLANET: Planet = Planet {
     noise_layers: 3,
 };
 
-pub const DEFAULT_SUN_POSITION: Vector3<f32> = Vector3::new(
-    -2. * DEFAULT_PLANET.radius,
-    2. * DEFAULT_PLANET.radius,
-    2. * DEFAULT_PLANET.radius,
-);
+pub const DEFAULT_SUN_POSITION: Vector3<f32> = Vector3::new(0., 0., DEFAULT_PLANET.radius + 100.);
 
 pub const DEFAULT_GRASS: Grass = Grass {
     render_distance: 100.,
@@ -38,7 +34,7 @@ pub const DEFAULT_CAMERA: Camera = Camera {
 };
 
 pub const DEFAULT_FRAG_SETTINGS: FragSettings = FragSettings {
-    use_ray_tracing: false,
+    use_ray_tracing: true,
     _pad0: [0; 3],
 };
 

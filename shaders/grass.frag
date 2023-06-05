@@ -29,6 +29,7 @@ layout(location = 0) out vec4 out_color;
 
 void main() {
     vec3 object_color = material.diffuse;
+    float light_distance = length(light.position - frag_position);
     vec3 light_dir = normalize(light.position - frag_position);
     vec3 normal = gl_FrontFacing ? frag_normal : -frag_normal;
     float light_dot = dot(normal, light_dir);
@@ -42,10 +43,13 @@ void main() {
 
     if (settings.ray_traced_shadows) {
         rayQueryEXT query;
-        rayQueryInitializeEXT(query, tlas, gl_RayFlagsTerminateOnFirstHitEXT, 0xff, frag_position, 0.01, light_dir, 1000.);
-        rayQueryProceedEXT(query);
+        rayQueryInitializeEXT(query, tlas, 0, 0xff, frag_position, 0.01, light_dir, light_distance);
+        while (rayQueryProceedEXT(query)) {}
         if (rayQueryGetIntersectionTypeEXT(query, true) != gl_RayQueryCommittedIntersectionNoneEXT) {
-            diffuse *= 0.02;
+            float distance = rayQueryGetIntersectionTEXT(query, true);
+            if (distance < light_distance) {
+                diffuse *= 0.02;
+            }
         }
     }
 
