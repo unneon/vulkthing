@@ -16,12 +16,12 @@ pub const DEFAULT_PLANET: Planet = Planet {
 pub const DEFAULT_SUN_POSITION: Vector3<f32> = Vector3::new(0., 0., DEFAULT_PLANET.radius + 100.);
 
 pub const DEFAULT_GRASS: Grass = Grass {
-    render_distance: 100.,
-    blades_per_triangle: 1024,
-    height_average: 0.7,
-    height_max_variance: 0.5,
+    render_distance: 128.,
+    blades_per_triangle: 128,
+    height_average: 1.2,
+    height_max_variance: 0.3,
     height_noise_frequency: 0.15,
-    width: 0.1,
+    width: 0.15,
 };
 
 pub const DEFAULT_CAMERA: Camera = Camera {
@@ -34,7 +34,7 @@ pub const DEFAULT_CAMERA: Camera = Camera {
 };
 
 pub const DEFAULT_FRAG_SETTINGS: FragSettings = FragSettings {
-    use_ray_tracing: true,
+    use_ray_tracing: false,
     _pad0: [0; 3],
 };
 

@@ -22,29 +22,33 @@ layout(location = 3) in float frag_naive_height;
 
 layout(location = 0) out vec4 out_color;
 
-void main() {
-    vec3 object_color = vec3(0.2, 0.8, 0.03);
+bool in_shadow() {
+    if (!settings.ray_traced_shadows) {
+        return false;
+    }
+
     float light_distance = length(light.position - frag_position);
     vec3 light_dir = normalize(light.position - frag_position);
-    vec3 normal = gl_FrontFacing ? frag_normal : -frag_normal;
-    float light_dot = dot(normal, light_dir);
 
-    float light_facing_factor = mix(0.6, 1, light_dot / 2 + 0.5);
-    float height_factor = mix(0.5, 1, frag_naive_height);
+    rayQueryEXT query;
+    rayQueryInitializeEXT(query, tlas, 0, 0xff, frag_position, 0.01, light_dir, light_distance);
+    while (rayQueryProceedEXT(query)) {}
+    if (rayQueryGetIntersectionTypeEXT(query, true) != gl_RayQueryCommittedIntersectionNoneEXT) {
+        float distance = rayQueryGetIntersectionTEXT(query, true);
+        return distance < light_distance;
+    }
+    return false;
+}
 
-    vec3 ambient = light.ambient_strength * light.color * object_color;
-    vec3 diffuse = light.diffuse_strength * light.color * object_color * light_facing_factor * height_factor;
+void main() {
+    float height_factor = mix(0.7, 1, frag_naive_height);
+    vec3 grass_color = vec3(0.2, 0.8, 0.03) * height_factor;
+    float diffuse_factor = 1;
 
-    if (settings.ray_traced_shadows) {
-        rayQueryEXT query;
-        rayQueryInitializeEXT(query, tlas, 0, 0xff, frag_position, 0.01, light_dir, light_distance);
-        while (rayQueryProceedEXT(query)) {}
-        if (rayQueryGetIntersectionTypeEXT(query, true) != gl_RayQueryCommittedIntersectionNoneEXT) {
-            float distance = rayQueryGetIntersectionTEXT(query, true);
-            if (distance < light_distance) {
-                diffuse *= 0.02;
-            }
-        }
+    vec3 ambient = light.ambient_strength * light.color * grass_color;
+    vec3 diffuse = light.diffuse_strength * light.color * grass_color * diffuse_factor;
+    if (in_shadow()) {
+        diffuse = vec3(0);
     }
 
     vec3 result = ambient + diffuse;

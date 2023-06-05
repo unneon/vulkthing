@@ -40,8 +40,8 @@ impl World {
                 translation: Vector3::zeros(),
                 rotation: UnitQuaternion::identity(),
             },
-            diffuse: Vector3::new(0.2, 0.8, 0.03),
-            emit: Vector3::new(0., 0., 0.),
+            diffuse: Vector3::new(0.2, 0.8, 0.03).scale(0.7),
+            emit: Vector3::zeros(),
             gpu_object: 0,
         };
         physics.insert_static(planet_collider.friction(0.));
@@ -50,8 +50,8 @@ impl World {
             transform: Transform::Dynamic {
                 rigid_body: physics.insert(DEFAULT_SUN_POSITION, sun_collider),
             },
-            diffuse: Vector3::new(0., 0., 0.),
-            emit: Vector3::new(1., 1., 1.),
+            diffuse: Vector3::zeros(),
+            emit: Vector3::from_element(1.),
             gpu_object: 1,
         };
         let entities = [planet, sun];
@@ -71,8 +71,8 @@ impl World {
         Light {
             position: self.entities[1].translation(self),
             color: self.entities[1].emit,
-            ambient_strength: 0.05,
-            diffuse_strength: 1.,
+            ambient_strength: 1.,
+            diffuse_strength: 0.,
         }
     }
 

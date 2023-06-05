@@ -51,27 +51,27 @@ impl Interface {
                 }
                 if ui.collapsing_header("Grass", TreeNodeFlags::DEFAULT_OPEN) {
                     let mut changed = false;
-                    changed |= ui.slider("Render distance", 1., 512., &mut grass.render_distance);
+                    changed |= ui.slider("Render distance", 1., 1024., &mut grass.render_distance);
                     changed |= ui.slider(
                         "Blades per planet triangle",
                         1,
-                        8192,
+                        256,
                         &mut grass.blades_per_triangle,
                     );
-                    ui.slider("Height average", 0.01, 4., &mut grass.height_average);
+                    ui.slider("Height average", 0.01, 3., &mut grass.height_average);
                     ui.slider(
                         "Height max variance",
                         0.,
-                        2.,
+                        1.,
                         &mut grass.height_max_variance,
                     );
                     changed |= ui.slider(
                         "Height noise frequency",
-                        0.1,
-                        10.,
+                        0.01,
+                        1.,
                         &mut grass.height_noise_frequency,
                     );
-                    ui.slider("Width", 0.01, 0.3, &mut grass.width);
+                    ui.slider("Width", 0.01, 0.5, &mut grass.width);
                     events.grass_changed = changed;
                 }
                 ui.checkbox("Ray-traced shadows", &mut frag_settings.use_ray_tracing);
