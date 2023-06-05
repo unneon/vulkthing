@@ -41,7 +41,7 @@ const VULKAN_APP_VERSION: (u32, u32, u32) = (0, 0, 0);
 const VULKAN_ENGINE_NAME: &str = "Unneongine";
 const VULKAN_ENGINE_VERSION: (u32, u32, u32) = (0, 0, 0);
 
-const WALK_SPEED: f32 = 1.;
+const WALK_SPEED: f32 = 1.42;
 const SPRINT_SPEED: f32 = 100.;
 const CAMERA_SENSITIVITY: f32 = 0.01;
 

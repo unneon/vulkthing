@@ -2,11 +2,15 @@ use crate::input::InputState;
 use crate::{CAMERA_SENSITIVITY, SPRINT_SPEED, WALK_SPEED};
 use nalgebra::{Matrix4, Point3, UnitQuaternion, Vector3};
 
+pub mod first_person;
+
+#[allow(dead_code)]
 pub struct Camera {
     pub position: Vector3<f32>,
     pub rotation: UnitQuaternion<f32>,
 }
 
+#[allow(dead_code)]
 impl Camera {
     pub fn apply_input(&mut self, input: &InputState, delta_time: f32) {
         let front = self.front_direction();

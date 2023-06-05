@@ -1,4 +1,4 @@
-use crate::camera::Camera;
+use crate::camera::first_person::FirstPersonCamera;
 use crate::config::{DEFAULT_CAMERA, DEFAULT_SUN_POSITION};
 use crate::input::InputState;
 use crate::model::Model;
@@ -6,9 +6,11 @@ use crate::physics::Physics;
 use crate::renderer::uniform::Light;
 use nalgebra::{Matrix4, UnitQuaternion, Vector3};
 use rapier3d::dynamics::RigidBodyHandle;
+use rapier3d::prelude::*;
 
 pub struct World {
-    camera: Camera,
+    camera: FirstPersonCamera,
+    camera_rigid_body_handle: RigidBodyHandle,
     entities: [Entity; 2],
     physics: Physics,
 }
@@ -30,11 +32,27 @@ enum Transform {
     },
 }
 
+const AVERAGE_MALE_HEIGHT: f32 = 1.74;
+const AVERAGE_MALE_EYE_HEIGHT: f32 = 1.63;
+const AVERAGE_MALE_SHOULDER_WIDTH: f32 = 0.465;
+
 impl World {
     pub fn new(planet_model: &Model) -> World {
         let camera = DEFAULT_CAMERA;
         let mut physics = Physics::new();
-        let planet_collider = physics.trimesh(planet_model);
+        let camera_rigid_body = RigidBodyBuilder::dynamic()
+            .translation(camera.position)
+            .lock_rotations();
+        let camera_rigid_body_handle = physics.rigid_body_set.insert(camera_rigid_body);
+        let camera_collider =
+            ColliderBuilder::capsule_z(AVERAGE_MALE_HEIGHT / 2., AVERAGE_MALE_SHOULDER_WIDTH / 2.)
+                .build();
+        physics.collider_set.insert_with_parent(
+            camera_collider,
+            camera_rigid_body_handle,
+            &mut physics.rigid_body_set,
+        );
+        let planet_collider = physics.trimesh(planet_model).friction(0.);
         let planet = Entity {
             transform: Transform::Static {
                 translation: Vector3::zeros(),
@@ -44,7 +62,7 @@ impl World {
             emit: Vector3::zeros(),
             gpu_object: 0,
         };
-        physics.insert_static(planet_collider.friction(0.));
+        physics.insert_static(planet_collider);
         let sun_collider = physics.cube(2.).restitution(0.7);
         let sun = Entity {
             transform: Transform::Dynamic {
@@ -57,14 +75,35 @@ impl World {
         let entities = [planet, sun];
         World {
             camera,
+            camera_rigid_body_handle,
             entities,
             physics,
         }
     }
 
     pub fn update(&mut self, delta_time: f32, input_state: &InputState) {
+        self.camera.apply_input(input_state);
+        self.update_player(input_state);
         self.physics.step(delta_time);
-        self.camera.apply_input(input_state, delta_time);
+        self.camera.position = self.physics.get_translation(self.camera_rigid_body_handle)
+            + Vector3::new(0., 0., AVERAGE_MALE_EYE_HEIGHT / 2.);
+    }
+
+    pub fn update_player(&mut self, input_state: &InputState) {
+        let rigid_body = self
+            .physics
+            .rigid_body_set
+            .get_mut(self.camera_rigid_body_handle)
+            .unwrap();
+        rigid_body.reset_forces(true);
+        let can_accelerate =
+            rigid_body.linvel().dot(&self.camera.walk_direction) <= 16. * 1.42 * 1.42;
+        if can_accelerate {
+            rigid_body.add_force(16. * self.camera.walk_direction, true);
+        }
+        if input_state.movement_jumps() > 0 {
+            rigid_body.apply_impulse(Vector3::new(0., 0., 4.), true);
+        }
     }
 
     pub fn light(&self) -> Light {

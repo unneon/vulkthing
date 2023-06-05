@@ -85,7 +85,6 @@ impl InputState {
         sum
     }
 
-    #[allow(dead_code)]
     pub fn movement_jumps(&self) -> usize {
         self.jump.queued_count
     }
@@ -110,6 +109,7 @@ impl InputState {
         }
     }
 
+    #[allow(dead_code)]
     pub fn camera_roll(&self) -> f32 {
         let mut sum = 0.;
         if self.roll_pos_pressed {
