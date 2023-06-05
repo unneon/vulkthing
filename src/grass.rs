@@ -24,7 +24,7 @@ pub fn generate_grass_blades(
 ) -> Vec<GrassBlade> {
     let mut grass_blades = Vec::new();
     let mut rng = SmallRng::from_seed([23; 32]);
-    let height_noise = Perlin::new(907);
+    let height_noise_generator = Perlin::new(907);
     for triangle in planet_model.vertices.array_chunks::<3>() {
         if (triangle[0].position - Vector3::new(0., 0., planet.radius)).norm()
             > grass.render_distance
@@ -53,20 +53,17 @@ pub fn generate_grass_blades(
             .normalize();
             let front = up.cross(&right).normalize();
             let height_noise_arg = position * grass.height_noise_frequency;
-            let height = grass.height_average
-                + grass.height_max_variance
-                    * height_noise.get([
-                        height_noise_arg.x as f64,
-                        height_noise_arg.y as f64,
-                        height_noise_arg.z as f64,
-                    ]) as f32;
+            let height_noise = height_noise_generator.get([
+                height_noise_arg.x as f64,
+                height_noise_arg.y as f64,
+                height_noise_arg.z as f64,
+            ]) as f32;
             grass_blades.push(GrassBlade {
                 position,
                 up,
                 right,
                 front,
-                width: grass.width,
-                height,
+                height_noise,
                 ground_normal: triangle[0].normal,
             });
         }

@@ -11,13 +11,14 @@ pub mod uniform;
 mod util;
 pub mod vertex;
 
+use crate::grass::Grass;
 use crate::renderer::descriptors::DescriptorMetadata;
 use crate::renderer::graph::Pass;
 use crate::renderer::pipeline::Pipeline;
 use crate::renderer::raytracing::RaytraceResources;
 use crate::renderer::swapchain::Swapchain;
 use crate::renderer::uniform::{
-    FragSettings, Light, Material, ModelViewProjection, Postprocessing,
+    FragSettings, GrassUniform, Light, Material, ModelViewProjection, Postprocessing,
 };
 use crate::renderer::util::{Buffer, Dev, UniformBuffer};
 use crate::world::{Entity, World};
@@ -47,6 +48,7 @@ pub struct Renderer {
     // Description of the main render pass. Doesn't contain any information about the objects yet,
     // only low-level data format descriptions.
     object_descriptor_metadata: DescriptorMetadata,
+    grass_descriptor_metadata: DescriptorMetadata,
     object_pipeline: Pipeline,
     grass_pipeline: Pipeline,
     render: Pass,
@@ -74,9 +76,14 @@ pub struct Renderer {
 
     // And finally resources specific to this renderer. So various buffers related to objects we
     // actually render, their descriptor sets and the like.
+    grass_vertex_count: usize,
+    grass_vertex: Buffer,
+    grass_mvp: UniformBuffer<ModelViewProjection>,
+    grass_uniform: UniformBuffer<GrassUniform>,
     light: UniformBuffer<Light>,
     frag_settings: UniformBuffer<FragSettings>,
     objects: Vec<Object>,
+    grass_descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
     blade_count: usize,
     blades: Buffer,
     tlas: RaytraceResources,
@@ -112,6 +119,7 @@ impl Renderer {
     pub fn draw_frame(
         &mut self,
         world: &World,
+        grass: &Grass,
         frag_settings: &FragSettings,
         postprocessing: &Postprocessing,
         window_size: PhysicalSize<u32>,
@@ -124,6 +132,7 @@ impl Renderer {
         for entity in world.entities() {
             self.update_object_uniforms(world, entity);
         }
+        self.update_grass_uniform(grass, world);
         self.light.write(self.flight_index, &world.light());
         self.frag_settings.write(self.flight_index, frag_settings);
         self.postprocessing.write(self.flight_index, postprocessing);
@@ -185,54 +194,56 @@ impl Renderer {
         self.dev
             .cmd_begin_render_pass(buf, &pass, vk::SubpassContents::INLINE);
 
-        let mut pipeline_index = usize::MAX;
-        let mut pipeline = &self.object_pipeline;
+        self.dev.cmd_bind_pipeline(
+            buf,
+            vk::PipelineBindPoint::GRAPHICS,
+            self.object_pipeline.pipeline,
+        );
         for entity in world.entities() {
             let object = &self.objects[entity.gpu_object()];
-            if entity.gpu_pipeline() != pipeline_index {
-                pipeline_index = entity.gpu_pipeline();
-                if pipeline_index == 0 {
-                    pipeline = &self.object_pipeline;
-                } else {
-                    pipeline = &self.grass_pipeline;
-                }
-                self.dev
-                    .cmd_bind_pipeline(buf, vk::PipelineBindPoint::GRAPHICS, pipeline.pipeline);
-            }
             self.dev.cmd_bind_descriptor_sets(
                 buf,
                 vk::PipelineBindPoint::GRAPHICS,
-                pipeline.layout,
+                self.object_pipeline.layout,
                 0,
                 &[object.descriptor_sets[self.flight_index]],
                 &[],
             );
-            if pipeline_index == 0 {
-                self.dev
-                    .cmd_bind_vertex_buffers(buf, 0, &[object.vertex.buffer], &[0]);
-            } else {
-                self.dev.cmd_bind_vertex_buffers(
-                    buf,
-                    0,
-                    &[object.vertex.buffer, self.blades.buffer],
-                    &[0, 0],
-                );
-            }
+            self.dev
+                .cmd_bind_vertex_buffers(buf, 0, &[object.vertex.buffer], &[0]);
+
             self.dev
                 .cmd_bind_index_buffer(buf, object.index.buffer, 0, vk::IndexType::UINT32);
-            self.dev.cmd_draw_indexed(
-                buf,
-                3 * object.triangle_count as u32,
-                if pipeline_index == 0 {
-                    1
-                } else {
-                    self.blade_count as u32
-                },
-                0,
-                0,
-                0,
-            );
+            self.dev
+                .cmd_draw_indexed(buf, 3 * object.triangle_count as u32, 1, 0, 0, 0);
         }
+
+        self.dev.cmd_bind_pipeline(
+            buf,
+            vk::PipelineBindPoint::GRAPHICS,
+            self.grass_pipeline.pipeline,
+        );
+        self.dev.cmd_bind_descriptor_sets(
+            buf,
+            vk::PipelineBindPoint::GRAPHICS,
+            self.grass_pipeline.layout,
+            0,
+            &[self.grass_descriptor_sets[self.flight_index]],
+            &[],
+        );
+        self.dev.cmd_bind_vertex_buffers(
+            buf,
+            0,
+            &[self.grass_vertex.buffer, self.blades.buffer],
+            &[0, 0],
+        );
+        self.dev.cmd_draw(
+            buf,
+            self.grass_vertex_count as u32,
+            self.blade_count as u32,
+            0,
+            0,
+        );
 
         self.dev.cmd_end_render_pass(buf);
     }
@@ -288,6 +299,21 @@ impl Renderer {
         self.objects[entity.gpu_object()]
             .material
             .write(self.flight_index, &material);
+    }
+
+    fn update_grass_uniform(&self, grass: &Grass, world: &World) {
+        let mvp = ModelViewProjection {
+            model: Matrix4::identity(),
+            view: world.view_matrix(),
+            proj: self.projection,
+        };
+        let grass = GrassUniform {
+            height_average: grass.height_average,
+            height_max_variance: grass.height_max_variance,
+            width: grass.width,
+        };
+        self.grass_mvp.write(self.flight_index, &mvp);
+        self.grass_uniform.write(self.flight_index, &grass);
     }
 
     fn submit_graphics(&self) {

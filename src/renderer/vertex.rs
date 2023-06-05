@@ -14,7 +14,6 @@ pub struct GrassBlade {
     pub up: Vector3<f32>,
     pub right: Vector3<f32>,
     pub front: Vector3<f32>,
-    pub width: f32,
-    pub height: f32,
+    pub height_noise: f32,
     pub ground_normal: Vector3<f32>,
 }

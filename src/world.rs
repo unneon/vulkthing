@@ -9,7 +9,7 @@ use rapier3d::dynamics::RigidBodyHandle;
 
 pub struct World {
     camera: Camera,
-    entities: [Entity; 3],
+    entities: [Entity; 2],
     physics: Physics,
 }
 
@@ -18,7 +18,6 @@ pub struct Entity {
     diffuse: Vector3<f32>,
     emit: Vector3<f32>,
     gpu_object: usize,
-    gpu_pipeline: usize,
 }
 
 enum Transform {
@@ -44,7 +43,6 @@ impl World {
             diffuse: Vector3::new(0.2, 0.8, 0.03),
             emit: Vector3::new(0., 0., 0.),
             gpu_object: 0,
-            gpu_pipeline: 0,
         };
         physics.insert_static(planet_collider.friction(0.));
         let sun_collider = physics.cube(2.).restitution(0.7);
@@ -55,19 +53,8 @@ impl World {
             diffuse: Vector3::new(0., 0., 0.),
             emit: Vector3::new(1., 1., 1.),
             gpu_object: 1,
-            gpu_pipeline: 0,
         };
-        let grass = Entity {
-            transform: Transform::Static {
-                translation: Vector3::zeros(),
-                rotation: UnitQuaternion::identity(),
-            },
-            diffuse: Vector3::new(0.2, 0.8, 0.03),
-            emit: Vector3::new(0., 0., 0.),
-            gpu_object: 2,
-            gpu_pipeline: 1,
-        };
-        let entities = [planet, sun, grass];
+        let entities = [planet, sun];
         World {
             camera,
             entities,
@@ -127,9 +114,5 @@ impl Entity {
 
     pub fn gpu_object(&self) -> usize {
         self.gpu_object
-    }
-
-    pub fn gpu_pipeline(&self) -> usize {
-        self.gpu_pipeline
     }
 }

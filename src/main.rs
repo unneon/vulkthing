@@ -52,11 +52,12 @@ fn main() {
     let grass_model = load_model("assets/grass.obj");
     let mut planet = DEFAULT_PLANET;
     let mut grass = DEFAULT_GRASS;
-    let planet_model = generate_planet(&planet);
+    let mut planet_model = generate_planet(&planet);
     let grass_blades = generate_grass_blades(&grass, &planet, &planet_model);
     let mut renderer = Renderer::new(
         &window,
-        &[&planet_model, &cube_model, &grass_model],
+        &[&planet_model, &cube_model],
+        &grass_model,
         &grass_blades,
     );
     let mut interface = Interface::new(
@@ -124,16 +125,17 @@ fn main() {
                     &mut postprocessing,
                 );
                 if interface_events.planet_changed {
-                    let planet_model = generate_planet(&planet);
+                    planet_model = generate_planet(&planet);
                     renderer.recreate_planet(&planet_model);
                 }
-                if interface_events.grass_changed {
+                if interface_events.grass_changed || interface_events.planet_changed {
                     let grass_blades = generate_grass_blades(&grass, &planet, &planet_model);
                     renderer.recreate_grass(&grass_blades);
                 }
 
                 renderer.draw_frame(
                     &world,
+                    &grass,
                     &frag_settings,
                     &postprocessing,
                     window.window.inner_size(),

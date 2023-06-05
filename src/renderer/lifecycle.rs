@@ -7,10 +7,10 @@ use crate::renderer::descriptors::{
 use crate::renderer::device::{select_device, DeviceInfo};
 use crate::renderer::graph::{create_pass, AttachmentConfig, Pass};
 use crate::renderer::pipeline::{create_pipeline, Pipeline, PipelineConfig};
-use crate::renderer::raytracing::{create_blas, create_tlas};
+use crate::renderer::raytracing::{create_blas, create_tlas, RaytraceResources};
 use crate::renderer::swapchain::{create_swapchain, Swapchain};
 use crate::renderer::uniform::{
-    FragSettings, Light, Material, ModelViewProjection, Postprocessing,
+    FragSettings, GrassUniform, Light, Material, ModelViewProjection, Postprocessing,
 };
 use crate::renderer::util::{find_max_msaa_samples, Buffer, Ctx, Dev};
 use crate::renderer::vertex::{GrassBlade, Vertex};
@@ -41,7 +41,12 @@ const COLOR_FORMAT: vk::Format = vk::Format::R16G16B16A16_SFLOAT;
 const DEPTH_FORMAT: vk::Format = vk::Format::D32_SFLOAT;
 
 impl Renderer {
-    pub fn new(window: &Window, models: &[&Model], blades_data: &[GrassBlade]) -> Renderer {
+    pub fn new(
+        window: &Window,
+        models: &[&Model],
+        grass_mesh: &Model,
+        blades_data: &[GrassBlade],
+    ) -> Renderer {
         let entry = unsafe { Entry::load() }.unwrap();
         let instance = create_instance(window, &entry);
         let extensions = VulkanExtensions {
@@ -68,6 +73,7 @@ impl Renderer {
         let postprocessing = UniformBuffer::create(&dev);
 
         let object_descriptor_metadata = create_object_descriptor_metadata(&dev);
+        let grass_descriptor_metadata = create_grass_descriptor_metadata(&dev);
         let postprocess_descriptor_metadata =
             create_postprocess_descriptor_metadata(offscreen_sampler, &dev);
 
@@ -88,6 +94,7 @@ impl Renderer {
             msaa_samples,
             &postprocessing,
             &object_descriptor_metadata,
+            &grass_descriptor_metadata,
             &postprocess_descriptor_metadata,
             &dev,
         );
@@ -115,24 +122,26 @@ impl Renderer {
             );
             objects.push(object);
         }
+        let grass_vertex_count = grass_mesh.vertices.len();
+        let grass_vertex = create_vertex_buffer(&grass_mesh.vertices, &ctx);
+        let grass_mvp = UniformBuffer::create(ctx.dev);
+        let grass_uniform = UniformBuffer::create(&dev);
+        let grass_descriptor_sets = create_grass_descriptor_sets(
+            &grass_mvp,
+            &grass_uniform,
+            &light,
+            &frag_settings,
+            &grass_descriptor_metadata,
+            &dev,
+        );
         let blades = create_blade_buffer(blades_data, &ctx);
 
         let blas = create_blas(&objects[0], &ctx);
         let tlas = create_tlas(&blas, &ctx);
         for object in &objects {
-            for i in 0..FRAMES_IN_FLIGHT {
-                let acceleration_structures = [tlas.acceleration_structure];
-                let mut tlas_write = *vk::WriteDescriptorSetAccelerationStructureKHR::builder()
-                    .acceleration_structures(&acceleration_structures);
-                let mut descriptor_writes = [*vk::WriteDescriptorSet::builder()
-                    .dst_set(object.descriptor_sets[i])
-                    .dst_binding(4)
-                    .descriptor_type(vk::DescriptorType::ACCELERATION_STRUCTURE_KHR)
-                    .push_next(&mut tlas_write)];
-                descriptor_writes[0].descriptor_count = 1;
-                unsafe { dev.update_descriptor_sets(&descriptor_writes, &[]) };
-            }
+            slow_update_tlas(&object.descriptor_sets, 4, &tlas, &dev);
         }
+        slow_update_tlas(&grass_descriptor_sets, 4, &tlas, &dev);
 
         Renderer {
             _entry: entry,
@@ -146,6 +155,7 @@ impl Renderer {
             offscreen_sampler,
             postprocessing,
             object_descriptor_metadata,
+            grass_descriptor_metadata,
             object_pipeline,
             grass_pipeline,
             render,
@@ -159,9 +169,14 @@ impl Renderer {
             command_buffers,
             sync,
             flight_index: 0,
+            grass_vertex_count,
+            grass_vertex,
+            grass_mvp,
+            grass_uniform,
             light,
             frag_settings,
             objects,
+            grass_descriptor_sets,
             blade_count: blades_data.len(),
             blades,
             blas,
@@ -218,6 +233,7 @@ impl Renderer {
             self.msaa_samples,
             &self.postprocessing,
             &self.object_descriptor_metadata,
+            &self.grass_descriptor_metadata,
             &self.postprocess_descriptor_metadata,
             &self.dev,
         );
@@ -269,7 +285,9 @@ impl Renderer {
                 descriptor_writes[0].descriptor_count = 1;
                 unsafe { self.dev.update_descriptor_sets(&descriptor_writes, &[]) };
             }
+            slow_update_tlas(&object.descriptor_sets, 4, &self.tlas, &self.dev);
         }
+        slow_update_tlas(&self.grass_descriptor_sets, 4, &self.tlas, &self.dev);
     }
 
     pub fn recreate_grass(&mut self, blades_data: &[GrassBlade]) {
@@ -334,7 +352,10 @@ impl Drop for Renderer {
             for object in &self.objects {
                 object.cleanup(&self.dev, self.object_descriptor_metadata.pool);
             }
+            self.grass_vertex.cleanup(&self.dev);
             self.blades.cleanup(&self.dev);
+            self.grass_mvp.cleanup(&self.dev);
+            self.grass_uniform.cleanup(&self.dev);
             self.light.cleanup(&self.dev);
             self.frag_settings.cleanup(&self.dev);
             let as_ext = AccelerationStructure::new(&self.dev.instance, &self.dev);
@@ -346,6 +367,7 @@ impl Drop for Renderer {
             }
             self.cleanup_swapchain();
             self.object_descriptor_metadata.cleanup(&self.dev);
+            self.grass_descriptor_metadata.cleanup(&self.dev);
             self.postprocess_descriptor_metadata.cleanup(&self.dev);
             self.postprocessing.cleanup(&self.dev);
             self.dev.destroy_sampler(self.offscreen_sampler, None);
@@ -494,6 +516,7 @@ fn create_swapchain_all(
     msaa_samples: vk::SampleCountFlags,
     postprocessing: &UniformBuffer<Postprocessing>,
     object_descriptor_metadata: &DescriptorMetadata,
+    grass_descriptor_metadata: &DescriptorMetadata,
     postprocess_descriptor_metadata: &DescriptorMetadata,
     dev: &Dev,
 ) -> (
@@ -516,7 +539,7 @@ fn create_swapchain_all(
         dev,
     );
     let grass_pipeline = create_grass_pipeline(
-        object_descriptor_metadata,
+        grass_descriptor_metadata,
         msaa_samples,
         render.pass,
         swapchain.extent,
@@ -610,6 +633,35 @@ fn create_object_descriptor_metadata(dev: &Dev) -> DescriptorMetadata {
     })
 }
 
+fn create_grass_descriptor_metadata(dev: &Dev) -> DescriptorMetadata {
+    create_descriptor_metadata(DescriptorConfig {
+        descriptors: vec![
+            Descriptor {
+                kind: DescriptorKind::UniformBuffer,
+                stage: vk::ShaderStageFlags::VERTEX,
+            },
+            Descriptor {
+                kind: DescriptorKind::UniformBuffer,
+                stage: vk::ShaderStageFlags::VERTEX,
+            },
+            Descriptor {
+                kind: DescriptorKind::UniformBuffer,
+                stage: vk::ShaderStageFlags::FRAGMENT,
+            },
+            Descriptor {
+                kind: DescriptorKind::UniformBuffer,
+                stage: vk::ShaderStageFlags::FRAGMENT,
+            },
+            Descriptor {
+                kind: DescriptorKind::AccelerationStructure,
+                stage: vk::ShaderStageFlags::FRAGMENT,
+            },
+        ],
+        set_count: 1,
+        dev,
+    })
+}
+
 fn create_object_descriptor_sets(
     mvp: &UniformBuffer<ModelViewProjection>,
     material: &UniformBuffer<Material>,
@@ -622,6 +674,26 @@ fn create_object_descriptor_sets(
         &[
             DescriptorValue::Buffer(mvp),
             DescriptorValue::Buffer(material),
+            DescriptorValue::Buffer(light),
+            DescriptorValue::Buffer(frag_settings),
+            // TLAS needs to be written separately later.
+        ],
+        dev,
+    )
+}
+
+fn create_grass_descriptor_sets(
+    mvp: &UniformBuffer<ModelViewProjection>,
+    grass_uniform: &UniformBuffer<GrassUniform>,
+    light: &UniformBuffer<Light>,
+    frag_settings: &UniformBuffer<FragSettings>,
+    metadata: &DescriptorMetadata,
+    dev: &Dev,
+) -> [vk::DescriptorSet; FRAMES_IN_FLIGHT] {
+    metadata.create_sets(
+        &[
+            DescriptorValue::Buffer(mvp),
+            DescriptorValue::Buffer(grass_uniform),
             DescriptorValue::Buffer(light),
             DescriptorValue::Buffer(frag_settings),
             // TLAS needs to be written separately later.
@@ -720,7 +792,7 @@ fn create_grass_pipeline(
             },
             vk::VertexInputBindingDescription {
                 binding: 1,
-                stride: 68,
+                stride: 64,
                 input_rate: vk::VertexInputRate::INSTANCE,
             },
         ],
@@ -770,14 +842,8 @@ fn create_grass_pipeline(
             vk::VertexInputAttributeDescription {
                 binding: 1,
                 location: 7,
-                format: vk::Format::R32_SFLOAT,
-                offset: 52,
-            },
-            vk::VertexInputAttributeDescription {
-                binding: 1,
-                location: 8,
                 format: vk::Format::R32G32B32_SFLOAT,
-                offset: 56,
+                offset: 52,
             },
         ],
         msaa_samples,
@@ -915,6 +981,26 @@ fn create_blade_buffer(blades_data: &[GrassBlade], ctx: &Ctx) -> Buffer {
     );
     blades.fill_from_slice(blades_data, ctx);
     blades
+}
+
+fn slow_update_tlas(
+    descriptor_sets: &[vk::DescriptorSet; FRAMES_IN_FLIGHT],
+    binding: usize,
+    tlas: &RaytraceResources,
+    dev: &Dev,
+) {
+    for descriptor_set in descriptor_sets {
+        let acceleration_structures = [tlas.acceleration_structure];
+        let mut tlas_write = *vk::WriteDescriptorSetAccelerationStructureKHR::builder()
+            .acceleration_structures(&acceleration_structures);
+        let mut descriptor_writes = [*vk::WriteDescriptorSet::builder()
+            .dst_set(*descriptor_set)
+            .dst_binding(binding as u32)
+            .descriptor_type(vk::DescriptorType::ACCELERATION_STRUCTURE_KHR)
+            .push_next(&mut tlas_write)];
+        descriptor_writes[0].descriptor_count = 1;
+        unsafe { dev.update_descriptor_sets(&descriptor_writes, &[]) };
+    }
 }
 
 fn create_sync(dev: &Dev) -> Synchronization {

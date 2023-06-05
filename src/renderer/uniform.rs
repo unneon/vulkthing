@@ -12,6 +12,14 @@ pub struct ModelViewProjection {
 
 #[repr(C)]
 #[derive(Clone, Copy)]
+pub struct GrassUniform {
+    pub height_average: f32,
+    pub height_max_variance: f32,
+    pub width: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
 pub struct Material {
     pub diffuse: Vector3<f32>,
     pub _pad0: f32,

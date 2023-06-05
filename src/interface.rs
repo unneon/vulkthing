@@ -58,8 +58,8 @@ impl Interface {
                         8192,
                         &mut grass.blades_per_triangle,
                     );
-                    changed |= ui.slider("Height average", 0.01, 4., &mut grass.height_average);
-                    changed |= ui.slider(
+                    ui.slider("Height average", 0.01, 4., &mut grass.height_average);
+                    ui.slider(
                         "Height max variance",
                         0.,
                         2.,
@@ -71,7 +71,7 @@ impl Interface {
                         10.,
                         &mut grass.height_noise_frequency,
                     );
-                    changed |= ui.slider("Width", 0.01, 0.3, &mut grass.width);
+                    ui.slider("Width", 0.01, 0.3, &mut grass.width);
                     events.grass_changed = changed;
                 }
                 ui.checkbox("Ray-traced shadows", &mut frag_settings.use_ray_tracing);

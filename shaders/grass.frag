@@ -2,11 +2,6 @@
 
 #extension GL_EXT_ray_query : enable
 
-layout(binding = 1) uniform Material {
-    vec3 diffuse;
-    vec3 emit;
-} material;
-
 layout(binding = 2) uniform Light {
     vec3 color;
     float ambient_strength;
@@ -28,7 +23,7 @@ layout(location = 3) in float frag_naive_height;
 layout(location = 0) out vec4 out_color;
 
 void main() {
-    vec3 object_color = material.diffuse;
+    vec3 object_color = vec3(0.2, 0.8, 0.03);
     float light_distance = length(light.position - frag_position);
     vec3 light_dir = normalize(light.position - frag_position);
     vec3 normal = gl_FrontFacing ? frag_normal : -frag_normal;
@@ -39,7 +34,6 @@ void main() {
 
     vec3 ambient = light.ambient_strength * light.color * object_color;
     vec3 diffuse = light.diffuse_strength * light.color * object_color * light_facing_factor * height_factor;
-    vec3 emit = material.emit;
 
     if (settings.ray_traced_shadows) {
         rayQueryEXT query;
@@ -53,6 +47,6 @@ void main() {
         }
     }
 
-    vec3 result = ambient + diffuse + emit;
+    vec3 result = ambient + diffuse;
     out_color = vec4(result, 1);
 }
