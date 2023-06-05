@@ -1,6 +1,5 @@
 use crate::input::InputState;
-use crate::{CAMERA_SENSITIVITY, SPRINT_SPEED, WALK_SPEED};
-use nalgebra::{Matrix4, Point3, UnitQuaternion, Vector3};
+use nalgebra::{Matrix4, Vector3};
 
 pub mod first_person;
 pub mod space;
@@ -8,7 +7,13 @@ pub mod space;
 pub trait Camera {
     fn apply_input(&mut self, input: &InputState, delta_time: f32);
 
+    fn position(&self) -> Vector3<f32>;
+
+    fn set_position(&mut self, position: Vector3<f32>);
+
     fn view_matrix(&self) -> Matrix4<f32>;
+
+    fn walk_direction(&self) -> Vector3<f32>;
 }
 
 fn normalize_or_zero(vec: Vector3<f32>) -> Vector3<f32> {

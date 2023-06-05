@@ -83,9 +83,9 @@ pub struct Renderer {
     light: UniformBuffer<Light>,
     frag_settings: UniformBuffer<FragSettings>,
     objects: Vec<Object>,
+    grass_chunks: Vec<GrassChunk>,
     grass_descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
-    blade_count: usize,
-    blades: Buffer,
+
     tlas: RaytraceResources,
     blas: RaytraceResources,
 
@@ -110,6 +110,12 @@ pub struct Object {
     mvp: UniformBuffer<ModelViewProjection>,
     material: UniformBuffer<Material>,
     descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
+}
+
+pub struct GrassChunk {
+    id: usize,
+    blade_count: usize,
+    blades: Buffer,
 }
 
 const FRAMES_IN_FLIGHT: usize = 2;
@@ -228,19 +234,21 @@ impl Renderer {
             &[self.grass_descriptor_sets[self.flight_index]],
             &[],
         );
-        self.dev.cmd_bind_vertex_buffers(
-            buf,
-            0,
-            &[self.grass_vertex.buffer, self.blades.buffer],
-            &[0, 0],
-        );
-        self.dev.cmd_draw(
-            buf,
-            self.grass_vertex_count as u32,
-            self.blade_count as u32,
-            0,
-            0,
-        );
+        for grass_chunk in &self.grass_chunks {
+            self.dev.cmd_bind_vertex_buffers(
+                buf,
+                0,
+                &[self.grass_vertex.buffer, grass_chunk.blades.buffer],
+                &[0, 0],
+            );
+            self.dev.cmd_draw(
+                buf,
+                self.grass_vertex_count as u32,
+                grass_chunk.blade_count as u32,
+                0,
+                0,
+            );
+        }
 
         self.dev.cmd_end_render_pass(buf);
     }

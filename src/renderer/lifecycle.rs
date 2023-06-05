@@ -15,7 +15,8 @@ use crate::renderer::uniform::{
 use crate::renderer::util::{find_max_msaa_samples, Buffer, Ctx, Dev};
 use crate::renderer::vertex::{GrassBlade, Vertex};
 use crate::renderer::{
-    Object, Renderer, Synchronization, UniformBuffer, VulkanExtensions, FRAMES_IN_FLIGHT,
+    GrassChunk, Object, Renderer, Synchronization, UniformBuffer, VulkanExtensions,
+    FRAMES_IN_FLIGHT,
 };
 use crate::window::Window;
 use crate::{VULKAN_APP_NAME, VULKAN_APP_VERSION, VULKAN_ENGINE_NAME, VULKAN_ENGINE_VERSION};
@@ -26,7 +27,7 @@ use ash::extensions::khr::{
 };
 use ash::vk::{ExtDescriptorIndexingFn, KhrRayQueryFn, KhrShaderFloatControlsFn, KhrSpirv14Fn};
 use ash::{vk, Device, Entry, Instance};
-use log::warn;
+use log::{trace, warn};
 use nalgebra::Matrix4;
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use std::f32::consts::FRAC_PI_4;
@@ -41,12 +42,7 @@ const COLOR_FORMAT: vk::Format = vk::Format::R16G16B16A16_SFLOAT;
 const DEPTH_FORMAT: vk::Format = vk::Format::D32_SFLOAT;
 
 impl Renderer {
-    pub fn new(
-        window: &Window,
-        models: &[&Model],
-        grass_mesh: &Model,
-        blades_data: &[GrassBlade],
-    ) -> Renderer {
+    pub fn new(window: &Window, models: &[&Model], grass_mesh: &Model) -> Renderer {
         let entry = unsafe { Entry::load() }.unwrap();
         let instance = create_instance(window, &entry);
         let extensions = VulkanExtensions {
@@ -134,7 +130,6 @@ impl Renderer {
             &grass_descriptor_metadata,
             &dev,
         );
-        let blades = create_blade_buffer(blades_data, &ctx);
 
         let blas = create_blas(&objects[0], &ctx);
         let tlas = create_tlas(&blas, &ctx);
@@ -177,8 +172,7 @@ impl Renderer {
             frag_settings,
             objects,
             grass_descriptor_sets,
-            blade_count: blades_data.len(),
-            blades,
+            grass_chunks: Vec::new(),
             blas,
             tlas,
             interface_renderer: None,
@@ -290,15 +284,28 @@ impl Renderer {
         slow_update_tlas(&self.grass_descriptor_sets, 4, &self.tlas, &self.dev);
     }
 
-    pub fn recreate_grass(&mut self, blades_data: &[GrassBlade]) {
-        unsafe { self.dev.device_wait_idle() }.unwrap();
+    pub fn load_grass_chunk(&mut self, id: usize, chunk: &[GrassBlade]) {
+        trace!("loading grass chunk, \x1B[1mid\x1B[0m: {id}");
         let ctx = Ctx {
             dev: &self.dev,
             queue: self.queue,
             command_pool: self.command_pools[0],
         };
-        self.blades.cleanup(&self.dev);
-        self.blades = create_blade_buffer(blades_data, &ctx);
+        unsafe { self.dev.device_wait_idle() }.unwrap();
+        let blades = create_blade_buffer(chunk, &ctx);
+        self.grass_chunks.push(GrassChunk {
+            id,
+            blades,
+            blade_count: chunk.len(),
+        });
+    }
+
+    pub fn unload_grass_chunks(&mut self, mut predicate: impl FnMut(usize) -> bool) {
+        for chunk in self.grass_chunks.drain_filter(|chunk| predicate(chunk.id)) {
+            trace!("unloading grass chunk, \x1B[1mid\x1B[0m: {}", chunk.id);
+            unsafe { self.dev.device_wait_idle() }.unwrap();
+            chunk.cleanup(&self.dev);
+        }
     }
 
     fn cleanup_swapchain(&mut self) {
@@ -342,6 +349,12 @@ impl Object {
     }
 }
 
+impl GrassChunk {
+    pub fn cleanup(&self, dev: &Device) {
+        self.blades.cleanup(dev);
+    }
+}
+
 impl Drop for Renderer {
     fn drop(&mut self) {
         unsafe {
@@ -352,7 +365,9 @@ impl Drop for Renderer {
                 object.cleanup(&self.dev, self.object_descriptor_metadata.pool);
             }
             self.grass_vertex.cleanup(&self.dev);
-            self.blades.cleanup(&self.dev);
+            for grass_chunk in &self.grass_chunks {
+                grass_chunk.cleanup(&self.dev);
+            }
             self.grass_mvp.cleanup(&self.dev);
             self.grass_uniform.cleanup(&self.dev);
             self.light.cleanup(&self.dev);

@@ -1,4 +1,5 @@
 #![feature(array_chunks)]
+#![feature(drain_filter)]
 #![feature(int_roundings)]
 #![feature(maybe_uninit_write_slice)]
 #![feature(option_as_slice)]
@@ -33,6 +34,7 @@ use crate::planet::generate_planet;
 use crate::renderer::Renderer;
 use crate::window::create_window;
 use crate::world::World;
+use std::collections::HashSet;
 use std::time::Instant;
 use winit::event::{DeviceEvent, Event, StartCause, WindowEvent};
 
@@ -53,13 +55,8 @@ fn main() {
     let mut planet = DEFAULT_PLANET;
     let mut grass = DEFAULT_GRASS;
     let mut planet_model = generate_planet(&planet);
-    let grass_blades = generate_grass_blades(&grass, &planet, &planet_model);
-    let mut renderer = Renderer::new(
-        &window,
-        &[&planet_model, &cube_model],
-        &grass_model,
-        &grass_blades,
-    );
+    let chunks = grass::build_triangle_chunks(&grass, &planet, &planet_model);
+    let mut renderer = Renderer::new(&window, &[&planet_model, &cube_model], &grass_model);
     let mut interface = Interface::new(
         renderer.swapchain.extent.width as usize,
         renderer.swapchain.extent.height as usize,
@@ -128,9 +125,25 @@ fn main() {
                     planet_model = generate_planet(&planet);
                     renderer.recreate_planet(&planet_model);
                 }
-                if interface_events.grass_changed || interface_events.planet_changed {
-                    let grass_blades = generate_grass_blades(&grass, &planet, &planet_model);
-                    renderer.recreate_grass(&grass_blades);
+                let mut loaded_chunks = HashSet::new();
+                renderer.unload_grass_chunks(|chunk_id| {
+                    loaded_chunks.insert(chunk_id);
+                    let triangle_id = chunks[chunk_id][0];
+                    let vertex = planet_model.vertices[3 * triangle_id];
+                    (vertex.position - world.camera.position()).norm() > grass.chunk_unload_distance
+                });
+                for (chunk_id, chunk) in chunks.iter().enumerate() {
+                    if !loaded_chunks.contains(&chunk_id) {
+                        let triangle_id = chunk[0];
+                        let vertex = planet_model.vertices[3 * triangle_id];
+                        let distance = (vertex.position - world.camera.position()).norm();
+                        if distance < grass.chunk_load_distance {
+                            renderer.load_grass_chunk(
+                                chunk_id,
+                                &generate_grass_blades(&grass, &planet_model, chunk),
+                            );
+                        }
+                    }
                 }
 
                 renderer.draw_frame(

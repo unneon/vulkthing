@@ -41,10 +41,20 @@ impl Camera for SpaceCamera {
         );
     }
 
+    fn position(&self) -> Vector3<f32> {
+        self.position
+    }
+
+    fn set_position(&mut self, _position: Vector3<f32>) {}
+
     fn view_matrix(&self) -> Matrix4<f32> {
         let eye = Point3::from(self.position);
         let target = Point3::from(self.position + self.front_direction());
         let up = self.up_direction();
         Matrix4::look_at_rh(&eye, &target, &up)
+    }
+
+    fn walk_direction(&self) -> Vector3<f32> {
+        Vector3::zeros()
     }
 }

@@ -47,8 +47,7 @@ impl Interface {
                     changed |= ui.slider("Noise magnitude", 0., 100., &mut planet.noise_magnitude);
                     changed |= ui.slider("Noise scale", 0., 64., &mut planet.noise_scale);
                     changed |= ui.slider("Noise layers", 0, 16, &mut planet.noise_layers);
-                    changed |= ui.slider("Chunk count", 1, 255, &mut planet.chunk_count);
-                    planet.chunk_count += planet.chunk_count % 2 - 1;
+
                     events.planet_changed = changed;
                 }
                 if ui.collapsing_header("Grass", TreeNodeFlags::DEFAULT_OPEN) {
@@ -73,6 +72,20 @@ impl Interface {
                         &mut grass.height_noise_frequency,
                     );
                     ui.slider("Width", 0.01, 100., &mut grass.width);
+                    changed |= ui.slider("Chunk count", 1, 4095, &mut grass.chunk_count);
+                    grass.chunk_count += grass.chunk_count % 2 - 1;
+                    ui.slider(
+                        "Chunk load distance",
+                        0.,
+                        planet.radius * 2.,
+                        &mut grass.chunk_load_distance,
+                    );
+                    ui.slider(
+                        "Chunk unload distance",
+                        0.,
+                        planet.radius * 2.,
+                        &mut grass.chunk_unload_distance,
+                    );
                     events.grass_changed = changed;
                 }
                 ui.checkbox("Ray-traced shadows", &mut frag_settings.use_ray_tracing);
