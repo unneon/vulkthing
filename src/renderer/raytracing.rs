@@ -23,17 +23,13 @@ pub fn create_blas(object: &Object, ctx: &Ctx) -> RaytraceResources {
     let bda_ext = BufferDeviceAddress::new(&ctx.dev.instance, ctx.dev);
 
     let vertex_address = object.vertex.device_address(&bda_ext);
-    let index_address = object.index.device_address(&bda_ext);
     let triangles = *vk::AccelerationStructureGeometryTrianglesDataKHR::builder()
         .vertex_format(vk::Format::R32G32B32_SFLOAT)
         .vertex_data(vk::DeviceOrHostAddressConstKHR {
             device_address: vertex_address,
         })
         .vertex_stride(std::mem::size_of::<Vertex>() as u64)
-        .index_type(vk::IndexType::UINT32)
-        .index_data(vk::DeviceOrHostAddressConstKHR {
-            device_address: index_address,
-        })
+        .index_type(vk::IndexType::NONE_KHR)
         .transform_data(vk::DeviceOrHostAddressConstKHR::default())
         .max_vertex(object.raw_vertex_count as u32);
     let geometry = *vk::AccelerationStructureGeometryKHR::builder()

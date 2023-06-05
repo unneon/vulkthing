@@ -107,7 +107,6 @@ pub struct Object {
     triangle_count: usize,
     raw_vertex_count: usize,
     vertex: Buffer,
-    index: Buffer,
     mvp: UniformBuffer<ModelViewProjection>,
     material: UniformBuffer<Material>,
     descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
@@ -213,9 +212,7 @@ impl Renderer {
                 .cmd_bind_vertex_buffers(buf, 0, &[object.vertex.buffer], &[0]);
 
             self.dev
-                .cmd_bind_index_buffer(buf, object.index.buffer, 0, vk::IndexType::UINT32);
-            self.dev
-                .cmd_draw_indexed(buf, 3 * object.triangle_count as u32, 1, 0, 0, 0);
+                .cmd_draw(buf, 3 * object.triangle_count as u32, 1, 0, 0);
         }
 
         self.dev.cmd_bind_pipeline(

@@ -337,7 +337,6 @@ impl Object {
     pub fn cleanup(&self, dev: &Device, pool: vk::DescriptorPool) {
         unsafe { dev.free_descriptor_sets(pool, &self.descriptor_sets) }.unwrap();
         self.vertex.cleanup(dev);
-        self.index.cleanup(dev);
         self.mvp.cleanup(dev);
         self.material.cleanup(dev);
     }
@@ -919,7 +918,6 @@ pub fn create_object(
     ctx: &Ctx,
 ) -> Object {
     let vertex = create_vertex_buffer(&model.vertices, ctx);
-    let index = create_index_buffer(&model.indices, ctx);
     let mvp = UniformBuffer::create(ctx.dev);
     let material = UniformBuffer::create(ctx.dev);
     let descriptor_sets = create_object_descriptor_sets(
@@ -934,7 +932,6 @@ pub fn create_object(
         triangle_count: model.indices.len() / 3,
         raw_vertex_count: model.vertices.len(),
         vertex,
-        index,
         mvp,
         material,
         descriptor_sets,
@@ -954,21 +951,6 @@ fn create_vertex_buffer(vertex_data: &[Vertex], ctx: &Ctx) -> Buffer {
     );
     vertex.fill_from_slice(vertex_data, ctx);
     vertex
-}
-
-fn create_index_buffer(index_data: &[u32], ctx: &Ctx) -> Buffer {
-    let size = std::mem::size_of_val(&index_data[0]) * index_data.len();
-    let index = Buffer::create(
-        vk::MemoryPropertyFlags::DEVICE_LOCAL,
-        vk::BufferUsageFlags::INDEX_BUFFER
-            | vk::BufferUsageFlags::TRANSFER_DST
-            | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS
-            | vk::BufferUsageFlags::ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_KHR,
-        size,
-        ctx.dev,
-    );
-    index.fill_from_slice(index_data, ctx);
-    index
 }
 
 fn create_blade_buffer(blades_data: &[GrassBlade], ctx: &Ctx) -> Buffer {
