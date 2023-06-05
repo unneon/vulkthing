@@ -272,6 +272,17 @@ impl Renderer {
         }
     }
 
+    pub fn recreate_grass(&mut self, blades_data: &[GrassBlade]) {
+        unsafe { self.dev.device_wait_idle() }.unwrap();
+        let ctx = Ctx {
+            dev: &self.dev,
+            queue: self.queue,
+            command_pool: self.command_pools[0],
+        };
+        self.blades.cleanup(&self.dev);
+        self.blades = create_blade_buffer(blades_data, &ctx);
+    }
+
     fn cleanup_swapchain(&mut self) {
         unsafe {
             self.dev
@@ -709,7 +720,7 @@ fn create_grass_pipeline(
             },
             vk::VertexInputBindingDescription {
                 binding: 1,
-                stride: 56,
+                stride: 68,
                 input_rate: vk::VertexInputRate::INSTANCE,
             },
         ],
@@ -761,6 +772,12 @@ fn create_grass_pipeline(
                 location: 7,
                 format: vk::Format::R32_SFLOAT,
                 offset: 52,
+            },
+            vk::VertexInputAttributeDescription {
+                binding: 1,
+                location: 8,
+                format: vk::Format::R32G32B32_SFLOAT,
+                offset: 56,
             },
         ],
         msaa_samples,

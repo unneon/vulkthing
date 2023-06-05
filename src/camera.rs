@@ -4,9 +4,7 @@ use nalgebra::{Matrix4, Point3, UnitQuaternion, Vector3};
 
 pub struct Camera {
     pub position: Vector3<f32>,
-    pub velocity: Vector3<f32>,
     pub rotation: UnitQuaternion<f32>,
-    pub time: f32,
 }
 
 impl Camera {
@@ -19,7 +17,6 @@ impl Camera {
         } else {
             WALK_SPEED
         };
-        self.position += self.velocity * delta_time;
         self.position +=
             normalize_or_zero(right * input.movement_horizontal() + front * input.movement_depth())
                 * movement_speed

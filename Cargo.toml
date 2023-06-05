@@ -11,7 +11,7 @@ imgui-rs-vulkan-renderer = "1.9"
 log = "0.4"
 nalgebra = { version = "0.32", features = ["std"], default-features = false }
 noise = "0.8"
-rand = "0.8"
+rand = { version = "0.8", features = ["small_rng"] }
 rapier3d = "0.17"
 raw-window-handle = "0.5"
 shaderc = "0.8"

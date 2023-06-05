@@ -14,9 +14,12 @@ layout(location = 4) in vec3 blade_right;
 layout(location = 5) in vec3 blade_front;
 layout(location = 6) in float blade_width;
 layout(location = 7) in float blade_height;
+layout(location = 8) in vec3 ground_normal;
 
 layout(location = 0) out vec3 frag_position;
 layout(location = 1) out vec3 frag_normal;
+layout(location = 2) out vec3 frag_ground_normal;
+layout(location = 3) out float frag_naive_height;
 
 void main() {
     float naive_x = vertex_position.y;
@@ -25,4 +28,6 @@ void main() {
     gl_Position = mvp.proj * mvp.view * mvp.model * vec4(position, 1);
     frag_position = position;
     frag_normal = blade_front;
+    frag_ground_normal = ground_normal;
+    frag_naive_height = naive_y;
 }

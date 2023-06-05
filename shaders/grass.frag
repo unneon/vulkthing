@@ -22,6 +22,8 @@ layout(binding = 4) uniform accelerationStructureEXT tlas;
 
 layout(location = 0) in vec3 frag_position;
 layout(location = 1) in vec3 frag_normal;
+layout(location = 2) in vec3 frag_ground_normal;
+layout(location = 3) in float frag_naive_height;
 
 layout(location = 0) out vec4 out_color;
 
@@ -31,8 +33,11 @@ void main() {
     vec3 normal = gl_FrontFacing ? frag_normal : -frag_normal;
     float light_dot = dot(normal, light_dir);
 
+    float light_facing_factor = mix(0.6, 1, light_dot / 2 + 0.5);
+    float height_factor = mix(0.5, 1, frag_naive_height);
+
     vec3 ambient = light.ambient_strength * light.color * object_color;
-    vec3 diffuse = mix(0.4, 1, light_dot / 2 + 0.5) * light.diffuse_strength * light.color * object_color;
+    vec3 diffuse = light.diffuse_strength * light.color * object_color * light_facing_factor * height_factor;
     vec3 emit = material.emit;
 
     if (settings.ray_traced_shadows) {

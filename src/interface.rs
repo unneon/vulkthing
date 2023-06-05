@@ -1,3 +1,4 @@
+use crate::grass::Grass;
 use crate::planet::Planet;
 use crate::renderer::uniform::{FragSettings, Postprocessing};
 use imgui::{Condition, Context, Drag, TreeNodeFlags, Ui};
@@ -19,18 +20,21 @@ pub struct Interface {
 
 pub struct InterfaceEvents {
     pub planet_changed: bool,
+    pub grass_changed: bool,
 }
 
 impl Interface {
     pub fn build(
         &mut self,
         planet: &mut Planet,
+        grass: &mut Grass,
         frag_settings: &mut FragSettings,
         postprocessing: &mut Postprocessing,
     ) -> InterfaceEvents {
         let ui = self.ctx.frame();
         let mut events = InterfaceEvents {
             planet_changed: false,
+            grass_changed: false,
         };
         ui.window("Debugging")
             .size([0., 0.], Condition::Always)
@@ -44,6 +48,31 @@ impl Interface {
                     changed |= ui.slider("Noise scale", 0., 64., &mut planet.noise_scale);
                     changed |= ui.slider("Noise layers", 0, 16, &mut planet.noise_layers);
                     events.planet_changed = changed;
+                }
+                if ui.collapsing_header("Grass", TreeNodeFlags::DEFAULT_OPEN) {
+                    let mut changed = false;
+                    changed |= ui.slider("Render distance", 1., 512., &mut grass.render_distance);
+                    changed |= ui.slider(
+                        "Blades per planet triangle",
+                        1,
+                        8192,
+                        &mut grass.blades_per_triangle,
+                    );
+                    changed |= ui.slider("Height average", 0.01, 4., &mut grass.height_average);
+                    changed |= ui.slider(
+                        "Height max variance",
+                        0.,
+                        2.,
+                        &mut grass.height_max_variance,
+                    );
+                    changed |= ui.slider(
+                        "Height noise frequency",
+                        0.1,
+                        10.,
+                        &mut grass.height_noise_frequency,
+                    );
+                    changed |= ui.slider("Width", 0.01, 0.3, &mut grass.width);
+                    events.grass_changed = changed;
                 }
                 ui.checkbox("Ray-traced shadows", &mut frag_settings.use_ray_tracing);
                 if ui.collapsing_header("Postprocessing", TreeNodeFlags::empty()) {

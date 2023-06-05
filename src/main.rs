@@ -12,6 +12,7 @@
 
 mod camera;
 mod config;
+mod grass;
 mod input;
 mod interface;
 mod logger;
@@ -22,19 +23,16 @@ mod renderer;
 mod window;
 mod world;
 
-use crate::config::{DEFAULT_FRAG_SETTINGS, DEFAULT_PLANET, DEFAULT_POSTPROCESSING};
+use crate::config::{DEFAULT_FRAG_SETTINGS, DEFAULT_GRASS, DEFAULT_PLANET, DEFAULT_POSTPROCESSING};
+use crate::grass::generate_grass_blades;
 use crate::input::InputState;
 use crate::interface::Interface;
 use crate::logger::initialize_logger;
 use crate::model::load_model;
 use crate::planet::generate_planet;
-use crate::renderer::vertex::GrassBlade;
 use crate::renderer::Renderer;
 use crate::window::create_window;
 use crate::world::World;
-use nalgebra::{Rotation3, Unit, Vector3};
-use rand::Rng;
-use std::f32::consts::PI;
 use std::time::Instant;
 use winit::event::{DeviceEvent, Event, StartCause, WindowEvent};
 
@@ -53,41 +51,9 @@ fn main() {
     let cube_model = load_model("assets/cube.obj");
     let grass_model = load_model("assets/grass.obj");
     let mut planet = DEFAULT_PLANET;
+    let mut grass = DEFAULT_GRASS;
     let planet_model = generate_planet(&planet);
-    let mut grass_blades = Vec::new();
-    let mut rng = rand::thread_rng();
-    for triangle in planet_model.vertices.array_chunks::<3>() {
-        let d1 = triangle[1].position - triangle[0].position;
-        let d2 = triangle[2].position - triangle[0].position;
-        for _ in 0..16 {
-            let mut t1: f32 = rng.gen();
-            let mut t2: f32 = rng.gen();
-            if t1 + t2 > 1. {
-                t1 = 1. - t1;
-                t2 = 1. - t2;
-            }
-            let position = triangle[0].position + t1 * d1 + t2 * d2;
-            let up = position.normalize();
-            let angle = rng.gen_range((0.)..(2. * PI));
-            // https://math.stackexchange.com/a/4112622
-            let right = (Rotation3::from_axis_angle(&Unit::new_normalize(up), angle)
-                * Vector3::new(
-                    up.z.copysign(up.x),
-                    up.z.copysign(up.y),
-                    -(up.x.abs() + up.y.abs()).copysign(up.z),
-                ))
-            .normalize();
-            let front = up.cross(&right).normalize();
-            grass_blades.push(GrassBlade {
-                position,
-                up,
-                right,
-                front,
-                width: 0.03,
-                height: 0.5,
-            });
-        }
-    }
+    let grass_blades = generate_grass_blades(&grass, &planet, &planet_model);
     let mut renderer = Renderer::new(
         &window,
         &[&planet_model, &cube_model, &grass_model],
@@ -151,11 +117,19 @@ fn main() {
                 world.update(delta_time, &input_state);
                 input_state.reset_after_frame();
                 interface.apply_cursor(input_state.camera_lock, &window.window);
-                let interface_events =
-                    interface.build(&mut planet, &mut frag_settings, &mut postprocessing);
+                let interface_events = interface.build(
+                    &mut planet,
+                    &mut grass,
+                    &mut frag_settings,
+                    &mut postprocessing,
+                );
                 if interface_events.planet_changed {
                     let planet_model = generate_planet(&planet);
                     renderer.recreate_planet(&planet_model);
+                }
+                if interface_events.grass_changed {
+                    let grass_blades = generate_grass_blades(&grass, &planet, &planet_model);
+                    renderer.recreate_grass(&grass_blades);
                 }
 
                 renderer.draw_frame(

@@ -1,4 +1,5 @@
 use crate::camera::Camera;
+use crate::config::{DEFAULT_CAMERA, DEFAULT_SUN_POSITION};
 use crate::input::InputState;
 use crate::model::Model;
 use crate::physics::Physics;
@@ -32,20 +33,15 @@ enum Transform {
 
 impl World {
     pub fn new(planet_model: &Model) -> World {
-        let camera = Camera {
-            position: Vector3::new(-350., 0., 0.),
-            velocity: Vector3::new(0., 0., 0.),
-            rotation: UnitQuaternion::from_euler_angles(0., 0., 0.),
-            time: 0.,
-        };
+        let camera = DEFAULT_CAMERA;
         let mut physics = Physics::new();
         let planet_collider = physics.trimesh(planet_model);
         let planet = Entity {
             transform: Transform::Static {
-                translation: Vector3::new(0., 0., 0.),
+                translation: Vector3::zeros(),
                 rotation: UnitQuaternion::identity(),
             },
-            diffuse: Vector3::new(0., 1., 0.),
+            diffuse: Vector3::new(0.2, 0.8, 0.03),
             emit: Vector3::new(0., 0., 0.),
             gpu_object: 0,
             gpu_pipeline: 0,
@@ -54,8 +50,7 @@ impl World {
         let sun_collider = physics.cube(2.).restitution(0.7);
         let sun = Entity {
             transform: Transform::Dynamic {
-                rigid_body: physics
-                    .insert(camera.position + Vector3::new(-3., 5., 5.), sun_collider),
+                rigid_body: physics.insert(DEFAULT_SUN_POSITION, sun_collider),
             },
             diffuse: Vector3::new(0., 0., 0.),
             emit: Vector3::new(1., 1., 1.),
@@ -67,7 +62,7 @@ impl World {
                 translation: Vector3::zeros(),
                 rotation: UnitQuaternion::identity(),
             },
-            diffuse: Vector3::new(0., 1., 0.),
+            diffuse: Vector3::new(0.2, 0.8, 0.03),
             emit: Vector3::new(0., 0., 0.),
             gpu_object: 2,
             gpu_pipeline: 1,
@@ -90,7 +85,7 @@ impl World {
             position: self.entities[1].translation(self),
             color: self.entities[1].emit,
             ambient_strength: 0.05,
-            diffuse_strength: 4.,
+            diffuse_strength: 1.,
         }
     }
 
