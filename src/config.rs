@@ -16,11 +16,13 @@ pub const DEFAULT_PLANET: Planet = Planet {
 pub const DEFAULT_SUN_POSITION: Vector3<f32> = Vector3::new(0., 0., DEFAULT_PLANET.radius + 100.);
 
 pub const DEFAULT_GRASS: Grass = Grass {
-    blades_per_triangle: 128,
+    blades_per_triangle: 256,
     height_average: 1.2,
     height_max_variance: 0.3,
     height_noise_frequency: 0.15,
-    width: 0.15,
+    width: 0.1,
+    sway_frequency: 1.,
+    sway_amplitude: 0.,
     chunk_count: 1023,
     chunk_load_distance: 400.,
     chunk_unload_distance: 450.,
@@ -30,7 +32,7 @@ pub const DEFAULT_CAMERA: FirstPersonCamera = FirstPersonCamera {
     position: Vector3::new(
         0.,
         0.,
-        DEFAULT_PLANET.radius + DEFAULT_PLANET.noise_magnitude + 1.5,
+        DEFAULT_PLANET.radius + 2. * DEFAULT_PLANET.noise_magnitude,
     ),
     walk_direction: Vector3::new(0., 0., 0.),
     pitch: 0.,

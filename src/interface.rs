@@ -72,6 +72,8 @@ impl Interface {
                         &mut grass.height_noise_frequency,
                     );
                     ui.slider("Width", 0.01, 100., &mut grass.width);
+                    ui.slider("Sway frequency", 0.25, 4., &mut grass.sway_frequency);
+                    ui.slider("Sway radius", 0., 0.5, &mut grass.sway_amplitude);
                     changed |= ui.slider("Chunk count", 1, 4095, &mut grass.chunk_count);
                     grass.chunk_count += grass.chunk_count % 2 - 1;
                     ui.slider(

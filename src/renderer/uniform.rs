@@ -16,6 +16,10 @@ pub struct GrassUniform {
     pub height_average: f32,
     pub height_max_variance: f32,
     pub width: f32,
+    pub time: f32,
+    pub sway_direction: Vector3<f32>,
+    pub sway_frequency: f32,
+    pub sway_amplitude: f32,
 }
 
 #[repr(C)]

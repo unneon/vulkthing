@@ -14,6 +14,8 @@ pub struct Grass {
     pub height_max_variance: f32,
     pub height_noise_frequency: f32,
     pub width: f32,
+    pub sway_frequency: f32,
+    pub sway_amplitude: f32,
     pub chunk_count: usize,
     pub chunk_load_distance: f32,
     pub chunk_unload_distance: f32,

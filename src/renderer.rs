@@ -26,7 +26,7 @@ use ash::extensions::ext::DebugUtils;
 use ash::extensions::khr::{Surface, Swapchain as SwapchainKhr};
 use ash::{vk, Entry};
 use imgui::DrawData;
-use nalgebra::Matrix4;
+use nalgebra::{Matrix4, Vector3};
 use winit::dpi::PhysicalSize;
 
 pub struct Renderer {
@@ -84,6 +84,7 @@ pub struct Renderer {
     frag_settings: UniformBuffer<FragSettings>,
     objects: Vec<Object>,
     grass_chunks: Vec<GrassChunk>,
+    grass_blades_total: usize,
     grass_descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
 
     tlas: RaytraceResources,
@@ -316,6 +317,10 @@ impl Renderer {
             height_average: grass.height_average,
             height_max_variance: grass.height_max_variance,
             width: grass.width,
+            time: world.time,
+            sway_direction: Vector3::new(0., 1., 0.),
+            sway_frequency: grass.sway_frequency,
+            sway_amplitude: grass.sway_amplitude,
         };
         self.grass_mvp.write(self.flight_index, &mvp);
         self.grass_uniform.write(self.flight_index, &grass);

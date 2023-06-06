@@ -13,6 +13,7 @@ pub struct World {
     camera_rigid_body_handle: RigidBodyHandle,
     entities: [Entity; 2],
     physics: Physics,
+    pub time: f32,
 }
 
 pub struct Entity {
@@ -80,6 +81,7 @@ impl World {
             camera_rigid_body_handle,
             entities,
             physics,
+            time: 0.,
         }
     }
 
@@ -91,6 +93,7 @@ impl World {
             self.physics.get_translation(self.camera_rigid_body_handle)
                 + Vector3::new(0., 0., AVERAGE_MALE_EYE_HEIGHT / 2.),
         );
+        self.time += delta_time;
     }
 
     pub fn update_player(&mut self, input_state: &InputState) {

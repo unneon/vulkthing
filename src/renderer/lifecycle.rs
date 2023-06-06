@@ -173,6 +173,7 @@ impl Renderer {
             objects,
             grass_descriptor_sets,
             grass_chunks: Vec::new(),
+            grass_blades_total: 0,
             blas,
             tlas,
             interface_renderer: None,
@@ -285,7 +286,11 @@ impl Renderer {
     }
 
     pub fn load_grass_chunk(&mut self, id: usize, chunk: &[GrassBlade]) {
-        trace!("loading grass chunk, \x1B[1mid\x1B[0m: {id}");
+        self.grass_blades_total += chunk.len();
+        trace!(
+            "loading grass chunk, \x1B[1mid\x1B[0m: {id}, \x1B[1mtotal\x1B[0m: {}",
+            self.grass_blades_total
+        );
         let ctx = Ctx {
             dev: &self.dev,
             queue: self.queue,
@@ -305,6 +310,7 @@ impl Renderer {
             trace!("unloading grass chunk, \x1B[1mid\x1B[0m: {}", chunk.id);
             unsafe { self.dev.device_wait_idle() }.unwrap();
             chunk.cleanup(&self.dev);
+            self.grass_blades_total -= chunk.blade_count;
         }
     }
 
