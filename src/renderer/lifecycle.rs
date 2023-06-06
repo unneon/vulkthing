@@ -15,7 +15,7 @@ use crate::renderer::uniform::{
 use crate::renderer::util::{find_max_msaa_samples, Buffer, Ctx, Dev};
 use crate::renderer::vertex::{GrassBlade, Vertex};
 use crate::renderer::{
-    GrassChunk, Object, Renderer, Synchronization, UniformBuffer, VulkanExtensions,
+    AsyncLoader, GrassChunk, Object, Renderer, Synchronization, UniformBuffer, VulkanExtensions,
     FRAMES_IN_FLIGHT,
 };
 use crate::window::Window;
@@ -32,6 +32,7 @@ use nalgebra::Matrix4;
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use std::f32::consts::FRAC_PI_4;
 use std::ffi::{CStr, CString};
+use std::sync::{Arc, Mutex};
 use winit::dpi::PhysicalSize;
 
 // Format used for passing HDR data between render passes to enable realistic differences in
@@ -54,14 +55,21 @@ impl Renderer {
         let DeviceInfo {
             physical_device,
             queue_family,
+            transfer_queue_family,
         } = select_device(&instance, &extensions.surface, surface);
-        let logical_device = create_logical_device(queue_family, &instance, physical_device);
+        let logical_device = create_logical_device(
+            queue_family,
+            transfer_queue_family,
+            &instance,
+            physical_device,
+        );
         let dev = Dev {
             logical: logical_device,
             physical: physical_device,
             instance,
         };
         let queue = unsafe { dev.get_device_queue(queue_family, 0) };
+        let transfer_queue = unsafe { dev.get_device_queue(transfer_queue_family, 0) };
         let swapchain_ext = SwapchainKhr::new(&dev.instance, &dev);
 
         let msaa_samples = find_max_msaa_samples(&dev);
@@ -97,6 +105,7 @@ impl Renderer {
 
         let command_pools = create_command_pools(queue_family, &dev);
         let command_buffers = create_command_buffers(&command_pools, &dev);
+        let transfer_command_pool = create_transfer_command_pool(transfer_queue_family, &dev);
         let sync = create_sync(&dev);
         let ctx = Ctx {
             dev: &dev,
@@ -145,6 +154,7 @@ impl Renderer {
             surface,
             dev,
             queue,
+            transfer_queue,
             swapchain_ext,
             msaa_samples,
             offscreen_sampler,
@@ -162,6 +172,7 @@ impl Renderer {
             projection,
             command_pools,
             command_buffers,
+            transfer_command_pool,
             sync,
             flight_index: 0,
             grass_vertex_count,
@@ -172,7 +183,7 @@ impl Renderer {
             frag_settings,
             objects,
             grass_descriptor_sets,
-            grass_chunks: Vec::new(),
+            grass_chunks: Arc::new(Mutex::new(Vec::new())),
             grass_blades_total: 0,
             blas,
             tlas,
@@ -268,45 +279,26 @@ impl Renderer {
         self.blas = create_blas(&self.objects[0], &ctx);
         self.tlas = create_tlas(&self.blas, &ctx);
         for object in &self.objects {
-            for i in 0..FRAMES_IN_FLIGHT {
-                let acceleration_structures = [self.tlas.acceleration_structure];
-                let mut tlas_write = *vk::WriteDescriptorSetAccelerationStructureKHR::builder()
-                    .acceleration_structures(&acceleration_structures);
-                let mut descriptor_writes = [*vk::WriteDescriptorSet::builder()
-                    .dst_set(object.descriptor_sets[i])
-                    .dst_binding(4)
-                    .descriptor_type(vk::DescriptorType::ACCELERATION_STRUCTURE_KHR)
-                    .push_next(&mut tlas_write)];
-                descriptor_writes[0].descriptor_count = 1;
-                unsafe { self.dev.update_descriptor_sets(&descriptor_writes, &[]) };
-            }
             slow_update_tlas(&object.descriptor_sets, 4, &self.tlas, &self.dev);
         }
         slow_update_tlas(&self.grass_descriptor_sets, 4, &self.tlas, &self.dev);
     }
 
-    pub fn load_grass_chunk(&mut self, id: usize, chunk: &[GrassBlade]) {
-        self.grass_blades_total += chunk.len();
-        trace!(
-            "loading grass chunk, \x1B[1mid\x1B[0m: {id}, \x1B[1mtotal\x1B[0m: {}",
-            self.grass_blades_total
-        );
-        let ctx = Ctx {
-            dev: &self.dev,
-            queue: self.queue,
-            command_pool: self.command_pools[0],
-        };
-        unsafe { self.dev.device_wait_idle() }.unwrap();
-        let blades = create_blade_buffer(chunk, &ctx);
-        self.grass_chunks.push(GrassChunk {
-            id,
-            blades,
-            blade_count: chunk.len(),
-        });
+    pub fn get_async_loader(&self) -> AsyncLoader {
+        AsyncLoader {
+            dev: self.dev.clone(),
+            transfer_queue: self.transfer_queue,
+            transfer_command_pool: self.transfer_command_pool,
+        }
     }
 
     pub fn unload_grass_chunks(&mut self, mut predicate: impl FnMut(usize) -> bool) {
-        for chunk in self.grass_chunks.drain_filter(|chunk| predicate(chunk.id)) {
+        for chunk in self
+            .grass_chunks
+            .lock()
+            .unwrap()
+            .drain_filter(|chunk| predicate(chunk.id))
+        {
             trace!("unloading grass chunk, \x1B[1mid\x1B[0m: {}", chunk.id);
             unsafe { self.dev.device_wait_idle() }.unwrap();
             chunk.cleanup(&self.dev);
@@ -329,6 +321,27 @@ impl Renderer {
             self.render.cleanup(&self.dev);
             self.postprocess.cleanup(&self.dev);
         }
+    }
+}
+
+impl AsyncLoader {
+    pub fn load_grass_chunk(
+        &self,
+        id: usize,
+        chunk: &[GrassBlade],
+        grass_chunks: &Mutex<Vec<GrassChunk>>,
+    ) {
+        let ctx = Ctx {
+            dev: &self.dev,
+            queue: self.transfer_queue,
+            command_pool: self.transfer_command_pool,
+        };
+        let blades = create_blade_buffer(chunk, &ctx);
+        grass_chunks.lock().unwrap().push(GrassChunk {
+            id,
+            blades,
+            blade_count: chunk.len(),
+        });
     }
 }
 
@@ -371,7 +384,7 @@ impl Drop for Renderer {
                 object.cleanup(&self.dev, self.object_descriptor_metadata.pool);
             }
             self.grass_vertex.cleanup(&self.dev);
-            for grass_chunk in &self.grass_chunks {
+            for grass_chunk in self.grass_chunks.lock().unwrap().iter() {
                 grass_chunk.cleanup(&self.dev);
             }
             self.grass_mvp.cleanup(&self.dev);
@@ -385,6 +398,8 @@ impl Drop for Renderer {
             for pool in &self.command_pools {
                 self.dev.destroy_command_pool(*pool, None);
             }
+            self.dev
+                .destroy_command_pool(self.transfer_command_pool, None);
             self.cleanup_swapchain();
             self.object_descriptor_metadata.cleanup(&self.dev);
             self.grass_descriptor_metadata.cleanup(&self.dev);
@@ -484,11 +499,15 @@ fn create_surface(window: &Window, entry: &Entry, instance: &Instance) -> vk::Su
 
 fn create_logical_device(
     queue_family: u32,
+    transfer_queue_family: u32,
     instance: &Instance,
     physical_device: vk::PhysicalDevice,
 ) -> Device {
     let queue_create = *vk::DeviceQueueCreateInfo::builder()
         .queue_family_index(queue_family)
+        .queue_priorities(&[1.]);
+    let transfer_queue_create = *vk::DeviceQueueCreateInfo::builder()
+        .queue_family_index(transfer_queue_family)
         .queue_priorities(&[1.]);
 
     let physical_device_features = vk::PhysicalDeviceFeatures::builder()
@@ -516,7 +535,7 @@ fn create_logical_device(
         instance.create_device(
             physical_device,
             &vk::DeviceCreateInfo::builder()
-                .queue_create_infos(std::slice::from_ref(&queue_create))
+                .queue_create_infos(&[queue_create, transfer_queue_create])
                 .enabled_features(&physical_device_features)
                 .enabled_extension_names(&extension_names)
                 .push_next(&mut bda_features)
@@ -908,6 +927,11 @@ fn create_command_pools(queue_family: u32, dev: &Dev) -> [vk::CommandPool; FRAME
     pools
 }
 
+fn create_transfer_command_pool(family: u32, dev: &Dev) -> vk::CommandPool {
+    let create_info = vk::CommandPoolCreateInfo::builder().queue_family_index(family);
+    unsafe { dev.create_command_pool(&create_info, None) }.unwrap()
+}
+
 fn create_command_buffers(
     command_pools: &[vk::CommandPool; FRAMES_IN_FLIGHT],
     dev: &Dev,
@@ -950,7 +974,7 @@ pub fn create_object(
         ctx.dev,
     );
     Object {
-        triangle_count: model.indices.len() / 3,
+        triangle_count: model.vertices.len() / 3,
         raw_vertex_count: model.vertices.len(),
         vertex,
         mvp,

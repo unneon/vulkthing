@@ -7,6 +7,7 @@ use std::ffi::CStr;
 pub struct DeviceInfo {
     pub physical_device: vk::PhysicalDevice,
     pub queue_family: u32,
+    pub transfer_queue_family: u32,
 }
 
 pub fn select_device(
@@ -29,8 +30,12 @@ pub fn select_device(
 
         // The GPU has to have a graphics queue. Otherwise there's no way to do any rendering
         // operations, so this must be some weird compute-only accelerator or something.
-        let Some(queue_family) = find_suitable_queue(&queue_families, surface_extension, device, surface) else {
-            warn!("physical device rejected, no suitable queue, \x1B[1mname\x1B[0m: {name}");
+        let Some(queue_family) = find_graphics_queue(&queue_families, surface_extension, device, surface) else {
+            warn!("physical device rejected, no graphics queue, \x1B[1mname\x1B[0m: {name}");
+            continue;
+        };
+        let Some(transfer_queue_family) = find_transfer_queue(&queue_families) else {
+            warn!("physical device rejected, no transfer queue, \x1B[1mname\x1B[0m: {name}");
             continue;
         };
 
@@ -40,13 +45,14 @@ pub fn select_device(
         return DeviceInfo {
             physical_device: device,
             queue_family,
+            transfer_queue_family,
         };
     }
 
     panic!("gpu not found");
 }
 
-fn find_suitable_queue(
+fn find_graphics_queue(
     queues: &[vk::QueueFamilyProperties],
     surface_extension: &Surface,
     device: vk::PhysicalDevice,
@@ -61,6 +67,18 @@ fn find_suitable_queue(
         }
         .unwrap();
         if supports_graphics && supports_present {
+            return Some(index);
+        }
+    }
+    None
+}
+
+fn find_transfer_queue(queues: &[vk::QueueFamilyProperties]) -> Option<u32> {
+    for (index, family) in queues.iter().enumerate() {
+        let index = index as u32;
+        let supports_graphics = family.queue_flags.contains(vk::QueueFlags::GRAPHICS);
+        let supports_transfer = family.queue_flags.contains(vk::QueueFlags::TRANSFER);
+        if !supports_graphics && supports_transfer {
             return Some(index);
         }
     }

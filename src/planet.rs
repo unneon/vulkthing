@@ -94,7 +94,6 @@ impl EnumInterface for NoiseType {
 
 pub fn generate_planet(parameters: &Planet) -> Model {
     let mut vertices = Vec::new();
-    let mut indices = Vec::new();
     let noise = select_noise(parameters);
     for side in SIDES {
         for i in 0..parameters.resolution {
@@ -136,10 +135,7 @@ pub fn generate_planet(parameters: &Planet) -> Model {
             }
         }
     }
-    for i in 0..vertices.len() as u32 {
-        indices.push(i);
-    }
-    Model { vertices, indices }
+    Model { vertices }
 }
 
 fn select_noise(parameters: &Planet) -> Box<dyn NoiseFn<f64, 3>> {

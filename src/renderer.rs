@@ -27,6 +27,7 @@ use ash::extensions::khr::{Surface, Swapchain as SwapchainKhr};
 use ash::{vk, Entry};
 use imgui::DrawData;
 use nalgebra::{Matrix4, Vector3};
+use std::sync::{Arc, Mutex};
 use winit::dpi::PhysicalSize;
 
 pub struct Renderer {
@@ -38,6 +39,7 @@ pub struct Renderer {
     surface: vk::SurfaceKHR,
     dev: Dev,
     queue: vk::Queue,
+    transfer_queue: vk::Queue,
     swapchain_ext: SwapchainKhr,
 
     // Parameters of the renderer that are required early for creating more important objects.
@@ -71,6 +73,7 @@ pub struct Renderer {
     // renderer state for keeping track of concurrent frames.
     command_pools: [vk::CommandPool; FRAMES_IN_FLIGHT],
     command_buffers: [vk::CommandBuffer; FRAMES_IN_FLIGHT],
+    transfer_command_pool: vk::CommandPool,
     sync: Synchronization,
     flight_index: usize,
 
@@ -83,7 +86,7 @@ pub struct Renderer {
     light: UniformBuffer<Light>,
     frag_settings: UniformBuffer<FragSettings>,
     objects: Vec<Object>,
-    grass_chunks: Vec<GrassChunk>,
+    pub grass_chunks: Arc<Mutex<Vec<GrassChunk>>>,
     grass_blades_total: usize,
     grass_descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
 
@@ -117,6 +120,12 @@ pub struct GrassChunk {
     id: usize,
     blade_count: usize,
     blades: Buffer,
+}
+
+pub struct AsyncLoader {
+    dev: Dev,
+    transfer_queue: vk::Queue,
+    transfer_command_pool: vk::CommandPool,
 }
 
 const FRAMES_IN_FLIGHT: usize = 2;
@@ -235,7 +244,7 @@ impl Renderer {
             &[self.grass_descriptor_sets[self.flight_index]],
             &[],
         );
-        for grass_chunk in &self.grass_chunks {
+        for grass_chunk in self.grass_chunks.lock().unwrap().iter() {
             self.dev.cmd_bind_vertex_buffers(
                 buf,
                 0,

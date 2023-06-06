@@ -8,6 +8,7 @@ use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use std::f32::consts::PI;
 
+#[derive(Clone)]
 pub struct Grass {
     pub blades_per_triangle: usize,
     pub height_average: f32,

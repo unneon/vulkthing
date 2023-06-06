@@ -3,10 +3,9 @@ use log::debug;
 use nalgebra::Vector3;
 use tobj::LoadOptions;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Model {
     pub vertices: Vec<Vertex>,
-    pub indices: Vec<u32>,
 }
 
 pub fn load_model(obj_path: &str) -> Model {
@@ -32,7 +31,6 @@ fn flatten_models(models: &[tobj::Model]) -> Model {
     // OBJ format supports quite complex models with many materials and meshes, but temporarily
     // let's just throw all of it into a single vertex buffer.
     let mut vertices = Vec::new();
-    let mut indices = Vec::new();
     for model in models {
         for index in &model.mesh.indices {
             // Position vectors are stored as unpacked arrays of floats.
@@ -45,9 +43,7 @@ fn flatten_models(models: &[tobj::Model]) -> Model {
             // Will be computed from triangle positions later.
             let normal = Vector3::zeros();
             let vertex = Vertex { position, normal };
-            let index = vertices.len();
             vertices.push(vertex);
-            indices.push(index as u32);
         }
     }
     for [v1, v2, v3] in vertices.array_chunks_mut() {
@@ -58,5 +54,5 @@ fn flatten_models(models: &[tobj::Model]) -> Model {
         v2.normal = normal;
         v3.normal = normal;
     }
-    Model { vertices, indices }
+    Model { vertices }
 }

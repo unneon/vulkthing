@@ -34,12 +34,12 @@ impl Physics {
     }
 
     pub fn trimesh(&self, model: &Model) -> ColliderBuilder {
-        let vertices = model
+        let vertices: Vec<_> = model
             .vertices
             .iter()
             .map(|v| Point3::from(v.position))
             .collect();
-        let indices = model.indices.iter().copied().array_chunks().collect();
+        let indices = (0..vertices.len() as u32).array_chunks().collect();
         ColliderBuilder::trimesh(vertices, indices)
     }
 

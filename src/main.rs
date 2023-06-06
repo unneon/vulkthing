@@ -35,6 +35,7 @@ use crate::renderer::Renderer;
 use crate::window::create_window;
 use crate::world::World;
 use std::collections::HashSet;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use winit::event::{DeviceEvent, Event, StartCause, WindowEvent};
 
@@ -53,22 +54,49 @@ fn main() {
     let cube_model = load_model("assets/cube.obj");
     let grass_model = load_model("assets/grass.obj");
     let mut planet = DEFAULT_PLANET;
-    let mut grass = DEFAULT_GRASS;
-    let mut planet_model = generate_planet(&planet);
-    let chunks = grass::build_triangle_chunks(&grass, &planet, &planet_model);
-    let mut renderer = Renderer::new(&window, &[&planet_model, &cube_model], &grass_model);
+    let grass = Arc::new(Mutex::new(DEFAULT_GRASS));
+    let planet_model = Arc::new(Mutex::new(generate_planet(&planet)));
+    let chunks: Arc<Vec<Vec<usize>>> = Arc::new(grass::build_triangle_chunks(
+        &grass.lock().unwrap(),
+        &planet,
+        &planet_model.lock().unwrap(),
+    ));
+    let mut renderer = Renderer::new(
+        &window,
+        &[&planet_model.lock().unwrap(), &cube_model],
+        &grass_model,
+    );
     let mut interface = Interface::new(
         renderer.swapchain.extent.width as usize,
         renderer.swapchain.extent.height as usize,
     );
     let mut input_state = InputState::new();
-    let mut world = World::new(&planet_model);
+    let mut world = World::new(&planet_model.lock().unwrap());
     let mut last_update = Instant::now();
     let mut frag_settings = DEFAULT_FRAG_SETTINGS;
     let mut postprocessing = DEFAULT_POSTPROCESSING;
     let mut old_size = window.window.inner_size();
+    let mut loaded_chunks = HashSet::new();
 
     renderer.create_interface_renderer(&mut interface.ctx);
+
+    let (chunk_tx, chunk_rx) = std::sync::mpsc::channel();
+    let async_loader = renderer.get_async_loader();
+    let grass_chunks = renderer.grass_chunks.clone();
+    let chunks_clone = chunks.clone();
+    let grass_clone = grass.clone();
+    let planet_model_clone = planet_model.clone();
+    std::thread::spawn(move || loop {
+        let chunk_id: usize = chunk_rx.recv().unwrap();
+        let chunk: &[usize] = chunks_clone[chunk_id].as_slice();
+        let grass = grass_clone.lock().unwrap().clone();
+        let planet_model = planet_model_clone.lock().unwrap().clone();
+        async_loader.load_grass_chunk(
+            chunk_id,
+            &generate_grass_blades(&grass, &planet_model, chunk),
+            &grass_chunks,
+        );
+    });
 
     // Run the event loop. Winit delivers events, like key presses. After it finishes delivering
     // some batch of events, it sends a MainEventsCleared event, which means the application should
@@ -117,38 +145,37 @@ fn main() {
                 interface.apply_cursor(input_state.camera_lock, &window.window);
                 let interface_events = interface.build(
                     &mut planet,
-                    &mut grass,
+                    &mut grass.lock().unwrap(),
                     &mut frag_settings,
                     &mut postprocessing,
                 );
                 if interface_events.planet_changed {
-                    planet_model = generate_planet(&planet);
-                    renderer.recreate_planet(&planet_model);
+                    *planet_model.lock().unwrap() = generate_planet(&planet);
+                    renderer.recreate_planet(&planet_model.lock().unwrap());
                 }
-                let mut loaded_chunks = HashSet::new();
-                renderer.unload_grass_chunks(|chunk_id| {
-                    loaded_chunks.insert(chunk_id);
-                    let triangle_id = chunks[chunk_id][0];
-                    let vertex = planet_model.vertices[3 * triangle_id];
-                    (vertex.position - world.camera.position()).norm() > grass.chunk_unload_distance
+                renderer.unload_grass_chunks(|_chunk_id| {
+                    // loaded_chunks.insert(chunk_id);
+                    // let triangle_id = chunks[chunk_id][0];
+                    // let vertex = planet_model.lock().unwrap().vertices[3 * triangle_id];
+                    // (vertex.position - world.camera.position()).norm()
+                    //     > grass.lock().unwrap().chunk_unload_distance
+                    false
                 });
                 for (chunk_id, chunk) in chunks.iter().enumerate() {
                     if !loaded_chunks.contains(&chunk_id) {
                         let triangle_id = chunk[0];
-                        let vertex = planet_model.vertices[3 * triangle_id];
+                        let vertex = planet_model.lock().unwrap().vertices[3 * triangle_id];
                         let distance = (vertex.position - world.camera.position()).norm();
-                        if distance < grass.chunk_load_distance {
-                            renderer.load_grass_chunk(
-                                chunk_id,
-                                &generate_grass_blades(&grass, &planet_model, chunk),
-                            );
+                        if distance < grass.lock().unwrap().chunk_load_distance {
+                            loaded_chunks.insert(chunk_id);
+                            chunk_tx.send(chunk_id).unwrap();
                         }
                     }
                 }
 
                 renderer.draw_frame(
                     &world,
-                    &grass,
+                    &grass.lock().unwrap(),
                     &frag_settings,
                     &postprocessing,
                     window.window.inner_size(),
