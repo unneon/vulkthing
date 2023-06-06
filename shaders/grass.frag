@@ -1,6 +1,8 @@
 #version 460
 
-#extension GL_EXT_ray_query : enable
+#ifdef SUPPORTS_RAYTRACING
+    #extension GL_EXT_ray_query : enable
+#endif
 
 layout(binding = 2) uniform Light {
     vec3 color;
@@ -13,7 +15,9 @@ layout(binding = 3) uniform FragSettings {
     bool ray_traced_shadows;
 } settings;
 
+#ifdef SUPPORTS_RAYTRACING
 layout(binding = 4) uniform accelerationStructureEXT tlas;
+#endif
 
 layout(location = 0) in vec3 frag_position;
 layout(location = 1) in vec3 frag_normal;
@@ -22,6 +26,7 @@ layout(location = 3) in float frag_naive_height;
 
 layout(location = 0) out vec4 out_color;
 
+#ifdef SUPPORTS_RAYTRACING
 bool in_shadow() {
     if (!settings.ray_traced_shadows) {
         return false;
@@ -39,6 +44,7 @@ bool in_shadow() {
     }
     return false;
 }
+#endif
 
 void main() {
     float height_factor = mix(0.7, 1, frag_naive_height);
@@ -47,9 +53,11 @@ void main() {
 
     vec3 ambient = light.ambient_strength * light.color * grass_color;
     vec3 diffuse = light.diffuse_strength * light.color * grass_color * diffuse_factor;
+#ifdef SUPPORTS_RAYTRACING
     if (in_shadow()) {
         diffuse = vec3(0);
     }
+#endif
 
     vec3 result = ambient + diffuse;
     out_color = vec4(result, 1);

@@ -12,7 +12,7 @@ use crate::renderer::swapchain::{create_swapchain, Swapchain};
 use crate::renderer::uniform::{
     FragSettings, GrassUniform, Light, Material, ModelViewProjection, Postprocessing,
 };
-use crate::renderer::util::{find_max_msaa_samples, Buffer, Ctx, Dev};
+use crate::renderer::util::{find_max_msaa_samples, vulkan_str, Buffer, Ctx, Dev};
 use crate::renderer::vertex::{GrassBlade, Vertex};
 use crate::renderer::{
     AsyncLoader, GrassChunk, Object, Renderer, Synchronization, UniformBuffer, VulkanExtensions,
@@ -31,7 +31,7 @@ use log::{trace, warn};
 use nalgebra::Matrix4;
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use std::f32::consts::FRAC_PI_4;
-use std::ffi::{CStr, CString};
+use std::ffi::CString;
 use std::sync::{Arc, Mutex};
 use winit::dpi::PhysicalSize;
 
@@ -56,10 +56,12 @@ impl Renderer {
             physical_device,
             queue_family,
             transfer_queue_family,
+            supports_raytracing,
         } = select_device(&instance, &extensions.surface, surface);
         let logical_device = create_logical_device(
             queue_family,
             transfer_queue_family,
+            supports_raytracing,
             &instance,
             physical_device,
         );
@@ -76,8 +78,9 @@ impl Renderer {
         let offscreen_sampler = create_offscreen_sampler(&dev);
         let postprocessing = UniformBuffer::create(&dev);
 
-        let object_descriptor_metadata = create_object_descriptor_metadata(&dev);
-        let grass_descriptor_metadata = create_grass_descriptor_metadata(&dev);
+        let object_descriptor_metadata =
+            create_object_descriptor_metadata(supports_raytracing, &dev);
+        let grass_descriptor_metadata = create_grass_descriptor_metadata(supports_raytracing, &dev);
         let postprocess_descriptor_metadata =
             create_postprocess_descriptor_metadata(offscreen_sampler, &dev);
 
@@ -100,6 +103,7 @@ impl Renderer {
             &object_descriptor_metadata,
             &grass_descriptor_metadata,
             &postprocess_descriptor_metadata,
+            supports_raytracing,
             &dev,
         );
 
@@ -123,12 +127,13 @@ impl Renderer {
                 &object_descriptor_metadata,
                 &light,
                 &frag_settings,
+                supports_raytracing,
                 &ctx,
             );
             objects.push(object);
         }
         let grass_vertex_count = grass_mesh.vertices.len();
-        let grass_vertex = create_vertex_buffer(&grass_mesh.vertices, &ctx);
+        let grass_vertex = create_vertex_buffer(&grass_mesh.vertices, supports_raytracing, &ctx);
         let grass_mvp = UniformBuffer::create(ctx.dev);
         let grass_uniform = UniformBuffer::create(&dev);
         let grass_descriptor_sets = create_grass_descriptor_sets(
@@ -140,12 +145,22 @@ impl Renderer {
             &dev,
         );
 
-        let blas = create_blas(&objects[0], &ctx);
-        let tlas = create_tlas(&blas, &ctx);
-        for object in &objects {
-            slow_update_tlas(&object.descriptor_sets, 4, &tlas, &dev);
+        let blas = if supports_raytracing {
+            Some(create_blas(&objects[0], &ctx))
+        } else {
+            None
+        };
+        let tlas = if let Some(blas) = blas.as_ref() {
+            Some(create_tlas(blas, &ctx))
+        } else {
+            None
+        };
+        if let Some(tlas) = tlas.as_ref() {
+            for object in &objects {
+                slow_update_tlas(&object.descriptor_sets, 4, tlas, &dev);
+            }
+            slow_update_tlas(&grass_descriptor_sets, 4, tlas, &dev);
         }
-        slow_update_tlas(&grass_descriptor_sets, 4, &tlas, &dev);
 
         Renderer {
             _entry: entry,
@@ -156,6 +171,7 @@ impl Renderer {
             queue,
             transfer_queue,
             swapchain_ext,
+            supports_raytracing,
             msaa_samples,
             offscreen_sampler,
             postprocessing,
@@ -241,6 +257,7 @@ impl Renderer {
             &self.object_descriptor_metadata,
             &self.grass_descriptor_metadata,
             &self.postprocess_descriptor_metadata,
+            self.supports_raytracing,
             &self.dev,
         );
 
@@ -266,22 +283,31 @@ impl Renderer {
         unsafe { self.dev.device_wait_idle() }.unwrap();
 
         self.objects[0].cleanup(&self.dev, self.object_descriptor_metadata.pool);
-        self.tlas.cleanup(&self.dev, &as_ext);
-        self.blas.cleanup(&self.dev, &as_ext);
+        if let Some(tlas) = &self.tlas {
+            tlas.cleanup(&self.dev, &as_ext);
+        }
+        if let Some(blas) = &self.blas {
+            blas.cleanup(&self.dev, &as_ext);
+        }
 
         self.objects[0] = create_object(
             planet_model,
             &self.object_descriptor_metadata,
             &self.light,
             &self.frag_settings,
+            self.supports_raytracing,
             &ctx,
         );
-        self.blas = create_blas(&self.objects[0], &ctx);
-        self.tlas = create_tlas(&self.blas, &ctx);
-        for object in &self.objects {
-            slow_update_tlas(&object.descriptor_sets, 4, &self.tlas, &self.dev);
+        if self.supports_raytracing {
+            let blas = create_blas(&self.objects[0], &ctx);
+            let tlas = create_tlas(&blas, &ctx);
+            for object in &self.objects {
+                slow_update_tlas(&object.descriptor_sets, 4, &tlas, &self.dev);
+            }
+            slow_update_tlas(&self.grass_descriptor_sets, 4, &tlas, &self.dev);
+            self.blas = Some(blas);
+            self.tlas = Some(tlas);
         }
-        slow_update_tlas(&self.grass_descriptor_sets, 4, &self.tlas, &self.dev);
     }
 
     pub fn get_async_loader(&self) -> AsyncLoader {
@@ -392,8 +418,12 @@ impl Drop for Renderer {
             self.light.cleanup(&self.dev);
             self.frag_settings.cleanup(&self.dev);
             let as_ext = AccelerationStructure::new(&self.dev.instance, &self.dev);
-            self.tlas.cleanup(&self.dev, &as_ext);
-            self.blas.cleanup(&self.dev, &as_ext);
+            if let Some(tlas) = self.tlas.as_ref() {
+                tlas.cleanup(&self.dev, &as_ext);
+            }
+            if let Some(blas) = self.blas.as_ref() {
+                blas.cleanup(&self.dev, &as_ext);
+            }
             self.sync.cleanup(&self.dev);
             for pool in &self.command_pools {
                 self.dev.destroy_command_pool(*pool, None);
@@ -470,14 +500,7 @@ fn create_instance(window: &Window, entry: &Entry) -> Instance {
 
 fn find_layer(layers: &[vk::LayerProperties], name: &str) -> Option<*const i8> {
     for layer in layers {
-        let layer_name_slice = unsafe {
-            std::slice::from_raw_parts(
-                layer.layer_name.as_ptr() as *const u8,
-                layer.layer_name.len(),
-            )
-        };
-        let layer_name = CStr::from_bytes_until_nul(layer_name_slice).unwrap();
-        if layer_name.to_str().unwrap() == name {
+        if vulkan_str(&layer.layer_name) == name {
             return Some(layer.layer_name.as_ptr());
         }
     }
@@ -500,6 +523,7 @@ fn create_surface(window: &Window, entry: &Entry, instance: &Instance) -> vk::Su
 fn create_logical_device(
     queue_family: u32,
     transfer_queue_family: u32,
+    supports_raytracing: bool,
     instance: &Instance,
     physical_device: vk::PhysicalDevice,
 ) -> Device {
@@ -509,42 +533,45 @@ fn create_logical_device(
     let transfer_queue_create = *vk::DeviceQueueCreateInfo::builder()
         .queue_family_index(transfer_queue_family)
         .queue_priorities(&[1.]);
+    let queues = [queue_create, transfer_queue_create];
 
     let physical_device_features = vk::PhysicalDeviceFeatures::builder()
         .sampler_anisotropy(true)
         .fill_mode_non_solid(true);
 
-    let mut bda_features =
-        *vk::PhysicalDeviceBufferDeviceAddressFeaturesKHR::builder().buffer_device_address(true);
-    let mut rq_features = *vk::PhysicalDeviceRayQueryFeaturesKHR::builder().ray_query(true);
-    let mut as_features =
-        *vk::PhysicalDeviceAccelerationStructureFeaturesKHR::builder().acceleration_structure(true);
+    let mut extensions = vec![SwapchainKhr::name().as_ptr()];
 
-    let extension_names = [
-        AccelerationStructure::name().as_ptr(),
-        BufferDeviceAddress::name().as_ptr(),
-        DeferredHostOperations::name().as_ptr(),
-        ExtDescriptorIndexingFn::name().as_ptr(),
-        KhrRayQueryFn::name().as_ptr(),
-        KhrShaderFloatControlsFn::name().as_ptr(),
-        KhrSpirv14Fn::name().as_ptr(),
-        SwapchainKhr::name().as_ptr(),
-    ];
+    let mut create_info = vk::DeviceCreateInfo::builder()
+        .queue_create_infos(&queues)
+        .enabled_features(&physical_device_features);
 
-    unsafe {
-        instance.create_device(
-            physical_device,
-            &vk::DeviceCreateInfo::builder()
-                .queue_create_infos(&[queue_create, transfer_queue_create])
-                .enabled_features(&physical_device_features)
-                .enabled_extension_names(&extension_names)
-                .push_next(&mut bda_features)
-                .push_next(&mut rq_features)
-                .push_next(&mut as_features),
-            None,
-        )
+    let mut bda_features;
+    let mut rq_features;
+    let mut as_features;
+    if supports_raytracing {
+        bda_features = *vk::PhysicalDeviceBufferDeviceAddressFeaturesKHR::builder()
+            .buffer_device_address(true);
+        rq_features = *vk::PhysicalDeviceRayQueryFeaturesKHR::builder().ray_query(true);
+        as_features = *vk::PhysicalDeviceAccelerationStructureFeaturesKHR::builder()
+            .acceleration_structure(true);
+        extensions.extend_from_slice(&[
+            AccelerationStructure::name().as_ptr(),
+            BufferDeviceAddress::name().as_ptr(),
+            DeferredHostOperations::name().as_ptr(),
+            ExtDescriptorIndexingFn::name().as_ptr(),
+            KhrRayQueryFn::name().as_ptr(),
+            KhrShaderFloatControlsFn::name().as_ptr(),
+            KhrSpirv14Fn::name().as_ptr(),
+        ]);
+        create_info = create_info
+            .push_next(&mut bda_features)
+            .push_next(&mut rq_features)
+            .push_next(&mut as_features);
     }
-    .unwrap()
+
+    let create_info = *create_info.enabled_extension_names(&extensions);
+
+    unsafe { instance.create_device(physical_device, &create_info, None) }.unwrap()
 }
 
 fn create_swapchain_all(
@@ -557,6 +584,7 @@ fn create_swapchain_all(
     object_descriptor_metadata: &DescriptorMetadata,
     grass_descriptor_metadata: &DescriptorMetadata,
     postprocess_descriptor_metadata: &DescriptorMetadata,
+    supports_raytracing: bool,
     dev: &Dev,
 ) -> (
     Swapchain,
@@ -575,6 +603,7 @@ fn create_swapchain_all(
         msaa_samples,
         render.pass,
         swapchain.extent,
+        supports_raytracing,
         dev,
     );
     let grass_pipeline = create_grass_pipeline(
@@ -582,6 +611,7 @@ fn create_swapchain_all(
         msaa_samples,
         render.pass,
         swapchain.extent,
+        supports_raytracing,
         dev,
     );
     let postprocess =
@@ -590,6 +620,7 @@ fn create_swapchain_all(
         postprocess_descriptor_metadata,
         postprocess.pass,
         swapchain.extent,
+        supports_raytracing,
         dev,
     );
     let postprocess_descriptor_sets = create_postprocess_descriptor_sets(
@@ -643,59 +674,65 @@ fn create_postprocess_pass(
     create_pass(extent, dev, &attachments)
 }
 
-fn create_object_descriptor_metadata(dev: &Dev) -> DescriptorMetadata {
+fn create_object_descriptor_metadata(supports_raytracing: bool, dev: &Dev) -> DescriptorMetadata {
+    let mut descriptors = vec![
+        Descriptor {
+            kind: DescriptorKind::UniformBuffer,
+            stage: vk::ShaderStageFlags::VERTEX,
+        },
+        Descriptor {
+            kind: DescriptorKind::UniformBuffer,
+            stage: vk::ShaderStageFlags::FRAGMENT,
+        },
+        Descriptor {
+            kind: DescriptorKind::UniformBuffer,
+            stage: vk::ShaderStageFlags::FRAGMENT,
+        },
+        Descriptor {
+            kind: DescriptorKind::UniformBuffer,
+            stage: vk::ShaderStageFlags::FRAGMENT,
+        },
+    ];
+    if supports_raytracing {
+        descriptors.push(Descriptor {
+            kind: DescriptorKind::AccelerationStructure,
+            stage: vk::ShaderStageFlags::FRAGMENT,
+        });
+    }
     create_descriptor_metadata(DescriptorConfig {
-        descriptors: vec![
-            Descriptor {
-                kind: DescriptorKind::UniformBuffer,
-                stage: vk::ShaderStageFlags::VERTEX,
-            },
-            Descriptor {
-                kind: DescriptorKind::UniformBuffer,
-                stage: vk::ShaderStageFlags::FRAGMENT,
-            },
-            Descriptor {
-                kind: DescriptorKind::UniformBuffer,
-                stage: vk::ShaderStageFlags::FRAGMENT,
-            },
-            Descriptor {
-                kind: DescriptorKind::UniformBuffer,
-                stage: vk::ShaderStageFlags::FRAGMENT,
-            },
-            Descriptor {
-                kind: DescriptorKind::AccelerationStructure,
-                stage: vk::ShaderStageFlags::FRAGMENT,
-            },
-        ],
+        descriptors,
         set_count: 3,
         dev,
     })
 }
 
-fn create_grass_descriptor_metadata(dev: &Dev) -> DescriptorMetadata {
+fn create_grass_descriptor_metadata(supports_raytracing: bool, dev: &Dev) -> DescriptorMetadata {
+    let mut descriptors = vec![
+        Descriptor {
+            kind: DescriptorKind::UniformBuffer,
+            stage: vk::ShaderStageFlags::VERTEX,
+        },
+        Descriptor {
+            kind: DescriptorKind::UniformBuffer,
+            stage: vk::ShaderStageFlags::VERTEX,
+        },
+        Descriptor {
+            kind: DescriptorKind::UniformBuffer,
+            stage: vk::ShaderStageFlags::FRAGMENT,
+        },
+        Descriptor {
+            kind: DescriptorKind::UniformBuffer,
+            stage: vk::ShaderStageFlags::FRAGMENT,
+        },
+    ];
+    if supports_raytracing {
+        descriptors.push(Descriptor {
+            kind: DescriptorKind::AccelerationStructure,
+            stage: vk::ShaderStageFlags::FRAGMENT,
+        });
+    }
     create_descriptor_metadata(DescriptorConfig {
-        descriptors: vec![
-            Descriptor {
-                kind: DescriptorKind::UniformBuffer,
-                stage: vk::ShaderStageFlags::VERTEX,
-            },
-            Descriptor {
-                kind: DescriptorKind::UniformBuffer,
-                stage: vk::ShaderStageFlags::VERTEX,
-            },
-            Descriptor {
-                kind: DescriptorKind::UniformBuffer,
-                stage: vk::ShaderStageFlags::FRAGMENT,
-            },
-            Descriptor {
-                kind: DescriptorKind::UniformBuffer,
-                stage: vk::ShaderStageFlags::FRAGMENT,
-            },
-            Descriptor {
-                kind: DescriptorKind::AccelerationStructure,
-                stage: vk::ShaderStageFlags::FRAGMENT,
-            },
-        ],
+        descriptors,
         set_count: 1,
         dev,
     })
@@ -778,6 +815,7 @@ fn create_object_pipeline(
     msaa_samples: vk::SampleCountFlags,
     pass: vk::RenderPass,
     swapchain_extent: vk::Extent2D,
+    supports_raytracing: bool,
     dev: &Dev,
 ) -> Pipeline {
     create_pipeline(PipelineConfig {
@@ -808,6 +846,7 @@ fn create_object_pipeline(
         descriptor_layouts: &[descriptor_metadata.set_layout],
         depth_test: true,
         pass,
+        supports_raytracing,
         dev,
         swapchain_extent,
     })
@@ -818,6 +857,7 @@ fn create_grass_pipeline(
     msaa_samples: vk::SampleCountFlags,
     pass: vk::RenderPass,
     swapchain_extent: vk::Extent2D,
+    supports_raytracing: bool,
     dev: &Dev,
 ) -> Pipeline {
     create_pipeline(PipelineConfig {
@@ -891,6 +931,7 @@ fn create_grass_pipeline(
         descriptor_layouts: &[descriptor_metadata.set_layout],
         depth_test: true,
         pass,
+        supports_raytracing,
         dev,
         swapchain_extent,
     })
@@ -900,6 +941,7 @@ fn create_postprocess_pipeline(
     descriptors: &DescriptorMetadata,
     pass: vk::RenderPass,
     swapchain_extent: vk::Extent2D,
+    supports_raytracing: bool,
     dev: &Dev,
 ) -> Pipeline {
     create_pipeline(PipelineConfig {
@@ -913,6 +955,7 @@ fn create_postprocess_pipeline(
         descriptor_layouts: &[descriptors.set_layout],
         depth_test: false,
         pass,
+        supports_raytracing,
         dev,
         swapchain_extent,
     })
@@ -960,9 +1003,10 @@ pub fn create_object(
     descriptor_metadata: &DescriptorMetadata,
     light: &UniformBuffer<Light>,
     frag_settings: &UniformBuffer<FragSettings>,
+    supports_raytracing: bool,
     ctx: &Ctx,
 ) -> Object {
-    let vertex = create_vertex_buffer(&model.vertices, ctx);
+    let vertex = create_vertex_buffer(&model.vertices, supports_raytracing, ctx);
     let mvp = UniformBuffer::create(ctx.dev);
     let material = UniformBuffer::create(ctx.dev);
     let descriptor_sets = create_object_descriptor_sets(
@@ -983,14 +1027,18 @@ pub fn create_object(
     }
 }
 
-fn create_vertex_buffer(vertex_data: &[Vertex], ctx: &Ctx) -> Buffer {
+fn create_vertex_buffer(vertex_data: &[Vertex], supports_raytracing: bool, ctx: &Ctx) -> Buffer {
     let size = std::mem::size_of::<Vertex>() * vertex_data.len();
     let vertex = Buffer::create(
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
         vk::BufferUsageFlags::VERTEX_BUFFER
             | vk::BufferUsageFlags::TRANSFER_DST
-            | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS
-            | vk::BufferUsageFlags::ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_KHR,
+            | if supports_raytracing {
+                vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS
+                    | vk::BufferUsageFlags::ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_KHR
+            } else {
+                vk::BufferUsageFlags::empty()
+            },
         size,
         ctx.dev,
     );

@@ -19,17 +19,27 @@ impl Drop for Shader<'_> {
 pub fn create_shader<'a>(
     glsl_path: &str,
     stage: vk::ShaderStageFlags,
+    supports_raytracing: bool,
     logical_device: &'a Device,
 ) -> Shader<'a> {
     let spirv_path = format!("{glsl_path}.spv");
     if !exists_newer_file(&spirv_path, glsl_path) {
-        compile_shader(glsl_path, &spirv_path, stage);
+        compile_shader(glsl_path, &spirv_path, stage, supports_raytracing);
     }
     load_shader(logical_device, &spirv_path, stage)
 }
 
-fn compile_shader(glsl_path: &str, spirv_path: &str, stage: vk::ShaderStageFlags) {
+fn compile_shader(
+    glsl_path: &str,
+    spirv_path: &str,
+    stage: vk::ShaderStageFlags,
+    supports_raytracing: bool,
+) {
     let compiler = shaderc::Compiler::new().unwrap();
+    let mut options = shaderc::CompileOptions::new().unwrap();
+    if supports_raytracing {
+        options.add_macro_definition("SUPPORTS_RAYTRACING", Some(""));
+    }
     let glsl_text = std::fs::read_to_string(glsl_path).unwrap();
     let shader_kind = if stage.contains(vk::ShaderStageFlags::VERTEX) {
         shaderc::ShaderKind::Vertex

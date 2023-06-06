@@ -1,6 +1,7 @@
 use crate::renderer::FRAMES_IN_FLIGHT;
 use ash::extensions::khr::BufferDeviceAddress;
 use ash::{vk, Device, Instance};
+use std::ffi::CStr;
 use std::mem::MaybeUninit;
 use std::ops::Deref;
 
@@ -334,4 +335,8 @@ pub fn exists_newer_file(path: &str, reference: &str) -> bool {
     let path_mtime = meta.modified().unwrap();
     let reference_mtime = std::fs::metadata(reference).unwrap().modified().unwrap();
     path_mtime >= reference_mtime
+}
+
+pub fn vulkan_str(slice: &[i8]) -> &str {
+    unsafe { CStr::from_ptr(slice.as_ptr()) }.to_str().unwrap()
 }

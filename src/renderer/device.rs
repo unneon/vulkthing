@@ -1,13 +1,14 @@
+use crate::renderer::util::vulkan_str;
 use ash::extensions::khr::Surface;
 use ash::{vk, Instance};
 use log::{debug, warn};
-use std::ffi::CStr;
 
 #[derive(Clone)]
 pub struct DeviceInfo {
     pub physical_device: vk::PhysicalDevice,
     pub queue_family: u32,
     pub transfer_queue_family: u32,
+    pub supports_raytracing: bool,
 }
 
 pub fn select_device(
@@ -23,10 +24,8 @@ pub fn select_device(
         let properties = unsafe { instance.get_physical_device_properties(device) };
         let queue_families =
             unsafe { instance.get_physical_device_queue_family_properties(device) };
-        let name = unsafe { CStr::from_ptr(properties.device_name.as_ptr()) }
-            .to_str()
-            .unwrap()
-            .to_owned();
+        let name = vulkan_str(&properties.device_name);
+        let extensions = unsafe { instance.enumerate_device_extension_properties(device) }.unwrap();
 
         // The GPU has to have a graphics queue. Otherwise there's no way to do any rendering
         // operations, so this must be some weird compute-only accelerator or something.
@@ -39,6 +38,11 @@ pub fn select_device(
             continue;
         };
 
+        let supports_raytracing = has_extension(&extensions, "VK_KHR_ray_query");
+        if !supports_raytracing {
+            warn!("ray tracing not available");
+        }
+
         // Let's just select the first GPU for now. Linux seems to sort them by itself, I should
         // think more about selection later.
         debug!("physical device selected, \x1B[1mname\x1B[0m: {name}");
@@ -46,6 +50,7 @@ pub fn select_device(
             physical_device: device,
             queue_family,
             transfer_queue_family,
+            supports_raytracing,
         };
     }
 
@@ -83,4 +88,13 @@ fn find_transfer_queue(queues: &[vk::QueueFamilyProperties]) -> Option<u32> {
         }
     }
     None
+}
+
+fn has_extension(extensions: &[vk::ExtensionProperties], name: &str) -> bool {
+    for ext in extensions {
+        if vulkan_str(&ext.extension_name) == name {
+            return true;
+        }
+    }
+    false
 }

@@ -18,6 +18,7 @@ pub struct PipelineConfig<'a> {
     pub descriptor_layouts: &'a [vk::DescriptorSetLayout],
     pub depth_test: bool,
     pub pass: vk::RenderPass,
+    pub supports_raytracing: bool,
     pub dev: &'a Dev,
     pub swapchain_extent: vk::Extent2D,
 }
@@ -37,11 +38,13 @@ pub fn create_pipeline(config: PipelineConfig) -> Pipeline {
     let vertex_shader = create_shader(
         config.vertex_shader_path,
         vk::ShaderStageFlags::VERTEX,
+        config.supports_raytracing,
         config.dev,
     );
     let fragment_shader = create_shader(
         config.fragment_shader_path,
         vk::ShaderStageFlags::FRAGMENT,
+        config.supports_raytracing,
         config.dev,
     );
     let shader_stages = [vertex_shader.stage_info, fragment_shader.stage_info];

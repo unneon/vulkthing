@@ -7,6 +7,7 @@
 #![feature(inline_const)]
 #![feature(iter_array_chunks)]
 #![allow(clippy::collapsible_match)]
+#![allow(clippy::manual_map)]
 #![allow(clippy::single_match)]
 #![allow(clippy::too_many_arguments)]
 #![allow(clippy::type_complexity)]

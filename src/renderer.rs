@@ -41,6 +41,7 @@ pub struct Renderer {
     queue: vk::Queue,
     transfer_queue: vk::Queue,
     swapchain_ext: SwapchainKhr,
+    supports_raytracing: bool,
 
     // Parameters of the renderer that are required early for creating more important objects.
     msaa_samples: vk::SampleCountFlags,
@@ -90,8 +91,8 @@ pub struct Renderer {
     grass_blades_total: usize,
     grass_descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
 
-    tlas: RaytraceResources,
-    blas: RaytraceResources,
+    tlas: Option<RaytraceResources>,
+    blas: Option<RaytraceResources>,
 
     interface_renderer: Option<imgui_rs_vulkan_renderer::Renderer>,
 }
