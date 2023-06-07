@@ -32,6 +32,7 @@ use nalgebra::Matrix4;
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use std::f32::consts::FRAC_PI_4;
 use std::ffi::CString;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use winit::dpi::PhysicalSize;
 
@@ -200,7 +201,7 @@ impl Renderer {
             objects,
             grass_descriptor_sets,
             grass_chunks: Arc::new(Mutex::new(Vec::new())),
-            grass_blades_total: 0,
+            grass_blades_total: Arc::new(AtomicUsize::new(0)),
             blas,
             tlas,
             interface_renderer: None,
@@ -273,6 +274,7 @@ impl Renderer {
         self.projection = projection;
     }
 
+    #[allow(dead_code)]
     pub fn recreate_planet(&mut self, planet_model: &Model) {
         let ctx = Ctx {
             dev: &self.dev,
@@ -315,10 +317,17 @@ impl Renderer {
             dev: self.dev.clone(),
             transfer_queue: self.transfer_queue,
             transfer_command_pool: self.transfer_command_pool,
+            grass_chunks: self.grass_chunks.clone(),
+            grass_blades_total: self.grass_blades_total.clone(),
         }
     }
 
-    pub fn unload_grass_chunks(&mut self, mut predicate: impl FnMut(usize) -> bool) {
+    pub fn unload_grass_chunks(
+        &mut self,
+        mut predicate: impl FnMut(usize) -> bool,
+        mut on_unload: impl FnMut(usize),
+    ) {
+        let mut first = true;
         for chunk in self
             .grass_chunks
             .lock()
@@ -326,9 +335,14 @@ impl Renderer {
             .drain_filter(|chunk| predicate(chunk.id))
         {
             trace!("unloading grass chunk, \x1B[1mid\x1B[0m: {}", chunk.id);
-            unsafe { self.dev.device_wait_idle() }.unwrap();
+            self.grass_blades_total
+                .fetch_sub(chunk.blade_count, Ordering::Relaxed);
+            on_unload(chunk.id);
+            if first {
+                unsafe { self.dev.device_wait_idle() }.unwrap();
+                first = false;
+            }
             chunk.cleanup(&self.dev);
-            self.grass_blades_total -= chunk.blade_count;
         }
     }
 
@@ -351,23 +365,21 @@ impl Renderer {
 }
 
 impl AsyncLoader {
-    pub fn load_grass_chunk(
-        &self,
-        id: usize,
-        chunk: &[GrassBlade],
-        grass_chunks: &Mutex<Vec<GrassChunk>>,
-    ) {
+    pub fn load_grass_chunk(&self, id: usize, blades_data: &[GrassBlade]) {
+        trace!("loading grass chunk, \x1B[1mid\x1B[0m: {}", id);
         let ctx = Ctx {
             dev: &self.dev,
             queue: self.transfer_queue,
             command_pool: self.transfer_command_pool,
         };
-        let blades = create_blade_buffer(chunk, &ctx);
-        grass_chunks.lock().unwrap().push(GrassChunk {
+        let blades = create_blade_buffer(blades_data, &ctx);
+        self.grass_chunks.lock().unwrap().push(GrassChunk {
             id,
             blades,
-            blade_count: chunk.len(),
+            blade_count: blades_data.len(),
         });
+        self.grass_blades_total
+            .fetch_add(blades_data.len(), Ordering::Relaxed);
     }
 }
 

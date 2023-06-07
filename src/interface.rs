@@ -1,9 +1,11 @@
 use crate::grass::Grass;
 use crate::planet::Planet;
 use crate::renderer::uniform::{FragSettings, Postprocessing};
+use crate::renderer::Renderer;
 use imgui::{Condition, Context, Drag, TreeNodeFlags, Ui};
 use nalgebra::Vector3;
 use std::borrow::Cow;
+use std::sync::atomic::Ordering;
 
 pub mod integration;
 
@@ -30,6 +32,7 @@ impl Interface {
         grass: &mut Grass,
         frag_settings: &mut FragSettings,
         postprocessing: &mut Postprocessing,
+        renderer: &Renderer,
     ) -> InterfaceEvents {
         let ui = self.ctx.frame();
         let mut events = InterfaceEvents {
@@ -52,6 +55,13 @@ impl Interface {
                 }
                 if ui.collapsing_header("Grass", TreeNodeFlags::DEFAULT_OPEN) {
                     let mut changed = false;
+                    ui.label_text(
+                        "Total blades",
+                        renderer
+                            .grass_blades_total
+                            .load(Ordering::Relaxed)
+                            .to_string(),
+                    );
                     changed |= ui.slider(
                         "Blades per planet triangle",
                         1,

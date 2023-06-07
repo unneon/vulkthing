@@ -1,7 +1,6 @@
 use crate::model::Model;
 use crate::planet::Planet;
 use crate::renderer::vertex::GrassBlade;
-use log::debug;
 use nalgebra::{Rotation3, Unit, Vector3};
 use noise::{NoiseFn, Perlin};
 use rand::rngs::SmallRng;
@@ -71,10 +70,6 @@ pub fn generate_grass_blades(
             });
         }
     }
-    debug!(
-        "grass blades generated, \x1B[1mcount\x1B[0m: {}",
-        grass_blades.len()
-    );
     grass_blades
 }
 

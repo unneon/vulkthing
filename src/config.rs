@@ -25,7 +25,7 @@ pub const DEFAULT_GRASS: Grass = Grass {
     sway_amplitude: 0.2,
     chunk_count: 1023,
     chunk_load_distance: 400.,
-    chunk_unload_distance: 4500.,
+    chunk_unload_distance: 450.,
 };
 
 pub const DEFAULT_CAMERA: FirstPersonCamera = FirstPersonCamera {

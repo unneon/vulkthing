@@ -27,6 +27,7 @@ use ash::extensions::khr::{Surface, Swapchain as SwapchainKhr};
 use ash::{vk, Entry};
 use imgui::DrawData;
 use nalgebra::{Matrix4, Vector3};
+use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex};
 use winit::dpi::PhysicalSize;
 
@@ -87,8 +88,8 @@ pub struct Renderer {
     light: UniformBuffer<Light>,
     frag_settings: UniformBuffer<FragSettings>,
     objects: Vec<Object>,
-    pub grass_chunks: Arc<Mutex<Vec<GrassChunk>>>,
-    grass_blades_total: usize,
+    grass_chunks: Arc<Mutex<Vec<GrassChunk>>>,
+    pub grass_blades_total: Arc<AtomicUsize>,
     grass_descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
 
     tlas: Option<RaytraceResources>,
@@ -127,6 +128,8 @@ pub struct AsyncLoader {
     dev: Dev,
     transfer_queue: vk::Queue,
     transfer_command_pool: vk::CommandPool,
+    grass_chunks: Arc<Mutex<Vec<GrassChunk>>>,
+    grass_blades_total: Arc<AtomicUsize>,
 }
 
 const FRAMES_IN_FLIGHT: usize = 2;
