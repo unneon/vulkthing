@@ -1,6 +1,6 @@
 #version 450
 
-layout(binding = 0) uniform sampler2D render;
+layout(binding = 0) uniform sampler2DMS render;
 layout(binding = 1) uniform Postprocessing {
     vec3 color_filter;
     float exposure;
@@ -105,9 +105,8 @@ vec3 apply_tone_mapping(vec3 color) {
     }
 }
 
-void main() {
+vec3 postprocess(vec3 color) {
     // Assume the colors computed by the lighting shader are in [0, infinity) HDR.
-    vec3 color = textureLod(render, gl_FragCoord.xy, 0).rgb;
 
     // Apply camera exposure. Assumes exposure is non-negative.
     color = color * postprocessing.exposure;
@@ -136,5 +135,13 @@ void main() {
     // sRGB color space. Doesn't require clamping, as [0,1] to a real power is still [0,1].
     color = pow(color, vec3(postprocessing.gamma));
 
-    out_color = vec4(color, 1);
+    return color;
+}
+
+void main() {
+    vec3 color = vec3(0);
+    for (int i = 0; i < 8; ++i) {
+        color += postprocess(texelFetch(render, ivec2(gl_FragCoord.xy), i).rgb);
+    }
+    out_color = vec4(color / 8, 1);
 }

@@ -636,7 +636,7 @@ fn create_swapchain_all(
         dev,
     );
     let postprocess_descriptor_sets = create_postprocess_descriptor_sets(
-        render.resources[2].view,
+        render.resources[0].view,
         postprocessing,
         postprocess_descriptor_metadata,
         dev,
@@ -659,16 +659,13 @@ fn create_render_pass(msaa_samples: vk::SampleCountFlags, extent: vk::Extent2D, 
         AttachmentConfig::new(COLOR_FORMAT)
             .samples(msaa_samples)
             .clear_color([0., 0., 0., 0.])
-            .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL),
+            .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+            .store(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+            .usage(vk::ImageUsageFlags::SAMPLED),
         AttachmentConfig::new(DEPTH_FORMAT)
             .samples(msaa_samples)
             .clear_depth(1.)
             .layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL),
-        AttachmentConfig::new(COLOR_FORMAT)
-            .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
-            .store(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-            .resolve()
-            .usage(vk::ImageUsageFlags::SAMPLED),
     ];
     create_pass(extent, dev, &attachments)
 }

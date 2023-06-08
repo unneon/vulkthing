@@ -16,7 +16,6 @@ pub struct AttachmentConfig<'a> {
     clear: Option<vk::ClearValue>,
     layout: vk::ImageLayout,
     final_layout: Option<vk::ImageLayout>,
-    resolve: bool,
     image_flags: vk::ImageUsageFlags,
     swapchain: Option<&'a [vk::ImageView]>,
 }
@@ -64,7 +63,6 @@ impl<'a> AttachmentConfig<'a> {
             clear: None,
             layout: vk::ImageLayout::UNDEFINED,
             final_layout: None,
-            resolve: false,
             image_flags: vk::ImageUsageFlags::empty(),
             swapchain: None,
         }
@@ -99,11 +97,6 @@ impl<'a> AttachmentConfig<'a> {
         self
     }
 
-    pub fn resolve(mut self) -> Self {
-        self.resolve = true;
-        self
-    }
-
     pub fn usage(mut self, usage: vk::ImageUsageFlags) -> Self {
         self.image_flags = usage;
         self
@@ -119,7 +112,6 @@ pub fn create_pass(extent: vk::Extent2D, dev: &Dev, configs: &[AttachmentConfig]
     let mut attachments = Vec::new();
     let mut color = None;
     let mut depth = None;
-    let mut resolve = None;
     let mut clears = Vec::new();
     let mut resources = Vec::new();
     let mut framebuffer_attachments = Vec::new();
@@ -145,28 +137,18 @@ pub fn create_pass(extent: vk::Extent2D, dev: &Dev, configs: &[AttachmentConfig]
             .attachment(index as u32)
             .layout(config.layout);
         attachments.push(attachment);
-        if config.layout == vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL
-            && !config.resolve
-            && color.is_none()
-        {
+        if config.layout == vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL && color.is_none() {
             color = Some(reference);
         } else if config.layout == vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL
             && depth.is_none()
         {
             depth = Some(reference);
-        } else if config.layout == vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL
-            && config.resolve
-            && resolve.is_none()
-        {
-            resolve = Some(reference);
         } else {
             panic!(
-                "unimplemented case {:?},{:?} {:?},{:?},{:?}",
+                "unimplemented case {:?} {:?},{:?}",
                 config.format,
-                config.resolve,
                 color.is_none(),
                 depth.is_none(),
-                resolve.is_none()
             );
         }
         if let Some(clear) = config.clear {
@@ -211,9 +193,6 @@ pub fn create_pass(extent: vk::Extent2D, dev: &Dev, configs: &[AttachmentConfig]
     }
     if let Some(depth) = depth.as_ref() {
         subpass = subpass.depth_stencil_attachment(depth);
-    }
-    if let Some(resolve) = resolve.as_ref() {
-        subpass = subpass.resolve_attachments(std::slice::from_ref(resolve));
     }
     let subpass = *subpass;
     let create_info = *vk::RenderPassCreateInfo::builder()

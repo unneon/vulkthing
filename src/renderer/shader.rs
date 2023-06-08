@@ -49,7 +49,7 @@ fn compile_shader(
         panic!("unknown shader stage {stage:?}");
     };
     let compile_result =
-        compiler.compile_into_spirv(&glsl_text, shader_kind, glsl_path, "main", None);
+        compiler.compile_into_spirv(&glsl_text, shader_kind, glsl_path, "main", Some(&options));
     let spirv_data = match compile_result {
         Err(shaderc::Error::CompilationError(_, output)) => {
             for message in output.trim().split('\n') {
