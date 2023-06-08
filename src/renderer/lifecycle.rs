@@ -8,11 +8,12 @@ use crate::renderer::device::{select_device, DeviceInfo};
 use crate::renderer::graph::{create_pass, AttachmentConfig, Pass};
 use crate::renderer::pipeline::{create_pipeline, Pipeline, PipelineConfig};
 use crate::renderer::raytracing::{create_blas, create_tlas, RaytraceResources};
+use crate::renderer::shader::SpecializationConstant;
 use crate::renderer::swapchain::{create_swapchain, Swapchain};
 use crate::renderer::uniform::{
     FragSettings, GrassUniform, Light, Material, ModelViewProjection, Postprocessing,
 };
-use crate::renderer::util::{find_max_msaa_samples, vulkan_str, Buffer, Ctx, Dev};
+use crate::renderer::util::{find_max_msaa_samples, sample_count, vulkan_str, Buffer, Ctx, Dev};
 use crate::renderer::vertex::{GrassBlade, Vertex};
 use crate::renderer::{
     AsyncLoader, GrassChunk, Object, Renderer, Synchronization, UniformBuffer, VulkanExtensions,
@@ -633,6 +634,7 @@ fn create_swapchain_all(
         postprocess.pass,
         swapchain.extent,
         supports_raytracing,
+        msaa_samples,
         dev,
     );
     let postprocess_descriptor_sets = create_postprocess_descriptor_sets(
@@ -829,7 +831,9 @@ fn create_object_pipeline(
 ) -> Pipeline {
     create_pipeline(PipelineConfig {
         vertex_shader_path: "shaders/object.vert",
+        vertex_specialization: &[],
         fragment_shader_path: "shaders/object.frag",
+        fragment_specialization: &[],
         vertex_bindings: &[vk::VertexInputBindingDescription {
             binding: 0,
             stride: 24,
@@ -871,7 +875,9 @@ fn create_grass_pipeline(
 ) -> Pipeline {
     create_pipeline(PipelineConfig {
         vertex_shader_path: "shaders/grass.vert",
+        vertex_specialization: &[],
         fragment_shader_path: "shaders/grass.frag",
+        fragment_specialization: &[],
         vertex_bindings: &[
             vk::VertexInputBindingDescription {
                 binding: 0,
@@ -951,11 +957,17 @@ fn create_postprocess_pipeline(
     pass: vk::RenderPass,
     swapchain_extent: vk::Extent2D,
     supports_raytracing: bool,
+    msaa_samples: vk::SampleCountFlags,
     dev: &Dev,
 ) -> Pipeline {
     create_pipeline(PipelineConfig {
         vertex_shader_path: "shaders/postprocess.vert",
+        vertex_specialization: &[],
         fragment_shader_path: "shaders/postprocess.frag",
+        fragment_specialization: &[SpecializationConstant {
+            id: 0,
+            value: sample_count(msaa_samples) as i32,
+        }],
         vertex_bindings: &[],
         vertex_attributes: &[],
         msaa_samples: vk::SampleCountFlags::TYPE_1,

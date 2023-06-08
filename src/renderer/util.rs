@@ -312,6 +312,24 @@ pub fn find_max_msaa_samples(dev: &Dev) -> vk::SampleCountFlags {
     vk::SampleCountFlags::TYPE_1
 }
 
+pub fn sample_count(samples: vk::SampleCountFlags) -> usize {
+    if samples.contains(vk::SampleCountFlags::TYPE_64) {
+        64
+    } else if samples.contains(vk::SampleCountFlags::TYPE_32) {
+        32
+    } else if samples.contains(vk::SampleCountFlags::TYPE_16) {
+        16
+    } else if samples.contains(vk::SampleCountFlags::TYPE_8) {
+        8
+    } else if samples.contains(vk::SampleCountFlags::TYPE_4) {
+        4
+    } else if samples.contains(vk::SampleCountFlags::TYPE_2) {
+        2
+    } else {
+        1
+    }
+}
+
 fn find_memory_type(properties: vk::MemoryPropertyFlags, type_filter: u32, dev: &Dev) -> u32 {
     let memory = unsafe {
         dev.instance

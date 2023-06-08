@@ -10,6 +10,11 @@ pub struct Shader<'a> {
     pub stage_info: vk::PipelineShaderStageCreateInfo,
 }
 
+pub struct SpecializationConstant {
+    pub id: u32,
+    pub value: i32,
+}
+
 impl Drop for Shader<'_> {
     fn drop(&mut self) {
         unsafe { self.logical_device.destroy_shader_module(self.module, None) };
@@ -20,13 +25,14 @@ pub fn create_shader<'a>(
     glsl_path: &str,
     stage: vk::ShaderStageFlags,
     supports_raytracing: bool,
+    specialization_info: &vk::SpecializationInfo,
     logical_device: &'a Device,
 ) -> Shader<'a> {
     let spirv_path = format!("{glsl_path}.spv");
     if !exists_newer_file(&spirv_path, glsl_path) {
         compile_shader(glsl_path, &spirv_path, stage, supports_raytracing);
     }
-    load_shader(logical_device, &spirv_path, stage)
+    load_shader(logical_device, &spirv_path, stage, specialization_info)
 }
 
 fn compile_shader(
@@ -77,6 +83,7 @@ fn load_shader<'a>(
     logical_device: &'a Device,
     spirv_path: &str,
     stage: vk::ShaderStageFlags,
+    specialization_info: &vk::SpecializationInfo,
 ) -> Shader<'a> {
     let mut file = File::open(spirv_path).unwrap();
     let aligned_code = ash::util::read_spv(&mut file).unwrap();
@@ -88,14 +95,39 @@ fn load_shader<'a>(
     }
     .unwrap();
     debug!("shader SPIR-V loaded, \x1B[1mfile\x1B[0m: {spirv_path}");
-    let stage_info = vk::PipelineShaderStageCreateInfo::builder()
+    let stage_info = *vk::PipelineShaderStageCreateInfo::builder()
         .stage(stage)
         .module(module)
         .name(CStr::from_bytes_with_nul(b"main\0").unwrap())
-        .build();
+        .specialization_info(specialization_info);
     Shader {
         logical_device,
         stage_info,
         module,
     }
+}
+
+pub fn create_specialization_entries(
+    config: &[SpecializationConstant],
+) -> Vec<vk::SpecializationMapEntry> {
+    let mut entries = Vec::new();
+    for (index, constant) in config.iter().enumerate() {
+        entries.push(vk::SpecializationMapEntry {
+            constant_id: constant.id,
+            offset: (index * std::mem::size_of::<SpecializationConstant>() + 4) as u32,
+            size: 4,
+        });
+    }
+    entries
+}
+
+pub fn create_specialization(
+    config: &[SpecializationConstant],
+    entries: &[vk::SpecializationMapEntry],
+) -> vk::SpecializationInfo {
+    let data =
+        unsafe { std::slice::from_raw_parts(config.as_ptr() as *const u8, config.len() * 8) };
+    *vk::SpecializationInfo::builder()
+        .map_entries(entries)
+        .data(data)
 }

@@ -1,4 +1,6 @@
-use crate::renderer::shader::create_shader;
+use crate::renderer::shader::{
+    create_shader, create_specialization, create_specialization_entries, SpecializationConstant,
+};
 use crate::renderer::util::Dev;
 use ash::{vk, Device};
 
@@ -9,7 +11,9 @@ pub struct Pipeline {
 
 pub struct PipelineConfig<'a> {
     pub vertex_shader_path: &'a str,
+    pub vertex_specialization: &'a [SpecializationConstant],
     pub fragment_shader_path: &'a str,
+    pub fragment_specialization: &'a [SpecializationConstant],
     pub vertex_bindings: &'a [vk::VertexInputBindingDescription],
     pub vertex_attributes: &'a [vk::VertexInputAttributeDescription],
     pub msaa_samples: vk::SampleCountFlags,
@@ -35,16 +39,27 @@ impl Pipeline {
 pub fn create_pipeline(config: PipelineConfig) -> Pipeline {
     // Build shaders from GLSL paths. This can build and cache SPIR-V by spawning glslc as a
     // subprocess.
+    let vertex_specialization_entries = create_specialization_entries(config.vertex_specialization);
+    let vertex_specialization =
+        create_specialization(config.vertex_specialization, &vertex_specialization_entries);
     let vertex_shader = create_shader(
         config.vertex_shader_path,
         vk::ShaderStageFlags::VERTEX,
         config.supports_raytracing,
+        &vertex_specialization,
         config.dev,
+    );
+    let fragment_specialization_entries =
+        create_specialization_entries(config.fragment_specialization);
+    let fragment_specialization = create_specialization(
+        config.fragment_specialization,
+        &fragment_specialization_entries,
     );
     let fragment_shader = create_shader(
         config.fragment_shader_path,
         vk::ShaderStageFlags::FRAGMENT,
         config.supports_raytracing,
+        &fragment_specialization,
         config.dev,
     );
     let shader_stages = [vertex_shader.stage_info, fragment_shader.stage_info];

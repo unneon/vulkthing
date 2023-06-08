@@ -1,5 +1,7 @@
 #version 450
 
+layout(constant_id = 0) const int msaa_samples = 0;
+
 layout(binding = 0) uniform sampler2DMS render;
 layout(binding = 1) uniform Postprocessing {
     vec3 color_filter;
@@ -140,8 +142,8 @@ vec3 postprocess(vec3 color) {
 
 void main() {
     vec3 color = vec3(0);
-    for (int i = 0; i < 8; ++i) {
+    for (int i = 0; i < msaa_samples; ++i) {
         color += postprocess(texelFetch(render, ivec2(gl_FragCoord.xy), i).rgb);
     }
-    out_color = vec4(color / 8, 1);
+    out_color = vec4(color / msaa_samples, 1);
 }
