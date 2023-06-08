@@ -147,22 +147,17 @@ impl Renderer {
             &dev,
         );
 
-        let blas = if supports_raytracing {
-            Some(create_blas(&objects[0], &ctx))
-        } else {
-            None
-        };
-        let tlas = if let Some(blas) = blas.as_ref() {
-            Some(create_tlas(blas, &ctx))
-        } else {
-            None
-        };
-        if let Some(tlas) = tlas.as_ref() {
+        let (blas, tlas) = if supports_raytracing {
+            let blas = create_blas(&objects[0], &ctx);
+            let tlas = create_tlas(&blas, &ctx);
             for object in &objects {
-                slow_update_tlas(&object.descriptor_sets, 4, tlas, &dev);
+                slow_update_tlas(&object.descriptor_sets, 4, &tlas, &dev);
             }
-            slow_update_tlas(&grass_descriptor_sets, 4, tlas, &dev);
-        }
+            slow_update_tlas(&grass_descriptor_sets, 4, &tlas, &dev);
+            (Some(tlas), Some(blas))
+        } else {
+            (None, None)
+        };
 
         Renderer {
             _entry: entry,
