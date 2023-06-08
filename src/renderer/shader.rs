@@ -1,6 +1,7 @@
 use crate::renderer::util::exists_newer_file;
 use ash::{vk, Device};
 use log::{debug, error};
+use shaderc::ResolvedInclude;
 use std::ffi::CStr;
 use std::fs::File;
 
@@ -46,6 +47,12 @@ fn compile_shader(
     if supports_raytracing {
         options.add_macro_definition("SUPPORTS_RAYTRACING", Some(""));
     }
+    options.set_include_callback(|path, _, _, _| {
+        Ok(ResolvedInclude {
+            resolved_name: path.to_owned(),
+            content: std::fs::read_to_string(format!("shaders/{}", path)).unwrap(),
+        })
+    });
     let glsl_text = std::fs::read_to_string(glsl_path).unwrap();
     let shader_kind = if stage.contains(vk::ShaderStageFlags::VERTEX) {
         shaderc::ShaderKind::Vertex
