@@ -60,6 +60,12 @@ pub struct Postprocessing {
     pub gamma: f32,
 }
 
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct Camera {
+    pub position: Vector3<f32>,
+}
+
 #[repr(u32)]
 #[derive(Clone, Copy, Eq, PartialEq)]
 #[allow(dead_code)]

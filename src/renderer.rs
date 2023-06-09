@@ -18,7 +18,7 @@ use crate::renderer::pipeline::Pipeline;
 use crate::renderer::raytracing::RaytraceResources;
 use crate::renderer::swapchain::Swapchain;
 use crate::renderer::uniform::{
-    FragSettings, GrassUniform, Light, Material, ModelViewProjection, Postprocessing,
+    Camera, FragSettings, GrassUniform, Light, Material, ModelViewProjection, Postprocessing,
 };
 use crate::renderer::util::{Buffer, Dev, UniformBuffer};
 use crate::world::{Entity, World};
@@ -49,6 +49,7 @@ pub struct Renderer {
     msaa_samples: vk::SampleCountFlags,
     offscreen_sampler: vk::Sampler,
     postprocessing: UniformBuffer<Postprocessing>,
+    camera: UniformBuffer<Camera>,
 
     // Description of the main render pass. Doesn't contain any information about the objects yet,
     // only low-level data format descriptions.
@@ -161,6 +162,7 @@ impl Renderer {
         self.light.write(self.flight_index, &world.light());
         self.frag_settings.write(self.flight_index, frag_settings);
         self.postprocessing.write(self.flight_index, postprocessing);
+        self.update_camera_uniform(world);
         self.submit_graphics();
         self.submit_present(image_index);
 
@@ -343,6 +345,11 @@ impl Renderer {
         };
         self.grass_mvp.write(self.flight_index, &mvp);
         self.grass_uniform.write(self.flight_index, &grass);
+    }
+
+    fn update_camera_uniform(&self, world: &World) {
+        let position = world.camera.position();
+        self.camera.write(self.flight_index, &Camera { position });
     }
 
     fn submit_graphics(&self) {

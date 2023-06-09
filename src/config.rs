@@ -33,7 +33,7 @@ pub const DEFAULT_CAMERA: FirstPersonCamera = FirstPersonCamera {
     position: Vector3::new(
         0.,
         0.,
-        DEFAULT_PLANET.radius + 2. * DEFAULT_PLANET.noise_magnitude,
+        DEFAULT_PLANET.radius + 2. * DEFAULT_PLANET.noise_magnitude + 5.,
     ),
     walk_direction: Vector3::new(0., 0., 0.),
     pitch: 0.,

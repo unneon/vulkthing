@@ -11,7 +11,7 @@ use crate::renderer::raytracing::{create_blas, create_tlas, RaytraceResources};
 use crate::renderer::shader::SpecializationConstant;
 use crate::renderer::swapchain::{create_swapchain, Swapchain};
 use crate::renderer::uniform::{
-    FragSettings, GrassUniform, Light, Material, ModelViewProjection, Postprocessing,
+    Camera, FragSettings, GrassUniform, Light, Material, ModelViewProjection, Postprocessing,
 };
 use crate::renderer::util::{find_max_msaa_samples, sample_count, vulkan_str, Buffer, Ctx, Dev};
 use crate::renderer::vertex::{GrassBlade, Vertex};
@@ -77,6 +77,7 @@ impl Renderer {
         let msaa_samples = find_max_msaa_samples(&dev);
         let offscreen_sampler = create_offscreen_sampler(&dev);
         let postprocessing = UniformBuffer::create(&dev);
+        let camera = UniformBuffer::create(&dev);
 
         let object_descriptor_metadata =
             create_object_descriptor_metadata(supports_raytracing, &dev);
@@ -99,6 +100,7 @@ impl Renderer {
             surface,
             msaa_samples,
             &postprocessing,
+            &camera,
             &object_descriptor_metadata,
             &grass_descriptor_metadata,
             &postprocess_descriptor_metadata,
@@ -169,6 +171,7 @@ impl Renderer {
             msaa_samples,
             offscreen_sampler,
             postprocessing,
+            camera,
             object_descriptor_metadata,
             grass_descriptor_metadata,
             object_pipeline,
@@ -246,6 +249,7 @@ impl Renderer {
             self.surface,
             self.msaa_samples,
             &self.postprocessing,
+            &self.camera,
             &self.object_descriptor_metadata,
             &self.grass_descriptor_metadata,
             &self.postprocess_descriptor_metadata,
@@ -437,6 +441,7 @@ impl Drop for Renderer {
             self.grass_descriptor_metadata.cleanup(&self.dev);
             self.postprocess_descriptor_metadata.cleanup(&self.dev);
             self.postprocessing.cleanup(&self.dev);
+            self.camera.cleanup(&self.dev);
             self.dev.destroy_sampler(self.offscreen_sampler, None);
             self.dev.destroy_device(None);
             self.extensions.surface.destroy_surface(self.surface, None);
@@ -583,6 +588,7 @@ fn create_swapchain_all(
     surface: vk::SurfaceKHR,
     msaa_samples: vk::SampleCountFlags,
     postprocessing: &UniformBuffer<Postprocessing>,
+    camera: &UniformBuffer<Camera>,
     object_descriptor_metadata: &DescriptorMetadata,
     grass_descriptor_metadata: &DescriptorMetadata,
     postprocess_descriptor_metadata: &DescriptorMetadata,
@@ -629,6 +635,7 @@ fn create_swapchain_all(
         render.resources[0].view,
         render.resources[1].view,
         postprocessing,
+        camera,
         postprocess_descriptor_metadata,
         dev,
     );
@@ -797,6 +804,10 @@ fn create_postprocess_descriptor_metadata(sampler: vk::Sampler, dev: &Dev) -> De
                 kind: DescriptorKind::UniformBuffer,
                 stage: vk::ShaderStageFlags::FRAGMENT,
             },
+            Descriptor {
+                kind: DescriptorKind::UniformBuffer,
+                stage: vk::ShaderStageFlags::FRAGMENT,
+            },
         ],
         set_count: 1,
         dev,
@@ -807,6 +818,7 @@ fn create_postprocess_descriptor_sets(
     offscreen_view: vk::ImageView,
     position_view: vk::ImageView,
     postprocessing: &UniformBuffer<Postprocessing>,
+    camera: &UniformBuffer<Camera>,
     metadata: &DescriptorMetadata,
     dev: &Dev,
 ) -> [vk::DescriptorSet; FRAMES_IN_FLIGHT] {
@@ -815,6 +827,7 @@ fn create_postprocess_descriptor_sets(
             DescriptorValue::Image(offscreen_view),
             DescriptorValue::Image(position_view),
             DescriptorValue::Buffer(postprocessing),
+            DescriptorValue::Buffer(camera),
         ],
         dev,
     )
