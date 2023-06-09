@@ -55,8 +55,10 @@ pub struct Renderer {
     // only low-level data format descriptions.
     object_descriptor_metadata: DescriptorMetadata,
     grass_descriptor_metadata: DescriptorMetadata,
+    skybox_descriptor_metadata: DescriptorMetadata,
     object_pipeline: Pipeline,
     grass_pipeline: Pipeline,
+    skybox_pipeline: Pipeline,
     render: Pass,
 
     // Description of the postprocessing pass, and also the actual descriptor pool. Necessary,
@@ -92,6 +94,8 @@ pub struct Renderer {
     grass_chunks: Arc<Mutex<Vec<GrassChunk>>>,
     pub grass_blades_total: Arc<AtomicUsize>,
     grass_descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
+    skybox_mvp: UniformBuffer<ModelViewProjection>,
+    skybox_descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
 
     tlas: Option<RaytraceResources>,
     blas: Option<RaytraceResources>,
@@ -159,6 +163,7 @@ impl Renderer {
             self.update_object_uniforms(world, entity, settings);
         }
         self.update_grass_uniform(grass, world, settings);
+        self.update_skybox_uniform(world, settings);
         self.light.write(self.flight_index, &world.light());
         self.frag_settings.write(self.flight_index, frag_settings);
         self.postprocessing.write(self.flight_index, postprocessing);
@@ -272,6 +277,24 @@ impl Renderer {
             );
         }
 
+        self.dev.cmd_bind_pipeline(
+            buf,
+            vk::PipelineBindPoint::GRAPHICS,
+            self.skybox_pipeline.pipeline,
+        );
+        self.dev.cmd_bind_descriptor_sets(
+            buf,
+            vk::PipelineBindPoint::GRAPHICS,
+            self.skybox_pipeline.layout,
+            0,
+            &[self.skybox_descriptor_sets[self.flight_index]],
+            &[],
+        );
+        self.dev
+            .cmd_bind_vertex_buffers(buf, 0, &[self.objects[1].vertex.buffer], &[0]);
+        self.dev
+            .cmd_draw(buf, 3 * self.objects[1].triangle_count as u32, 1, 0, 0);
+
         self.dev.cmd_end_render_pass(buf);
     }
 
@@ -345,6 +368,15 @@ impl Renderer {
         };
         self.grass_mvp.write(self.flight_index, &mvp);
         self.grass_uniform.write(self.flight_index, &grass);
+    }
+
+    fn update_skybox_uniform(&self, world: &World, settings: &RendererSettings) {
+        let mvp = ModelViewProjection {
+            model: Matrix4::new_scaling(16384.),
+            view: world.view_matrix(),
+            proj: self.projection_matrix(settings),
+        };
+        self.skybox_mvp.write(self.flight_index, &mvp);
     }
 
     fn update_camera_uniform(&self, world: &World) {

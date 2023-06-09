@@ -50,11 +50,8 @@ vec2 ray_sphere(vec3 sphere_centre, float sphere_radius, vec3 ray_origin, vec3 r
 }
 
 vec3 atmosphere(vec3 original_color, vec3 position) {
-    if (position == vec3(0)) {
-        return vec3(0);
-    }
     vec3 atmosphere_centre = vec3(0);
-    float atmosphere_radius = 1200;
+    float atmosphere_radius = 2000;
     float scene_depth = length(position - camera.position);
     vec3 ray_origin = camera.position;
     vec3 ray_direction = normalize(position - camera.position);
@@ -62,7 +59,7 @@ vec3 atmosphere(vec3 original_color, vec3 position) {
     float distance_to_atmosphere = hit_info.x;
     float distance_through_atmosphere = min(hit_info.y, scene_depth - distance_to_atmosphere);
     float fog_factor = distance_through_atmosphere / (atmosphere_radius * 2);
-    return mix(vec3(1), original_color, 1 - fog_factor);
+    return vec3(fog_factor);
 }
 
 vec3 apply_tone_mapping(vec3 color) {

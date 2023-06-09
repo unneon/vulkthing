@@ -82,6 +82,7 @@ impl Renderer {
         let object_descriptor_metadata =
             create_object_descriptor_metadata(supports_raytracing, &dev);
         let grass_descriptor_metadata = create_grass_descriptor_metadata(supports_raytracing, &dev);
+        let skybox_descriptor_metadata = create_skybox_descriptor_metadata(&dev);
         let postprocess_descriptor_metadata =
             create_postprocess_descriptor_metadata(offscreen_sampler, &dev);
 
@@ -89,6 +90,7 @@ impl Renderer {
             swapchain,
             object_pipeline,
             grass_pipeline,
+            skybox_pipeline,
             render,
             postprocess_pipeline,
             postprocess,
@@ -103,6 +105,7 @@ impl Renderer {
             &camera,
             &object_descriptor_metadata,
             &grass_descriptor_metadata,
+            &skybox_descriptor_metadata,
             &postprocess_descriptor_metadata,
             supports_raytracing,
             &dev,
@@ -145,6 +148,9 @@ impl Renderer {
             &grass_descriptor_metadata,
             &dev,
         );
+        let skybox_mvp = UniformBuffer::create(ctx.dev);
+        let skybox_descriptor_sets =
+            create_skybox_descriptor_sets(&skybox_mvp, &skybox_descriptor_metadata, &dev);
 
         let (blas, tlas) = if supports_raytracing {
             let blas = create_blas(&objects[0], &ctx);
@@ -174,8 +180,10 @@ impl Renderer {
             camera,
             object_descriptor_metadata,
             grass_descriptor_metadata,
+            skybox_descriptor_metadata,
             object_pipeline,
             grass_pipeline,
+            skybox_pipeline,
             render,
             postprocess_descriptor_metadata,
             postprocess_pipeline,
@@ -195,6 +203,8 @@ impl Renderer {
             frag_settings,
             objects,
             grass_descriptor_sets,
+            skybox_mvp,
+            skybox_descriptor_sets,
             grass_chunks: Arc::new(Mutex::new(Vec::new())),
             grass_blades_total: Arc::new(AtomicUsize::new(0)),
             blas,
@@ -238,6 +248,7 @@ impl Renderer {
             swapchain,
             object_pipeline,
             grass_pipeline,
+            skybox_pipeline,
             render_pass,
             postprocess_pipeline,
             postprocess_pass,
@@ -252,6 +263,7 @@ impl Renderer {
             &self.camera,
             &self.object_descriptor_metadata,
             &self.grass_descriptor_metadata,
+            &self.skybox_descriptor_metadata,
             &self.postprocess_descriptor_metadata,
             self.supports_raytracing,
             &self.dev,
@@ -262,6 +274,7 @@ impl Renderer {
         self.swapchain = swapchain;
         self.object_pipeline = object_pipeline;
         self.grass_pipeline = grass_pipeline;
+        self.skybox_pipeline = skybox_pipeline;
         self.render = render_pass;
         self.postprocess_pipeline = postprocess_pipeline;
         self.postprocess = postprocess_pass;
@@ -351,6 +364,7 @@ impl Renderer {
             self.swapchain.cleanup(&self.dev);
             self.object_pipeline.cleanup(&self.dev);
             self.grass_pipeline.cleanup(&self.dev);
+            self.skybox_pipeline.cleanup(&self.dev);
             self.postprocess_pipeline.cleanup(&self.dev);
             self.render.cleanup(&self.dev);
             self.postprocess.cleanup(&self.dev);
@@ -421,6 +435,7 @@ impl Drop for Renderer {
             }
             self.grass_mvp.cleanup(&self.dev);
             self.grass_uniform.cleanup(&self.dev);
+            self.skybox_mvp.cleanup(&self.dev);
             self.light.cleanup(&self.dev);
             self.frag_settings.cleanup(&self.dev);
             let as_ext = AccelerationStructure::new(&self.dev.instance, &self.dev);
@@ -439,6 +454,7 @@ impl Drop for Renderer {
             self.cleanup_swapchain();
             self.object_descriptor_metadata.cleanup(&self.dev);
             self.grass_descriptor_metadata.cleanup(&self.dev);
+            self.skybox_descriptor_metadata.cleanup(&self.dev);
             self.postprocess_descriptor_metadata.cleanup(&self.dev);
             self.postprocessing.cleanup(&self.dev);
             self.camera.cleanup(&self.dev);
@@ -591,11 +607,13 @@ fn create_swapchain_all(
     camera: &UniformBuffer<Camera>,
     object_descriptor_metadata: &DescriptorMetadata,
     grass_descriptor_metadata: &DescriptorMetadata,
+    skybox_descriptor_metadata: &DescriptorMetadata,
     postprocess_descriptor_metadata: &DescriptorMetadata,
     supports_raytracing: bool,
     dev: &Dev,
 ) -> (
     Swapchain,
+    Pipeline,
     Pipeline,
     Pipeline,
     Pass,
@@ -621,6 +639,13 @@ fn create_swapchain_all(
         supports_raytracing,
         dev,
     );
+    let skybox_pipeline = create_skybox_pipeline(
+        skybox_descriptor_metadata,
+        msaa_samples,
+        render.pass,
+        swapchain.extent,
+        dev,
+    );
     let postprocess =
         create_postprocess_pass(swapchain.format.format, &swapchain, swapchain.extent, dev);
     let postprocess_pipeline = create_postprocess_pipeline(
@@ -643,6 +668,7 @@ fn create_swapchain_all(
         swapchain,
         object_pipeline,
         grass_pipeline,
+        skybox_pipeline,
         render,
         postprocess_pipeline,
         postprocess,
@@ -749,6 +775,18 @@ fn create_grass_descriptor_metadata(supports_raytracing: bool, dev: &Dev) -> Des
     })
 }
 
+fn create_skybox_descriptor_metadata(dev: &Dev) -> DescriptorMetadata {
+    let descriptors = vec![Descriptor {
+        kind: DescriptorKind::UniformBuffer,
+        stage: vk::ShaderStageFlags::VERTEX,
+    }];
+    create_descriptor_metadata(DescriptorConfig {
+        descriptors,
+        set_count: 1,
+        dev,
+    })
+}
+
 fn create_object_descriptor_sets(
     mvp: &UniformBuffer<ModelViewProjection>,
     material: &UniformBuffer<Material>,
@@ -787,6 +825,14 @@ fn create_grass_descriptor_sets(
         ],
         dev,
     )
+}
+
+fn create_skybox_descriptor_sets(
+    mvp: &UniformBuffer<ModelViewProjection>,
+    metadata: &DescriptorMetadata,
+    dev: &Dev,
+) -> [vk::DescriptorSet; FRAMES_IN_FLIGHT] {
+    metadata.create_sets(&[DescriptorValue::Buffer(mvp)], dev)
 }
 
 fn create_postprocess_descriptor_metadata(sampler: vk::Sampler, dev: &Dev) -> DescriptorMetadata {
@@ -961,6 +1007,42 @@ fn create_grass_pipeline(
         depth_test: true,
         pass,
         supports_raytracing,
+        dev,
+        swapchain_extent,
+    })
+}
+
+fn create_skybox_pipeline(
+    descriptor_metadata: &DescriptorMetadata,
+    msaa_samples: vk::SampleCountFlags,
+    pass: vk::RenderPass,
+    swapchain_extent: vk::Extent2D,
+    dev: &Dev,
+) -> Pipeline {
+    create_pipeline(PipelineConfig {
+        vertex_shader_path: "shaders/skybox.vert",
+        vertex_specialization: &[],
+        fragment_shader_path: "shaders/skybox.frag",
+        fragment_specialization: &[],
+        vertex_bindings: &[vk::VertexInputBindingDescription {
+            binding: 0,
+            stride: 24,
+            input_rate: vk::VertexInputRate::VERTEX,
+        }],
+        vertex_attributes: &[vk::VertexInputAttributeDescription {
+            binding: 0,
+            location: 0,
+            format: vk::Format::R32G32B32_SFLOAT,
+            offset: 0,
+        }],
+        msaa_samples,
+        polygon_mode: vk::PolygonMode::FILL,
+        cull_mode: vk::CullModeFlags::FRONT,
+        descriptor_layouts: &[descriptor_metadata.set_layout],
+        color_attachment_count: 2,
+        depth_test: true,
+        pass,
+        supports_raytracing: false,
         dev,
         swapchain_extent,
     })

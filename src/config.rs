@@ -4,6 +4,7 @@ use crate::planet::{NoiseType, Planet};
 use crate::renderer::uniform::{FragSettings, Postprocessing, Tonemapper};
 use crate::renderer::RendererSettings;
 use nalgebra::Vector3;
+use std::f32::consts::FRAC_PI_2;
 
 pub const DEFAULT_PLANET: Planet = Planet {
     resolution: 400,
@@ -30,19 +31,15 @@ pub const DEFAULT_GRASS: Grass = Grass {
 };
 
 pub const DEFAULT_CAMERA: FirstPersonCamera = FirstPersonCamera {
-    position: Vector3::new(
-        0.,
-        0.,
-        DEFAULT_PLANET.radius + 2. * DEFAULT_PLANET.noise_magnitude + 5.,
-    ),
+    position: Vector3::new(0., 0., 5000.),
     walk_direction: Vector3::new(0., 0., 0.),
-    pitch: 0.,
+    pitch: -FRAC_PI_2,
     yaw: 0.,
 };
 
 pub const DEFAULT_RENDERER_SETTINGS: RendererSettings = RendererSettings {
     depth_near: 0.05,
-    depth_far: 2000.,
+    depth_far: 200000.,
 };
 
 pub const DEFAULT_FRAG_SETTINGS: FragSettings = FragSettings {
