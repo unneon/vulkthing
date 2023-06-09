@@ -58,6 +58,13 @@ pub struct Postprocessing {
     pub saturation: f32,
     pub tonemapper: Tonemapper,
     pub gamma: f32,
+    pub atmosphere: bool,
+    pub _pad0: [u8; 3],
+    pub atmosphere_scatter_point_count: u32,
+    pub atmosphere_optical_depth_point_count: u32,
+    pub atmosphere_density_falloff: f32,
+    pub atmosphere_radius: f32,
+    pub planet_radius: f32,
 }
 
 #[repr(C)]

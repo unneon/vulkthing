@@ -108,6 +108,34 @@ impl Interface {
                     .flags(SliderFlags::LOGARITHMIC)
                     .build(&mut renderer_settings.depth_far);
                 ui.checkbox("Ray-traced shadows", &mut frag_settings.use_ray_tracing);
+                if ui.collapsing_header("Atmosphere", TreeNodeFlags::empty()) {
+                    ui.checkbox("Enable", &mut postprocessing.atmosphere);
+                    ui.slider(
+                        "Scatter points",
+                        1,
+                        32,
+                        &mut postprocessing.atmosphere_scatter_point_count,
+                    );
+                    ui.slider(
+                        "Optical depth points",
+                        1,
+                        256,
+                        &mut postprocessing.atmosphere_optical_depth_point_count,
+                    );
+                    ui.slider(
+                        "Density falloff",
+                        -20.,
+                        100.,
+                        &mut postprocessing.atmosphere_density_falloff,
+                    );
+                    ui.slider("Radius", 0., 4000., &mut postprocessing.atmosphere_radius);
+                    ui.slider(
+                        "Planet radius",
+                        0.,
+                        2000.,
+                        &mut postprocessing.planet_radius,
+                    );
+                }
                 if ui.collapsing_header("Postprocessing", TreeNodeFlags::empty()) {
                     build_postprocessing(ui, postprocessing);
                 }

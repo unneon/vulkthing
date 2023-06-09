@@ -56,7 +56,7 @@ impl Physics {
         translation: Vector3<f32>,
         collider: ColliderBuilder,
     ) -> RigidBodyHandle {
-        let rigid_body = RigidBodyBuilder::dynamic().translation(translation);
+        let rigid_body = RigidBodyBuilder::fixed().translation(translation);
         let handle = self.rigid_body_set.insert(rigid_body);
         self.collider_set
             .insert_with_parent(collider, handle, &mut self.rigid_body_set);
