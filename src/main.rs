@@ -25,7 +25,10 @@ mod renderer;
 mod window;
 mod world;
 
-use crate::config::{DEFAULT_FRAG_SETTINGS, DEFAULT_GRASS, DEFAULT_PLANET, DEFAULT_POSTPROCESSING};
+use crate::config::{
+    DEFAULT_FRAG_SETTINGS, DEFAULT_GRASS, DEFAULT_PLANET, DEFAULT_POSTPROCESSING,
+    DEFAULT_RENDERER_SETTINGS,
+};
 use crate::grass::generate_grass_blades;
 use crate::input::InputState;
 use crate::interface::Interface;
@@ -70,6 +73,7 @@ fn main() {
     let mut input_state = InputState::new();
     let mut world = World::new(&planet_model);
     let mut last_update = Instant::now();
+    let mut renderer_settings = DEFAULT_RENDERER_SETTINGS;
     let mut frag_settings = DEFAULT_FRAG_SETTINGS;
     let mut postprocessing = DEFAULT_POSTPROCESSING;
     let mut old_size = window.window.inner_size();
@@ -141,6 +145,7 @@ fn main() {
                 let interface_events = interface.build(
                     &mut planet,
                     &mut grass.lock().unwrap(),
+                    &mut renderer_settings,
                     &mut frag_settings,
                     &mut postprocessing,
                     &renderer,
@@ -173,6 +178,7 @@ fn main() {
                 renderer.draw_frame(
                     &world,
                     &grass,
+                    &renderer_settings,
                     &frag_settings,
                     &postprocessing,
                     window.window.inner_size(),

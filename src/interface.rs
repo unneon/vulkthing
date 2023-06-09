@@ -1,8 +1,8 @@
 use crate::grass::Grass;
 use crate::planet::Planet;
 use crate::renderer::uniform::{FragSettings, Postprocessing};
-use crate::renderer::Renderer;
-use imgui::{Condition, Context, Drag, TreeNodeFlags, Ui};
+use crate::renderer::{Renderer, RendererSettings};
+use imgui::{Condition, Context, Drag, SliderFlags, TreeNodeFlags, Ui};
 use nalgebra::Vector3;
 use std::borrow::Cow;
 use std::sync::atomic::Ordering;
@@ -30,6 +30,7 @@ impl Interface {
         &mut self,
         planet: &mut Planet,
         grass: &mut Grass,
+        renderer_settings: &mut RendererSettings,
         frag_settings: &mut FragSettings,
         postprocessing: &mut Postprocessing,
         renderer: &Renderer,
@@ -100,6 +101,12 @@ impl Interface {
                     );
                     events.grass_changed = changed;
                 }
+                ui.slider_config("Depth near plane", 0.001, 10.)
+                    .flags(SliderFlags::LOGARITHMIC)
+                    .build(&mut renderer_settings.depth_near);
+                ui.slider_config("Depth far plane", 10., 10000.)
+                    .flags(SliderFlags::LOGARITHMIC)
+                    .build(&mut renderer_settings.depth_far);
                 ui.checkbox("Ray-traced shadows", &mut frag_settings.use_ray_tracing);
                 if ui.collapsing_header("Postprocessing", TreeNodeFlags::empty()) {
                     build_postprocessing(ui, postprocessing);

@@ -27,6 +27,7 @@ use ash::extensions::khr::{Surface, Swapchain as SwapchainKhr};
 use ash::{vk, Entry};
 use imgui::DrawData;
 use nalgebra::{Matrix4, Vector3};
+use std::f32::consts::FRAC_PI_4;
 use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex};
 use winit::dpi::PhysicalSize;
@@ -69,7 +70,6 @@ pub struct Renderer {
     // set. Projection matrix depends on the monitor aspect ratio, so it's included too.
     pub swapchain: Swapchain,
     postprocess_descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
-    projection: Matrix4<f32>,
 
     // Vulkan objects actually used for command recording and synchronization. Also internal
     // renderer state for keeping track of concurrent frames.
@@ -132,6 +132,11 @@ pub struct AsyncLoader {
     grass_blades_total: Arc<AtomicUsize>,
 }
 
+pub struct RendererSettings {
+    pub depth_near: f32,
+    pub depth_far: f32,
+}
+
 const FRAMES_IN_FLIGHT: usize = 2;
 
 impl Renderer {
@@ -139,6 +144,7 @@ impl Renderer {
         &mut self,
         world: &World,
         grass: &Grass,
+        settings: &RendererSettings,
         frag_settings: &FragSettings,
         postprocessing: &Postprocessing,
         window_size: PhysicalSize<u32>,
@@ -149,9 +155,9 @@ impl Renderer {
         };
         unsafe { self.record_command_buffer(image_index, world, ui_draw) };
         for entity in world.entities() {
-            self.update_object_uniforms(world, entity);
+            self.update_object_uniforms(world, entity, settings);
         }
-        self.update_grass_uniform(grass, world);
+        self.update_grass_uniform(grass, world, settings);
         self.light.write(self.flight_index, &world.light());
         self.frag_settings.write(self.flight_index, frag_settings);
         self.postprocessing.write(self.flight_index, postprocessing);
@@ -301,11 +307,11 @@ impl Renderer {
         self.dev.cmd_end_render_pass(buf);
     }
 
-    fn update_object_uniforms(&self, world: &World, entity: &Entity) {
+    fn update_object_uniforms(&self, world: &World, entity: &Entity, settings: &RendererSettings) {
         let mvp = ModelViewProjection {
             model: entity.model_matrix(world),
             view: world.view_matrix(),
-            proj: self.projection,
+            proj: self.projection_matrix(settings),
         };
         let material = Material {
             diffuse: entity.diffuse(),
@@ -320,11 +326,11 @@ impl Renderer {
             .write(self.flight_index, &material);
     }
 
-    fn update_grass_uniform(&self, grass: &Grass, world: &World) {
+    fn update_grass_uniform(&self, grass: &Grass, world: &World, settings: &RendererSettings) {
         let mvp = ModelViewProjection {
             model: Matrix4::identity(),
             view: world.view_matrix(),
-            proj: self.projection,
+            proj: self.projection_matrix(settings),
         };
         let grass = GrassUniform {
             height_average: grass.height_average,
@@ -373,5 +379,17 @@ impl Renderer {
             .swapchains(&swapchains)
             .image_indices(&image_indices);
         unsafe { self.swapchain_ext.queue_present(self.queue, &present_info) }.unwrap();
+    }
+
+    fn projection_matrix(&self, settings: &RendererSettings) -> Matrix4<f32> {
+        let aspect_ratio = self.swapchain.extent.width as f32 / self.swapchain.extent.height as f32;
+        let mut proj = Matrix4::new_perspective(
+            aspect_ratio,
+            FRAC_PI_4,
+            settings.depth_near,
+            settings.depth_far,
+        );
+        proj[(1, 1)] *= -1.;
+        proj
     }
 }

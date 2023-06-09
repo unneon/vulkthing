@@ -29,9 +29,7 @@ use ash::extensions::khr::{
 use ash::vk::{ExtDescriptorIndexingFn, KhrRayQueryFn, KhrShaderFloatControlsFn, KhrSpirv14Fn};
 use ash::{vk, Device, Entry, Instance};
 use log::{trace, warn};
-use nalgebra::Matrix4;
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
-use std::f32::consts::FRAC_PI_4;
 use std::ffi::CString;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -94,7 +92,6 @@ impl Renderer {
             postprocess_pipeline,
             postprocess,
             postprocess_descriptor_sets,
-            projection,
         ) = create_swapchain_all(
             window.window.inner_size(),
             &extensions.surface,
@@ -182,7 +179,6 @@ impl Renderer {
             postprocess,
             swapchain,
             postprocess_descriptor_sets,
-            projection,
             command_pools,
             command_buffers,
             transfer_command_pool,
@@ -243,7 +239,6 @@ impl Renderer {
             postprocess_pipeline,
             postprocess_pass,
             postprocess_descriptor_sets,
-            projection,
         ) = create_swapchain_all(
             window_size,
             &self.extensions.surface,
@@ -267,7 +262,6 @@ impl Renderer {
         self.postprocess_pipeline = postprocess_pipeline;
         self.postprocess = postprocess_pass;
         self.postprocess_descriptor_sets = postprocess_descriptor_sets;
-        self.projection = projection;
     }
 
     #[allow(dead_code)]
@@ -602,7 +596,6 @@ fn create_swapchain_all(
     Pipeline,
     Pass,
     [vk::DescriptorSet; FRAMES_IN_FLIGHT],
-    Matrix4<f32>,
 ) {
     let swapchain = create_swapchain(surface, window_size, dev, surface_ext, swapchain_ext);
     let render = create_render_pass(msaa_samples, swapchain.extent, dev);
@@ -638,7 +631,6 @@ fn create_swapchain_all(
         postprocess_descriptor_metadata,
         dev,
     );
-    let projection = compute_projection(swapchain.extent);
     (
         swapchain,
         object_pipeline,
@@ -647,7 +639,6 @@ fn create_swapchain_all(
         postprocess_pipeline,
         postprocess,
         postprocess_descriptor_sets,
-        projection,
     )
 }
 
@@ -1110,11 +1101,4 @@ fn create_sync(dev: &Dev) -> Synchronization {
         render_finished,
         in_flight,
     }
-}
-
-fn compute_projection(swapchain_extent: vk::Extent2D) -> Matrix4<f32> {
-    let aspect_ratio = swapchain_extent.width as f32 / swapchain_extent.height as f32;
-    let mut proj = Matrix4::new_perspective(aspect_ratio, FRAC_PI_4, 0.01, 100000.);
-    proj[(1, 1)] *= -1.;
-    proj
 }

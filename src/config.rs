@@ -2,6 +2,7 @@ use crate::camera::first_person::FirstPersonCamera;
 use crate::grass::Grass;
 use crate::planet::{NoiseType, Planet};
 use crate::renderer::uniform::{FragSettings, Postprocessing, Tonemapper};
+use crate::renderer::RendererSettings;
 use nalgebra::Vector3;
 
 pub const DEFAULT_PLANET: Planet = Planet {
@@ -37,6 +38,11 @@ pub const DEFAULT_CAMERA: FirstPersonCamera = FirstPersonCamera {
     walk_direction: Vector3::new(0., 0., 0.),
     pitch: 0.,
     yaw: 0.,
+};
+
+pub const DEFAULT_RENDERER_SETTINGS: RendererSettings = RendererSettings {
+    depth_near: 0.05,
+    depth_far: 2000.,
 };
 
 pub const DEFAULT_FRAG_SETTINGS: FragSettings = FragSettings {
