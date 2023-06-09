@@ -25,6 +25,7 @@ layout(location = 2) in vec3 frag_ground_normal;
 layout(location = 3) in float frag_naive_height;
 
 layout(location = 0) out vec4 out_color;
+layout(location = 1) out vec4 out_position;
 
 #ifdef SUPPORTS_RAYTRACING
 bool in_shadow() {
@@ -61,4 +62,5 @@ void main() {
 
     vec3 result = ambient + diffuse;
     out_color = vec4(result, 1);
+    out_position = vec4(frag_position, 1);
 }

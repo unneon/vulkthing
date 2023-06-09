@@ -20,6 +20,7 @@ pub struct PipelineConfig<'a> {
     pub polygon_mode: vk::PolygonMode,
     pub cull_mode: vk::CullModeFlags,
     pub descriptor_layouts: &'a [vk::DescriptorSetLayout],
+    pub color_attachment_count: usize,
     pub depth_test: bool,
     pub pass: vk::RenderPass,
     pub supports_raytracing: bool,
@@ -117,13 +118,10 @@ pub fn create_pipeline(config: PipelineConfig) -> Pipeline {
 
     // Will only become relevant once I write some render passes for transparent objects.
     let color_blend_attachment = *vk::PipelineColorBlendAttachmentState::builder()
-        .color_write_mask(vk::ColorComponentFlags::RGBA)
-        .blend_enable(false);
-    let color_blend_attachments = [color_blend_attachment];
-    let color_blending = *vk::PipelineColorBlendStateCreateInfo::builder()
-        .logic_op_enable(false)
-        .logic_op(vk::LogicOp::COPY)
-        .attachments(&color_blend_attachments);
+        .color_write_mask(vk::ColorComponentFlags::RGBA);
+    let color_blend_attachments = vec![color_blend_attachment; config.color_attachment_count];
+    let color_blending =
+        *vk::PipelineColorBlendStateCreateInfo::builder().attachments(&color_blend_attachments);
 
     // Configuring conventions for the depth buffer. AMD FSR 2 has some recommendations to change
     // them from 0 1 to 0 infinity. I wonder what DLSS recommendations say.

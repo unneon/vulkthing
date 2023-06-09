@@ -9,7 +9,8 @@
 layout(constant_id = 0) const int msaa_samples = 0;
 
 layout(binding = 0) uniform sampler2DMS render;
-layout(binding = 1) uniform Postprocessing {
+layout(binding = 1) uniform sampler2DMS position;
+layout(binding = 2) uniform Postprocessing {
     vec3 color_filter;
     float exposure;
     float temperature;
@@ -76,9 +77,15 @@ vec3 postprocess(vec3 color) {
 }
 
 void main() {
-    vec3 color = vec3(0);
-    for (int i = 0; i < msaa_samples; ++i) {
-        color += postprocess(texelFetch(render, ivec2(gl_FragCoord.xy), i).rgb);
+    if (gl_FragCoord.x >= 2560 / 2) {
+        vec3 position = texelFetch(position, ivec2(gl_FragCoord.xy), 0).xyz;
+        out_color = vec4(position, 1);
+        return;
+    } else {
+        vec3 color = vec3(0);
+        for (int i = 0; i < msaa_samples; ++i) {
+            color += postprocess(texelFetch(render, ivec2(gl_FragCoord.xy), i).rgb);
+        }
+        out_color = vec4(color / msaa_samples, 1);
     }
-    out_color = vec4(color / msaa_samples, 1);
 }

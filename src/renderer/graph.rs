@@ -110,7 +110,7 @@ impl<'a> AttachmentConfig<'a> {
 
 pub fn create_pass(extent: vk::Extent2D, dev: &Dev, configs: &[AttachmentConfig]) -> Pass {
     let mut attachments = Vec::new();
-    let mut color = None;
+    let mut color = Vec::new();
     let mut depth = None;
     let mut clears = Vec::new();
     let mut resources = Vec::new();
@@ -137,17 +137,16 @@ pub fn create_pass(extent: vk::Extent2D, dev: &Dev, configs: &[AttachmentConfig]
             .attachment(index as u32)
             .layout(config.layout);
         attachments.push(attachment);
-        if config.layout == vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL && color.is_none() {
-            color = Some(reference);
+        if config.layout == vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL {
+            color.push(reference);
         } else if config.layout == vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL
             && depth.is_none()
         {
             depth = Some(reference);
         } else {
             panic!(
-                "unimplemented case {:?} {:?},{:?}",
+                "unimplemented case {:?} {:?}",
                 config.format,
-                color.is_none(),
                 depth.is_none(),
             );
         }
@@ -186,11 +185,9 @@ pub fn create_pass(extent: vk::Extent2D, dev: &Dev, configs: &[AttachmentConfig]
             swapchain_views = config.swapchain;
         }
     }
-    let mut subpass =
-        vk::SubpassDescription::builder().pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS);
-    if let Some(color) = color.as_ref() {
-        subpass = subpass.color_attachments(std::slice::from_ref(color));
-    }
+    let mut subpass = vk::SubpassDescription::builder()
+        .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
+        .color_attachments(&color);
     if let Some(depth) = depth.as_ref() {
         subpass = subpass.depth_stencil_attachment(depth);
     }

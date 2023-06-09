@@ -627,6 +627,7 @@ fn create_swapchain_all(
     );
     let postprocess_descriptor_sets = create_postprocess_descriptor_sets(
         render.resources[0].view,
+        render.resources[1].view,
         postprocessing,
         postprocess_descriptor_metadata,
         dev,
@@ -645,6 +646,12 @@ fn create_swapchain_all(
 fn create_render_pass(msaa_samples: vk::SampleCountFlags, extent: vk::Extent2D, dev: &Dev) -> Pass {
     let attachments = [
         AttachmentConfig::new(COLOR_FORMAT)
+            .samples(msaa_samples)
+            .clear_color([0., 0., 0., 0.])
+            .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+            .store(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+            .usage(vk::ImageUsageFlags::SAMPLED),
+        AttachmentConfig::new(vk::Format::R32G32B32A32_SFLOAT)
             .samples(msaa_samples)
             .clear_color([0., 0., 0., 0.])
             .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
@@ -783,6 +790,10 @@ fn create_postprocess_descriptor_metadata(sampler: vk::Sampler, dev: &Dev) -> De
                 stage: vk::ShaderStageFlags::FRAGMENT,
             },
             Descriptor {
+                kind: DescriptorKind::ImmutableSampler { sampler },
+                stage: vk::ShaderStageFlags::FRAGMENT,
+            },
+            Descriptor {
                 kind: DescriptorKind::UniformBuffer,
                 stage: vk::ShaderStageFlags::FRAGMENT,
             },
@@ -794,6 +805,7 @@ fn create_postprocess_descriptor_metadata(sampler: vk::Sampler, dev: &Dev) -> De
 
 fn create_postprocess_descriptor_sets(
     offscreen_view: vk::ImageView,
+    position_view: vk::ImageView,
     postprocessing: &UniformBuffer<Postprocessing>,
     metadata: &DescriptorMetadata,
     dev: &Dev,
@@ -801,6 +813,7 @@ fn create_postprocess_descriptor_sets(
     metadata.create_sets(
         &[
             DescriptorValue::Image(offscreen_view),
+            DescriptorValue::Image(position_view),
             DescriptorValue::Buffer(postprocessing),
         ],
         dev,
@@ -843,6 +856,7 @@ fn create_object_pipeline(
         polygon_mode: vk::PolygonMode::FILL,
         cull_mode: vk::CullModeFlags::BACK,
         descriptor_layouts: &[descriptor_metadata.set_layout],
+        color_attachment_count: 2,
         depth_test: true,
         pass,
         supports_raytracing,
@@ -930,6 +944,7 @@ fn create_grass_pipeline(
         polygon_mode: vk::PolygonMode::FILL,
         cull_mode: vk::CullModeFlags::NONE,
         descriptor_layouts: &[descriptor_metadata.set_layout],
+        color_attachment_count: 2,
         depth_test: true,
         pass,
         supports_raytracing,
@@ -960,6 +975,7 @@ fn create_postprocess_pipeline(
         polygon_mode: vk::PolygonMode::FILL,
         cull_mode: vk::CullModeFlags::BACK,
         descriptor_layouts: &[descriptors.set_layout],
+        color_attachment_count: 1,
         depth_test: false,
         pass,
         supports_raytracing,
