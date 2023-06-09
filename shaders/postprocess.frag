@@ -27,6 +27,7 @@ layout(binding = 2) uniform Postprocessing {
     uint atmosphere_optical_depth_point_count;
     float atmosphere_density_falloff;
     float atmosphere_radius;
+    float atmosphere_scatter_coefficient;
     float planet_radius;
 } postprocessing;
 
@@ -68,9 +69,13 @@ float density_at_point(vec3 point) {
     return local_density;
 }
 
+// Dividing the segment into n subsegments of equal length and evaluating the function at their midpoints lets us avoid
+// precision problems. Might be worth replacing with a more complex numerical integration algorithm or precomputing
+// these values later.
+
 float optical_depth(vec3 ray_origin, vec3 ray_direction, float ray_length) {
-    vec3 sample_point = ray_origin;
-    float step_length = ray_length / (postprocessing.atmosphere_optical_depth_point_count - 1);
+    float step_length = ray_length / postprocessing.atmosphere_optical_depth_point_count;
+    vec3 sample_point = ray_origin + ray_direction * step_length / 2;
     float optical_depth = 0;
     for (uint i = 0; i < postprocessing.atmosphere_optical_depth_point_count; ++i) {
         float local_density = density_at_point(sample_point);
@@ -81,14 +86,14 @@ float optical_depth(vec3 ray_origin, vec3 ray_direction, float ray_length) {
 }
 
 float calculate_light(vec3 ray_origin, vec3 ray_direction, float ray_length) {
-    vec3 in_scatter_point = ray_origin;
-    float step_length = ray_length / (postprocessing.atmosphere_scatter_point_count - 1);
+    float step_length = ray_length / postprocessing.atmosphere_scatter_point_count;
+    vec3 in_scatter_point = ray_origin + ray_direction * step_length / 2;
     float in_scattered_light = 0;
     for (uint i = 0; i < postprocessing.atmosphere_scatter_point_count; ++i) {
         float sun_ray_length = ray_sphere(PLANET_CENTRE, postprocessing.atmosphere_radius, in_scatter_point, SUN_DIRECTION).y;
         float sun_ray_optical_depth = optical_depth(in_scatter_point, SUN_DIRECTION, sun_ray_length);
         float view_ray_optical_depth = optical_depth(in_scatter_point, -ray_direction, step_length * i);
-        float transmittance = exp(-(sun_ray_optical_depth + view_ray_optical_depth));
+        float transmittance = exp(- (0.01 * postprocessing.atmosphere_scatter_coefficient) * (sun_ray_optical_depth + view_ray_optical_depth));
         float local_density = density_at_point(in_scatter_point);
         in_scattered_light += local_density * transmittance * step_length;
         in_scatter_point += ray_direction * step_length;
@@ -106,10 +111,10 @@ vec3 atmosphere(vec3 original_color, vec3 position) {
     float distance_through_atmosphere = min(hit_info.y, scene_depth - distance_to_atmosphere);
 
     if (distance_through_atmosphere > 0) {
-        const float epsilon = 0.0001;
-        vec3 point_in_atmosphere = ray_origin + ray_direction * (distance_to_atmosphere + epsilon);
-        float light = calculate_light(point_in_atmosphere, ray_direction, distance_through_atmosphere - 2 * epsilon);
-        return original_color * (1 - light) + light;
+        vec3 point_in_atmosphere = ray_origin + ray_direction * distance_to_atmosphere;
+        vec3 light = 0.001 * vec3(calculate_light(point_in_atmosphere, ray_direction, distance_through_atmosphere))
+            + original_color * vec3(exp(-(0.01 * postprocessing.atmosphere_scatter_coefficient) * optical_depth(point_in_atmosphere, ray_direction, distance_through_atmosphere)));
+        return light;
     }
     return original_color;
 }

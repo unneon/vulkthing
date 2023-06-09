@@ -46,7 +46,7 @@ pub const DEFAULT_RENDERER_SETTINGS: RendererSettings = RendererSettings {
 };
 
 pub const DEFAULT_FRAG_SETTINGS: FragSettings = FragSettings {
-    use_ray_tracing: false,
+    use_ray_tracing: true,
     _pad0: [0; 3],
 };
 
@@ -60,11 +60,12 @@ pub const DEFAULT_POSTPROCESSING: Postprocessing = Postprocessing {
     saturation: 1.,
     tonemapper: Tonemapper::HillAces,
     gamma: 1.,
-    atmosphere: false,
+    atmosphere: true,
     _pad0: [0; 3],
     atmosphere_scatter_point_count: 10,
-    atmosphere_optical_depth_point_count: 10,
-    atmosphere_density_falloff: 3.19,
-    atmosphere_radius: DEFAULT_PLANET.radius * 2.,
+    atmosphere_optical_depth_point_count: 3,
+    atmosphere_density_falloff: 6.,
+    atmosphere_radius: DEFAULT_PLANET.radius * 1.3,
+    atmosphere_scatter_coefficient: 0.1,
     planet_radius: DEFAULT_PLANET.radius,
 };

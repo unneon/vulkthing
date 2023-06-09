@@ -115,10 +115,10 @@ impl World {
 
     pub fn light(&self) -> Light {
         Light {
-            position: self.entities[1].translation(self),
+            position: Vector3::new(0., 0., 10000.),
             color: self.entities[1].emit,
-            ambient_strength: 1.,
-            diffuse_strength: 0.,
+            ambient_strength: 0.01,
+            diffuse_strength: 1.,
         }
     }
 

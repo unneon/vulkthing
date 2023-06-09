@@ -119,16 +119,16 @@ impl Interface {
                     ui.slider(
                         "Optical depth points",
                         1,
-                        256,
+                        4,
                         &mut postprocessing.atmosphere_optical_depth_point_count,
                     );
-                    ui.slider(
-                        "Density falloff",
-                        -20.,
-                        100.,
-                        &mut postprocessing.atmosphere_density_falloff,
-                    );
+                    ui.slider_config("Density falloff", 0.001, 100.)
+                        .flags(SliderFlags::LOGARITHMIC)
+                        .build(&mut postprocessing.atmosphere_density_falloff);
                     ui.slider("Radius", 0., 4000., &mut postprocessing.atmosphere_radius);
+                    ui.slider_config("Scatter coefficient", 0.001, 100.)
+                        .flags(SliderFlags::LOGARITHMIC)
+                        .build(&mut postprocessing.atmosphere_scatter_coefficient);
                     ui.slider(
                         "Planet radius",
                         0.,
@@ -145,10 +145,9 @@ impl Interface {
 }
 
 fn build_postprocessing(ui: &Ui, postprocessing: &mut Postprocessing) {
-    Drag::new("Exposure")
-        .range(0., f32::INFINITY)
-        .speed(0.01)
-        .build(ui, &mut postprocessing.exposure);
+    ui.slider_config("Exposure", 0.001, 100.)
+        .flags(SliderFlags::LOGARITHMIC)
+        .build(&mut postprocessing.exposure);
     ui.slider("Temperature", -1.67, 1.67, &mut postprocessing.temperature);
     ui.slider("Tint", -1.67, 1.67, &mut postprocessing.tint);
     Drag::new("Contrast")
