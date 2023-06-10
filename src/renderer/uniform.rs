@@ -48,6 +48,19 @@ pub struct FragSettings {
 
 #[repr(C)]
 #[derive(Clone, Copy)]
+pub struct Atmosphere {
+    pub enable: bool,
+    pub _pad0: [u8; 3],
+    pub scatter_point_count: u32,
+    pub optical_depth_point_count: u32,
+    pub density_falloff: f32,
+    pub scale: f32,
+    pub scatter_coefficient: f32,
+    pub planet_radius: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
 pub struct Postprocessing {
     pub color_filter: Vector3<f32>,
     pub exposure: f32,
@@ -58,14 +71,6 @@ pub struct Postprocessing {
     pub saturation: f32,
     pub tonemapper: Tonemapper,
     pub gamma: f32,
-    pub atmosphere: bool,
-    pub _pad0: [u8; 3],
-    pub atmosphere_scatter_point_count: u32,
-    pub atmosphere_optical_depth_point_count: u32,
-    pub atmosphere_density_falloff: f32,
-    pub atmosphere_scale: f32,
-    pub atmosphere_scatter_coefficient: f32,
-    pub planet_radius: f32,
 }
 
 #[repr(C)]

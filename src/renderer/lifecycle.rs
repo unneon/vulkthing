@@ -12,7 +12,8 @@ use crate::renderer::raytracing::{create_blas, create_tlas, RaytraceResources};
 use crate::renderer::shader::SpecializationConstant;
 use crate::renderer::swapchain::{create_swapchain, Swapchain};
 use crate::renderer::uniform::{
-    Camera, FragSettings, GrassUniform, Light, Material, ModelViewProjection, Postprocessing,
+    Atmosphere, Camera, FragSettings, GrassUniform, Light, Material, ModelViewProjection,
+    Postprocessing,
 };
 use crate::renderer::util::{find_max_msaa_samples, sample_count, vulkan_str, Buffer, Ctx, Dev};
 use crate::renderer::vertex::{GrassBlade, Vertex};
@@ -76,7 +77,8 @@ impl Renderer {
         let swapchain_ext = SwapchainKhr::new(&dev.instance, &dev);
 
         let msaa_samples = find_max_msaa_samples(&dev);
-        let offscreen_sampler = create_offscreen_sampler(&dev);
+        let unnormalized_sampler = create_unnormalized_sampler(&dev);
+        let atmosphere_uniform = UniformBuffer::create(&dev);
         let postprocessing = UniformBuffer::create(&dev);
         let camera = UniformBuffer::create(&dev);
 
@@ -84,8 +86,10 @@ impl Renderer {
             create_object_descriptor_metadata(supports_raytracing, &dev);
         let grass_descriptor_metadata = create_grass_descriptor_metadata(supports_raytracing, &dev);
         let skybox_descriptor_metadata = create_skybox_descriptor_metadata(&dev);
+        let atmosphere_descriptor_metadata =
+            create_atmosphere_descriptor_metadata(unnormalized_sampler, &dev);
         let postprocess_descriptor_metadata =
-            create_postprocess_descriptor_metadata(offscreen_sampler, &dev);
+            create_postprocess_descriptor_metadata(unnormalized_sampler, &dev);
 
         let (
             swapchain,
@@ -93,6 +97,9 @@ impl Renderer {
             grass_pipeline,
             skybox_pipeline,
             render,
+            atmosphere_pipeline,
+            atmosphere,
+            atmosphere_descriptor_sets,
             postprocess_pipeline,
             postprocess,
             postprocess_descriptor_sets,
@@ -102,11 +109,13 @@ impl Renderer {
             &swapchain_ext,
             surface,
             msaa_samples,
+            &atmosphere_uniform,
             &postprocessing,
             &camera,
             &object_descriptor_metadata,
             &grass_descriptor_metadata,
             &skybox_descriptor_metadata,
+            &atmosphere_descriptor_metadata,
             &postprocess_descriptor_metadata,
             supports_raytracing,
             &dev,
@@ -176,7 +185,8 @@ impl Renderer {
             swapchain_ext,
             supports_raytracing,
             msaa_samples,
-            offscreen_sampler,
+            unnormalized_sampler,
+            atmosphere_uniform,
             postprocessing,
             camera,
             object_descriptor_metadata,
@@ -186,6 +196,10 @@ impl Renderer {
             grass_pipeline,
             skybox_pipeline,
             render,
+            atmosphere_descriptor_metadata,
+            atmosphere_pipeline,
+            atmosphere,
+            atmosphere_descriptor_sets,
             postprocess_descriptor_metadata,
             postprocess_pipeline,
             postprocess,
@@ -251,6 +265,9 @@ impl Renderer {
             grass_pipeline,
             skybox_pipeline,
             render_pass,
+            atmosphere_pipeline,
+            atmosphere,
+            atmosphere_descriptor_sets,
             postprocess_pipeline,
             postprocess_pass,
             postprocess_descriptor_sets,
@@ -260,11 +277,13 @@ impl Renderer {
             &self.swapchain_ext,
             self.surface,
             self.msaa_samples,
+            &self.atmosphere_uniform,
             &self.postprocessing,
             &self.camera,
             &self.object_descriptor_metadata,
             &self.grass_descriptor_metadata,
             &self.skybox_descriptor_metadata,
+            &self.atmosphere_descriptor_metadata,
             &self.postprocess_descriptor_metadata,
             self.supports_raytracing,
             &self.dev,
@@ -277,6 +296,9 @@ impl Renderer {
         self.grass_pipeline = grass_pipeline;
         self.skybox_pipeline = skybox_pipeline;
         self.render = render_pass;
+        self.atmosphere_pipeline = atmosphere_pipeline;
+        self.atmosphere = atmosphere;
+        self.atmosphere_descriptor_sets = atmosphere_descriptor_sets;
         self.postprocess_pipeline = postprocess_pipeline;
         self.postprocess = postprocess_pass;
         self.postprocess_descriptor_sets = postprocess_descriptor_sets;
@@ -363,12 +385,20 @@ impl Renderer {
                     vk::DescriptorPoolResetFlags::empty(),
                 )
                 .unwrap();
+            self.dev
+                .reset_descriptor_pool(
+                    self.atmosphere_descriptor_metadata.pool,
+                    vk::DescriptorPoolResetFlags::empty(),
+                )
+                .unwrap();
             self.swapchain.cleanup(&self.dev);
             self.object_pipeline.cleanup(&self.dev);
             self.grass_pipeline.cleanup(&self.dev);
             self.skybox_pipeline.cleanup(&self.dev);
+            self.atmosphere_pipeline.cleanup(&self.dev);
             self.postprocess_pipeline.cleanup(&self.dev);
             self.render.cleanup(&self.dev);
+            self.atmosphere.cleanup(&self.dev);
             self.postprocess.cleanup(&self.dev);
         }
     }
@@ -469,10 +499,12 @@ impl Drop for Renderer {
             self.object_descriptor_metadata.cleanup(&self.dev);
             self.grass_descriptor_metadata.cleanup(&self.dev);
             self.skybox_descriptor_metadata.cleanup(&self.dev);
+            self.atmosphere_descriptor_metadata.cleanup(&self.dev);
             self.postprocess_descriptor_metadata.cleanup(&self.dev);
+            self.atmosphere_uniform.cleanup(&self.dev);
             self.postprocessing.cleanup(&self.dev);
             self.camera.cleanup(&self.dev);
-            self.dev.destroy_sampler(self.offscreen_sampler, None);
+            self.dev.destroy_sampler(self.unnormalized_sampler, None);
             self.dev.destroy_device(None);
             self.extensions.surface.destroy_surface(self.surface, None);
             self.extensions
@@ -578,6 +610,7 @@ fn create_logical_device(
     let queues = [queue_create, transfer_queue_create];
 
     let physical_device_features = vk::PhysicalDeviceFeatures::builder()
+        .sample_rate_shading(true)
         .sampler_anisotropy(true)
         .fill_mode_non_solid(true);
 
@@ -622,11 +655,13 @@ fn create_swapchain_all(
     swapchain_ext: &SwapchainKhr,
     surface: vk::SurfaceKHR,
     msaa_samples: vk::SampleCountFlags,
+    atmosphere_uniform: &UniformBuffer<Atmosphere>,
     postprocessing: &UniformBuffer<Postprocessing>,
     camera: &UniformBuffer<Camera>,
     object_descriptor_metadata: &DescriptorMetadata,
     grass_descriptor_metadata: &DescriptorMetadata,
     skybox_descriptor_metadata: &DescriptorMetadata,
+    atmosphere_descriptor_metadata: &DescriptorMetadata,
     postprocess_descriptor_metadata: &DescriptorMetadata,
     supports_raytracing: bool,
     dev: &Dev,
@@ -636,6 +671,9 @@ fn create_swapchain_all(
     Pipeline,
     Pipeline,
     Pass,
+    Pipeline,
+    Pass,
+    [vk::DescriptorSet; FRAMES_IN_FLIGHT],
     Pipeline,
     Pass,
     [vk::DescriptorSet; FRAMES_IN_FLIGHT],
@@ -665,6 +703,22 @@ fn create_swapchain_all(
         swapchain.extent,
         dev,
     );
+    let atmosphere_pass = create_atmosphere_pass(msaa_samples, swapchain.extent, dev);
+    let atmosphere_pipeline = create_atmosphere_pipeline(
+        atmosphere_descriptor_metadata,
+        atmosphere_pass.pass,
+        swapchain.extent,
+        msaa_samples,
+        dev,
+    );
+    let atmosphere_descriptor_sets = create_atmosphere_descriptor_sets(
+        render.resources[0].view,
+        render.resources[1].view,
+        atmosphere_uniform,
+        camera,
+        atmosphere_descriptor_metadata,
+        dev,
+    );
     let postprocess =
         create_postprocess_pass(swapchain.format.format, &swapchain, swapchain.extent, dev);
     let postprocess_pipeline = create_postprocess_pipeline(
@@ -676,10 +730,8 @@ fn create_swapchain_all(
         dev,
     );
     let postprocess_descriptor_sets = create_postprocess_descriptor_sets(
-        render.resources[0].view,
-        render.resources[1].view,
+        atmosphere_pass.resources[0].view,
         postprocessing,
-        camera,
         postprocess_descriptor_metadata,
         dev,
     );
@@ -689,6 +741,9 @@ fn create_swapchain_all(
         grass_pipeline,
         skybox_pipeline,
         render,
+        atmosphere_pipeline,
+        atmosphere_pass,
+        atmosphere_descriptor_sets,
         postprocess_pipeline,
         postprocess,
         postprocess_descriptor_sets,
@@ -714,6 +769,19 @@ fn create_render_pass(msaa_samples: vk::SampleCountFlags, extent: vk::Extent2D, 
             .clear_depth(1.)
             .layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL),
     ];
+    create_pass(extent, dev, &attachments)
+}
+
+fn create_atmosphere_pass(
+    msaa_samples: vk::SampleCountFlags,
+    extent: vk::Extent2D,
+    dev: &Dev,
+) -> Pass {
+    let attachments = [AttachmentConfig::new(COLOR_FORMAT)
+        .samples(msaa_samples)
+        .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+        .store(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+        .usage(vk::ImageUsageFlags::SAMPLED)];
     create_pass(extent, dev, &attachments)
 }
 
@@ -854,19 +922,56 @@ fn create_skybox_descriptor_sets(
     metadata.create_sets(&[DescriptorValue::Buffer(mvp)], dev)
 }
 
+fn create_atmosphere_descriptor_metadata(sampler: vk::Sampler, dev: &Dev) -> DescriptorMetadata {
+    let descriptors = vec![
+        Descriptor {
+            kind: DescriptorKind::ImmutableSampler { sampler },
+            stage: vk::ShaderStageFlags::FRAGMENT,
+        },
+        Descriptor {
+            kind: DescriptorKind::ImmutableSampler { sampler },
+            stage: vk::ShaderStageFlags::FRAGMENT,
+        },
+        Descriptor {
+            kind: DescriptorKind::UniformBuffer,
+            stage: vk::ShaderStageFlags::FRAGMENT,
+        },
+        Descriptor {
+            kind: DescriptorKind::UniformBuffer,
+            stage: vk::ShaderStageFlags::FRAGMENT,
+        },
+    ];
+    create_descriptor_metadata(DescriptorConfig {
+        descriptors,
+        set_count: 1,
+        dev,
+    })
+}
+
+fn create_atmosphere_descriptor_sets(
+    offscreen_view: vk::ImageView,
+    position_view: vk::ImageView,
+    atmosphere: &UniformBuffer<Atmosphere>,
+    camera: &UniformBuffer<Camera>,
+    metadata: &DescriptorMetadata,
+    dev: &Dev,
+) -> [vk::DescriptorSet; FRAMES_IN_FLIGHT] {
+    metadata.create_sets(
+        &[
+            DescriptorValue::Image(offscreen_view),
+            DescriptorValue::Image(position_view),
+            DescriptorValue::Buffer(atmosphere),
+            DescriptorValue::Buffer(camera),
+        ],
+        dev,
+    )
+}
+
 fn create_postprocess_descriptor_metadata(sampler: vk::Sampler, dev: &Dev) -> DescriptorMetadata {
     create_descriptor_metadata(DescriptorConfig {
         descriptors: vec![
             Descriptor {
                 kind: DescriptorKind::ImmutableSampler { sampler },
-                stage: vk::ShaderStageFlags::FRAGMENT,
-            },
-            Descriptor {
-                kind: DescriptorKind::ImmutableSampler { sampler },
-                stage: vk::ShaderStageFlags::FRAGMENT,
-            },
-            Descriptor {
-                kind: DescriptorKind::UniformBuffer,
                 stage: vk::ShaderStageFlags::FRAGMENT,
             },
             Descriptor {
@@ -881,18 +986,14 @@ fn create_postprocess_descriptor_metadata(sampler: vk::Sampler, dev: &Dev) -> De
 
 fn create_postprocess_descriptor_sets(
     offscreen_view: vk::ImageView,
-    position_view: vk::ImageView,
     postprocessing: &UniformBuffer<Postprocessing>,
-    camera: &UniformBuffer<Camera>,
     metadata: &DescriptorMetadata,
     dev: &Dev,
 ) -> [vk::DescriptorSet; FRAMES_IN_FLIGHT] {
     metadata.create_sets(
         &[
             DescriptorValue::Image(offscreen_view),
-            DescriptorValue::Image(position_view),
             DescriptorValue::Buffer(postprocessing),
-            DescriptorValue::Buffer(camera),
         ],
         dev,
     )
@@ -1067,6 +1168,36 @@ fn create_skybox_pipeline(
     })
 }
 
+fn create_atmosphere_pipeline(
+    descriptors: &DescriptorMetadata,
+    pass: vk::RenderPass,
+    swapchain_extent: vk::Extent2D,
+    msaa_samples: vk::SampleCountFlags,
+    dev: &Dev,
+) -> Pipeline {
+    create_pipeline(PipelineConfig {
+        vertex_shader_path: "shaders/atmosphere.vert",
+        vertex_specialization: &[],
+        fragment_shader_path: "shaders/atmosphere.frag",
+        fragment_specialization: &[SpecializationConstant {
+            id: 0,
+            value: sample_count(msaa_samples) as i32,
+        }],
+        vertex_bindings: &[],
+        vertex_attributes: &[],
+        msaa_samples,
+        polygon_mode: vk::PolygonMode::FILL,
+        cull_mode: vk::CullModeFlags::BACK,
+        descriptor_layouts: &[descriptors.set_layout],
+        color_attachment_count: 1,
+        depth_test: false,
+        pass,
+        supports_raytracing: false,
+        dev,
+        swapchain_extent,
+    })
+}
+
 fn create_postprocess_pipeline(
     descriptors: &DescriptorMetadata,
     pass: vk::RenderPass,
@@ -1127,7 +1258,7 @@ fn create_command_buffers(
     buffers
 }
 
-fn create_offscreen_sampler(dev: &Dev) -> vk::Sampler {
+fn create_unnormalized_sampler(dev: &Dev) -> vk::Sampler {
     let sampler_info = vk::SamplerCreateInfo::builder()
         .address_mode_u(vk::SamplerAddressMode::CLAMP_TO_BORDER)
         .address_mode_v(vk::SamplerAddressMode::CLAMP_TO_BORDER)

@@ -18,7 +18,8 @@ use crate::renderer::pipeline::Pipeline;
 use crate::renderer::raytracing::RaytraceResources;
 use crate::renderer::swapchain::Swapchain;
 use crate::renderer::uniform::{
-    Camera, FragSettings, GrassUniform, Light, Material, ModelViewProjection, Postprocessing,
+    Atmosphere, Camera, FragSettings, GrassUniform, Light, Material, ModelViewProjection,
+    Postprocessing,
 };
 use crate::renderer::util::{Buffer, Dev, UniformBuffer};
 use crate::world::{Entity, World};
@@ -48,7 +49,8 @@ pub struct Renderer {
 
     // Parameters of the renderer that are required early for creating more important objects.
     msaa_samples: vk::SampleCountFlags,
-    offscreen_sampler: vk::Sampler,
+    unnormalized_sampler: vk::Sampler,
+    atmosphere_uniform: UniformBuffer<Atmosphere>,
     postprocessing: UniformBuffer<Postprocessing>,
     camera: UniformBuffer<Camera>,
 
@@ -62,6 +64,10 @@ pub struct Renderer {
     skybox_pipeline: Pipeline,
     render: Pass,
 
+    atmosphere_descriptor_metadata: DescriptorMetadata,
+    atmosphere_pipeline: Pipeline,
+    atmosphere: Pass,
+
     // Description of the postprocessing pass, and also the actual descriptor pool. Necessary,
     // because the postprocessing pass depends on swapchain extent and needs to have the descriptor
     // set updated after window resize.
@@ -73,6 +79,7 @@ pub struct Renderer {
     // used for all framebuffer attachments, framebuffers, and the mentioned postprocess descriptor
     // set. Projection matrix depends on the monitor aspect ratio, so it's included too.
     pub swapchain: Swapchain,
+    atmosphere_descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
     postprocess_descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
 
     // Vulkan objects actually used for command recording and synchronization. Also internal
@@ -153,6 +160,7 @@ impl Renderer {
         grass: &Grass,
         settings: &RendererSettings,
         frag_settings: &FragSettings,
+        atmosphere: &Atmosphere,
         postprocessing: &Postprocessing,
         window_size: PhysicalSize<u32>,
         ui_draw: &DrawData,
@@ -168,6 +176,7 @@ impl Renderer {
         self.update_skybox_uniform(world, settings);
         self.light.write(self.flight_index, &world.light());
         self.frag_settings.write(self.flight_index, frag_settings);
+        self.atmosphere_uniform.write(self.flight_index, atmosphere);
         self.postprocessing.write(self.flight_index, postprocessing);
         self.update_camera_uniform(world);
         self.submit_graphics();
@@ -219,6 +228,7 @@ impl Renderer {
             .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
         self.dev.begin_command_buffer(buf, &begin_info).unwrap();
         self.record_render_pass(buf, world);
+        self.record_atmosphere_pass(buf);
         self.record_postprocess_pass(buf, image_index, ui_draw);
         self.dev.end_command_buffer(buf).unwrap();
     }
@@ -302,6 +312,33 @@ impl Renderer {
             .cmd_bind_vertex_buffers(buf, 0, &[self.objects[1].vertex.buffer], &[0]);
         self.dev
             .cmd_draw(buf, 3 * self.objects[1].triangle_count as u32, 1, 0, 0);
+        self.end_label(buf);
+
+        self.dev.cmd_end_render_pass(buf);
+        self.end_label(buf);
+    }
+
+    unsafe fn record_atmosphere_pass(&mut self, buf: vk::CommandBuffer) {
+        let pass = self.atmosphere.begin();
+        self.begin_label(buf, "Atmosphere pass", [84, 115, 144]);
+        self.dev
+            .cmd_begin_render_pass(buf, &pass, vk::SubpassContents::INLINE);
+
+        self.begin_label(buf, "Atmosphere draw", [84, 115, 144]);
+        self.dev.cmd_bind_pipeline(
+            buf,
+            vk::PipelineBindPoint::GRAPHICS,
+            self.atmosphere_pipeline.pipeline,
+        );
+        self.dev.cmd_bind_descriptor_sets(
+            buf,
+            vk::PipelineBindPoint::GRAPHICS,
+            self.atmosphere_pipeline.layout,
+            0,
+            &[self.atmosphere_descriptor_sets[self.flight_index]],
+            &[],
+        );
+        self.dev.cmd_draw(buf, 6, 1, 0, 0);
         self.end_label(buf);
 
         self.dev.cmd_end_render_pass(buf);

@@ -1,7 +1,7 @@
 use crate::camera::first_person::FirstPersonCamera;
 use crate::grass::Grass;
 use crate::planet::{NoiseType, Planet};
-use crate::renderer::uniform::{FragSettings, Postprocessing, Tonemapper};
+use crate::renderer::uniform::{Atmosphere, FragSettings, Postprocessing, Tonemapper};
 use crate::renderer::RendererSettings;
 use nalgebra::Vector3;
 
@@ -51,6 +51,17 @@ pub const DEFAULT_FRAG_SETTINGS: FragSettings = FragSettings {
     _pad0: [0; 3],
 };
 
+pub const DEFAULT_ATMOSPHERE: Atmosphere = Atmosphere {
+    enable: true,
+    _pad0: [0; 3],
+    scatter_point_count: 10,
+    optical_depth_point_count: 3,
+    density_falloff: 6.,
+    scale: 1.3,
+    scatter_coefficient: 0.1,
+    planet_radius: DEFAULT_PLANET_SCALE,
+};
+
 pub const DEFAULT_POSTPROCESSING: Postprocessing = Postprocessing {
     exposure: 1.,
     temperature: 0.,
@@ -61,12 +72,4 @@ pub const DEFAULT_POSTPROCESSING: Postprocessing = Postprocessing {
     saturation: 1.,
     tonemapper: Tonemapper::HillAces,
     gamma: 1.,
-    atmosphere: true,
-    _pad0: [0; 3],
-    atmosphere_scatter_point_count: 10,
-    atmosphere_optical_depth_point_count: 3,
-    atmosphere_density_falloff: 6.,
-    atmosphere_scale: 1.3,
-    atmosphere_scatter_coefficient: 0.1,
-    planet_radius: DEFAULT_PLANET_SCALE,
 };

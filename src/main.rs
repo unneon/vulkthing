@@ -28,7 +28,7 @@ mod world;
 
 use crate::cli::Args;
 use crate::config::{
-    DEFAULT_FRAG_SETTINGS, DEFAULT_GRASS, DEFAULT_PLANET, DEFAULT_PLANET_SCALE,
+    DEFAULT_ATMOSPHERE, DEFAULT_FRAG_SETTINGS, DEFAULT_GRASS, DEFAULT_PLANET, DEFAULT_PLANET_SCALE,
     DEFAULT_POSTPROCESSING, DEFAULT_RENDERER_SETTINGS,
 };
 use crate::grass::generate_grass_blades;
@@ -77,6 +77,7 @@ fn main() {
     let mut last_update = Instant::now();
     let mut renderer_settings = DEFAULT_RENDERER_SETTINGS;
     let mut frag_settings = DEFAULT_FRAG_SETTINGS;
+    let mut atmosphere = DEFAULT_ATMOSPHERE;
     let mut postprocessing = DEFAULT_POSTPROCESSING;
     let mut old_size = window.window.inner_size();
     let mut loaded_chunks = HashSet::new();
@@ -150,6 +151,7 @@ fn main() {
                     &mut grass.lock().unwrap(),
                     &mut renderer_settings,
                     &mut frag_settings,
+                    &mut atmosphere,
                     &mut postprocessing,
                     &renderer,
                 );
@@ -185,6 +187,7 @@ fn main() {
                     &grass,
                     &renderer_settings,
                     &frag_settings,
+                    &atmosphere,
                     &postprocessing,
                     window.window.inner_size(),
                     interface.draw_data(),

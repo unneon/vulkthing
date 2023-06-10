@@ -1,7 +1,7 @@
 use crate::config::DEFAULT_PLANET_SCALE;
 use crate::grass::Grass;
 use crate::planet::Planet;
-use crate::renderer::uniform::{FragSettings, Postprocessing};
+use crate::renderer::uniform::{Atmosphere, FragSettings, Postprocessing};
 use crate::renderer::{Renderer, RendererSettings};
 use crate::world::World;
 use imgui::{Condition, Context, Drag, SliderFlags, TreeNodeFlags, Ui};
@@ -36,6 +36,7 @@ impl Interface {
         grass: &mut Grass,
         renderer_settings: &mut RendererSettings,
         frag_settings: &mut FragSettings,
+        atmosphere: &mut Atmosphere,
         postprocessing: &mut Postprocessing,
         renderer: &Renderer,
     ) -> InterfaceEvents {
@@ -127,32 +128,22 @@ impl Interface {
                     ui.checkbox("Ray-traced shadows", &mut frag_settings.use_ray_tracing);
                 }
                 if ui.collapsing_header("Atmosphere", TreeNodeFlags::empty()) {
-                    ui.checkbox("Enable", &mut postprocessing.atmosphere);
-                    ui.slider(
-                        "Scatter points",
-                        1,
-                        32,
-                        &mut postprocessing.atmosphere_scatter_point_count,
-                    );
+                    ui.checkbox("Enable", &mut atmosphere.enable);
+                    ui.slider("Scatter points", 1, 32, &mut atmosphere.scatter_point_count);
                     ui.slider(
                         "Optical depth points",
                         1,
                         4,
-                        &mut postprocessing.atmosphere_optical_depth_point_count,
+                        &mut atmosphere.optical_depth_point_count,
                     );
                     ui.slider_config("Density falloff", 0.001, 100.)
                         .flags(SliderFlags::LOGARITHMIC)
-                        .build(&mut postprocessing.atmosphere_density_falloff);
-                    ui.slider("Radius", 0., 4000., &mut postprocessing.atmosphere_scale);
+                        .build(&mut atmosphere.density_falloff);
+                    ui.slider("Scale", 1., 3., &mut atmosphere.scale);
                     ui.slider_config("Scatter coefficient", 0.001, 100.)
                         .flags(SliderFlags::LOGARITHMIC)
-                        .build(&mut postprocessing.atmosphere_scatter_coefficient);
-                    ui.slider(
-                        "Planet radius",
-                        0.,
-                        2000.,
-                        &mut postprocessing.planet_radius,
-                    );
+                        .build(&mut atmosphere.scatter_coefficient);
+                    ui.slider("Planet radius", 0., 2000., &mut atmosphere.planet_radius);
                 }
                 if ui.collapsing_header("Postprocessing", TreeNodeFlags::empty()) {
                     build_postprocessing(ui, postprocessing);
