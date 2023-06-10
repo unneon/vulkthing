@@ -1,5 +1,6 @@
+use crate::cli::Args;
 use crate::model::Model;
-use crate::renderer::debug::create_debug_messenger;
+use crate::renderer::debug::{create_debug_messenger, debug_label};
 use crate::renderer::descriptors::{
     create_descriptor_metadata, Descriptor, DescriptorConfig, DescriptorKind, DescriptorMetadata,
     DescriptorValue,
@@ -28,7 +29,7 @@ use ash::extensions::khr::{
 };
 use ash::vk::{ExtDescriptorIndexingFn, KhrRayQueryFn, KhrShaderFloatControlsFn, KhrSpirv14Fn};
 use ash::{vk, Device, Entry, Instance};
-use log::{trace, warn};
+use log::{debug, trace, warn};
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use std::ffi::CString;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -43,9 +44,9 @@ const COLOR_FORMAT: vk::Format = vk::Format::R16G16B16A16_SFLOAT;
 const DEPTH_FORMAT: vk::Format = vk::Format::D32_SFLOAT;
 
 impl Renderer {
-    pub fn new(window: &Window, models: &[&Model], grass_mesh: &Model) -> Renderer {
+    pub fn new(window: &Window, models: &[&Model], grass_mesh: &Model, args: &Args) -> Renderer {
         let entry = unsafe { Entry::load() }.unwrap();
-        let instance = create_instance(window, &entry);
+        let instance = create_instance(window, &entry, args);
         let extensions = VulkanExtensions {
             debug: DebugUtils::new(&entry, &instance),
             surface: Surface::new(&entry, &instance),
@@ -322,6 +323,7 @@ impl Renderer {
     pub fn get_async_loader(&self) -> AsyncLoader {
         AsyncLoader {
             dev: self.dev.clone(),
+            debug_ext: self.extensions.debug.clone(),
             transfer_queue: self.transfer_queue,
             transfer_command_pool: self.transfer_command_pool,
             grass_chunks: self.grass_chunks.clone(),
@@ -381,6 +383,18 @@ impl AsyncLoader {
             command_pool: self.transfer_command_pool,
         };
         let blades = create_blade_buffer(blades_data, &ctx);
+        debug_label(
+            blades.buffer,
+            &format!("Grass buffer chunk={id}"),
+            &self.debug_ext,
+            &self.dev,
+        );
+        debug_label(
+            blades.memory,
+            &format!("Grass memory chunk={id}"),
+            &self.debug_ext,
+            &self.dev,
+        );
         self.grass_chunks.lock().unwrap().push(GrassChunk {
             id,
             blades,
@@ -469,7 +483,7 @@ impl Drop for Renderer {
     }
 }
 
-fn create_instance(window: &Window, entry: &Entry) -> Instance {
+fn create_instance(window: &Window, entry: &Entry, args: &Args) -> Instance {
     // Set metadata of the app and the engine. May be used by the drivers to enable game-specific
     // and engine-specific optimizations, which won't happen, but let's set it to something sensible
     // anyway.
@@ -497,11 +511,16 @@ fn create_instance(window: &Window, entry: &Entry) -> Instance {
     let layers = entry.enumerate_instance_layer_properties().unwrap();
     let mut layer_names = Vec::new();
 
-    // Enable Vulkan validation layers. This should be later disabled in non-development builds.
-    if let Some(layer) = find_layer(&layers, "VK_LAYER_KHRONOS_validation") {
-        layer_names.push(layer);
+    // Enable Vulkan validation layers by default. This should be later changed in non-development
+    // builds.
+    if !args.disable_validation {
+        if let Some(layer) = find_layer(&layers, "VK_LAYER_KHRONOS_validation") {
+            layer_names.push(layer);
+        } else {
+            warn!("vulkan validation layers not available");
+        }
     } else {
-        warn!("vulkan validation layers not available");
+        debug!("vulkan validation layers disabled");
     }
 
     // Vulkan doesn't appear to have any interesting extensions at this level, physical device

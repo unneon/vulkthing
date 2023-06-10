@@ -28,6 +28,7 @@ use ash::{vk, Entry};
 use imgui::DrawData;
 use nalgebra::{Matrix4, Vector3};
 use std::f32::consts::FRAC_PI_4;
+use std::ffi::CString;
 use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex};
 use winit::dpi::PhysicalSize;
@@ -131,6 +132,7 @@ pub struct GrassChunk {
 
 pub struct AsyncLoader {
     dev: Dev,
+    debug_ext: DebugUtils,
     transfer_queue: vk::Queue,
     transfer_command_pool: vk::CommandPool,
     grass_chunks: Arc<Mutex<Vec<GrassChunk>>>,
@@ -223,9 +225,11 @@ impl Renderer {
 
     unsafe fn record_render_pass(&self, buf: vk::CommandBuffer, world: &World) {
         let pass = self.render.begin();
+        self.begin_label(buf, "Forward rendering pass", [160, 167, 161]);
         self.dev
             .cmd_begin_render_pass(buf, &pass, vk::SubpassContents::INLINE);
 
+        self.begin_label(buf, "Entity draws", [57, 65, 62]);
         self.dev.cmd_bind_pipeline(
             buf,
             vk::PipelineBindPoint::GRAPHICS,
@@ -247,7 +251,9 @@ impl Renderer {
             self.dev
                 .cmd_draw(buf, 3 * object.triangle_count as u32, 1, 0, 0);
         }
+        self.end_label(buf);
 
+        self.begin_label(buf, "Grass draws", [100, 142, 55]);
         self.dev.cmd_bind_pipeline(
             buf,
             vk::PipelineBindPoint::GRAPHICS,
@@ -276,7 +282,9 @@ impl Renderer {
                 0,
             );
         }
+        self.end_label(buf);
 
+        self.begin_label(buf, "Skybox draw", [129, 147, 164]);
         self.dev.cmd_bind_pipeline(
             buf,
             vk::PipelineBindPoint::GRAPHICS,
@@ -294,8 +302,10 @@ impl Renderer {
             .cmd_bind_vertex_buffers(buf, 0, &[self.objects[1].vertex.buffer], &[0]);
         self.dev
             .cmd_draw(buf, 3 * self.objects[1].triangle_count as u32, 1, 0, 0);
+        self.end_label(buf);
 
         self.dev.cmd_end_render_pass(buf);
+        self.end_label(buf);
     }
 
     unsafe fn record_postprocess_pass(
@@ -305,9 +315,11 @@ impl Renderer {
         ui_draw: &DrawData,
     ) {
         let pass = self.postprocess.begin_to_swapchain(image_index);
+        self.begin_label(buf, "Postprocessing pass", [210, 206, 203]);
         self.dev
             .cmd_begin_render_pass(buf, &pass, vk::SubpassContents::INLINE);
 
+        self.begin_label(buf, "Postprocess draw", [210, 206, 203]);
         self.dev.cmd_bind_pipeline(
             buf,
             vk::PipelineBindPoint::GRAPHICS,
@@ -322,14 +334,18 @@ impl Renderer {
             &[],
         );
         self.dev.cmd_draw(buf, 6, 1, 0, 0);
+        self.end_label(buf);
 
+        self.begin_label(buf, "Debugging interface draw", [63, 70, 73]);
         self.interface_renderer
             .as_mut()
             .unwrap()
             .cmd_draw(buf, ui_draw)
             .unwrap();
+        self.end_label(buf);
 
         self.dev.cmd_end_render_pass(buf);
+        self.end_label(buf);
     }
 
     fn update_object_uniforms(&self, world: &World, entity: &Entity, settings: &RendererSettings) {
@@ -430,5 +446,27 @@ impl Renderer {
         );
         proj[(1, 1)] *= -1.;
         proj
+    }
+
+    fn begin_label(&self, buf: vk::CommandBuffer, text: &str, color: [u8; 3]) {
+        let color = [
+            color[0] as f32 / 255.,
+            color[1] as f32 / 255.,
+            color[2] as f32 / 255.,
+            1.,
+        ];
+        let label_name = CString::new(text).unwrap();
+        let label = *vk::DebugUtilsLabelEXT::builder()
+            .label_name(&label_name)
+            .color(color);
+        unsafe {
+            self.extensions
+                .debug
+                .cmd_begin_debug_utils_label(buf, &label)
+        };
+    }
+
+    fn end_label(&self, buf: vk::CommandBuffer) {
+        unsafe { self.extensions.debug.cmd_end_debug_utils_label(buf) };
     }
 }

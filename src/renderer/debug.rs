@@ -1,6 +1,8 @@
+use crate::renderer::util::Dev;
 use ash::extensions::ext::DebugUtils;
 use ash::vk;
-use std::ffi::CStr;
+use ash::vk::Handle;
+use std::ffi::{CStr, CString};
 
 pub fn create_debug_messenger(debug_extension: &DebugUtils) -> vk::DebugUtilsMessengerEXT {
     // Enable filtering by message severity and type. General and verbose levels seem to produce
@@ -44,4 +46,13 @@ unsafe extern "system" fn callback(
     };
     log::log!(level, "vulkan debug event: {message}");
     vk::FALSE
+}
+
+pub fn debug_label<T: Handle>(object: T, name: &str, debug_ext: &DebugUtils, dev: &Dev) {
+    let object_name = CString::new(name).unwrap();
+    let name_info = *vk::DebugUtilsObjectNameInfoEXT::builder()
+        .object_type(T::TYPE)
+        .object_handle(object.as_raw())
+        .object_name(&object_name);
+    unsafe { debug_ext.set_debug_utils_object_name(dev.logical.handle(), &name_info) }.unwrap();
 }

@@ -13,6 +13,7 @@
 #![allow(clippy::type_complexity)]
 
 mod camera;
+mod cli;
 mod config;
 mod grass;
 mod input;
@@ -25,6 +26,7 @@ mod renderer;
 mod window;
 mod world;
 
+use crate::cli::Args;
 use crate::config::{
     DEFAULT_FRAG_SETTINGS, DEFAULT_GRASS, DEFAULT_PLANET, DEFAULT_PLANET_SCALE,
     DEFAULT_POSTPROCESSING, DEFAULT_RENDERER_SETTINGS,
@@ -54,7 +56,8 @@ const CAMERA_SENSITIVITY: f32 = 0.01;
 
 fn main() {
     initialize_logger();
-    let window = create_window();
+    let args = Args::parse();
+    let window = create_window(&args);
     let cube_model = load_model("assets/cube.obj");
     let grass_model = load_model("assets/grass.obj");
     let mut planet = DEFAULT_PLANET;
@@ -64,7 +67,7 @@ fn main() {
         &grass.lock().unwrap(),
         &planet_model,
     ));
-    let mut renderer = Renderer::new(&window, &[&planet_model, &cube_model], &grass_model);
+    let mut renderer = Renderer::new(&window, &[&planet_model, &cube_model], &grass_model, &args);
     let mut interface = Interface::new(
         renderer.swapchain.extent.width as usize,
         renderer.swapchain.extent.height as usize,
