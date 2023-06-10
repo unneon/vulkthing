@@ -1,5 +1,5 @@
 use crate::camera::Camera;
-use crate::config::{DEFAULT_CAMERA, DEFAULT_SUN_POSITION};
+use crate::config::{DEFAULT_CAMERA, DEFAULT_PLANET_SCALE, DEFAULT_SUN_POSITION};
 use crate::input::InputState;
 use crate::model::Model;
 use crate::physics::Physics;
@@ -27,9 +27,11 @@ enum Transform {
     Static {
         translation: Vector3<f32>,
         rotation: UnitQuaternion<f32>,
+        scale: Vector3<f32>,
     },
     Dynamic {
         rigid_body: RigidBodyHandle,
+        scale: Vector3<f32>,
     },
 }
 
@@ -55,11 +57,13 @@ impl World {
             camera_rigid_body_handle,
             &mut physics.rigid_body_set,
         );
-        let planet_collider = physics.trimesh(planet_model).friction(0.);
+        let planet_scale = Vector3::from_element(DEFAULT_PLANET_SCALE);
+        let planet_collider = physics.trimesh(planet_model, &planet_scale).friction(0.);
         let planet = Entity {
             transform: Transform::Static {
                 translation: Vector3::zeros(),
                 rotation: UnitQuaternion::identity(),
+                scale: planet_scale,
             },
             diffuse: Vector3::new(0.2, 0.8, 0.03).scale(0.7),
             emit: Vector3::zeros(),
@@ -70,6 +74,7 @@ impl World {
         let sun = Entity {
             transform: Transform::Dynamic {
                 rigid_body: physics.insert(DEFAULT_SUN_POSITION, sun_collider),
+                scale: Vector3::new(1., 1., 1.),
             },
             diffuse: Vector3::zeros(),
             emit: Vector3::from_element(1.),
@@ -129,25 +134,37 @@ impl World {
     pub fn entities(&self) -> &[Entity] {
         &self.entities
     }
+
+    pub fn planet(&self) -> &Entity {
+        &self.entities[0]
+    }
 }
 
 impl Entity {
     pub fn translation(&self, world: &World) -> Vector3<f32> {
         match self.transform {
             Transform::Static { translation, .. } => translation,
-            Transform::Dynamic { rigid_body } => world.physics.get_translation(rigid_body),
+            Transform::Dynamic { rigid_body, .. } => world.physics.get_translation(rigid_body),
         }
     }
 
     pub fn rotation(&self, world: &World) -> UnitQuaternion<f32> {
         match self.transform {
             Transform::Static { rotation, .. } => rotation,
-            Transform::Dynamic { rigid_body } => world.physics.get_rotation(rigid_body),
+            Transform::Dynamic { rigid_body, .. } => world.physics.get_rotation(rigid_body),
+        }
+    }
+
+    pub fn scale(&self) -> Vector3<f32> {
+        match self.transform {
+            Transform::Static { scale, .. } => scale,
+            Transform::Dynamic { scale, .. } => scale,
         }
     }
 
     pub fn model_matrix(&self, world: &World) -> Matrix4<f32> {
-        Matrix4::new_translation(&self.translation(world)) * self.rotation(world).to_homogeneous()
+        Matrix4::new_translation(&self.translation(world)).prepend_nonuniform_scaling(&self.scale())
+            * self.rotation(world).to_homogeneous()
     }
 
     pub fn diffuse(&self) -> Vector3<f32> {

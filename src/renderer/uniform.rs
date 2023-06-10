@@ -63,7 +63,7 @@ pub struct Postprocessing {
     pub atmosphere_scatter_point_count: u32,
     pub atmosphere_optical_depth_point_count: u32,
     pub atmosphere_density_falloff: f32,
-    pub atmosphere_radius: f32,
+    pub atmosphere_scale: f32,
     pub atmosphere_scatter_coefficient: f32,
     pub planet_radius: f32,
 }

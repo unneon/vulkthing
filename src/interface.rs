@@ -46,7 +46,6 @@ impl Interface {
                 if ui.collapsing_header("Planet generation", TreeNodeFlags::empty()) {
                     let mut changed = false;
                     changed |= ui.slider("Resolution", 1, 800, &mut planet.resolution);
-                    changed |= ui.slider("Radius", 10., 200., &mut planet.radius);
                     changed |= enum_combo(ui, "Noise type", &mut planet.noise_type);
                     changed |= ui.slider("Noise magnitude", 0., 100., &mut planet.noise_magnitude);
                     changed |= ui.slider("Noise scale", 0., 64., &mut planet.noise_scale);
@@ -90,13 +89,13 @@ impl Interface {
                     ui.slider(
                         "Chunk load distance",
                         0.,
-                        planet.radius * 2.,
+                        2000.,
                         &mut grass.chunk_load_distance,
                     );
                     ui.slider(
                         "Chunk unload distance",
                         0.,
-                        planet.radius * 2.,
+                        2000.,
                         &mut grass.chunk_unload_distance,
                     );
                     events.grass_changed = changed;
@@ -125,7 +124,7 @@ impl Interface {
                     ui.slider_config("Density falloff", 0.001, 100.)
                         .flags(SliderFlags::LOGARITHMIC)
                         .build(&mut postprocessing.atmosphere_density_falloff);
-                    ui.slider("Radius", 0., 4000., &mut postprocessing.atmosphere_radius);
+                    ui.slider("Radius", 0., 4000., &mut postprocessing.atmosphere_scale);
                     ui.slider_config("Scatter coefficient", 0.001, 100.)
                         .flags(SliderFlags::LOGARITHMIC)
                         .build(&mut postprocessing.atmosphere_scatter_coefficient);

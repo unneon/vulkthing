@@ -26,8 +26,8 @@ mod window;
 mod world;
 
 use crate::config::{
-    DEFAULT_FRAG_SETTINGS, DEFAULT_GRASS, DEFAULT_PLANET, DEFAULT_POSTPROCESSING,
-    DEFAULT_RENDERER_SETTINGS,
+    DEFAULT_FRAG_SETTINGS, DEFAULT_GRASS, DEFAULT_PLANET, DEFAULT_PLANET_SCALE,
+    DEFAULT_POSTPROCESSING, DEFAULT_RENDERER_SETTINGS,
 };
 use crate::grass::generate_grass_blades;
 use crate::input::InputState;
@@ -62,7 +62,6 @@ fn main() {
     let planet_model = Arc::new(generate_planet(&planet));
     let chunks: Arc<Vec<Vec<usize>>> = Arc::new(grass::build_triangle_chunks(
         &grass.lock().unwrap(),
-        &planet,
         &planet_model,
     ));
     let mut renderer = Renderer::new(&window, &[&planet_model, &cube_model], &grass_model);
@@ -154,8 +153,9 @@ fn main() {
                 renderer.unload_grass_chunks(
                     |chunk_id| {
                         let triangle_id = chunks[chunk_id][0];
-                        let vertex = planet_model.vertices[3 * triangle_id];
-                        (vertex.position - world.camera.position()).norm()
+                        let vertex =
+                            DEFAULT_PLANET_SCALE * planet_model.vertices[3 * triangle_id].position;
+                        (vertex - world.camera.position()).norm()
                             > grass.lock().unwrap().chunk_unload_distance
                     },
                     |chunk_id| {
@@ -165,8 +165,9 @@ fn main() {
                 for (chunk_id, chunk) in chunks.iter().enumerate() {
                     if !loaded_chunks.contains(&chunk_id) {
                         let triangle_id = chunk[0];
-                        let vertex = planet_model.vertices[3 * triangle_id];
-                        let distance = (vertex.position - world.camera.position()).norm();
+                        let vertex =
+                            DEFAULT_PLANET_SCALE * planet_model.vertices[3 * triangle_id].position;
+                        let distance = (vertex - world.camera.position()).norm();
                         if distance < grass.lock().unwrap().chunk_load_distance {
                             loaded_chunks.insert(chunk_id);
                             chunk_tx.send(chunk_id).unwrap();

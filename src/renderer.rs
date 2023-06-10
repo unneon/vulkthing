@@ -353,7 +353,7 @@ impl Renderer {
 
     fn update_grass_uniform(&self, grass: &Grass, world: &World, settings: &RendererSettings) {
         let mvp = ModelViewProjection {
-            model: Matrix4::identity(),
+            model: world.planet().model_matrix(world),
             view: world.view_matrix(),
             proj: self.projection_matrix(settings),
         };

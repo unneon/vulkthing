@@ -1,5 +1,4 @@
 use crate::model::Model;
-use crate::planet::Planet;
 use crate::renderer::vertex::GrassBlade;
 use nalgebra::{Rotation3, Unit, Vector3};
 use noise::{NoiseFn, Perlin};
@@ -73,11 +72,7 @@ pub fn generate_grass_blades(
     grass_blades
 }
 
-pub fn build_triangle_chunks(
-    grass: &Grass,
-    planet: &Planet,
-    planet_model: &Model,
-) -> Vec<Vec<usize>> {
+pub fn build_triangle_chunks(grass: &Grass, planet_model: &Model) -> Vec<Vec<usize>> {
     assert_eq!(grass.chunk_count % 2, 1);
     let fib = compute_fibonacci_sphere(grass.chunk_count as i64 / 2);
     let mut chunks = vec![Vec::new(); grass.chunk_count];
@@ -86,7 +81,7 @@ pub fn build_triangle_chunks(
         let mut best_distance = f32::INFINITY;
         let mut best_chunk_id = usize::MAX;
         for (chunk_id, chunk_center) in fib.iter().enumerate() {
-            let distance = (chunk_center.scale(planet.radius) - triangle[0].position).norm();
+            let distance = (chunk_center - triangle[0].position).norm();
             if distance < best_distance {
                 best_distance = distance;
                 best_chunk_id = chunk_id;

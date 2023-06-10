@@ -11,7 +11,6 @@ use std::borrow::Cow;
 #[derive(Clone, PartialEq)]
 pub struct Planet {
     pub resolution: usize,
-    pub radius: f32,
     pub noise_type: NoiseType,
     pub noise_magnitude: f32,
     pub noise_scale: f32,
@@ -172,5 +171,5 @@ fn generate_vertex(
         ]) as f32
             / factor as f32;
     }
-    direction * (parameters.radius + parameters.noise_magnitude * noise_value)
+    direction * (1. + parameters.noise_magnitude * noise_value)
 }

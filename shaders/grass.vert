@@ -4,7 +4,7 @@ layout(binding = 0) uniform ModelViewProjection {
     mat4 model;
     mat4 view;
     mat4 proj;
-} mvp;
+} planet_mvp;
 
 layout(binding = 1) uniform GrassUniform {
     float height_average;
@@ -36,8 +36,8 @@ void main() {
     float blade_height = grass.height_average + blade_height_noise * grass.height_max_variance;
     float sway_arg = grass.sway_frequency * grass.time;
     vec3 blade_swayed_up = blade_up + sin(sway_arg) * grass.sway_amplitude * grass.sway_direction;
-    vec3 position = blade_position + naive_x * blade_right * grass.width + naive_y * blade_swayed_up * blade_height;
-    gl_Position = mvp.proj * mvp.view * mvp.model * vec4(position, 1);
+    vec3 position = (planet_mvp.model * vec4(blade_position, 1)).xyz + naive_x * blade_right * grass.width + naive_y * blade_swayed_up * blade_height;
+    gl_Position = planet_mvp.proj * planet_mvp.view * vec4(position, 1);
     frag_position = position;
     frag_normal = blade_front;
     frag_ground_normal = ground_normal;
