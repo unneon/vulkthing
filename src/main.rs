@@ -145,6 +145,7 @@ fn main() {
                 input_state.reset_after_frame();
                 interface.apply_cursor(input_state.camera_lock, &window.window);
                 let interface_events = interface.build(
+                    &mut world,
                     &mut planet,
                     &mut grass.lock().unwrap(),
                     &mut renderer_settings,

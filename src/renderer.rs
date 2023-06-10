@@ -388,7 +388,7 @@ impl Renderer {
 
     fn update_skybox_uniform(&self, world: &World, settings: &RendererSettings) {
         let mvp = ModelViewProjection {
-            model: Matrix4::new_scaling(8192.),
+            model: Matrix4::new_scaling(4096.),
             view: world.view_matrix(),
             proj: self.projection_matrix(settings),
         };

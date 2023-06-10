@@ -1,10 +1,13 @@
+use crate::config::DEFAULT_PLANET_SCALE;
 use crate::grass::Grass;
 use crate::planet::Planet;
 use crate::renderer::uniform::{FragSettings, Postprocessing};
 use crate::renderer::{Renderer, RendererSettings};
+use crate::world::World;
 use imgui::{Condition, Context, Drag, SliderFlags, TreeNodeFlags, Ui};
 use nalgebra::Vector3;
 use std::borrow::Cow;
+use std::f32::consts::PI;
 use std::sync::atomic::Ordering;
 
 pub mod integration;
@@ -28,6 +31,7 @@ pub struct InterfaceEvents {
 impl Interface {
     pub fn build(
         &mut self,
+        world: &mut World,
         planet: &mut Planet,
         grass: &mut Grass,
         renderer_settings: &mut RendererSettings,
@@ -43,17 +47,30 @@ impl Interface {
         ui.window("Debugging")
             .size([0., 0.], Condition::Always)
             .build(|| {
-                if ui.collapsing_header("Planet generation", TreeNodeFlags::empty()) {
+                if ui.collapsing_header("Planet", TreeNodeFlags::empty()) {
                     let mut changed = false;
                     changed |= ui.slider("Resolution", 1, 800, &mut planet.resolution);
                     changed |= enum_combo(ui, "Noise type", &mut planet.noise_type);
                     changed |= ui.slider("Noise magnitude", 0., 100., &mut planet.noise_magnitude);
                     changed |= ui.slider("Noise scale", 0., 64., &mut planet.noise_scale);
                     changed |= ui.slider("Noise layers", 0, 16, &mut planet.noise_layers);
-
                     events.planet_changed = changed;
                 }
-                if ui.collapsing_header("Grass", TreeNodeFlags::DEFAULT_OPEN) {
+                if ui.collapsing_header("Sun", TreeNodeFlags::empty()) {
+                    Drag::new("Time of day")
+                        .speed(0.01)
+                        .build(ui, &mut world.time_of_day);
+                    world.time_of_day = world.time_of_day.rem_euclid(2. * PI);
+                    ui.slider("Ambient strength", 0., 2., &mut world.ambient_strength);
+                    ui.slider("Diffuse strength", 0., 2., &mut world.diffuse_strength);
+                    ui.slider(
+                        "Orbit radius",
+                        0.,
+                        4. * DEFAULT_PLANET_SCALE,
+                        &mut world.sun_radius,
+                    );
+                }
+                if ui.collapsing_header("Grass", TreeNodeFlags::empty()) {
                     let mut changed = false;
                     ui.label_text(
                         "Total blades",
@@ -100,13 +117,15 @@ impl Interface {
                     );
                     events.grass_changed = changed;
                 }
-                ui.slider_config("Depth near plane", 0.001, 10.)
-                    .flags(SliderFlags::LOGARITHMIC)
-                    .build(&mut renderer_settings.depth_near);
-                ui.slider_config("Depth far plane", 10., 10000.)
-                    .flags(SliderFlags::LOGARITHMIC)
-                    .build(&mut renderer_settings.depth_far);
-                ui.checkbox("Ray-traced shadows", &mut frag_settings.use_ray_tracing);
+                if ui.collapsing_header("Renderer", TreeNodeFlags::empty()) {
+                    ui.slider_config("Depth near plane", 0.001, 16.)
+                        .flags(SliderFlags::LOGARITHMIC)
+                        .build(&mut renderer_settings.depth_near);
+                    ui.slider_config("Depth far plane", 16., 1048576.)
+                        .flags(SliderFlags::LOGARITHMIC)
+                        .build(&mut renderer_settings.depth_far);
+                    ui.checkbox("Ray-traced shadows", &mut frag_settings.use_ray_tracing);
+                }
                 if ui.collapsing_header("Atmosphere", TreeNodeFlags::empty()) {
                     ui.checkbox("Enable", &mut postprocessing.atmosphere);
                     ui.slider(

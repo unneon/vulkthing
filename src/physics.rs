@@ -43,24 +43,8 @@ impl Physics {
         ColliderBuilder::trimesh(vertices, indices)
     }
 
-    pub fn cube(&self, side: f32) -> ColliderBuilder {
-        ColliderBuilder::cuboid(side / 2., side / 2., side / 2.)
-    }
-
     pub fn insert_static(&mut self, collider: ColliderBuilder) {
         self.collider_set.insert(collider);
-    }
-
-    pub fn insert(
-        &mut self,
-        translation: Vector3<f32>,
-        collider: ColliderBuilder,
-    ) -> RigidBodyHandle {
-        let rigid_body = RigidBodyBuilder::dynamic().translation(translation);
-        let handle = self.rigid_body_set.insert(rigid_body);
-        self.collider_set
-            .insert_with_parent(collider, handle, &mut self.rigid_body_set);
-        handle
     }
 
     pub fn step(&mut self, delta_time: f32) {

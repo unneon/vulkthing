@@ -1,5 +1,5 @@
 use crate::camera::Camera;
-use crate::config::{DEFAULT_CAMERA, DEFAULT_PLANET_SCALE, DEFAULT_SUN_POSITION};
+use crate::config::{DEFAULT_CAMERA, DEFAULT_PLANET_SCALE, DEFAULT_SUN_RADIUS};
 use crate::input::InputState;
 use crate::model::Model;
 use crate::physics::Physics;
@@ -7,6 +7,7 @@ use crate::renderer::uniform::Light;
 use nalgebra::{Matrix4, UnitQuaternion, Vector3};
 use rapier3d::dynamics::RigidBodyHandle;
 use rapier3d::prelude::*;
+use std::f32::consts::FRAC_PI_2;
 
 pub struct World {
     pub camera: Box<dyn Camera>,
@@ -14,6 +15,10 @@ pub struct World {
     entities: [Entity; 2],
     physics: Physics,
     pub time: f32,
+    pub time_of_day: f32,
+    pub ambient_strength: f32,
+    pub diffuse_strength: f32,
+    pub sun_radius: f32,
 }
 
 pub struct Entity {
@@ -29,6 +34,7 @@ enum Transform {
         rotation: UnitQuaternion<f32>,
         scale: Vector3<f32>,
     },
+    #[allow(dead_code)]
     Dynamic {
         rigid_body: RigidBodyHandle,
         scale: Vector3<f32>,
@@ -70,11 +76,11 @@ impl World {
             gpu_object: 0,
         };
         physics.insert_static(planet_collider);
-        let sun_collider = physics.cube(2.).restitution(0.7);
         let sun = Entity {
-            transform: Transform::Dynamic {
-                rigid_body: physics.insert(DEFAULT_SUN_POSITION, sun_collider),
-                scale: Vector3::new(1., 1., 1.),
+            transform: Transform::Static {
+                translation: Vector3::new(0., 0., DEFAULT_SUN_RADIUS),
+                rotation: UnitQuaternion::identity(),
+                scale: Vector3::from_element(50.),
             },
             diffuse: Vector3::zeros(),
             emit: Vector3::from_element(1.),
@@ -87,6 +93,10 @@ impl World {
             entities,
             physics,
             time: 0.,
+            time_of_day: FRAC_PI_2,
+            ambient_strength: 0.01,
+            diffuse_strength: 1.,
+            sun_radius: 2000.,
         }
     }
 
@@ -98,6 +108,7 @@ impl World {
             self.physics.get_translation(self.camera_rigid_body_handle)
                 + Vector3::new(0., 0., AVERAGE_MALE_EYE_HEIGHT / 2.),
         );
+        self.update_sun();
         self.time += delta_time;
     }
 
@@ -118,12 +129,18 @@ impl World {
         }
     }
 
+    pub fn update_sun(&mut self) {
+        let Transform::Static { translation, .. } = &mut self.entities[1].transform else { unreachable!() };
+        translation.y = self.sun_radius * self.time_of_day.cos();
+        translation.z = self.sun_radius * self.time_of_day.sin();
+    }
+
     pub fn light(&self) -> Light {
         Light {
-            position: Vector3::new(0., 0., 10000.),
-            color: self.entities[1].emit,
-            ambient_strength: 0.01,
-            diffuse_strength: 1.,
+            position: self.sun().translation(self),
+            color: self.sun().emit,
+            ambient_strength: self.ambient_strength,
+            diffuse_strength: self.diffuse_strength,
         }
     }
 
@@ -137,6 +154,10 @@ impl World {
 
     pub fn planet(&self) -> &Entity {
         &self.entities[0]
+    }
+
+    pub fn sun(&self) -> &Entity {
+        &self.entities[1]
     }
 }
 

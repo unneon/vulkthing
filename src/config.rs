@@ -15,7 +15,7 @@ pub const DEFAULT_PLANET: Planet = Planet {
 
 pub const DEFAULT_PLANET_SCALE: f32 = 1000.;
 
-pub const DEFAULT_SUN_POSITION: Vector3<f32> = Vector3::new(0., 0., DEFAULT_PLANET_SCALE + 100.);
+pub const DEFAULT_SUN_RADIUS: f32 = 2. * DEFAULT_PLANET_SCALE;
 
 pub const DEFAULT_GRASS: Grass = Grass {
     blades_per_triangle: 128,
@@ -42,8 +42,8 @@ pub const DEFAULT_CAMERA: FirstPersonCamera = FirstPersonCamera {
 };
 
 pub const DEFAULT_RENDERER_SETTINGS: RendererSettings = RendererSettings {
-    depth_near: 0.05,
-    depth_far: 200000.,
+    depth_near: 0.2,
+    depth_far: 16384.,
 };
 
 pub const DEFAULT_FRAG_SETTINGS: FragSettings = FragSettings {
