@@ -67,8 +67,8 @@ impl Interface {
                 x: window_size.width / 2,
                 y: window_size.height / 2,
             };
-            window.set_cursor_position(window_center).unwrap();
-            window.set_cursor_grab(CursorGrabMode::None).unwrap();
+            let _ = window.set_cursor_position(window_center);
+            let _ = window.set_cursor_grab(CursorGrabMode::None);
             window.set_cursor_visible(true);
             self.cursor_visible = true;
         } else if !camera_lock && self.cursor_visible {
@@ -78,8 +78,8 @@ impl Interface {
                 y: window_size.height / 2,
             };
 
-            window.set_cursor_grab(CursorGrabMode::Locked).unwrap();
-            window.set_cursor_position(window_center).unwrap();
+            let _ = window.set_cursor_grab(CursorGrabMode::Locked);
+            let _ = window.set_cursor_position(window_center);
             window.set_cursor_visible(false);
             self.cursor_visible = false;
         }
