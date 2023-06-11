@@ -1,5 +1,5 @@
 use crate::camera::Camera;
-use crate::config::{DEFAULT_CAMERA, DEFAULT_PLANET_SCALE, DEFAULT_SUN_RADIUS};
+use crate::config::{DEFAULT_CAMERA, DEFAULT_PLANET_SCALE, DEFAULT_SUN_POSITION};
 use crate::input::InputState;
 use crate::model::Model;
 use crate::physics::Physics;
@@ -12,7 +12,7 @@ use std::f32::consts::FRAC_PI_2;
 pub struct World {
     pub camera: Box<dyn Camera>,
     camera_rigid_body_handle: RigidBodyHandle,
-    entities: [Entity; 2],
+    pub entities: [Entity; 2],
     physics: Physics,
     pub time: f32,
     pub time_of_day: f32,
@@ -78,7 +78,7 @@ impl World {
         physics.insert_static(planet_collider);
         let sun = Entity {
             transform: Transform::Static {
-                translation: Vector3::new(0., 0., DEFAULT_SUN_RADIUS),
+                translation: DEFAULT_SUN_POSITION,
                 rotation: UnitQuaternion::identity(),
                 scale: Vector3::from_element(50.),
             },
@@ -156,6 +156,10 @@ impl World {
         &self.entities[0]
     }
 
+    pub fn planet_entity(&self) -> usize {
+        0
+    }
+
     pub fn sun(&self) -> &Entity {
         &self.entities[1]
     }
@@ -166,6 +170,13 @@ impl Entity {
         match self.transform {
             Transform::Static { translation, .. } => translation,
             Transform::Dynamic { rigid_body, .. } => world.physics.get_translation(rigid_body),
+        }
+    }
+
+    pub fn static_translation_mut(&mut self) -> &mut Vector3<f32> {
+        match &mut self.transform {
+            Transform::Static { translation, .. } => translation,
+            _ => unreachable!(),
         }
     }
 

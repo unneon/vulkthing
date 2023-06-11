@@ -13,7 +13,11 @@ pub const DEFAULT_PLANET: Planet = Planet {
     noise_layers: 3,
 };
 
+pub const DEFAULT_PLANET_POSITION: Vector3<f32> = Vector3::new(0., 0., 0.);
+
 pub const DEFAULT_PLANET_SCALE: f32 = 1000.;
+
+pub const DEFAULT_SUN_POSITION: Vector3<f32> = Vector3::new(0., 0., DEFAULT_SUN_RADIUS);
 
 pub const DEFAULT_SUN_RADIUS: f32 = 2. * DEFAULT_PLANET_SCALE;
 
@@ -60,6 +64,8 @@ pub const DEFAULT_ATMOSPHERE: Atmosphere = Atmosphere {
     scale: 1.3,
     scatter_coefficient: 0.1,
     planet_radius: DEFAULT_PLANET_SCALE,
+    planet_position: DEFAULT_PLANET_POSITION,
+    sun_position: DEFAULT_SUN_POSITION,
 };
 
 pub const DEFAULT_POSTPROCESSING: Postprocessing = Postprocessing {

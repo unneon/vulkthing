@@ -54,9 +54,11 @@ pub struct Atmosphere {
     pub scatter_point_count: u32,
     pub optical_depth_point_count: u32,
     pub density_falloff: f32,
+    pub planet_position: Vector3<f32>,
+    pub planet_radius: f32,
+    pub sun_position: Vector3<f32>,
     pub scale: f32,
     pub scatter_coefficient: f32,
-    pub planet_radius: f32,
 }
 
 #[repr(C)]

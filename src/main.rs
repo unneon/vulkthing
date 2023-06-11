@@ -180,6 +180,8 @@ fn main() {
                         }
                     }
                 }
+                atmosphere.planet_position = world.planet().translation(&world);
+                atmosphere.sun_position = world.sun().translation(&world);
 
                 let grass = grass.lock().unwrap().clone();
                 renderer.draw_frame(

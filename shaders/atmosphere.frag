@@ -11,9 +11,11 @@ layout(binding = 2) uniform Atmosphere {
     uint scatter_point_count;
     uint optical_depth_point_count;
     float density_falloff;
+    vec3 planet_position;
+    float planet_radius;
+    vec3 sun_position;
     float scale;
     float scatter_coefficient;
-    float planet_radius;
 } atmosphere;
 
 layout(binding = 3) uniform Camera {
@@ -21,9 +23,6 @@ layout(binding = 3) uniform Camera {
 } camera;
 
 layout(location = 0) out vec4 out_color;
-
-const vec3 SUN_DIRECTION = vec3(0, 0, 1);
-const vec3 PLANET_CENTRE = vec3(0);
 
 vec2 ray_sphere(vec3 sphere_centre, float sphere_radius, vec3 ray_origin, vec3 ray_direction) {
     vec3 offset = ray_origin - sphere_centre;
@@ -43,7 +42,7 @@ vec2 ray_sphere(vec3 sphere_centre, float sphere_radius, vec3 ray_origin, vec3 r
 }
 
 float density_at_point(vec3 point) {
-    float height_above_surface = length(point - PLANET_CENTRE) - atmosphere.planet_radius;
+    float height_above_surface = length(point - atmosphere.planet_position) - atmosphere.planet_radius;
     float height_01 = height_above_surface / (atmosphere.scale * atmosphere.planet_radius - atmosphere.planet_radius);
     float local_density = exp(-height_01 * atmosphere.density_falloff);
     return local_density;
@@ -70,8 +69,9 @@ float calculate_light(vec3 ray_origin, vec3 ray_direction, float ray_length) {
     vec3 in_scatter_point = ray_origin + ray_direction * step_length / 2;
     float in_scattered_light = 0;
     for (uint i = 0; i < atmosphere.scatter_point_count; ++i) {
-        float sun_ray_length = ray_sphere(PLANET_CENTRE, atmosphere.scale * atmosphere.planet_radius, in_scatter_point, SUN_DIRECTION).y;
-        float sun_ray_optical_depth = optical_depth(in_scatter_point, SUN_DIRECTION, sun_ray_length);
+        vec3 sun_direction = normalize(atmosphere.sun_position - in_scatter_point);
+        float sun_ray_length = ray_sphere(atmosphere.planet_position, atmosphere.scale * atmosphere.planet_radius, in_scatter_point, sun_direction).y;
+        float sun_ray_optical_depth = optical_depth(in_scatter_point, sun_direction, sun_ray_length);
         float view_ray_optical_depth = optical_depth(in_scatter_point, -ray_direction, step_length * i);
         float transmittance = exp(- (0.01 * atmosphere.scatter_coefficient) * (sun_ray_optical_depth + view_ray_optical_depth));
         float local_density = density_at_point(in_scatter_point);
@@ -86,7 +86,7 @@ vec3 compute_atmosphere(vec3 original_color, vec3 position) {
     vec3 ray_origin = camera.position;
     vec3 ray_direction = normalize(position - camera.position);
 
-    vec2 hit_info = ray_sphere(PLANET_CENTRE, atmosphere.scale * atmosphere.planet_radius, ray_origin, ray_direction);
+    vec2 hit_info = ray_sphere(atmosphere.planet_position, atmosphere.scale * atmosphere.planet_radius, ray_origin, ray_direction);
     float distance_to_atmosphere = hit_info.x;
     float distance_through_atmosphere = min(hit_info.y, scene_depth - distance_to_atmosphere);
 

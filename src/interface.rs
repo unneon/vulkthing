@@ -55,6 +55,7 @@ impl Interface {
                     changed |= ui.slider("Noise magnitude", 0., 100., &mut planet.noise_magnitude);
                     changed |= ui.slider("Noise scale", 0., 64., &mut planet.noise_scale);
                     changed |= ui.slider("Noise layers", 0, 16, &mut planet.noise_layers);
+                    entity(ui, world, world.planet_entity());
                     events.planet_changed = changed;
                 }
                 if ui.collapsing_header("Sun", TreeNodeFlags::empty()) {
@@ -151,6 +152,15 @@ impl Interface {
             });
         events
     }
+}
+
+fn entity(ui: &Ui, world: &mut World, entity: usize) {
+    Drag::new("Position").build_array(
+        ui,
+        world.entities[entity]
+            .static_translation_mut()
+            .as_mut_slice(),
+    );
 }
 
 fn build_postprocessing(ui: &Ui, postprocessing: &mut Postprocessing) {
