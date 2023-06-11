@@ -43,7 +43,6 @@ pub struct Renderer {
     surface: vk::SurfaceKHR,
     dev: Dev,
     queue: vk::Queue,
-    transfer_queue: vk::Queue,
     swapchain_ext: SwapchainKhr,
     supports_raytracing: bool,
 
@@ -85,7 +84,6 @@ pub struct Renderer {
     // renderer state for keeping track of concurrent frames.
     command_pools: [vk::CommandPool; FRAMES_IN_FLIGHT],
     command_buffers: [vk::CommandBuffer; FRAMES_IN_FLIGHT],
-    transfer_command_pool: vk::CommandPool,
     sync: Synchronization,
     flight_index: usize,
 
@@ -139,8 +137,6 @@ pub struct GrassChunk {
 pub struct AsyncLoader {
     dev: Dev,
     debug_ext: DebugUtils,
-    transfer_queue: vk::Queue,
-    transfer_command_pool: vk::CommandPool,
     grass_chunks: Arc<Mutex<Vec<GrassChunk>>>,
     grass_blades_total: Arc<AtomicUsize>,
 }

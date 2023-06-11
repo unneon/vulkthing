@@ -45,6 +45,12 @@ const COLOR_FORMAT: vk::Format = vk::Format::R16G16B16A16_SFLOAT;
 
 const DEPTH_FORMAT: vk::Format = vk::Format::D32_SFLOAT;
 
+pub const UNIFIED_MEMORY: vk::MemoryPropertyFlags = vk::MemoryPropertyFlags::from_raw(
+    vk::MemoryPropertyFlags::DEVICE_LOCAL.as_raw()
+        | vk::MemoryPropertyFlags::HOST_VISIBLE.as_raw()
+        | vk::MemoryPropertyFlags::HOST_COHERENT.as_raw(),
+);
+
 impl Renderer {
     pub fn new(
         window: &Window,
@@ -64,12 +70,10 @@ impl Renderer {
         let DeviceInfo {
             physical_device,
             queue_family,
-            transfer_queue_family,
             supports_raytracing,
         } = select_device(&instance, &extensions.surface, surface);
         let logical_device = create_logical_device(
             queue_family,
-            transfer_queue_family,
             supports_raytracing,
             &instance,
             physical_device,
@@ -80,7 +84,6 @@ impl Renderer {
             instance,
         };
         let queue = unsafe { dev.get_device_queue(queue_family, 0) };
-        let transfer_queue = unsafe { dev.get_device_queue(transfer_queue_family, 0) };
         let swapchain_ext = SwapchainKhr::new(&dev.instance, &dev);
 
         let msaa_samples = find_max_msaa_samples(&dev);
@@ -128,7 +131,6 @@ impl Renderer {
 
         let command_pools = create_command_pools(queue_family, &dev);
         let command_buffers = create_command_buffers(&command_pools, &dev);
-        let transfer_command_pool = create_transfer_command_pool(transfer_queue_family, &dev);
         let sync = create_sync(&dev);
         let ctx = Ctx {
             dev: &dev,
@@ -152,7 +154,7 @@ impl Renderer {
             objects.push(object);
         }
         let grass_vertex_count = grass_mesh.vertices.len();
-        let grass_vertex = create_vertex_buffer(&grass_mesh.vertices, supports_raytracing, &ctx);
+        let grass_vertex = create_vertex_buffer(&grass_mesh.vertices, supports_raytracing, &dev);
         let grass_mvp = UniformBuffer::create(ctx.dev);
         let grass_uniform = UniformBuffer::create(&dev);
         let grass_descriptor_sets = create_grass_descriptor_sets(
@@ -186,7 +188,6 @@ impl Renderer {
             surface,
             dev,
             queue,
-            transfer_queue,
             swapchain_ext,
             supports_raytracing,
             msaa_samples,
@@ -211,7 +212,6 @@ impl Renderer {
             postprocess_descriptor_sets,
             command_pools,
             command_buffers,
-            transfer_command_pool,
             sync,
             flight_index: 0,
             grass_vertex_count,
@@ -310,8 +310,6 @@ impl Renderer {
         AsyncLoader {
             dev: self.dev.clone(),
             debug_ext: self.extensions.debug.clone(),
-            transfer_queue: self.transfer_queue,
-            transfer_command_pool: self.transfer_command_pool,
             grass_chunks: self.grass_chunks.clone(),
             grass_blades_total: self.grass_blades_total.clone(),
         }
@@ -370,12 +368,7 @@ impl Renderer {
 impl AsyncLoader {
     pub fn load_grass_chunk(&self, id: usize, blades_data: &[GrassBlade]) {
         trace!("loading grass chunk, \x1B[1mid\x1B[0m: {}", id);
-        let ctx = Ctx {
-            dev: &self.dev,
-            queue: self.transfer_queue,
-            command_pool: self.transfer_command_pool,
-        };
-        let blades = create_blade_buffer(blades_data, &ctx);
+        let blades = create_blade_buffer(blades_data, &self.dev);
         debug_label(
             blades.buffer,
             &format!("Grass buffer chunk={id}"),
@@ -456,8 +449,6 @@ impl Drop for Renderer {
             for pool in &self.command_pools {
                 self.dev.destroy_command_pool(*pool, None);
             }
-            self.dev
-                .destroy_command_pool(self.transfer_command_pool, None);
             self.cleanup_swapchain();
             self.object_descriptor_metadata.cleanup(&self.dev);
             self.grass_descriptor_metadata.cleanup(&self.dev);
@@ -559,7 +550,6 @@ fn create_surface(window: &Window, entry: &Entry, instance: &Instance) -> vk::Su
 
 fn create_logical_device(
     queue_family: u32,
-    transfer_queue_family: u32,
     supports_raytracing: bool,
     instance: &Instance,
     physical_device: vk::PhysicalDevice,
@@ -567,10 +557,7 @@ fn create_logical_device(
     let queue_create = *vk::DeviceQueueCreateInfo::builder()
         .queue_family_index(queue_family)
         .queue_priorities(&[1.]);
-    let transfer_queue_create = *vk::DeviceQueueCreateInfo::builder()
-        .queue_family_index(transfer_queue_family)
-        .queue_priorities(&[1.]);
-    let queues = [queue_create, transfer_queue_create];
+    let queues = [queue_create];
 
     let physical_device_features = vk::PhysicalDeviceFeatures::builder()
         .sample_rate_shading(true)
@@ -1208,11 +1195,6 @@ fn create_command_pools(queue_family: u32, dev: &Dev) -> [vk::CommandPool; FRAME
     pools
 }
 
-fn create_transfer_command_pool(family: u32, dev: &Dev) -> vk::CommandPool {
-    let create_info = vk::CommandPoolCreateInfo::builder().queue_family_index(family);
-    unsafe { dev.create_command_pool(&create_info, None) }.unwrap()
-}
-
 fn create_command_buffers(
     command_pools: &[vk::CommandPool; FRAMES_IN_FLIGHT],
     dev: &Dev,
@@ -1244,7 +1226,7 @@ pub fn create_object(
     supports_raytracing: bool,
     ctx: &Ctx,
 ) -> Object {
-    let vertex = create_vertex_buffer(&model.vertices, supports_raytracing, ctx);
+    let vertex = create_vertex_buffer(&model.vertices, supports_raytracing, ctx.dev);
     let mvp = UniformBuffer::create(ctx.dev);
     let material = UniformBuffer::create(ctx.dev);
     let descriptor_sets = create_object_descriptor_sets(
@@ -1265,12 +1247,11 @@ pub fn create_object(
     }
 }
 
-fn create_vertex_buffer(vertex_data: &[Vertex], supports_raytracing: bool, ctx: &Ctx) -> Buffer {
+fn create_vertex_buffer(vertex_data: &[Vertex], supports_raytracing: bool, dev: &Dev) -> Buffer {
     let size = std::mem::size_of::<Vertex>() * vertex_data.len();
     let vertex = Buffer::create(
-        vk::MemoryPropertyFlags::DEVICE_LOCAL,
+        UNIFIED_MEMORY,
         vk::BufferUsageFlags::VERTEX_BUFFER
-            | vk::BufferUsageFlags::TRANSFER_DST
             | if supports_raytracing {
                 vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS
                     | vk::BufferUsageFlags::ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_KHR
@@ -1278,21 +1259,21 @@ fn create_vertex_buffer(vertex_data: &[Vertex], supports_raytracing: bool, ctx: 
                 vk::BufferUsageFlags::empty()
             },
         size,
-        ctx.dev,
+        dev,
     );
-    vertex.fill_from_slice(vertex_data, ctx);
+    vertex.fill_from_slice_host_visible(vertex_data, dev);
     vertex
 }
 
-fn create_blade_buffer(blades_data: &[GrassBlade], ctx: &Ctx) -> Buffer {
+fn create_blade_buffer(blades_data: &[GrassBlade], dev: &Dev) -> Buffer {
     let size = std::mem::size_of::<GrassBlade>() * blades_data.len();
     let blades = Buffer::create(
-        vk::MemoryPropertyFlags::DEVICE_LOCAL,
-        vk::BufferUsageFlags::VERTEX_BUFFER | vk::BufferUsageFlags::TRANSFER_DST,
+        UNIFIED_MEMORY,
+        vk::BufferUsageFlags::VERTEX_BUFFER,
         size,
-        ctx.dev,
+        dev,
     );
-    blades.fill_from_slice(blades_data, ctx);
+    blades.fill_from_slice_host_visible(blades_data, dev);
     blades
 }
 

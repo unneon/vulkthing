@@ -7,7 +7,6 @@ use log::{debug, warn};
 pub struct DeviceInfo {
     pub physical_device: vk::PhysicalDevice,
     pub queue_family: u32,
-    pub transfer_queue_family: u32,
     pub supports_raytracing: bool,
 }
 
@@ -33,10 +32,6 @@ pub fn select_device(
             warn!("physical device rejected, no graphics queue, \x1B[1mname\x1B[0m: {name}");
             continue;
         };
-        let Some(transfer_queue_family) = find_transfer_queue(&queue_families) else {
-            warn!("physical device rejected, no transfer queue, \x1B[1mname\x1B[0m: {name}");
-            continue;
-        };
 
         let supports_raytracing = has_extension(&extensions, "VK_KHR_ray_query");
         if !supports_raytracing {
@@ -49,7 +44,6 @@ pub fn select_device(
         return DeviceInfo {
             physical_device: device,
             queue_family,
-            transfer_queue_family,
             supports_raytracing,
         };
     }
@@ -72,18 +66,6 @@ fn find_graphics_queue(
         }
         .unwrap();
         if supports_graphics && supports_present {
-            return Some(index);
-        }
-    }
-    None
-}
-
-fn find_transfer_queue(queues: &[vk::QueueFamilyProperties]) -> Option<u32> {
-    for (index, family) in queues.iter().enumerate() {
-        let index = index as u32;
-        let supports_graphics = family.queue_flags.contains(vk::QueueFlags::GRAPHICS);
-        let supports_transfer = family.queue_flags.contains(vk::QueueFlags::TRANSFER);
-        if !supports_graphics && supports_transfer {
             return Some(index);
         }
     }

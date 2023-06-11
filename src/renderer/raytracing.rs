@@ -1,3 +1,4 @@
+use crate::renderer::lifecycle::UNIFIED_MEMORY;
 use crate::renderer::util::{Buffer, Ctx};
 use crate::renderer::vertex::Vertex;
 use crate::renderer::Object;
@@ -124,14 +125,13 @@ pub fn create_tlas(model: &Matrix4<f32>, blas: &RaytraceResources, ctx: &Ctx) ->
     };
 
     let instances_buffer = Buffer::create(
-        vk::MemoryPropertyFlags::DEVICE_LOCAL,
+        UNIFIED_MEMORY,
         vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS
-            | vk::BufferUsageFlags::ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_KHR
-            | vk::BufferUsageFlags::TRANSFER_DST,
+            | vk::BufferUsageFlags::ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_KHR,
         std::mem::size_of::<vk::AccelerationStructureInstanceKHR>(),
         ctx.dev,
     );
-    instances_buffer.fill_from_slice(&[instanced], ctx);
+    instances_buffer.fill_from_slice_host_visible(&[instanced], ctx.dev);
     let instances_address = instances_buffer.device_address(&bda_ext);
 
     let instances_vk = *vk::AccelerationStructureGeometryInstancesDataKHR::builder().data(

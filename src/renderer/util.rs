@@ -69,19 +69,10 @@ impl Buffer {
         Buffer { buffer, memory }
     }
 
-    pub fn fill_from_slice<T: Copy>(&self, data: &[T], ctx: &Ctx) {
-        let size = data.len() * std::mem::size_of::<T>();
-        let staging = Buffer::create(
-            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-            vk::BufferUsageFlags::TRANSFER_SRC,
-            size,
-            ctx.dev,
-        );
-        staging.with_mapped(data.len(), ctx.dev, |mapped| {
+    pub fn fill_from_slice_host_visible<T: Copy>(&self, data: &[T], dev: &Dev) {
+        self.with_mapped(data.len(), dev, |mapped| {
             MaybeUninit::write_slice(mapped, data);
         });
-        staging.copy_to(self, size, ctx);
-        staging.cleanup(ctx.dev);
     }
 
     fn with_mapped<T, R>(
@@ -96,19 +87,6 @@ impl Buffer {
         let r = f(unsafe { std::slice::from_raw_parts_mut(ptr as *mut MaybeUninit<T>, count) });
         unsafe { dev.unmap_memory(self.memory) };
         r
-    }
-
-    fn copy_to(&self, dst: &Buffer, len: usize, ctx: &Ctx) {
-        ctx.execute(|buf| {
-            let copy_region = vk::BufferCopy::builder()
-                .src_offset(0)
-                .dst_offset(0)
-                .size(len as u64);
-            unsafe {
-                ctx.dev
-                    .cmd_copy_buffer(buf, self.buffer, dst.buffer, &[*copy_region])
-            };
-        });
     }
 
     pub fn device_address(&self, buffer_device_address_ext: &BufferDeviceAddress) -> u64 {
