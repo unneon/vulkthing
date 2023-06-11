@@ -1,5 +1,7 @@
 use crate::camera::Camera;
-use crate::config::{DEFAULT_CAMERA, DEFAULT_PLANET_SCALE, DEFAULT_SUN_POSITION};
+use crate::config::{
+    DEFAULT_CAMERA, DEFAULT_PLANET_POSITION, DEFAULT_PLANET_SCALE, DEFAULT_SUN_POSITION,
+};
 use crate::input::InputState;
 use crate::model::Model;
 use crate::physics::Physics;
@@ -67,7 +69,7 @@ impl World {
         let planet_collider = physics.trimesh(planet_model, &planet_scale).friction(0.);
         let planet = Entity {
             transform: Transform::Static {
-                translation: Vector3::zeros(),
+                translation: DEFAULT_PLANET_POSITION,
                 rotation: UnitQuaternion::identity(),
                 scale: planet_scale,
             },
