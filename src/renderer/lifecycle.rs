@@ -22,6 +22,7 @@ use crate::renderer::{
     FRAMES_IN_FLIGHT,
 };
 use crate::window::Window;
+use crate::world::World;
 use crate::{VULKAN_APP_NAME, VULKAN_APP_VERSION, VULKAN_ENGINE_NAME, VULKAN_ENGINE_VERSION};
 use ash::extensions::ext::DebugUtils;
 use ash::extensions::khr::{
@@ -45,7 +46,13 @@ const COLOR_FORMAT: vk::Format = vk::Format::R16G16B16A16_SFLOAT;
 const DEPTH_FORMAT: vk::Format = vk::Format::D32_SFLOAT;
 
 impl Renderer {
-    pub fn new(window: &Window, models: &[&Model], grass_mesh: &Model, args: &Args) -> Renderer {
+    pub fn new(
+        window: &Window,
+        models: &[&Model],
+        grass_mesh: &Model,
+        world: &World,
+        args: &Args,
+    ) -> Renderer {
         let entry = unsafe { Entry::load() }.unwrap();
         let instance = create_instance(window, &entry, args);
         let extensions = VulkanExtensions {
@@ -162,7 +169,7 @@ impl Renderer {
 
         let (blas, tlas) = if supports_raytracing {
             let blas = create_blas(&objects[0], &ctx);
-            let tlas = create_tlas(&blas, &ctx);
+            let tlas = create_tlas(&world.planet().model_matrix(world), &blas, &ctx);
             for object in &objects {
                 slow_update_tlas(&object.descriptor_sets, 4, &tlas, &dev);
             }
@@ -297,44 +304,6 @@ impl Renderer {
         self.postprocess_pipeline = postprocess_pipeline;
         self.postprocess = postprocess_pass;
         self.postprocess_descriptor_sets = postprocess_descriptor_sets;
-    }
-
-    #[allow(dead_code)]
-    pub fn recreate_planet(&mut self, planet_model: &Model) {
-        let ctx = Ctx {
-            dev: &self.dev,
-            queue: self.queue,
-            command_pool: self.command_pools[0],
-        };
-        let as_ext = AccelerationStructure::new(&self.dev.instance, &self.dev);
-        unsafe { self.dev.device_wait_idle() }.unwrap();
-
-        self.objects[0].cleanup(&self.dev, self.object_descriptor_metadata.pool);
-        if let Some(tlas) = &self.tlas {
-            tlas.cleanup(&self.dev, &as_ext);
-        }
-        if let Some(blas) = &self.blas {
-            blas.cleanup(&self.dev, &as_ext);
-        }
-
-        self.objects[0] = create_object(
-            planet_model,
-            &self.object_descriptor_metadata,
-            &self.light,
-            &self.frag_settings,
-            self.supports_raytracing,
-            &ctx,
-        );
-        if self.supports_raytracing {
-            let blas = create_blas(&self.objects[0], &ctx);
-            let tlas = create_tlas(&blas, &ctx);
-            for object in &self.objects {
-                slow_update_tlas(&object.descriptor_sets, 4, &tlas, &self.dev);
-            }
-            slow_update_tlas(&self.grass_descriptor_sets, 4, &tlas, &self.dev);
-            self.blas = Some(blas);
-            self.tlas = Some(tlas);
-        }
     }
 
     pub fn get_async_loader(&self) -> AsyncLoader {

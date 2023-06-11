@@ -67,13 +67,19 @@ fn main() {
         &grass.lock().unwrap(),
         &planet_model,
     ));
-    let mut renderer = Renderer::new(&window, &[&planet_model, &cube_model], &grass_model, &args);
+    let mut world = World::new(&planet_model);
+    let mut renderer = Renderer::new(
+        &window,
+        &[&planet_model, &cube_model],
+        &grass_model,
+        &world,
+        &args,
+    );
     let mut interface = Interface::new(
         renderer.swapchain.extent.width as usize,
         renderer.swapchain.extent.height as usize,
     );
     let mut input_state = InputState::new();
-    let mut world = World::new(&planet_model);
     let mut last_update = Instant::now();
     let mut renderer_settings = DEFAULT_RENDERER_SETTINGS;
     let mut frag_settings = DEFAULT_FRAG_SETTINGS;

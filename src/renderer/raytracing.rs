@@ -4,6 +4,7 @@ use crate::renderer::Object;
 use ash::extensions::khr::{AccelerationStructure, BufferDeviceAddress};
 use ash::vk::Packed24_8;
 use ash::{vk, Device};
+use nalgebra::Matrix4;
 
 pub struct RaytraceResources {
     pub acceleration_structure: vk::AccelerationStructureKHR,
@@ -101,14 +102,12 @@ pub fn create_blas(object: &Object, ctx: &Ctx) -> RaytraceResources {
     }
 }
 
-pub fn create_tlas(blas: &RaytraceResources, ctx: &Ctx) -> RaytraceResources {
+pub fn create_tlas(model: &Matrix4<f32>, blas: &RaytraceResources, ctx: &Ctx) -> RaytraceResources {
     let as_ext = AccelerationStructure::new(&ctx.dev.instance, ctx.dev);
     let bda_ext = BufferDeviceAddress::new(&ctx.dev.instance, ctx.dev);
 
     let instanced = vk::AccelerationStructureInstanceKHR {
-        transform: vk::TransformMatrixKHR {
-            matrix: [1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1., 0.],
-        },
+        transform: to_vulkan_matrix(model),
         instance_custom_index_and_mask: Packed24_8::new(0, 0xff),
         instance_shader_binding_table_record_offset_and_flags: Packed24_8::new(
             0,
@@ -209,4 +208,15 @@ pub fn create_tlas(blas: &RaytraceResources, ctx: &Ctx) -> RaytraceResources {
         buffer: tlas_buffer,
         primitive_count: 1,
     }
+}
+
+fn to_vulkan_matrix(model: &Matrix4<f32>) -> vk::TransformMatrixKHR {
+    // Nalgebra matrices are column-major, while VkTransformMatrixKHR is row-major.
+    let mut matrix = [0.; 12];
+    for (i, row) in model.row_iter().take(3).enumerate() {
+        for (j, cell) in row.iter().enumerate() {
+            matrix[4 * i + j] = *cell;
+        }
+    }
+    vk::TransformMatrixKHR { matrix }
 }
