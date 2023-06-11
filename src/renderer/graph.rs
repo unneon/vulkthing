@@ -18,6 +18,9 @@ pub struct AttachmentConfig<'a> {
     final_layout: Option<vk::ImageLayout>,
     image_flags: vk::ImageUsageFlags,
     swapchain: Option<&'a [vk::ImageView]>,
+    subpass: usize,
+    input_to: Vec<usize>,
+    transient: bool,
 }
 
 impl Pass {
@@ -65,6 +68,9 @@ impl<'a> AttachmentConfig<'a> {
             final_layout: None,
             image_flags: vk::ImageUsageFlags::empty(),
             swapchain: None,
+            subpass: 0,
+            input_to: Vec::new(),
+            transient: false,
         }
     }
 
@@ -106,12 +112,34 @@ impl<'a> AttachmentConfig<'a> {
         self.swapchain = Some(swapchain);
         self
     }
+
+    pub fn subpass(mut self, index: usize) -> Self {
+        self.subpass = index;
+        self
+    }
+
+    pub fn input_to(mut self, subpass: usize) -> Self {
+        self.input_to.push(subpass);
+        self
+    }
+
+    pub fn transient(mut self) -> Self {
+        self.transient = true;
+        self
+    }
 }
 
-pub fn create_pass(extent: vk::Extent2D, dev: &Dev, configs: &[AttachmentConfig]) -> Pass {
+pub fn create_pass(
+    extent: vk::Extent2D,
+    dev: &Dev,
+    configs: &[AttachmentConfig],
+    dependencies: &[vk::SubpassDependency],
+) -> Pass {
+    let subpass_count = configs.iter().map(|config| config.subpass).max().unwrap() + 1;
     let mut attachments = Vec::new();
-    let mut color = Vec::new();
-    let mut depth = None;
+    let mut color = vec![Vec::new(); subpass_count];
+    let mut depth = vec![None; subpass_count];
+    let mut input = vec![Vec::new(); subpass_count];
     let mut clears = Vec::new();
     let mut resources = Vec::new();
     let mut framebuffer_attachments = Vec::new();
@@ -138,17 +166,23 @@ pub fn create_pass(extent: vk::Extent2D, dev: &Dev, configs: &[AttachmentConfig]
             .layout(config.layout);
         attachments.push(attachment);
         if config.layout == vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL {
-            color.push(reference);
+            color[config.subpass].push(reference);
         } else if config.layout == vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL
-            && depth.is_none()
+            && depth[config.subpass].is_none()
         {
-            depth = Some(reference);
+            depth[config.subpass] = Some(reference);
         } else {
             panic!(
                 "unimplemented case {:?} {:?}",
                 config.format,
-                depth.is_none(),
+                depth[config.subpass].is_none(),
             );
+        }
+        for as_input in &config.input_to {
+            let input_reference = *vk::AttachmentReference::builder()
+                .attachment(index as u32)
+                .layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL);
+            input[*as_input].push(input_reference);
         }
         if let Some(clear) = config.clear {
             clears.push(clear);
@@ -160,8 +194,11 @@ pub fn create_pass(extent: vk::Extent2D, dev: &Dev, configs: &[AttachmentConfig]
             } else if config.layout == vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL {
                 flags |= vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT;
             }
-            if config.final_layout.is_none() {
+            if config.transient {
                 flags |= vk::ImageUsageFlags::TRANSIENT_ATTACHMENT;
+            }
+            if !config.input_to.is_empty() {
+                flags |= vk::ImageUsageFlags::INPUT_ATTACHMENT;
             }
             let resource = ImageResources::create(
                 config.format,
@@ -185,16 +222,21 @@ pub fn create_pass(extent: vk::Extent2D, dev: &Dev, configs: &[AttachmentConfig]
             swapchain_views = config.swapchain;
         }
     }
-    let mut subpass = vk::SubpassDescription::builder()
-        .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
-        .color_attachments(&color);
-    if let Some(depth) = depth.as_ref() {
-        subpass = subpass.depth_stencil_attachment(depth);
+    let mut subpasses = Vec::new();
+    for subpass_index in 0..subpass_count {
+        let mut subpass = vk::SubpassDescription::builder()
+            .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
+            .color_attachments(&color[subpass_index])
+            .input_attachments(&input[subpass_index]);
+        if let Some(depth) = depth[subpass_index].as_ref() {
+            subpass = subpass.depth_stencil_attachment(depth);
+        }
+        subpasses.push(*subpass);
     }
-    let subpass = *subpass;
     let create_info = *vk::RenderPassCreateInfo::builder()
         .attachments(&attachments)
-        .subpasses(std::slice::from_ref(&subpass));
+        .subpasses(&subpasses)
+        .dependencies(dependencies);
     let pass = unsafe { dev.create_render_pass(&create_info, None) }.unwrap();
     let mut framebuffers = Vec::new();
     let info = *vk::FramebufferCreateInfo::builder()

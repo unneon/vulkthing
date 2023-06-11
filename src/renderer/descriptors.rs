@@ -27,12 +27,14 @@ enum DescriptorInfo {
 pub enum DescriptorKind {
     AccelerationStructure,
     ImmutableSampler { sampler: vk::Sampler },
+    InputAttachment,
     UniformBuffer,
 }
 
 pub enum DescriptorValue<'a> {
     Buffer(&'a dyn AnyUniformBuffer),
     Image(vk::ImageView),
+    InputAttachment(vk::ImageView),
 }
 
 impl DescriptorMetadata {
@@ -59,6 +61,11 @@ impl DescriptorMetadata {
                         DescriptorInfo::Buffer(buffer.descriptor(flight_index))
                     }
                     DescriptorValue::Image(view) => DescriptorInfo::Image(
+                        *vk::DescriptorImageInfo::builder()
+                            .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                            .image_view(*view),
+                    ),
+                    DescriptorValue::InputAttachment(view) => DescriptorInfo::Image(
                         *vk::DescriptorImageInfo::builder()
                             .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
                             .image_view(*view),
@@ -97,6 +104,7 @@ impl DescriptorKind {
         match self {
             DescriptorKind::AccelerationStructure => vk::DescriptorType::ACCELERATION_STRUCTURE_KHR,
             DescriptorKind::ImmutableSampler { .. } => vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+            DescriptorKind::InputAttachment => vk::DescriptorType::INPUT_ATTACHMENT,
             DescriptorKind::UniformBuffer => vk::DescriptorType::UNIFORM_BUFFER,
         }
     }

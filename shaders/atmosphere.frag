@@ -2,9 +2,9 @@
 
 layout(constant_id = 0) const int msaa_samples = 0;
 
-layout(binding = 0) uniform sampler2DMS render;
+layout(binding = 0, input_attachment_index = 0) uniform subpassInputMS render;
 
-layout(binding = 1) uniform sampler2DMS position;
+layout(binding = 1, input_attachment_index = 1) uniform subpassInputMS position;
 
 layout(binding = 2) uniform Atmosphere {
     bool enable;
@@ -100,9 +100,9 @@ vec3 compute_atmosphere(vec3 original_color, vec3 position) {
 }
 
 void main() {
-    vec3 color = texelFetch(render, ivec2(gl_FragCoord.xy), gl_SampleID).rgb;
+    vec3 color = subpassLoad(render, gl_SampleID).rgb;
     if (atmosphere.enable) {
-        vec3 position = texelFetch(position, ivec2(gl_FragCoord.xy), gl_SampleID).xyz;
+        vec3 position = subpassLoad(position, gl_SampleID).xyz;
         color = compute_atmosphere(color, position);
     }
     out_color = vec4(color, 1);

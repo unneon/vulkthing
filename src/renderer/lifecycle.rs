@@ -86,8 +86,7 @@ impl Renderer {
             create_object_descriptor_metadata(supports_raytracing, &dev);
         let grass_descriptor_metadata = create_grass_descriptor_metadata(supports_raytracing, &dev);
         let skybox_descriptor_metadata = create_skybox_descriptor_metadata(&dev);
-        let atmosphere_descriptor_metadata =
-            create_atmosphere_descriptor_metadata(unnormalized_sampler, &dev);
+        let atmosphere_descriptor_metadata = create_atmosphere_descriptor_metadata(&dev);
         let postprocess_descriptor_metadata =
             create_postprocess_descriptor_metadata(unnormalized_sampler, &dev);
 
@@ -98,7 +97,6 @@ impl Renderer {
             skybox_pipeline,
             render,
             atmosphere_pipeline,
-            atmosphere,
             atmosphere_descriptor_sets,
             postprocess_pipeline,
             postprocess,
@@ -198,7 +196,6 @@ impl Renderer {
             render,
             atmosphere_descriptor_metadata,
             atmosphere_pipeline,
-            atmosphere,
             atmosphere_descriptor_sets,
             postprocess_descriptor_metadata,
             postprocess_pipeline,
@@ -266,7 +263,6 @@ impl Renderer {
             skybox_pipeline,
             render_pass,
             atmosphere_pipeline,
-            atmosphere,
             atmosphere_descriptor_sets,
             postprocess_pipeline,
             postprocess_pass,
@@ -297,7 +293,6 @@ impl Renderer {
         self.skybox_pipeline = skybox_pipeline;
         self.render = render_pass;
         self.atmosphere_pipeline = atmosphere_pipeline;
-        self.atmosphere = atmosphere;
         self.atmosphere_descriptor_sets = atmosphere_descriptor_sets;
         self.postprocess_pipeline = postprocess_pipeline;
         self.postprocess = postprocess_pass;
@@ -398,7 +393,6 @@ impl Renderer {
             self.atmosphere_pipeline.cleanup(&self.dev);
             self.postprocess_pipeline.cleanup(&self.dev);
             self.render.cleanup(&self.dev);
-            self.atmosphere.cleanup(&self.dev);
             self.postprocess.cleanup(&self.dev);
         }
     }
@@ -672,7 +666,6 @@ fn create_swapchain_all(
     Pipeline,
     Pass,
     Pipeline,
-    Pass,
     [vk::DescriptorSet; FRAMES_IN_FLIGHT],
     Pipeline,
     Pass,
@@ -703,10 +696,9 @@ fn create_swapchain_all(
         swapchain.extent,
         dev,
     );
-    let atmosphere_pass = create_atmosphere_pass(msaa_samples, swapchain.extent, dev);
     let atmosphere_pipeline = create_atmosphere_pipeline(
         atmosphere_descriptor_metadata,
-        atmosphere_pass.pass,
+        render.pass,
         swapchain.extent,
         msaa_samples,
         dev,
@@ -730,7 +722,7 @@ fn create_swapchain_all(
         dev,
     );
     let postprocess_descriptor_sets = create_postprocess_descriptor_sets(
-        atmosphere_pass.resources[0].view,
+        render.resources[3].view,
         postprocessing,
         postprocess_descriptor_metadata,
         dev,
@@ -742,7 +734,6 @@ fn create_swapchain_all(
         skybox_pipeline,
         render,
         atmosphere_pipeline,
-        atmosphere_pass,
         atmosphere_descriptor_sets,
         postprocess_pipeline,
         postprocess,
@@ -757,32 +748,37 @@ fn create_render_pass(msaa_samples: vk::SampleCountFlags, extent: vk::Extent2D, 
             .clear_color([0., 0., 0., 0.])
             .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
             .store(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-            .usage(vk::ImageUsageFlags::SAMPLED),
+            .input_to(1)
+            .transient(),
         AttachmentConfig::new(vk::Format::R32G32B32A32_SFLOAT)
             .samples(msaa_samples)
             .clear_color([0., 0., 0., 0.])
             .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
             .store(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-            .usage(vk::ImageUsageFlags::SAMPLED),
+            .input_to(1)
+            .transient(),
         AttachmentConfig::new(DEPTH_FORMAT)
             .samples(msaa_samples)
             .clear_depth(1.)
-            .layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL),
+            .layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+            .transient(),
+        AttachmentConfig::new(COLOR_FORMAT)
+            .samples(msaa_samples)
+            .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+            .store(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+            .usage(vk::ImageUsageFlags::SAMPLED)
+            .subpass(1),
     ];
-    create_pass(extent, dev, &attachments)
-}
-
-fn create_atmosphere_pass(
-    msaa_samples: vk::SampleCountFlags,
-    extent: vk::Extent2D,
-    dev: &Dev,
-) -> Pass {
-    let attachments = [AttachmentConfig::new(COLOR_FORMAT)
-        .samples(msaa_samples)
-        .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
-        .store(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-        .usage(vk::ImageUsageFlags::SAMPLED)];
-    create_pass(extent, dev, &attachments)
+    let dependencies = [vk::SubpassDependency {
+        src_subpass: 0,
+        dst_subpass: 1,
+        src_stage_mask: vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+        dst_stage_mask: vk::PipelineStageFlags::FRAGMENT_SHADER,
+        src_access_mask: vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
+        dst_access_mask: vk::AccessFlags::INPUT_ATTACHMENT_READ,
+        dependency_flags: vk::DependencyFlags::BY_REGION,
+    }];
+    create_pass(extent, dev, &attachments, &dependencies)
 }
 
 fn create_postprocess_pass(
@@ -795,7 +791,7 @@ fn create_postprocess_pass(
         .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
         .store(vk::ImageLayout::PRESENT_SRC_KHR)
         .swapchain(&swapchain.image_views)];
-    create_pass(extent, dev, &attachments)
+    create_pass(extent, dev, &attachments, &[])
 }
 
 fn create_object_descriptor_metadata(supports_raytracing: bool, dev: &Dev) -> DescriptorMetadata {
@@ -922,14 +918,14 @@ fn create_skybox_descriptor_sets(
     metadata.create_sets(&[DescriptorValue::Buffer(mvp)], dev)
 }
 
-fn create_atmosphere_descriptor_metadata(sampler: vk::Sampler, dev: &Dev) -> DescriptorMetadata {
+fn create_atmosphere_descriptor_metadata(dev: &Dev) -> DescriptorMetadata {
     let descriptors = vec![
         Descriptor {
-            kind: DescriptorKind::ImmutableSampler { sampler },
+            kind: DescriptorKind::InputAttachment,
             stage: vk::ShaderStageFlags::FRAGMENT,
         },
         Descriptor {
-            kind: DescriptorKind::ImmutableSampler { sampler },
+            kind: DescriptorKind::InputAttachment,
             stage: vk::ShaderStageFlags::FRAGMENT,
         },
         Descriptor {
@@ -958,8 +954,8 @@ fn create_atmosphere_descriptor_sets(
 ) -> [vk::DescriptorSet; FRAMES_IN_FLIGHT] {
     metadata.create_sets(
         &[
-            DescriptorValue::Image(offscreen_view),
-            DescriptorValue::Image(position_view),
+            DescriptorValue::InputAttachment(offscreen_view),
+            DescriptorValue::InputAttachment(position_view),
             DescriptorValue::Buffer(atmosphere),
             DescriptorValue::Buffer(camera),
         ],
@@ -1038,6 +1034,7 @@ fn create_object_pipeline(
         color_attachment_count: 2,
         depth_test: true,
         pass,
+        subpass: 0,
         supports_raytracing,
         dev,
         swapchain_extent,
@@ -1126,6 +1123,7 @@ fn create_grass_pipeline(
         color_attachment_count: 2,
         depth_test: true,
         pass,
+        subpass: 0,
         supports_raytracing,
         dev,
         swapchain_extent,
@@ -1162,6 +1160,7 @@ fn create_skybox_pipeline(
         color_attachment_count: 2,
         depth_test: true,
         pass,
+        subpass: 0,
         supports_raytracing: false,
         dev,
         swapchain_extent,
@@ -1192,6 +1191,7 @@ fn create_atmosphere_pipeline(
         color_attachment_count: 1,
         depth_test: false,
         pass,
+        subpass: 1,
         supports_raytracing: false,
         dev,
         swapchain_extent,
@@ -1223,6 +1223,7 @@ fn create_postprocess_pipeline(
         color_attachment_count: 1,
         depth_test: false,
         pass,
+        subpass: 0,
         supports_raytracing,
         dev,
         swapchain_extent,

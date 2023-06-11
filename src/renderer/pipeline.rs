@@ -23,6 +23,7 @@ pub struct PipelineConfig<'a> {
     pub color_attachment_count: usize,
     pub depth_test: bool,
     pub pass: vk::RenderPass,
+    pub subpass: usize,
     pub supports_raytracing: bool,
     pub dev: &'a Dev,
     pub swapchain_extent: vk::Extent2D,
@@ -158,7 +159,7 @@ pub fn create_pipeline(config: PipelineConfig) -> Pipeline {
         .dynamic_state(&dynamic_state)
         .layout(layout)
         .render_pass(config.pass)
-        .subpass(0);
+        .subpass(config.subpass as u32);
 
     // Apparently creating pipelines can be batched? Probably worth it when there are many pipeline
     // combinations. This kind of starts happening already because I want to use different shaders

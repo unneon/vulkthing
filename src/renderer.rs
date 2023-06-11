@@ -66,7 +66,6 @@ pub struct Renderer {
 
     atmosphere_descriptor_metadata: DescriptorMetadata,
     atmosphere_pipeline: Pipeline,
-    atmosphere: Pass,
 
     // Description of the postprocessing pass, and also the actual descriptor pool. Necessary,
     // because the postprocessing pass depends on swapchain extent and needs to have the descriptor
@@ -228,7 +227,6 @@ impl Renderer {
             .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
         self.dev.begin_command_buffer(buf, &begin_info).unwrap();
         self.record_render_pass(buf, world);
-        self.record_atmosphere_pass(buf);
         self.record_postprocess_pass(buf, image_index, ui_draw);
         self.dev.end_command_buffer(buf).unwrap();
     }
@@ -314,15 +312,7 @@ impl Renderer {
             .cmd_draw(buf, 3 * self.objects[1].triangle_count as u32, 1, 0, 0);
         self.end_label(buf);
 
-        self.dev.cmd_end_render_pass(buf);
-        self.end_label(buf);
-    }
-
-    unsafe fn record_atmosphere_pass(&mut self, buf: vk::CommandBuffer) {
-        let pass = self.atmosphere.begin();
-        self.begin_label(buf, "Atmosphere pass", [84, 115, 144]);
-        self.dev
-            .cmd_begin_render_pass(buf, &pass, vk::SubpassContents::INLINE);
+        self.dev.cmd_next_subpass(buf, vk::SubpassContents::INLINE);
 
         self.begin_label(buf, "Atmosphere draw", [84, 115, 144]);
         self.dev.cmd_bind_pipeline(
