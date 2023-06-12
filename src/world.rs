@@ -14,7 +14,7 @@ use std::f32::consts::FRAC_PI_2;
 pub struct World {
     pub camera: Box<dyn Camera>,
     camera_rigid_body_handle: RigidBodyHandle,
-    pub entities: [Entity; 2],
+    pub entities: [Entity; 3],
     physics: Physics,
     pub time: f32,
     pub time_of_day: f32,
@@ -88,7 +88,17 @@ impl World {
             emit: Vector3::from_element(1.),
             gpu_object: 1,
         };
-        let entities = [planet, sun];
+        let tetrahedron = Entity {
+            transform: Transform::Static {
+                translation: camera.position + Vector3::new(0., 5., -5.),
+                rotation: UnitQuaternion::identity(),
+                scale: Vector3::from_element(3.),
+            },
+            diffuse: Vector3::from_element(1.),
+            emit: Vector3::zeros(),
+            gpu_object: 2,
+        };
+        let entities = [planet, sun, tetrahedron];
         World {
             camera,
             camera_rigid_body_handle,
