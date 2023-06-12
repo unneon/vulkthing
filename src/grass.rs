@@ -1,4 +1,4 @@
-use crate::model::Model;
+use crate::mesh::MeshData;
 use crate::renderer::vertex::GrassBlade;
 use log::debug;
 use nalgebra::{Rotation3, Unit, Vector3};
@@ -25,7 +25,7 @@ const GOLDEN_RATIO: f32 = 1.618034;
 
 pub fn generate_grass_blades(
     grass: &Grass,
-    planet_model: &Model,
+    planet_model: &MeshData,
     chunk: &[usize],
 ) -> Vec<GrassBlade> {
     let mut grass_blades = Vec::new();
@@ -73,7 +73,7 @@ pub fn generate_grass_blades(
     grass_blades
 }
 
-pub fn build_triangle_chunks(grass: &Grass, planet_model: &Model) -> Vec<Vec<usize>> {
+pub fn build_triangle_chunks(grass: &Grass, planet_model: &MeshData) -> Vec<Vec<usize>> {
     assert_eq!(grass.chunk_count % 2, 1);
     let fib = compute_fibonacci_sphere(grass.chunk_count as i64 / 2);
     let mut chunks = vec![Vec::new(); grass.chunk_count];

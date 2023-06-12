@@ -1,5 +1,5 @@
 use crate::interface::EnumInterface;
-use crate::model::Model;
+use crate::mesh::MeshData;
 use crate::renderer::vertex::Vertex;
 use log::debug;
 use nalgebra::Vector3;
@@ -92,7 +92,7 @@ impl EnumInterface for NoiseType {
     }
 }
 
-pub fn generate_planet(parameters: &Planet) -> Model {
+pub fn generate_planet(parameters: &Planet) -> MeshData {
     let mut vertices = Vec::new();
     let noise = select_noise(parameters);
     for side in SIDES {
@@ -139,7 +139,7 @@ pub fn generate_planet(parameters: &Planet) -> Model {
         "planet model generated, \x1B[1mvertices\x1B[0m: {}",
         vertices.len()
     );
-    Model { vertices }
+    MeshData { vertices }
 }
 
 fn select_noise(parameters: &Planet) -> Box<dyn NoiseFn<f64, 3>> {

@@ -89,13 +89,12 @@ pub struct Renderer {
 
     // And finally resources specific to this renderer. So various buffers related to objects we
     // actually render, their descriptor sets and the like.
-    grass_vertex_count: usize,
-    grass_vertex: Buffer,
     grass_mvp: UniformBuffer<ModelViewProjection>,
     grass_uniform: UniformBuffer<GrassUniform>,
     light: UniformBuffer<Light>,
     frag_settings: UniformBuffer<FragSettings>,
-    objects: Vec<Object>,
+    mesh_objects: Vec<MeshObject>,
+    entities: Vec<Object>,
     grass_chunks: Arc<Mutex<Vec<GrassChunk>>>,
     pub grass_blades_total: Arc<AtomicUsize>,
     grass_descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
@@ -119,10 +118,12 @@ struct Synchronization {
     in_flight: [vk::Fence; FRAMES_IN_FLIGHT],
 }
 
-pub struct Object {
+pub struct MeshObject {
     triangle_count: usize,
-    raw_vertex_count: usize,
     vertex: Buffer,
+}
+
+pub struct Object {
     mvp: UniformBuffer<ModelViewProjection>,
     material: UniformBuffer<Material>,
     descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
@@ -239,21 +240,20 @@ impl Renderer {
             vk::PipelineBindPoint::GRAPHICS,
             self.object_pipeline.pipeline,
         );
-        for entity in world.entities() {
-            let object = &self.objects[entity.gpu_object()];
+        for (entity, gpu_entity) in world.entities().iter().zip(&self.entities) {
+            let mesh = &self.mesh_objects[entity.mesh_id()];
             self.dev.cmd_bind_descriptor_sets(
                 buf,
                 vk::PipelineBindPoint::GRAPHICS,
                 self.object_pipeline.layout,
                 0,
-                &[object.descriptor_sets[self.flight_index]],
+                &[gpu_entity.descriptor_sets[self.flight_index]],
                 &[],
             );
             self.dev
-                .cmd_bind_vertex_buffers(buf, 0, &[object.vertex.buffer], &[0]);
-
+                .cmd_bind_vertex_buffers(buf, 0, &[mesh.vertex.buffer], &[0]);
             self.dev
-                .cmd_draw(buf, 3 * object.triangle_count as u32, 1, 0, 0);
+                .cmd_draw(buf, 3 * mesh.triangle_count as u32, 1, 0, 0);
         }
         self.end_label(buf);
 
@@ -275,12 +275,15 @@ impl Renderer {
             self.dev.cmd_bind_vertex_buffers(
                 buf,
                 0,
-                &[self.grass_vertex.buffer, grass_chunk.blades.buffer],
+                &[
+                    self.mesh_objects[3].vertex.buffer,
+                    grass_chunk.blades.buffer,
+                ],
                 &[0, 0],
             );
             self.dev.cmd_draw(
                 buf,
-                self.grass_vertex_count as u32,
+                3 * self.mesh_objects[3].triangle_count as u32,
                 grass_chunk.blade_count as u32,
                 0,
                 0,
@@ -303,9 +306,9 @@ impl Renderer {
             &[],
         );
         self.dev
-            .cmd_bind_vertex_buffers(buf, 0, &[self.objects[1].vertex.buffer], &[0]);
+            .cmd_bind_vertex_buffers(buf, 0, &[self.mesh_objects[1].vertex.buffer], &[0]);
         self.dev
-            .cmd_draw(buf, 3 * self.objects[1].triangle_count as u32, 1, 0, 0);
+            .cmd_draw(buf, 3 * self.mesh_objects[1].triangle_count as u32, 1, 0, 0);
         self.end_label(buf);
 
         self.dev.cmd_next_subpass(buf, vk::SubpassContents::INLINE);
@@ -382,10 +385,10 @@ impl Renderer {
             _pad0: 0.,
             emit: entity.emit(),
         };
-        self.objects[entity.gpu_object()]
+        self.entities[entity.mesh_id()]
             .mvp
             .write(self.flight_index, &mvp);
-        self.objects[entity.gpu_object()]
+        self.entities[entity.mesh_id()]
             .material
             .write(self.flight_index, &material);
     }

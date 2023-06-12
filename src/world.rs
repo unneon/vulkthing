@@ -3,7 +3,7 @@ use crate::config::{
     DEFAULT_CAMERA, DEFAULT_PLANET_POSITION, DEFAULT_PLANET_SCALE, DEFAULT_SUN_POSITION,
 };
 use crate::input::InputState;
-use crate::model::Model;
+use crate::mesh::MeshData;
 use crate::physics::Physics;
 use crate::renderer::uniform::Light;
 use nalgebra::{Matrix4, UnitQuaternion, Vector3};
@@ -27,7 +27,7 @@ pub struct Entity {
     transform: Transform,
     diffuse: Vector3<f32>,
     emit: Vector3<f32>,
-    gpu_object: usize,
+    mesh_id: usize,
 }
 
 enum Transform {
@@ -48,7 +48,7 @@ const AVERAGE_MALE_EYE_HEIGHT: f32 = 1.63;
 const AVERAGE_MALE_SHOULDER_WIDTH: f32 = 0.465;
 
 impl World {
-    pub fn new(planet_model: &Model) -> World {
+    pub fn new(planet_model: &MeshData) -> World {
         let camera = Box::new(DEFAULT_CAMERA);
         let mut physics = Physics::new();
         let camera_rigid_body = RigidBodyBuilder::dynamic()
@@ -75,7 +75,7 @@ impl World {
             },
             diffuse: Vector3::new(0.2, 0.8, 0.03).scale(0.7),
             emit: Vector3::zeros(),
-            gpu_object: 0,
+            mesh_id: 0,
         };
         physics.insert_static(planet_collider);
         let sun = Entity {
@@ -86,7 +86,7 @@ impl World {
             },
             diffuse: Vector3::zeros(),
             emit: Vector3::from_element(1.),
-            gpu_object: 1,
+            mesh_id: 1,
         };
         let tetrahedron = Entity {
             transform: Transform::Static {
@@ -96,7 +96,7 @@ impl World {
             },
             diffuse: Vector3::from_element(1.),
             emit: Vector3::zeros(),
-            gpu_object: 2,
+            mesh_id: 2,
         };
         let entities = [planet, sun, tetrahedron];
         World {
@@ -219,7 +219,7 @@ impl Entity {
         self.emit
     }
 
-    pub fn gpu_object(&self) -> usize {
-        self.gpu_object
+    pub fn mesh_id(&self) -> usize {
+        self.mesh_id
     }
 }

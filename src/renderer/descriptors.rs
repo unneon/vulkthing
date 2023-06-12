@@ -128,8 +128,7 @@ pub fn create_descriptor_metadata(config: DescriptorConfig) -> DescriptorMetadat
     }
     let pool_info = vk::DescriptorPoolCreateInfo::builder()
         .pool_sizes(&pool_sizes)
-        .max_sets((config.set_count * FRAMES_IN_FLIGHT) as u32)
-        .flags(vk::DescriptorPoolCreateFlags::FREE_DESCRIPTOR_SET);
+        .max_sets((config.set_count * FRAMES_IN_FLIGHT) as u32);
     let pool = unsafe { config.dev.create_descriptor_pool(&pool_info, None) }.unwrap();
 
     let mut bindings = Vec::new();

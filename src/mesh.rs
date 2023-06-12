@@ -4,11 +4,11 @@ use nalgebra::Vector3;
 use tobj::LoadOptions;
 
 #[derive(Clone, Debug)]
-pub struct Model {
+pub struct MeshData {
     pub vertices: Vec<Vertex>,
 }
 
-pub fn load_model(obj_path: &str) -> Model {
+pub fn load_mesh(obj_path: &str) -> MeshData {
     let load_options = LoadOptions {
         // Faces can sometimes be given as arbitrary (convex?) polygons, but we only render
         // triangles so let's get the loader to split them up for us.
@@ -18,17 +18,17 @@ pub fn load_model(obj_path: &str) -> Model {
         single_index: true,
         ..Default::default()
     };
-    let models = tobj::load_obj(obj_path, &load_options).unwrap().0;
-    let model = flatten_models(&models);
+    let meshes = tobj::load_obj(obj_path, &load_options).unwrap().0;
+    let mesh = flatten_meshes(&meshes);
     debug!(
-        "model OBJ loaded, \x1B[1mfile\x1B[0m: {obj_path}, \x1B[1mvertices\x1B[0m: {}",
-        model.vertices.len()
+        "mesh OBJ loaded, \x1B[1mfile\x1B[0m: {obj_path}, \x1B[1mvertices\x1B[0m: {}",
+        mesh.vertices.len()
     );
-    model
+    mesh
 }
 
-fn flatten_models(models: &[tobj::Model]) -> Model {
-    // OBJ format supports quite complex models with many materials and meshes, but temporarily
+fn flatten_meshes(models: &[tobj::Model]) -> MeshData {
+    // OBJ format supports quite complex meshes with many materials and meshes, but temporarily
     // let's just throw all of it into a single vertex buffer.
     let mut vertices = Vec::new();
     for model in models {
@@ -54,5 +54,5 @@ fn flatten_models(models: &[tobj::Model]) -> Model {
         v2.normal = normal;
         v3.normal = normal;
     }
-    Model { vertices }
+    MeshData { vertices }
 }

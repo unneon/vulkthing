@@ -19,7 +19,7 @@ mod grass;
 mod input;
 mod interface;
 mod logger;
-mod model;
+mod mesh;
 mod physics;
 mod planet;
 mod renderer;
@@ -35,7 +35,7 @@ use crate::grass::generate_grass_blades;
 use crate::input::InputState;
 use crate::interface::Interface;
 use crate::logger::initialize_logger;
-use crate::model::load_model;
+use crate::mesh::load_mesh;
 use crate::planet::generate_planet;
 use crate::renderer::Renderer;
 use crate::window::create_window;
@@ -58,21 +58,20 @@ fn main() {
     initialize_logger();
     let args = Args::parse();
     let window = create_window(&args);
-    let cube_model = load_model("assets/cube.obj");
-    let grass_model = load_model("assets/grass.obj");
-    let tetrahedron_model = load_model("assets/tetrahedron.obj");
+    let cube_mesh = load_mesh("assets/cube.obj");
+    let grass_mesh = load_mesh("assets/grass.obj");
+    let tetrahedron_mesh = load_mesh("assets/tetrahedron.obj");
     let mut planet = DEFAULT_PLANET;
     let grass = Arc::new(Mutex::new(DEFAULT_GRASS));
-    let planet_model = Arc::new(generate_planet(&planet));
+    let planet_mesh = Arc::new(generate_planet(&planet));
     let chunks: Arc<Vec<Vec<usize>>> = Arc::new(grass::build_triangle_chunks(
         &grass.lock().unwrap(),
-        &planet_model,
+        &planet_mesh,
     ));
-    let mut world = World::new(&planet_model);
+    let mut world = World::new(&planet_mesh);
     let mut renderer = Renderer::new(
         &window,
-        &[&planet_model, &cube_model, &tetrahedron_model],
-        &grass_model,
+        &[&planet_mesh, &cube_mesh, &tetrahedron_mesh, &grass_mesh],
         &world,
         &args,
     );
@@ -96,7 +95,7 @@ fn main() {
     std::thread::spawn({
         let chunks = chunks.clone();
         let grass = grass.clone();
-        let planet_model = planet_model.clone();
+        let planet_model = planet_mesh.clone();
         move || {
             while let Ok(chunk_id) = chunk_rx.recv() {
                 let chunk: &[usize] = chunks[chunk_id].as_slice();
@@ -167,7 +166,7 @@ fn main() {
                     |chunk_id| {
                         let triangle_id = chunks[chunk_id][0];
                         let vertex =
-                            DEFAULT_PLANET_SCALE * planet_model.vertices[3 * triangle_id].position;
+                            DEFAULT_PLANET_SCALE * planet_mesh.vertices[3 * triangle_id].position;
                         (vertex - world.camera.position()).norm()
                             > grass.lock().unwrap().chunk_unload_distance
                     },
@@ -179,7 +178,7 @@ fn main() {
                     if !loaded_chunks.contains(&chunk_id) {
                         let triangle_id = chunk[0];
                         let vertex =
-                            DEFAULT_PLANET_SCALE * planet_model.vertices[3 * triangle_id].position;
+                            DEFAULT_PLANET_SCALE * planet_mesh.vertices[3 * triangle_id].position;
                         let distance = (vertex - world.camera.position()).norm();
                         if distance < grass.lock().unwrap().chunk_load_distance {
                             loaded_chunks.insert(chunk_id);

@@ -1,5 +1,5 @@
 use crate::cli::Args;
-use crate::model::Model;
+use crate::mesh::MeshData;
 use crate::renderer::debug::{create_debug_messenger, debug_label};
 use crate::renderer::descriptors::{
     create_descriptor_metadata, Descriptor, DescriptorConfig, DescriptorKind, DescriptorMetadata,
@@ -18,8 +18,8 @@ use crate::renderer::uniform::{
 use crate::renderer::util::{find_max_msaa_samples, sample_count, vulkan_str, Buffer, Ctx, Dev};
 use crate::renderer::vertex::{GrassBlade, Vertex};
 use crate::renderer::{
-    AsyncLoader, GrassChunk, Object, Renderer, Synchronization, UniformBuffer, VulkanExtensions,
-    FRAMES_IN_FLIGHT,
+    AsyncLoader, GrassChunk, MeshObject, Object, Renderer, Synchronization, UniformBuffer,
+    VulkanExtensions, FRAMES_IN_FLIGHT,
 };
 use crate::window::Window;
 use crate::world::World;
@@ -52,13 +52,7 @@ pub const UNIFIED_MEMORY: vk::MemoryPropertyFlags = vk::MemoryPropertyFlags::fro
 );
 
 impl Renderer {
-    pub fn new(
-        window: &Window,
-        models: &[&Model],
-        grass_mesh: &Model,
-        world: &World,
-        args: &Args,
-    ) -> Renderer {
+    pub fn new(window: &Window, meshes: &[&MeshData], world: &World, args: &Args) -> Renderer {
         let entry = unsafe { Entry::load() }.unwrap();
         let instance = create_instance(window, &entry, args);
         let extensions = VulkanExtensions {
@@ -141,20 +135,21 @@ impl Renderer {
         let light = UniformBuffer::create(&dev);
         let frag_settings = UniformBuffer::create(&dev);
 
-        let mut objects = Vec::new();
-        for model in models {
-            let object = create_object(
-                model,
+        let mut mesh_objects = Vec::new();
+        for mesh in meshes {
+            mesh_objects.push(create_mesh(mesh, supports_raytracing, &dev));
+        }
+        let mut entities = Vec::new();
+        for _ in world.entities() {
+            entities.push(create_entity(
                 &object_descriptor_metadata,
                 &light,
                 &frag_settings,
-                supports_raytracing,
-                &ctx,
-            );
-            objects.push(object);
+                &dev,
+            ));
         }
-        let grass_vertex_count = grass_mesh.vertices.len();
-        let grass_vertex = create_vertex_buffer(&grass_mesh.vertices, supports_raytracing, &dev);
+        // let grass_vertex_count = meshes[3].vertices.len();
+        // let grass_vertex = create_vertex_buffer(&grass_mesh.vertices, supports_raytracing, &dev);
         let grass_mvp = UniformBuffer::create(ctx.dev);
         let grass_uniform = UniformBuffer::create(&dev);
         let grass_descriptor_sets = create_grass_descriptor_sets(
@@ -170,9 +165,9 @@ impl Renderer {
             create_skybox_descriptor_sets(&skybox_mvp, &skybox_descriptor_metadata, &dev);
 
         let (blas, tlas) = if supports_raytracing {
-            let blas = create_blas(&objects[0], &ctx);
+            let blas = create_blas(&mesh_objects[0], &ctx);
             let tlas = create_tlas(&world.planet().model_matrix(world), &blas, &ctx);
-            for object in &objects {
+            for object in &entities {
                 slow_update_tlas(&object.descriptor_sets, 4, &tlas, &dev);
             }
             slow_update_tlas(&grass_descriptor_sets, 4, &tlas, &dev);
@@ -214,13 +209,12 @@ impl Renderer {
             command_buffers,
             sync,
             flight_index: 0,
-            grass_vertex_count,
-            grass_vertex,
             grass_mvp,
             grass_uniform,
             light,
             frag_settings,
-            objects,
+            mesh_objects,
+            entities,
             grass_descriptor_sets,
             skybox_mvp,
             skybox_descriptor_sets,
@@ -405,10 +399,14 @@ impl Synchronization {
     }
 }
 
-impl Object {
-    pub fn cleanup(&self, dev: &Device, pool: vk::DescriptorPool) {
-        unsafe { dev.free_descriptor_sets(pool, &self.descriptor_sets) }.unwrap();
+impl MeshObject {
+    pub fn cleanup(&self, dev: &Device) {
         self.vertex.cleanup(dev);
+    }
+}
+
+impl Object {
+    pub fn cleanup(&self, dev: &Device) {
         self.mvp.cleanup(dev);
         self.material.cleanup(dev);
     }
@@ -426,10 +424,12 @@ impl Drop for Renderer {
             self.dev.device_wait_idle().unwrap();
 
             drop(self.interface_renderer.take());
-            for object in &self.objects {
-                object.cleanup(&self.dev, self.object_descriptor_metadata.pool);
+            for entity in &self.entities {
+                entity.cleanup(&self.dev);
             }
-            self.grass_vertex.cleanup(&self.dev);
+            for mesh in &self.mesh_objects {
+                mesh.cleanup(&self.dev);
+            }
             for grass_chunk in self.grass_chunks.lock().unwrap().iter() {
                 grass_chunk.cleanup(&self.dev);
             }
@@ -1210,29 +1210,31 @@ fn create_unnormalized_sampler(dev: &Dev) -> vk::Sampler {
     unsafe { dev.create_sampler(&sampler_info, None) }.unwrap()
 }
 
-pub fn create_object(
-    model: &Model,
+pub fn create_mesh(model: &MeshData, supports_raytracing: bool, dev: &Dev) -> MeshObject {
+    let vertex = create_vertex_buffer(&model.vertices, supports_raytracing, dev);
+    MeshObject {
+        triangle_count: model.vertices.len() / 3,
+        vertex,
+    }
+}
+
+pub fn create_entity(
     descriptor_metadata: &DescriptorMetadata,
     light: &UniformBuffer<Light>,
     frag_settings: &UniformBuffer<FragSettings>,
-    supports_raytracing: bool,
-    ctx: &Ctx,
+    dev: &Dev,
 ) -> Object {
-    let vertex = create_vertex_buffer(&model.vertices, supports_raytracing, ctx.dev);
-    let mvp = UniformBuffer::create(ctx.dev);
-    let material = UniformBuffer::create(ctx.dev);
+    let mvp = UniformBuffer::create(dev);
+    let material = UniformBuffer::create(dev);
     let descriptor_sets = create_object_descriptor_sets(
         &mvp,
         &material,
         light,
         frag_settings,
         descriptor_metadata,
-        ctx.dev,
+        dev,
     );
     Object {
-        triangle_count: model.vertices.len() / 3,
-        raw_vertex_count: model.vertices.len(),
-        vertex,
         mvp,
         material,
         descriptor_sets,

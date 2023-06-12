@@ -1,7 +1,7 @@
 use crate::renderer::lifecycle::UNIFIED_MEMORY;
 use crate::renderer::util::{Buffer, Ctx};
 use crate::renderer::vertex::Vertex;
-use crate::renderer::Object;
+use crate::renderer::MeshObject;
 use ash::extensions::khr::{AccelerationStructure, BufferDeviceAddress};
 use ash::vk::Packed24_8;
 use ash::{vk, Device};
@@ -20,11 +20,11 @@ impl RaytraceResources {
     }
 }
 
-pub fn create_blas(object: &Object, ctx: &Ctx) -> RaytraceResources {
+pub fn create_blas(mesh: &MeshObject, ctx: &Ctx) -> RaytraceResources {
     let as_ext = AccelerationStructure::new(&ctx.dev.instance, ctx.dev);
     let bda_ext = BufferDeviceAddress::new(&ctx.dev.instance, ctx.dev);
 
-    let vertex_address = object.vertex.device_address(&bda_ext);
+    let vertex_address = mesh.vertex.device_address(&bda_ext);
     let triangles = *vk::AccelerationStructureGeometryTrianglesDataKHR::builder()
         .vertex_format(vk::Format::R32G32B32_SFLOAT)
         .vertex_data(vk::DeviceOrHostAddressConstKHR {
@@ -33,14 +33,14 @@ pub fn create_blas(object: &Object, ctx: &Ctx) -> RaytraceResources {
         .vertex_stride(std::mem::size_of::<Vertex>() as u64)
         .index_type(vk::IndexType::NONE_KHR)
         .transform_data(vk::DeviceOrHostAddressConstKHR::default())
-        .max_vertex(object.raw_vertex_count as u32);
+        .max_vertex(3 * mesh.triangle_count as u32);
     let geometry = *vk::AccelerationStructureGeometryKHR::builder()
         .geometry_type(vk::GeometryTypeKHR::TRIANGLES)
         .flags(vk::GeometryFlagsKHR::OPAQUE)
         .geometry(vk::AccelerationStructureGeometryDataKHR { triangles });
     let range_info = *vk::AccelerationStructureBuildRangeInfoKHR::builder()
         .first_vertex(0)
-        .primitive_count(object.triangle_count as u32)
+        .primitive_count(mesh.triangle_count as u32)
         .primitive_offset(0)
         .transform_offset(0);
 
@@ -99,7 +99,7 @@ pub fn create_blas(object: &Object, ctx: &Ctx) -> RaytraceResources {
     RaytraceResources {
         acceleration_structure: blas,
         buffer: blas_buffer,
-        primitive_count: object.triangle_count,
+        primitive_count: mesh.triangle_count,
     }
 }
 
