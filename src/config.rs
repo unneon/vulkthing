@@ -1,7 +1,7 @@
 use crate::camera::first_person::FirstPersonCamera;
 use crate::grass::Grass;
 use crate::planet::{NoiseType, Planet};
-use crate::renderer::uniform::{Atmosphere, FragSettings, Postprocessing, Tonemapper};
+use crate::renderer::uniform::{Atmosphere, FragSettings, Gaussian, Postprocessing, Tonemapper};
 use crate::renderer::RendererSettings;
 use nalgebra::Vector3;
 
@@ -76,8 +76,15 @@ pub const DEFAULT_ATMOSPHERE: Atmosphere = Atmosphere {
     scattering_strength: 0.01,
 };
 
+pub const DEFAULT_GAUSSIAN: Gaussian = Gaussian {
+    threshold: 1.,
+    radius: 5,
+    exponent_coefficient: 0.5,
+};
+
 pub const DEFAULT_POSTPROCESSING: Postprocessing = Postprocessing {
     exposure: 1.,
+    bloom: 1.,
     temperature: 0.,
     tint: 0.,
     contrast: 1.,

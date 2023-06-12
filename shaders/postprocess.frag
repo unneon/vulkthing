@@ -10,8 +10,11 @@ layout(constant_id = 0) const int msaa_samples = 0;
 
 layout(binding = 0) uniform sampler2DMS render;
 
-layout(binding = 1) uniform Postprocessing {
+layout(binding = 1) uniform sampler2D bloom;
+
+layout(binding = 2) uniform Postprocessing {
     vec3 color_filter;
+    float bloom;
     float exposure;
     float temperature;
     float tint;
@@ -81,5 +84,6 @@ void main() {
     for (int i = 0; i < msaa_samples; ++i) {
         total += postprocess(texelFetch(render, ivec2(gl_FragCoord.xy), i).rgb);
     }
+    total += postprocessing.bloom * textureLod(bloom, gl_FragCoord.xy, 0).rgb;
     out_color = vec4(total / msaa_samples, 1);
 }

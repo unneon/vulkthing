@@ -1,7 +1,7 @@
 use crate::config::DEFAULT_PLANET_SCALE;
 use crate::grass::Grass;
 use crate::planet::Planet;
-use crate::renderer::uniform::{Atmosphere, FragSettings, Postprocessing};
+use crate::renderer::uniform::{Atmosphere, FragSettings, Gaussian, Postprocessing};
 use crate::renderer::{Renderer, RendererSettings};
 use crate::world::World;
 use imgui::{Condition, Context, Drag, SliderFlags, TreeNodeFlags, Ui};
@@ -37,6 +37,7 @@ impl Interface {
         renderer_settings: &mut RendererSettings,
         frag_settings: &mut FragSettings,
         atmosphere: &mut Atmosphere,
+        gaussian: &mut Gaussian,
         postprocessing: &mut Postprocessing,
         renderer: &Renderer,
     ) -> InterfaceEvents {
@@ -147,6 +148,15 @@ impl Interface {
                         .build(&mut atmosphere.scattering_strength);
                     ui.slider("Planet radius", 0., 2000., &mut atmosphere.planet_radius);
                 }
+                if ui.collapsing_header("Bloom", TreeNodeFlags::DEFAULT_OPEN) {
+                    ui.slider_config("Threshold", 0.001, 12.)
+                        .flags(SliderFlags::LOGARITHMIC)
+                        .build(&mut gaussian.threshold);
+                    ui.slider("Radius", 0, 20, &mut gaussian.radius);
+                    ui.slider_config("Exponent coefficient", 0.001, 100.)
+                        .flags(SliderFlags::LOGARITHMIC)
+                        .build(&mut gaussian.exponent_coefficient);
+                }
                 if ui.collapsing_header("Postprocessing", TreeNodeFlags::empty()) {
                     build_postprocessing(ui, postprocessing);
                 }
@@ -168,6 +178,9 @@ fn build_postprocessing(ui: &Ui, postprocessing: &mut Postprocessing) {
     ui.slider_config("Exposure", 0.001, 100.)
         .flags(SliderFlags::LOGARITHMIC)
         .build(&mut postprocessing.exposure);
+    // ui.slider_config("Bloom", 0.001, 10.)
+    //     .flags(SliderFlags::LOGARITHMIC)
+    //     .build(&mut postprocessing.bloom);
     ui.slider("Temperature", -1.67, 1.67, &mut postprocessing.temperature);
     ui.slider("Tint", -1.67, 1.67, &mut postprocessing.tint);
     Drag::new("Contrast")

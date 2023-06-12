@@ -64,8 +64,17 @@ pub struct Atmosphere {
 
 #[repr(C)]
 #[derive(Clone, Copy)]
+pub struct Gaussian {
+    pub threshold: f32,
+    pub radius: i32,
+    pub exponent_coefficient: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
 pub struct Postprocessing {
     pub color_filter: Vector3<f32>,
+    pub bloom: f32,
     pub exposure: f32,
     pub temperature: f32,
     pub tint: f32,

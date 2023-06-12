@@ -13,7 +13,7 @@ use crate::renderer::raytracing::{create_blas, create_tlas, RaytraceResources};
 use crate::renderer::shader::SpecializationConstant;
 use crate::renderer::swapchain::{create_swapchain, Swapchain};
 use crate::renderer::uniform::{
-    Atmosphere, Camera, FragSettings, GrassUniform, Light, Material, ModelViewProjection,
+    Atmosphere, Camera, FragSettings, Gaussian, GrassUniform, Light, Material, ModelViewProjection,
     Postprocessing,
 };
 use crate::renderer::util::{find_max_msaa_samples, sample_count, vulkan_str, Buffer, Ctx, Dev};
@@ -84,6 +84,7 @@ impl Renderer {
         let msaa_samples = find_max_msaa_samples(&dev);
         let unnormalized_sampler = create_unnormalized_sampler(&dev);
         let atmosphere_uniform = UniformBuffer::create(&dev);
+        let gaussian_uniform = UniformBuffer::create(&dev);
         let postprocessing = UniformBuffer::create(&dev);
         let camera = UniformBuffer::create(&dev);
 
@@ -92,6 +93,8 @@ impl Renderer {
         let grass_descriptor_metadata = create_grass_descriptor_metadata(supports_raytracing, &dev);
         let skybox_descriptor_metadata = create_skybox_descriptor_metadata(&dev);
         let atmosphere_descriptor_metadata = create_atmosphere_descriptor_metadata(&dev);
+        let gaussian_descriptor_metadata =
+            create_gaussian_descriptor_metadata(unnormalized_sampler, &dev);
         let postprocess_descriptor_metadata =
             create_postprocess_descriptor_metadata(unnormalized_sampler, &dev);
 
@@ -103,6 +106,9 @@ impl Renderer {
             render,
             atmosphere_pipeline,
             atmosphere_descriptor_sets,
+            gaussian_pipeline,
+            gaussian,
+            gaussian_descriptor_sets,
             postprocess_pipeline,
             postprocess,
             postprocess_descriptor_sets,
@@ -113,12 +119,14 @@ impl Renderer {
             surface,
             msaa_samples,
             &atmosphere_uniform,
+            &gaussian_uniform,
             &postprocessing,
             &camera,
             &object_descriptor_metadata,
             &grass_descriptor_metadata,
             &skybox_descriptor_metadata,
             &atmosphere_descriptor_metadata,
+            &gaussian_descriptor_metadata,
             &postprocess_descriptor_metadata,
             supports_raytracing,
             &dev,
@@ -187,6 +195,7 @@ impl Renderer {
             msaa_samples,
             unnormalized_sampler,
             atmosphere_uniform,
+            gaussian_uniform,
             postprocessing,
             camera,
             object_descriptor_metadata,
@@ -198,11 +207,15 @@ impl Renderer {
             render,
             atmosphere_descriptor_metadata,
             atmosphere_pipeline,
+            gaussian_descriptor_metadata,
+            gaussian_pipeline,
+            gaussian,
             atmosphere_descriptor_sets,
             postprocess_descriptor_metadata,
             postprocess_pipeline,
             postprocess,
             swapchain,
+            gaussian_descriptor_sets,
             postprocess_descriptor_sets,
             command_pools,
             command_buffers,
@@ -264,6 +277,9 @@ impl Renderer {
             render_pass,
             atmosphere_pipeline,
             atmosphere_descriptor_sets,
+            gaussian_pipeline,
+            gaussian,
+            gaussian_descriptor_sets,
             postprocess_pipeline,
             postprocess_pass,
             postprocess_descriptor_sets,
@@ -274,12 +290,14 @@ impl Renderer {
             self.surface,
             self.msaa_samples,
             &self.atmosphere_uniform,
+            &self.gaussian_uniform,
             &self.postprocessing,
             &self.camera,
             &self.object_descriptor_metadata,
             &self.grass_descriptor_metadata,
             &self.skybox_descriptor_metadata,
             &self.atmosphere_descriptor_metadata,
+            &self.gaussian_descriptor_metadata,
             &self.postprocess_descriptor_metadata,
             self.supports_raytracing,
             &self.dev,
@@ -294,6 +312,9 @@ impl Renderer {
         self.render = render_pass;
         self.atmosphere_pipeline = atmosphere_pipeline;
         self.atmosphere_descriptor_sets = atmosphere_descriptor_sets;
+        self.gaussian_pipeline = gaussian_pipeline;
+        self.gaussian = gaussian;
+        self.gaussian_descriptor_sets = gaussian_descriptor_sets;
         self.postprocess_pipeline = postprocess_pipeline;
         self.postprocess = postprocess_pass;
         self.postprocess_descriptor_sets = postprocess_descriptor_sets;
@@ -336,6 +357,12 @@ impl Renderer {
         unsafe {
             self.dev
                 .reset_descriptor_pool(
+                    self.gaussian_descriptor_metadata.pool,
+                    vk::DescriptorPoolResetFlags::empty(),
+                )
+                .unwrap();
+            self.dev
+                .reset_descriptor_pool(
                     self.postprocess_descriptor_metadata.pool,
                     vk::DescriptorPoolResetFlags::empty(),
                 )
@@ -351,8 +378,10 @@ impl Renderer {
             self.grass_pipeline.cleanup(&self.dev);
             self.skybox_pipeline.cleanup(&self.dev);
             self.atmosphere_pipeline.cleanup(&self.dev);
+            self.gaussian_pipeline.cleanup(&self.dev);
             self.postprocess_pipeline.cleanup(&self.dev);
             self.render.cleanup(&self.dev);
+            self.gaussian.cleanup(&self.dev);
             self.postprocess.cleanup(&self.dev);
         }
     }
@@ -453,8 +482,10 @@ impl Drop for Renderer {
             self.grass_descriptor_metadata.cleanup(&self.dev);
             self.skybox_descriptor_metadata.cleanup(&self.dev);
             self.atmosphere_descriptor_metadata.cleanup(&self.dev);
+            self.gaussian_descriptor_metadata.cleanup(&self.dev);
             self.postprocess_descriptor_metadata.cleanup(&self.dev);
             self.atmosphere_uniform.cleanup(&self.dev);
+            self.gaussian_uniform.cleanup(&self.dev);
             self.postprocessing.cleanup(&self.dev);
             self.camera.cleanup(&self.dev);
             self.dev.destroy_sampler(self.unnormalized_sampler, None);
@@ -602,12 +633,14 @@ fn create_swapchain_all(
     surface: vk::SurfaceKHR,
     msaa_samples: vk::SampleCountFlags,
     atmosphere_uniform: &UniformBuffer<Atmosphere>,
+    gaussian_uniform: &UniformBuffer<Gaussian>,
     postprocessing: &UniformBuffer<Postprocessing>,
     camera: &UniformBuffer<Camera>,
     object_descriptor_metadata: &DescriptorMetadata,
     grass_descriptor_metadata: &DescriptorMetadata,
     skybox_descriptor_metadata: &DescriptorMetadata,
     atmosphere_descriptor_metadata: &DescriptorMetadata,
+    gaussian_descriptor_metadata: &DescriptorMetadata,
     postprocess_descriptor_metadata: &DescriptorMetadata,
     supports_raytracing: bool,
     dev: &Dev,
@@ -618,6 +651,9 @@ fn create_swapchain_all(
     Pipeline,
     Pass,
     Pipeline,
+    [vk::DescriptorSet; FRAMES_IN_FLIGHT],
+    Pipeline,
+    Pass,
     [vk::DescriptorSet; FRAMES_IN_FLIGHT],
     Pipeline,
     Pass,
@@ -663,6 +699,20 @@ fn create_swapchain_all(
         atmosphere_descriptor_metadata,
         dev,
     );
+    let gaussian = create_gaussian_pass(swapchain.extent, dev);
+    let gaussian_pipeline = create_gaussian_pipeline(
+        gaussian_descriptor_metadata,
+        gaussian.pass,
+        swapchain.extent,
+        msaa_samples,
+        dev,
+    );
+    let gaussian_descriptor_sets = create_gaussian_descriptor_sets(
+        render.resources[3].view,
+        gaussian_uniform,
+        gaussian_descriptor_metadata,
+        dev,
+    );
     let postprocess =
         create_postprocess_pass(swapchain.format.format, &swapchain, swapchain.extent, dev);
     let postprocess_pipeline = create_postprocess_pipeline(
@@ -675,6 +725,7 @@ fn create_swapchain_all(
     );
     let postprocess_descriptor_sets = create_postprocess_descriptor_sets(
         render.resources[3].view,
+        gaussian.resources[0].view,
         postprocessing,
         postprocess_descriptor_metadata,
         dev,
@@ -687,6 +738,9 @@ fn create_swapchain_all(
         render,
         atmosphere_pipeline,
         atmosphere_descriptor_sets,
+        gaussian_pipeline,
+        gaussian,
+        gaussian_descriptor_sets,
         postprocess_pipeline,
         postprocess,
         postprocess_descriptor_sets,
@@ -731,6 +785,14 @@ fn create_render_pass(msaa_samples: vk::SampleCountFlags, extent: vk::Extent2D, 
         dependency_flags: vk::DependencyFlags::BY_REGION,
     }];
     create_pass(extent, dev, &attachments, &dependencies)
+}
+
+fn create_gaussian_pass(extent: vk::Extent2D, dev: &Dev) -> Pass {
+    let attachments = [AttachmentConfig::new(COLOR_FORMAT)
+        .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+        .store(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+        .usage(vk::ImageUsageFlags::SAMPLED)];
+    create_pass(extent, dev, &attachments, &[])
 }
 
 fn create_postprocess_pass(
@@ -915,7 +977,7 @@ fn create_atmosphere_descriptor_sets(
     )
 }
 
-fn create_postprocess_descriptor_metadata(sampler: vk::Sampler, dev: &Dev) -> DescriptorMetadata {
+fn create_gaussian_descriptor_metadata(sampler: vk::Sampler, dev: &Dev) -> DescriptorMetadata {
     create_descriptor_metadata(DescriptorConfig {
         descriptors: vec![
             Descriptor {
@@ -932,8 +994,45 @@ fn create_postprocess_descriptor_metadata(sampler: vk::Sampler, dev: &Dev) -> De
     })
 }
 
+fn create_gaussian_descriptor_sets(
+    offscreen_view: vk::ImageView,
+    gaussian_uniform: &UniformBuffer<Gaussian>,
+    metadata: &DescriptorMetadata,
+    dev: &Dev,
+) -> [vk::DescriptorSet; FRAMES_IN_FLIGHT] {
+    metadata.create_sets(
+        &[
+            DescriptorValue::Image(offscreen_view),
+            DescriptorValue::Buffer(gaussian_uniform),
+        ],
+        dev,
+    )
+}
+
+fn create_postprocess_descriptor_metadata(sampler: vk::Sampler, dev: &Dev) -> DescriptorMetadata {
+    create_descriptor_metadata(DescriptorConfig {
+        descriptors: vec![
+            Descriptor {
+                kind: DescriptorKind::ImmutableSampler { sampler },
+                stage: vk::ShaderStageFlags::FRAGMENT,
+            },
+            Descriptor {
+                kind: DescriptorKind::ImmutableSampler { sampler },
+                stage: vk::ShaderStageFlags::FRAGMENT,
+            },
+            Descriptor {
+                kind: DescriptorKind::UniformBuffer,
+                stage: vk::ShaderStageFlags::FRAGMENT,
+            },
+        ],
+        set_count: 1,
+        dev,
+    })
+}
+
 fn create_postprocess_descriptor_sets(
     offscreen_view: vk::ImageView,
+    bloom_view: vk::ImageView,
     postprocessing: &UniformBuffer<Postprocessing>,
     metadata: &DescriptorMetadata,
     dev: &Dev,
@@ -941,6 +1040,7 @@ fn create_postprocess_descriptor_sets(
     metadata.create_sets(
         &[
             DescriptorValue::Image(offscreen_view),
+            DescriptorValue::Image(bloom_view),
             DescriptorValue::Buffer(postprocessing),
         ],
         dev,
@@ -1140,6 +1240,36 @@ fn create_atmosphere_pipeline(
         depth_test: false,
         pass,
         subpass: 1,
+        supports_raytracing: false,
+        dev,
+        swapchain_extent,
+    })
+}
+
+fn create_gaussian_pipeline(
+    descriptors: &DescriptorMetadata,
+    pass: vk::RenderPass,
+    swapchain_extent: vk::Extent2D,
+    msaa_samples: vk::SampleCountFlags,
+    dev: &Dev,
+) -> Pipeline {
+    create_pipeline(PipelineConfig {
+        vertex_shader_path: "shaders/gaussian.vert",
+        vertex_specialization: &[],
+        fragment_shader_path: "shaders/gaussian.frag",
+        fragment_specialization: &[SpecializationConstant {
+            id: 0,
+            value: sample_count(msaa_samples) as i32,
+        }],
+        vertex_bindings: &[],
+        vertex_attributes: &[],
+        msaa_samples: vk::SampleCountFlags::TYPE_1,
+        cull_mode: vk::CullModeFlags::BACK,
+        descriptor_layouts: &[descriptors.set_layout],
+        color_attachment_count: 1,
+        depth_test: false,
+        pass,
+        subpass: 0,
         supports_raytracing: false,
         dev,
         swapchain_extent,
