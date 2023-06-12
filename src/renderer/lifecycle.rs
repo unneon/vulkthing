@@ -1,4 +1,5 @@
 use crate::cli::Args;
+use crate::config::DEFAULT_STAR_COUNT;
 use crate::mesh::MeshData;
 use crate::renderer::debug::{create_debug_messenger, debug_label};
 use crate::renderer::descriptors::{
@@ -148,9 +149,7 @@ impl Renderer {
                 &dev,
             ));
         }
-        // let grass_vertex_count = meshes[3].vertices.len();
-        // let grass_vertex = create_vertex_buffer(&grass_mesh.vertices, supports_raytracing, &dev);
-        let grass_mvp = UniformBuffer::create(ctx.dev);
+        let grass_mvp = UniformBuffer::create(&dev);
         let grass_uniform = UniformBuffer::create(&dev);
         let grass_descriptor_sets = create_grass_descriptor_sets(
             &grass_mvp,
@@ -160,7 +159,7 @@ impl Renderer {
             &grass_descriptor_metadata,
             &dev,
         );
-        let skybox_mvp = UniformBuffer::create(ctx.dev);
+        let skybox_mvp = UniformBuffer::create(&dev);
         let skybox_descriptor_sets =
             create_skybox_descriptor_sets(&skybox_mvp, &skybox_descriptor_metadata, &dev);
 
@@ -774,7 +773,7 @@ fn create_object_descriptor_metadata(supports_raytracing: bool, dev: &Dev) -> De
     }
     create_descriptor_metadata(DescriptorConfig {
         descriptors,
-        set_count: 3,
+        set_count: 3 + DEFAULT_STAR_COUNT,
         dev,
     })
 }

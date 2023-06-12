@@ -23,6 +23,7 @@ mod mesh;
 mod physics;
 mod planet;
 mod renderer;
+mod util;
 mod window;
 mod world;
 

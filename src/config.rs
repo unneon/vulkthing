@@ -21,6 +21,13 @@ pub const DEFAULT_SUN_POSITION: Vector3<f32> = Vector3::new(0., 0., DEFAULT_SUN_
 
 pub const DEFAULT_SUN_RADIUS: f32 = 2. * DEFAULT_PLANET_SCALE;
 
+pub const DEFAULT_STAR_COUNT: usize = 2048;
+pub const DEFAULT_STAR_RADIUS: f32 = 30. * DEFAULT_PLANET_SCALE;
+pub const DEFAULT_STAR_MIN_SCALE: f32 = 1.;
+pub const DEFAULT_STAR_MAX_SCALE: f32 = 100.;
+pub const DEFAULT_STAR_MIN_EMIT: f32 = 0.1;
+pub const DEFAULT_STAR_MAX_EMIT: f32 = 10.;
+
 pub const DEFAULT_GRASS: Grass = Grass {
     blades_per_triangle: 128,
     height_average: 1.2,
@@ -47,7 +54,7 @@ pub const DEFAULT_CAMERA: FirstPersonCamera = FirstPersonCamera {
 
 pub const DEFAULT_RENDERER_SETTINGS: RendererSettings = RendererSettings {
     depth_near: 0.2,
-    depth_far: 16384.,
+    depth_far: 65536.,
 };
 
 pub const DEFAULT_FRAG_SETTINGS: FragSettings = FragSettings {

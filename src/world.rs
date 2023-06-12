@@ -1,12 +1,16 @@
 use crate::camera::Camera;
 use crate::config::{
-    DEFAULT_CAMERA, DEFAULT_PLANET_POSITION, DEFAULT_PLANET_SCALE, DEFAULT_SUN_POSITION,
+    DEFAULT_CAMERA, DEFAULT_PLANET_POSITION, DEFAULT_PLANET_SCALE, DEFAULT_STAR_COUNT,
+    DEFAULT_STAR_MAX_EMIT, DEFAULT_STAR_MAX_SCALE, DEFAULT_STAR_MIN_EMIT, DEFAULT_STAR_MIN_SCALE,
+    DEFAULT_STAR_RADIUS, DEFAULT_SUN_POSITION,
 };
 use crate::input::InputState;
 use crate::mesh::MeshData;
 use crate::physics::Physics;
 use crate::renderer::uniform::Light;
+use crate::util::{RandomDirection, RandomRotation};
 use nalgebra::{Matrix4, UnitQuaternion, Vector3};
+use rand::Rng;
 use rapier3d::dynamics::RigidBodyHandle;
 use rapier3d::prelude::*;
 use std::f32::consts::FRAC_PI_2;
@@ -14,7 +18,7 @@ use std::f32::consts::FRAC_PI_2;
 pub struct World {
     pub camera: Box<dyn Camera>,
     camera_rigid_body_handle: RigidBodyHandle,
-    pub entities: [Entity; 3],
+    pub entities: Vec<Entity>,
     physics: Physics,
     pub time: f32,
     pub time_of_day: f32,
@@ -88,17 +92,24 @@ impl World {
             emit: Vector3::from_element(1.),
             mesh_id: 1,
         };
-        let tetrahedron = Entity {
-            transform: Transform::Static {
-                translation: camera.position + Vector3::new(0., 5., -5.),
-                rotation: UnitQuaternion::identity(),
-                scale: Vector3::from_element(3.),
-            },
-            diffuse: Vector3::from_element(1.),
-            emit: Vector3::zeros(),
-            mesh_id: 2,
-        };
-        let entities = [planet, sun, tetrahedron];
+        let mut entities = vec![planet, sun];
+        let mut rng = rand::thread_rng();
+        for _ in 0..DEFAULT_STAR_COUNT {
+            entities.push(Entity {
+                transform: Transform::Static {
+                    translation: DEFAULT_STAR_RADIUS * rng.sample(RandomDirection),
+                    rotation: rng.sample(RandomRotation),
+                    scale: Vector3::from_element(
+                        rng.gen_range(DEFAULT_STAR_MIN_SCALE..DEFAULT_STAR_MAX_SCALE),
+                    ),
+                },
+                diffuse: Vector3::zeros(),
+                emit: Vector3::from_element(
+                    rng.gen_range(DEFAULT_STAR_MIN_EMIT..DEFAULT_STAR_MAX_EMIT),
+                ),
+                mesh_id: 2,
+            });
+        }
         World {
             camera,
             camera_rigid_body_handle,

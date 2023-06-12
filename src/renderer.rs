@@ -22,7 +22,7 @@ use crate::renderer::uniform::{
     Postprocessing,
 };
 use crate::renderer::util::{Buffer, Dev, UniformBuffer};
-use crate::world::{Entity, World};
+use crate::world::World;
 use ash::extensions::ext::DebugUtils;
 use ash::extensions::khr::{Surface, Swapchain as SwapchainKhr};
 use ash::{vk, Entry};
@@ -165,8 +165,8 @@ impl Renderer {
             return;
         };
         unsafe { self.record_command_buffer(image_index, world, ui_draw) };
-        for entity in world.entities() {
-            self.update_object_uniforms(world, entity, settings);
+        for entity_id in 0..world.entities().len() {
+            self.update_object_uniforms(world, entity_id, settings);
         }
         self.update_grass_uniform(grass, world, settings);
         self.update_skybox_uniform(world, settings);
@@ -374,7 +374,8 @@ impl Renderer {
         self.end_label(buf);
     }
 
-    fn update_object_uniforms(&self, world: &World, entity: &Entity, settings: &RendererSettings) {
+    fn update_object_uniforms(&self, world: &World, entity_id: usize, settings: &RendererSettings) {
+        let entity = &world.entities()[entity_id];
         let mvp = ModelViewProjection {
             model: entity.model_matrix(world),
             view: world.view_matrix(),
@@ -385,10 +386,8 @@ impl Renderer {
             _pad0: 0.,
             emit: entity.emit(),
         };
-        self.entities[entity.mesh_id()]
-            .mvp
-            .write(self.flight_index, &mvp);
-        self.entities[entity.mesh_id()]
+        self.entities[entity_id].mvp.write(self.flight_index, &mvp);
+        self.entities[entity_id]
             .material
             .write(self.flight_index, &material);
     }
@@ -414,7 +413,7 @@ impl Renderer {
 
     fn update_skybox_uniform(&self, world: &World, settings: &RendererSettings) {
         let mvp = ModelViewProjection {
-            model: Matrix4::new_scaling(4096.),
+            model: Matrix4::new_scaling(32000.),
             view: world.view_matrix(),
             proj: self.projection_matrix(settings),
         };
