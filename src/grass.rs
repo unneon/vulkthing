@@ -1,5 +1,6 @@
 use crate::model::Model;
 use crate::renderer::vertex::GrassBlade;
+use log::debug;
 use nalgebra::{Rotation3, Unit, Vector3};
 use noise::{NoiseFn, Perlin};
 use rand::rngs::SmallRng;
@@ -89,6 +90,7 @@ pub fn build_triangle_chunks(grass: &Grass, planet_model: &Model) -> Vec<Vec<usi
         }
         chunks[best_chunk_id].push(i);
     }
+    debug!("grass chunk generated");
     chunks
 }
 

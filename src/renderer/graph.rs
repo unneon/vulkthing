@@ -21,6 +21,7 @@ pub struct AttachmentConfig<'a> {
     subpass: usize,
     input_to: Vec<usize>,
     transient: bool,
+    store: bool,
 }
 
 impl Pass {
@@ -71,6 +72,7 @@ impl<'a> AttachmentConfig<'a> {
             subpass: 0,
             input_to: Vec::new(),
             transient: false,
+            store: false,
         }
     }
 
@@ -98,8 +100,14 @@ impl<'a> AttachmentConfig<'a> {
         self
     }
 
+    pub fn final_layout(mut self, layout: vk::ImageLayout) -> Self {
+        self.final_layout = Some(layout);
+        self
+    }
+
     pub fn store(mut self, final_layout: vk::ImageLayout) -> Self {
         self.final_layout = Some(final_layout);
+        self.store = true;
         self
     }
 
@@ -154,7 +162,7 @@ pub fn create_pass(
             } else {
                 vk::AttachmentLoadOp::DONT_CARE
             })
-            .store_op(if config.final_layout.is_some() {
+            .store_op(if config.store {
                 vk::AttachmentStoreOp::STORE
             } else {
                 vk::AttachmentStoreOp::DONT_CARE

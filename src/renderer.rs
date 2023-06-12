@@ -146,7 +146,7 @@ pub struct RendererSettings {
     pub depth_far: f32,
 }
 
-const FRAMES_IN_FLIGHT: usize = 2;
+const FRAMES_IN_FLIGHT: usize = 8;
 
 impl Renderer {
     pub fn draw_frame(
@@ -433,7 +433,7 @@ impl Renderer {
         let signal_semaphores = [render_finished];
         let submit_info = vk::SubmitInfo::builder()
             .wait_semaphores(&wait_semaphores)
-            .wait_dst_stage_mask(&[vk::PipelineStageFlags::TOP_OF_PIPE])
+            .wait_dst_stage_mask(&[vk::PipelineStageFlags::FRAGMENT_SHADER])
             .command_buffers(&command_buffers)
             .signal_semaphores(&signal_semaphores);
         unsafe {

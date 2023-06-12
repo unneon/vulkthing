@@ -17,7 +17,6 @@ pub struct PipelineConfig<'a> {
     pub vertex_bindings: &'a [vk::VertexInputBindingDescription],
     pub vertex_attributes: &'a [vk::VertexInputAttributeDescription],
     pub msaa_samples: vk::SampleCountFlags,
-    pub polygon_mode: vk::PolygonMode,
     pub cull_mode: vk::CullModeFlags,
     pub descriptor_layouts: &'a [vk::DescriptorSetLayout],
     pub color_attachment_count: usize,
@@ -97,7 +96,7 @@ pub fn create_pipeline(config: PipelineConfig) -> Pipeline {
     let rasterizer = *vk::PipelineRasterizationStateCreateInfo::builder()
         .depth_clamp_enable(false)
         .rasterizer_discard_enable(false)
-        .polygon_mode(config.polygon_mode)
+        .polygon_mode(vk::PolygonMode::FILL)
         .line_width(1.)
         .cull_mode(config.cull_mode)
         .front_face(vk::FrontFace::COUNTER_CLOCKWISE)

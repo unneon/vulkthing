@@ -1,6 +1,7 @@
 use crate::interface::EnumInterface;
 use crate::model::Model;
 use crate::renderer::vertex::Vertex;
+use log::debug;
 use nalgebra::Vector3;
 use noise::{
     NoiseFn, OpenSimplex, Perlin, PerlinSurflet, RidgedMulti, Simplex, SuperSimplex, Value,
@@ -134,6 +135,10 @@ pub fn generate_planet(parameters: &Planet) -> Model {
             }
         }
     }
+    debug!(
+        "planet model generated, \x1B[1mvertices\x1B[0m: {}",
+        vertices.len()
+    );
     Model { vertices }
 }
 

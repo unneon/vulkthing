@@ -559,10 +559,7 @@ fn create_logical_device(
         .queue_priorities(&[1.]);
     let queues = [queue_create];
 
-    let physical_device_features = vk::PhysicalDeviceFeatures::builder()
-        .sample_rate_shading(true)
-        .sampler_anisotropy(true)
-        .fill_mode_non_solid(true);
+    let physical_device_features = vk::PhysicalDeviceFeatures::builder().sample_rate_shading(true);
 
     let mut extensions = vec![SwapchainKhr::name().as_ptr()];
 
@@ -703,14 +700,14 @@ fn create_render_pass(msaa_samples: vk::SampleCountFlags, extent: vk::Extent2D, 
             .samples(msaa_samples)
             .clear_color([0., 0., 0., 0.])
             .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
-            .store(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+            .final_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
             .input_to(1)
             .transient(),
         AttachmentConfig::new(vk::Format::R32G32B32A32_SFLOAT)
             .samples(msaa_samples)
             .clear_color([0., 0., 0., 0.])
             .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
-            .store(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+            .final_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
             .input_to(1)
             .transient(),
         AttachmentConfig::new(DEPTH_FORMAT)
@@ -984,7 +981,6 @@ fn create_object_pipeline(
             },
         ],
         msaa_samples,
-        polygon_mode: vk::PolygonMode::FILL,
         cull_mode: vk::CullModeFlags::BACK,
         descriptor_layouts: &[descriptor_metadata.set_layout],
         color_attachment_count: 2,
@@ -1073,7 +1069,6 @@ fn create_grass_pipeline(
             },
         ],
         msaa_samples,
-        polygon_mode: vk::PolygonMode::FILL,
         cull_mode: vk::CullModeFlags::NONE,
         descriptor_layouts: &[descriptor_metadata.set_layout],
         color_attachment_count: 2,
@@ -1110,7 +1105,6 @@ fn create_skybox_pipeline(
             offset: 0,
         }],
         msaa_samples,
-        polygon_mode: vk::PolygonMode::FILL,
         cull_mode: vk::CullModeFlags::FRONT,
         descriptor_layouts: &[descriptor_metadata.set_layout],
         color_attachment_count: 2,
@@ -1141,7 +1135,6 @@ fn create_atmosphere_pipeline(
         vertex_bindings: &[],
         vertex_attributes: &[],
         msaa_samples,
-        polygon_mode: vk::PolygonMode::FILL,
         cull_mode: vk::CullModeFlags::BACK,
         descriptor_layouts: &[descriptors.set_layout],
         color_attachment_count: 1,
@@ -1173,7 +1166,6 @@ fn create_postprocess_pipeline(
         vertex_bindings: &[],
         vertex_attributes: &[],
         msaa_samples: vk::SampleCountFlags::TYPE_1,
-        polygon_mode: vk::PolygonMode::FILL,
         cull_mode: vk::CullModeFlags::BACK,
         descriptor_layouts: &[descriptors.set_layout],
         color_attachment_count: 1,

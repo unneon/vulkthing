@@ -34,21 +34,15 @@ pub fn create_swapchain(
     let formats = {
         unsafe { surface_ext.get_physical_device_surface_formats(dev.physical, surface) }.unwrap()
     };
-    let present_modes =
-        unsafe { surface_ext.get_physical_device_surface_present_modes(dev.physical, surface) }
-            .unwrap();
-
     let image_count = select_image_count(capabilities);
     let format = select_format(&formats);
     let extent = select_extent(capabilities, window_size);
-    let present_mode = select_present_mode(&present_modes);
     let handle = create_handle(
         surface,
         image_count,
         format,
         extent,
         capabilities,
-        present_mode,
         swapchain_ext,
     );
     let image_views = create_image_views(handle, format.format, swapchain_ext, dev);
@@ -112,17 +106,12 @@ fn select_extent(
     }
 }
 
-fn select_present_mode(_present_modes: &[vk::PresentModeKHR]) -> vk::PresentModeKHR {
-    vk::PresentModeKHR::FIFO
-}
-
 fn create_handle(
     surface: vk::SurfaceKHR,
     image_count: usize,
     format: vk::SurfaceFormatKHR,
     extent: vk::Extent2D,
     capabilities: vk::SurfaceCapabilitiesKHR,
-    present_mode: vk::PresentModeKHR,
     swapchain_ext: &SwapchainKhr,
 ) -> vk::SwapchainKHR {
     let create_info = vk::SwapchainCreateInfoKHR::builder()
@@ -136,7 +125,7 @@ fn create_handle(
         .image_sharing_mode(vk::SharingMode::EXCLUSIVE)
         .pre_transform(capabilities.current_transform)
         .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE)
-        .present_mode(present_mode)
+        .present_mode(vk::PresentModeKHR::FIFO)
         .clipped(true)
         .old_swapchain(vk::SwapchainKHR::null());
     unsafe { swapchain_ext.create_swapchain(&create_info, None) }.unwrap()
