@@ -15,7 +15,8 @@ layout(binding = 2) uniform Atmosphere {
     float planet_radius;
     vec3 sun_position;
     float scale;
-    float scatter_coefficient;
+    vec3 wavelengths;
+    float scattering_strength;
 } atmosphere;
 
 layout(binding = 3) uniform Camera {
@@ -64,21 +65,32 @@ float optical_depth(vec3 ray_origin, vec3 ray_direction, float ray_length) {
     return optical_depth;
 }
 
-float calculate_light(vec3 ray_origin, vec3 ray_direction, float ray_length) {
+vec3 calculate_light(vec3 ray_origin, vec3 ray_direction, float ray_length, vec3 original_color) {
+    // This entire function approach with assigning wavelengths to color channels is completely broken, given the output
+    // is in sRGB color space. Fixing will come later, as I need to figure out how this should interact with the rest of
+    // the rendering pipeline, especially the ACES tone mapping later. There might be resources on this somewhere?
+    vec3 scatter_coefficients = atmosphere.scattering_strength * vec3(
+        pow(400 / atmosphere.wavelengths.r, 4),
+        pow(400 / atmosphere.wavelengths.g, 4),
+        pow(400 / atmosphere.wavelengths.b, 4)
+    );
     float step_length = ray_length / atmosphere.scatter_point_count;
     vec3 in_scatter_point = ray_origin + ray_direction * step_length / 2;
-    float in_scattered_light = 0;
+    vec3 in_scattered_light = vec3(0);
     for (uint i = 0; i < atmosphere.scatter_point_count; ++i) {
         vec3 sun_direction = normalize(atmosphere.sun_position - in_scatter_point);
         float sun_ray_length = ray_sphere(atmosphere.planet_position, atmosphere.scale * atmosphere.planet_radius, in_scatter_point, sun_direction).y;
         float sun_ray_optical_depth = optical_depth(in_scatter_point, sun_direction, sun_ray_length);
         float view_ray_optical_depth = optical_depth(in_scatter_point, -ray_direction, step_length * i);
-        float transmittance = exp(- (0.01 * atmosphere.scatter_coefficient) * (sun_ray_optical_depth + view_ray_optical_depth));
+        vec3 transmittance = exp(-scatter_coefficients * (sun_ray_optical_depth + view_ray_optical_depth));
         float local_density = density_at_point(in_scatter_point);
-        in_scattered_light += local_density * transmittance * step_length;
+        in_scattered_light += local_density * transmittance * scatter_coefficients * step_length;
         in_scatter_point += ray_direction * step_length;
     }
-    return in_scattered_light;
+    float original_optical_depth = optical_depth(ray_origin, ray_direction, ray_length);
+    vec3 original_transmittance = exp(-scatter_coefficients * original_optical_depth);
+    vec3 original_light = original_transmittance * original_color;
+    return in_scattered_light + original_light;
 }
 
 vec3 compute_atmosphere(vec3 original_color, vec3 position) {
@@ -92,9 +104,7 @@ vec3 compute_atmosphere(vec3 original_color, vec3 position) {
 
     if (distance_through_atmosphere > 0) {
         vec3 point_in_atmosphere = ray_origin + ray_direction * distance_to_atmosphere;
-        vec3 light = 0.001 * vec3(calculate_light(point_in_atmosphere, ray_direction, distance_through_atmosphere))
-        + original_color * vec3(exp(-(0.01 * atmosphere.scatter_coefficient) * optical_depth(point_in_atmosphere, ray_direction, distance_through_atmosphere)));
-        return light;
+        return calculate_light(point_in_atmosphere, ray_direction, distance_through_atmosphere, original_color);
     }
     return original_color;
 }

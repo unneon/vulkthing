@@ -62,10 +62,11 @@ pub const DEFAULT_ATMOSPHERE: Atmosphere = Atmosphere {
     optical_depth_point_count: 3,
     density_falloff: 6.,
     scale: 1.3,
-    scatter_coefficient: 0.1,
     planet_radius: DEFAULT_PLANET_SCALE,
     planet_position: DEFAULT_PLANET_POSITION,
     sun_position: DEFAULT_SUN_POSITION,
+    wavelengths: Vector3::new(700., 530., 440.),
+    scattering_strength: 0.01,
 };
 
 pub const DEFAULT_POSTPROCESSING: Postprocessing = Postprocessing {

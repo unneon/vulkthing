@@ -141,9 +141,10 @@ impl Interface {
                         .flags(SliderFlags::LOGARITHMIC)
                         .build(&mut atmosphere.density_falloff);
                     ui.slider("Scale", 1., 3., &mut atmosphere.scale);
-                    ui.slider_config("Scatter coefficient", 0.001, 100.)
+                    Drag::new("Wavelengths").build_array(ui, atmosphere.wavelengths.as_mut_slice());
+                    ui.slider_config("Scattering strength", 0.001, 100.)
                         .flags(SliderFlags::LOGARITHMIC)
-                        .build(&mut atmosphere.scatter_coefficient);
+                        .build(&mut atmosphere.scattering_strength);
                     ui.slider("Planet radius", 0., 2000., &mut atmosphere.planet_radius);
                 }
                 if ui.collapsing_header("Postprocessing", TreeNodeFlags::empty()) {
