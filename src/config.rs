@@ -23,7 +23,7 @@ pub const DEFAULT_SUN_RADIUS: f32 = 2. * DEFAULT_PLANET_SCALE;
 
 pub const DEFAULT_STAR_COUNT: usize = 2048;
 pub const DEFAULT_STAR_RADIUS: f32 = 30. * DEFAULT_PLANET_SCALE;
-pub const DEFAULT_STAR_MIN_SCALE: f32 = 1.;
+pub const DEFAULT_STAR_MIN_SCALE: f32 = 10.;
 pub const DEFAULT_STAR_MAX_SCALE: f32 = 100.;
 pub const DEFAULT_STAR_MIN_EMIT: f32 = 0.1;
 pub const DEFAULT_STAR_MAX_EMIT: f32 = 10.;
@@ -58,7 +58,7 @@ pub const DEFAULT_RENDERER_SETTINGS: RendererSettings = RendererSettings {
 };
 
 pub const DEFAULT_FRAG_SETTINGS: FragSettings = FragSettings {
-    use_ray_tracing: false,
+    use_ray_tracing: true,
     _pad0: [0; 3],
 };
 
@@ -78,8 +78,8 @@ pub const DEFAULT_ATMOSPHERE: Atmosphere = Atmosphere {
 
 pub const DEFAULT_GAUSSIAN: Gaussian = Gaussian {
     threshold: 1.,
-    radius: 5,
-    exponent_coefficient: 0.5,
+    radius: 2,
+    exponent_coefficient: 0.7,
 };
 
 pub const DEFAULT_POSTPROCESSING: Postprocessing = Postprocessing {

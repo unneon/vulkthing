@@ -20,8 +20,10 @@ void main() {
             ivec2 coord = ivec2(gl_FragCoord.xy) + ivec2(dx, dy);
             for (int i = 0; i < msaa_samples; ++i) {
                 vec3 color = texelFetch(render, coord, i).rgb;
-                color *= vec3(color.r > gaussian.threshold, color.g > gaussian.threshold, color.b > gaussian.threshold);
-                total += factor * color;
+                float greyscale = dot(color, vec3(0.299, 0.587, 0.114));
+                if (greyscale >= gaussian.threshold) {
+                    total += factor * color;
+                }
             }
         }
     }
