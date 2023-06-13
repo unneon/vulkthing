@@ -20,6 +20,7 @@ pub struct Descriptor {
 }
 
 enum DescriptorInfo {
+    AccelerationStructure(vk::WriteDescriptorSetAccelerationStructureKHR),
     Buffer(vk::DescriptorBufferInfo),
     Image(vk::DescriptorImageInfo),
 }
@@ -32,6 +33,7 @@ pub enum DescriptorKind {
 }
 
 pub enum DescriptorValue<'a> {
+    AccelerationStructure(vk::AccelerationStructureKHR),
     Buffer(&'a dyn AnyUniformBuffer),
     Image(vk::ImageView),
     InputAttachment(vk::ImageView),
@@ -57,6 +59,14 @@ impl DescriptorMetadata {
         for (flight_index, descriptor_info) in descriptor_infos.iter_mut().enumerate() {
             for value in values {
                 let info = match value {
+                    DescriptorValue::AccelerationStructure(acceleration_structure) => {
+                        DescriptorInfo::AccelerationStructure(
+                            *vk::WriteDescriptorSetAccelerationStructureKHR::builder()
+                                .acceleration_structures(std::slice::from_ref(
+                                    acceleration_structure,
+                                )),
+                        )
+                    }
                     DescriptorValue::Buffer(buffer) => {
                         DescriptorInfo::Buffer(buffer.descriptor(flight_index))
                     }
@@ -74,15 +84,23 @@ impl DescriptorMetadata {
                 descriptor_info.push(info);
             }
         }
+        let mut acceleration_structures = Vec::with_capacity(FRAMES_IN_FLIGHT * values.len());
         for flight_index in 0..FRAMES_IN_FLIGHT {
             for (binding, info) in descriptor_infos[flight_index].iter().enumerate() {
                 let write = vk::WriteDescriptorSet::builder()
                     .dst_set(descriptor_sets[flight_index])
                     .dst_binding(binding as u32)
                     .descriptor_type(self.config[binding].kind.ty());
-                let write = *match info {
-                    DescriptorInfo::Buffer(info) => write.buffer_info(std::slice::from_ref(info)),
-                    DescriptorInfo::Image(info) => write.image_info(std::slice::from_ref(info)),
+                let write = match info {
+                    DescriptorInfo::AccelerationStructure(info) => {
+                        acceleration_structures.push(*info);
+                        let mut write =
+                            *write.push_next(acceleration_structures.last_mut().unwrap());
+                        write.descriptor_count = 1;
+                        write
+                    }
+                    DescriptorInfo::Buffer(info) => *write.buffer_info(std::slice::from_ref(info)),
+                    DescriptorInfo::Image(info) => *write.image_info(std::slice::from_ref(info)),
                 };
                 descriptor_writes.push(write);
             }

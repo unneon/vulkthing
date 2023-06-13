@@ -148,12 +148,22 @@ impl Renderer {
         for mesh in meshes {
             mesh_objects.push(create_mesh(mesh, supports_raytracing, &dev));
         }
+
+        let (tlas, blas) = if supports_raytracing {
+            let blas = create_blas(&mesh_objects[0], &ctx);
+            let tlas = create_tlas(&world.planet().model_matrix(world), &blas, &ctx);
+            (Some(tlas), Some(blas))
+        } else {
+            (None, None)
+        };
+
         let mut entities = Vec::new();
         for _ in world.entities() {
             entities.push(create_entity(
                 &object_descriptor_metadata,
                 &light,
                 &frag_settings,
+                tlas.as_ref(),
                 &dev,
             ));
         }
@@ -164,24 +174,13 @@ impl Renderer {
             &grass_uniform,
             &light,
             &frag_settings,
+            tlas.as_ref(),
             &grass_descriptor_metadata,
             &dev,
         );
         let skybox_mvp = UniformBuffer::create(&dev);
         let skybox_descriptor_sets =
             create_skybox_descriptor_sets(&skybox_mvp, &skybox_descriptor_metadata, &dev);
-
-        let (blas, tlas) = if supports_raytracing {
-            let blas = create_blas(&mesh_objects[0], &ctx);
-            let tlas = create_tlas(&world.planet().model_matrix(world), &blas, &ctx);
-            for object in &entities {
-                slow_update_tlas(&object.descriptor_sets, 4, &tlas, &dev);
-            }
-            slow_update_tlas(&grass_descriptor_sets, 4, &tlas, &dev);
-            (Some(tlas), Some(blas))
-        } else {
-            (None, None)
-        };
 
         Renderer {
             _entry: entry,
@@ -889,19 +888,22 @@ fn create_object_descriptor_sets(
     material: &UniformBuffer<Material>,
     light: &UniformBuffer<Light>,
     frag_settings: &UniformBuffer<FragSettings>,
+    tlas: Option<&RaytraceResources>,
     metadata: &DescriptorMetadata,
     dev: &Dev,
 ) -> [vk::DescriptorSet; FRAMES_IN_FLIGHT] {
-    metadata.create_sets(
-        &[
-            DescriptorValue::Buffer(mvp),
-            DescriptorValue::Buffer(material),
-            DescriptorValue::Buffer(light),
-            DescriptorValue::Buffer(frag_settings),
-            // TLAS needs to be written separately later.
-        ],
-        dev,
-    )
+    let mut values = vec![
+        DescriptorValue::Buffer(mvp),
+        DescriptorValue::Buffer(material),
+        DescriptorValue::Buffer(light),
+        DescriptorValue::Buffer(frag_settings),
+    ];
+    if let Some(tlas) = tlas {
+        values.push(DescriptorValue::AccelerationStructure(
+            tlas.acceleration_structure,
+        ));
+    }
+    metadata.create_sets(&values, dev)
 }
 
 fn create_grass_descriptor_sets(
@@ -909,19 +911,22 @@ fn create_grass_descriptor_sets(
     grass_uniform: &UniformBuffer<GrassUniform>,
     light: &UniformBuffer<Light>,
     frag_settings: &UniformBuffer<FragSettings>,
+    tlas: Option<&RaytraceResources>,
     metadata: &DescriptorMetadata,
     dev: &Dev,
 ) -> [vk::DescriptorSet; FRAMES_IN_FLIGHT] {
-    metadata.create_sets(
-        &[
-            DescriptorValue::Buffer(mvp),
-            DescriptorValue::Buffer(grass_uniform),
-            DescriptorValue::Buffer(light),
-            DescriptorValue::Buffer(frag_settings),
-            // TLAS needs to be written separately later.
-        ],
-        dev,
-    )
+    let mut values = vec![
+        DescriptorValue::Buffer(mvp),
+        DescriptorValue::Buffer(grass_uniform),
+        DescriptorValue::Buffer(light),
+        DescriptorValue::Buffer(frag_settings),
+    ];
+    if let Some(tlas) = tlas {
+        values.push(DescriptorValue::AccelerationStructure(
+            tlas.acceleration_structure,
+        ));
+    }
+    metadata.create_sets(&values, dev)
 }
 
 fn create_skybox_descriptor_sets(
@@ -1351,6 +1356,7 @@ pub fn create_entity(
     descriptor_metadata: &DescriptorMetadata,
     light: &UniformBuffer<Light>,
     frag_settings: &UniformBuffer<FragSettings>,
+    tlas: Option<&RaytraceResources>,
     dev: &Dev,
 ) -> Object {
     let mvp = UniformBuffer::create(dev);
@@ -1360,6 +1366,7 @@ pub fn create_entity(
         &material,
         light,
         frag_settings,
+        tlas,
         descriptor_metadata,
         dev,
     );
@@ -1398,26 +1405,6 @@ fn create_blade_buffer(blades_data: &[GrassBlade], dev: &Dev) -> Buffer {
     );
     blades.fill_from_slice_host_visible(blades_data, dev);
     blades
-}
-
-fn slow_update_tlas(
-    descriptor_sets: &[vk::DescriptorSet; FRAMES_IN_FLIGHT],
-    binding: usize,
-    tlas: &RaytraceResources,
-    dev: &Dev,
-) {
-    for descriptor_set in descriptor_sets {
-        let acceleration_structures = [tlas.acceleration_structure];
-        let mut tlas_write = *vk::WriteDescriptorSetAccelerationStructureKHR::builder()
-            .acceleration_structures(&acceleration_structures);
-        let mut descriptor_writes = [*vk::WriteDescriptorSet::builder()
-            .dst_set(*descriptor_set)
-            .dst_binding(binding as u32)
-            .descriptor_type(vk::DescriptorType::ACCELERATION_STRUCTURE_KHR)
-            .push_next(&mut tlas_write)];
-        descriptor_writes[0].descriptor_count = 1;
-        unsafe { dev.update_descriptor_sets(&descriptor_writes, &[]) };
-    }
 }
 
 fn create_sync(dev: &Dev) -> Synchronization {
