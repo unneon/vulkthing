@@ -21,6 +21,8 @@ pub const DEFAULT_SUN_POSITION: Vector3<f32> = Vector3::new(0., 0., DEFAULT_SUN_
 
 pub const DEFAULT_SUN_RADIUS: f32 = 2. * DEFAULT_PLANET_SCALE;
 
+pub const DEFAULT_SUN_SPEED: f32 = 0.1;
+
 pub const DEFAULT_STAR_COUNT: usize = 2048;
 pub const DEFAULT_STAR_RADIUS: f32 = 30. * DEFAULT_PLANET_SCALE;
 pub const DEFAULT_STAR_MIN_SCALE: f32 = 10.;

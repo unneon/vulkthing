@@ -2,7 +2,7 @@ use crate::camera::Camera;
 use crate::config::{
     DEFAULT_CAMERA, DEFAULT_PLANET_POSITION, DEFAULT_PLANET_SCALE, DEFAULT_STAR_COUNT,
     DEFAULT_STAR_MAX_EMIT, DEFAULT_STAR_MAX_SCALE, DEFAULT_STAR_MIN_EMIT, DEFAULT_STAR_MIN_SCALE,
-    DEFAULT_STAR_RADIUS, DEFAULT_SUN_POSITION,
+    DEFAULT_STAR_RADIUS, DEFAULT_SUN_POSITION, DEFAULT_SUN_RADIUS, DEFAULT_SUN_SPEED,
 };
 use crate::input::InputState;
 use crate::mesh::MeshData;
@@ -24,7 +24,9 @@ pub struct World {
     pub time_of_day: f32,
     pub ambient_strength: f32,
     pub diffuse_strength: f32,
+    pub sun_pause: bool,
     pub sun_radius: f32,
+    pub sun_speed: f32,
 }
 
 pub struct Entity {
@@ -119,7 +121,9 @@ impl World {
             time_of_day: FRAC_PI_2,
             ambient_strength: 0.01,
             diffuse_strength: 1.,
-            sun_radius: 2000.,
+            sun_pause: false,
+            sun_radius: DEFAULT_SUN_RADIUS,
+            sun_speed: DEFAULT_SUN_SPEED,
         }
     }
 
@@ -131,6 +135,9 @@ impl World {
             self.physics.get_translation(self.camera_rigid_body_handle)
                 + Vector3::new(0., 0., AVERAGE_MALE_EYE_HEIGHT / 2.),
         );
+        if !self.sun_pause {
+            self.time_of_day += self.sun_speed * delta_time;
+        }
         self.update_sun();
         self.time += delta_time;
     }

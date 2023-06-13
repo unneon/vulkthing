@@ -72,6 +72,10 @@ impl Interface {
                         4. * DEFAULT_PLANET_SCALE,
                         &mut world.sun_radius,
                     );
+                    ui.checkbox("Pause movement", &mut world.sun_pause);
+                    ui.slider_config("Speed", 0.001, 10.)
+                        .flags(SliderFlags::LOGARITHMIC)
+                        .build(&mut world.sun_speed);
                 }
                 if ui.collapsing_header("Grass", TreeNodeFlags::empty()) {
                     let mut changed = false;
