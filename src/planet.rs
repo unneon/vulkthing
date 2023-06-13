@@ -95,13 +95,18 @@ impl EnumInterface for NoiseType {
 pub fn generate_planet(parameters: &Planet) -> MeshData {
     let mut vertices = Vec::new();
     let noise = select_noise(parameters);
+    let noise_offset = 16384. * Vector3::new(random(), random(), random());
     for side in SIDES {
         for i in 0..parameters.resolution {
             for j in 0..parameters.resolution {
-                let position_bottom_left = generate_vertex(i, j, &side, parameters, &noise);
-                let position_bottom_right = generate_vertex(i + 1, j, &side, parameters, &noise);
-                let position_top_left = generate_vertex(i, j + 1, &side, parameters, &noise);
-                let position_top_right = generate_vertex(i + 1, j + 1, &side, parameters, &noise);
+                let position_bottom_left =
+                    generate_vertex(i, j, &side, parameters, &noise, &noise_offset);
+                let position_bottom_right =
+                    generate_vertex(i + 1, j, &side, parameters, &noise, &noise_offset);
+                let position_top_left =
+                    generate_vertex(i, j + 1, &side, parameters, &noise, &noise_offset);
+                let position_top_right =
+                    generate_vertex(i + 1, j + 1, &side, parameters, &noise, &noise_offset);
                 let normal_first = (position_bottom_right - position_bottom_left)
                     .cross(&(position_top_left - position_bottom_left))
                     .normalize();
@@ -148,6 +153,9 @@ fn select_noise(parameters: &Planet) -> Box<dyn NoiseFn<f64, 3>> {
         NoiseType::OpenSimplex => Box::new(OpenSimplex::new(seed)),
         NoiseType::Perlin => Box::new(Perlin::new(seed)),
         NoiseType::PerlinSurflet => Box::new(PerlinSurflet::new(seed)),
+        // Ridge noise appears to sample 6 octaves of Perlin noise on its own by default. This is on
+        // top of my code doing 3 octaves of Ridge noise (3 * 6 of Perlin), so I should probably
+        // figure out how to do this properly.
         NoiseType::Ridge => Box::new(RidgedMulti::<Perlin>::new(seed)),
         NoiseType::Simplex => Box::new(Simplex::new(seed)),
         NoiseType::SuperSimplex => Box::new(SuperSimplex::new(seed)),
@@ -161,6 +169,7 @@ fn generate_vertex(
     side: &Side,
     parameters: &Planet,
     noise: &dyn NoiseFn<f64, 3>,
+    noise_offset: &Vector3<f64>,
 ) -> Vector3<f32> {
     let direction = (side.base
         + i as f32 * (2. * side.dx) / parameters.resolution as f32
@@ -170,9 +179,9 @@ fn generate_vertex(
     for i in 0..parameters.noise_layers {
         let factor = (2.0f64).powi(i as i32);
         noise_value += noise.get([
-            direction.x as f64 * factor,
-            direction.y as f64 * factor,
-            direction.z as f64 * factor,
+            direction.x as f64 * factor + noise_offset.x,
+            direction.y as f64 * factor + noise_offset.y,
+            direction.z as f64 * factor + noise_offset.z,
         ]) as f32
             / factor as f32;
     }

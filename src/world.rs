@@ -13,7 +13,6 @@ use nalgebra::{Matrix4, UnitQuaternion, Vector3};
 use rand::Rng;
 use rapier3d::dynamics::RigidBodyHandle;
 use rapier3d::prelude::*;
-use std::f32::consts::FRAC_PI_2;
 
 pub struct World {
     pub camera: Box<dyn Camera>,
@@ -58,6 +57,7 @@ impl World {
         let camera = Box::new(DEFAULT_CAMERA);
         let mut physics = Physics::new();
         let camera_rigid_body = RigidBodyBuilder::dynamic()
+            .ccd_enabled(true)
             .translation(camera.position)
             .lock_rotations();
         let camera_rigid_body_handle = physics.rigid_body_set.insert(camera_rigid_body);
@@ -118,7 +118,7 @@ impl World {
             entities,
             physics,
             time: 0.,
-            time_of_day: FRAC_PI_2,
+            time_of_day: 0.,
             ambient_strength: 0.01,
             diffuse_strength: 1.,
             sun_pause: false,
@@ -161,8 +161,8 @@ impl World {
 
     pub fn update_sun(&mut self) {
         let Transform::Static { translation, .. } = &mut self.entities[1].transform else { unreachable!() };
-        translation.y = self.sun_radius * self.time_of_day.cos();
-        translation.z = self.sun_radius * self.time_of_day.sin();
+        translation.x = self.sun_radius * self.time_of_day.sin();
+        translation.z = self.sun_radius * self.time_of_day.cos();
     }
 
     pub fn light(&self) -> Light {
