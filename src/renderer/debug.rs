@@ -48,7 +48,25 @@ unsafe extern "system" fn callback(
     vk::FALSE
 }
 
-pub fn debug_label<T: Handle>(object: T, name: &str, debug_ext: &DebugUtils, dev: &Dev) {
+pub fn begin_label(buf: vk::CommandBuffer, text: &str, color: [u8; 3], debug_ext: &DebugUtils) {
+    let color = [
+        color[0] as f32 / 255.,
+        color[1] as f32 / 255.,
+        color[2] as f32 / 255.,
+        1.,
+    ];
+    let label_name = CString::new(text).unwrap();
+    let label = *vk::DebugUtilsLabelEXT::builder()
+        .label_name(&label_name)
+        .color(color);
+    unsafe { debug_ext.cmd_begin_debug_utils_label(buf, &label) };
+}
+
+pub fn end_label(buf: vk::CommandBuffer, debug_ext: &DebugUtils) {
+    unsafe { debug_ext.cmd_end_debug_utils_label(buf) };
+}
+
+pub fn set_label<T: Handle>(object: T, name: &str, debug_ext: &DebugUtils, dev: &Dev) {
     let object_name = CString::new(name).unwrap();
     let name_info = *vk::DebugUtilsObjectNameInfoEXT::builder()
         .object_type(T::TYPE)

@@ -12,6 +12,7 @@ mod util;
 pub mod vertex;
 
 use crate::grass::Grass;
+use crate::renderer::debug::{begin_label, end_label};
 use crate::renderer::descriptors::DescriptorMetadata;
 use crate::renderer::graph::Pass;
 use crate::renderer::pipeline::Pipeline;
@@ -29,7 +30,6 @@ use ash::{vk, Entry};
 use imgui::DrawData;
 use nalgebra::{Matrix4, Vector3};
 use std::f32::consts::FRAC_PI_4;
-use std::ffi::CString;
 use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex};
 use winit::dpi::PhysicalSize;
@@ -238,48 +238,23 @@ impl Renderer {
     }
 
     unsafe fn record_render_pass(&self, buf: vk::CommandBuffer, world: &World) {
-        let pass = self.render.begin();
-        self.begin_label(buf, "Forward rendering pass", [160, 167, 161]);
-        self.dev
-            .cmd_begin_render_pass(buf, &pass, vk::SubpassContents::INLINE);
+        self.render.begin(buf, &self.dev, &self.extensions.debug);
 
-        self.begin_label(buf, "Entity draws", [57, 65, 62]);
-        self.dev.cmd_bind_pipeline(
-            buf,
-            vk::PipelineBindPoint::GRAPHICS,
-            self.object_pipeline.pipeline,
-        );
+        begin_label(buf, "Entity draws", [57, 65, 62], &self.extensions.debug);
+        self.bind_pipeline(buf, &self.object_pipeline);
         for (entity, gpu_entity) in world.entities().iter().zip(&self.entities) {
             let mesh = &self.mesh_objects[entity.mesh_id()];
-            self.dev.cmd_bind_descriptor_sets(
-                buf,
-                vk::PipelineBindPoint::GRAPHICS,
-                self.object_pipeline.layout,
-                0,
-                &[gpu_entity.descriptor_sets[self.flight_index]],
-                &[],
-            );
+            self.bind_descriptor_sets(buf, &self.object_pipeline, &gpu_entity.descriptor_sets);
             self.dev
                 .cmd_bind_vertex_buffers(buf, 0, &[mesh.vertex.buffer], &[0]);
             self.dev
                 .cmd_draw(buf, 3 * mesh.triangle_count as u32, 1, 0, 0);
         }
-        self.end_label(buf);
+        end_label(buf, &self.extensions.debug);
 
-        self.begin_label(buf, "Grass draws", [100, 142, 55]);
-        self.dev.cmd_bind_pipeline(
-            buf,
-            vk::PipelineBindPoint::GRAPHICS,
-            self.grass_pipeline.pipeline,
-        );
-        self.dev.cmd_bind_descriptor_sets(
-            buf,
-            vk::PipelineBindPoint::GRAPHICS,
-            self.grass_pipeline.layout,
-            0,
-            &[self.grass_descriptor_sets[self.flight_index]],
-            &[],
-        );
+        begin_label(buf, "Grass draws", [100, 142, 55], &self.extensions.debug);
+        self.bind_pipeline(buf, &self.grass_pipeline);
+        self.bind_descriptor_sets(buf, &self.grass_pipeline, &self.grass_descriptor_sets);
         for grass_chunk in self.grass_chunks.lock().unwrap().iter() {
             self.dev.cmd_bind_vertex_buffers(
                 buf,
@@ -298,56 +273,40 @@ impl Renderer {
                 0,
             );
         }
-        self.end_label(buf);
+        end_label(buf, &self.extensions.debug);
 
-        self.begin_label(buf, "Skybox draw", [129, 147, 164]);
-        self.dev.cmd_bind_pipeline(
-            buf,
-            vk::PipelineBindPoint::GRAPHICS,
-            self.skybox_pipeline.pipeline,
-        );
-        self.dev.cmd_bind_descriptor_sets(
-            buf,
-            vk::PipelineBindPoint::GRAPHICS,
-            self.skybox_pipeline.layout,
-            0,
-            &[self.skybox_descriptor_sets[self.flight_index]],
-            &[],
-        );
+        begin_label(buf, "Skybox draw", [129, 147, 164], &self.extensions.debug);
+        self.bind_pipeline(buf, &self.skybox_pipeline);
+        self.bind_descriptor_sets(buf, &self.skybox_pipeline, &self.skybox_descriptor_sets);
         self.dev
             .cmd_bind_vertex_buffers(buf, 0, &[self.mesh_objects[1].vertex.buffer], &[0]);
         self.dev
             .cmd_draw(buf, 3 * self.mesh_objects[1].triangle_count as u32, 1, 0, 0);
-        self.end_label(buf);
+        end_label(buf, &self.extensions.debug);
 
         self.dev.cmd_next_subpass(buf, vk::SubpassContents::INLINE);
 
-        self.begin_label(buf, "Atmosphere draw", [84, 115, 144]);
-        self.dev.cmd_bind_pipeline(
+        begin_label(
             buf,
-            vk::PipelineBindPoint::GRAPHICS,
-            self.atmosphere_pipeline.pipeline,
+            "Atmosphere draw",
+            [84, 115, 144],
+            &self.extensions.debug,
         );
-        self.dev.cmd_bind_descriptor_sets(
+        self.bind_pipeline(buf, &self.atmosphere_pipeline);
+        self.bind_descriptor_sets(
             buf,
-            vk::PipelineBindPoint::GRAPHICS,
-            self.atmosphere_pipeline.layout,
-            0,
-            &[self.atmosphere_descriptor_sets[self.flight_index]],
-            &[],
+            &self.atmosphere_pipeline,
+            &self.atmosphere_descriptor_sets,
         );
         self.dev.cmd_draw(buf, 6, 1, 0, 0);
-        self.end_label(buf);
+        end_label(buf, &self.extensions.debug);
 
         self.dev.cmd_end_render_pass(buf);
-        self.end_label(buf);
+        end_label(buf, &self.extensions.debug);
     }
 
     unsafe fn record_gaussian_pass(&mut self, buf: vk::CommandBuffer) {
-        let pass = self.gaussian.begin();
-        self.begin_label(buf, "Gaussian pass", [244, 244, 247]);
-        self.dev
-            .cmd_begin_render_pass(buf, &pass, vk::SubpassContents::INLINE);
+        self.gaussian.begin(buf, &self.dev, &self.extensions.debug);
 
         self.dev.cmd_bind_pipeline(
             buf,
@@ -365,7 +324,7 @@ impl Renderer {
         self.dev.cmd_draw(buf, 6, 1, 0, 0);
 
         self.dev.cmd_end_render_pass(buf);
-        self.end_label(buf);
+        end_label(buf, &self.extensions.debug);
     }
 
     unsafe fn record_postprocess_pass(
@@ -374,12 +333,15 @@ impl Renderer {
         image_index: usize,
         ui_draw: &DrawData,
     ) {
-        let pass = self.postprocess.begin_to_swapchain(image_index);
-        self.begin_label(buf, "Postprocessing pass", [210, 206, 203]);
-        self.dev
-            .cmd_begin_render_pass(buf, &pass, vk::SubpassContents::INLINE);
+        self.postprocess
+            .begin_to_swapchain(buf, image_index, &self.dev, &self.extensions.debug);
 
-        self.begin_label(buf, "Postprocess draw", [210, 206, 203]);
+        begin_label(
+            buf,
+            "Postprocess draw",
+            [210, 206, 203],
+            &self.extensions.debug,
+        );
         self.dev.cmd_bind_pipeline(
             buf,
             vk::PipelineBindPoint::GRAPHICS,
@@ -394,18 +356,23 @@ impl Renderer {
             &[],
         );
         self.dev.cmd_draw(buf, 6, 1, 0, 0);
-        self.end_label(buf);
+        end_label(buf, &self.extensions.debug);
 
-        self.begin_label(buf, "Debugging interface draw", [63, 70, 73]);
+        begin_label(
+            buf,
+            "Debugging interface draw",
+            [63, 70, 73],
+            &self.extensions.debug,
+        );
         self.interface_renderer
             .as_mut()
             .unwrap()
             .cmd_draw(buf, ui_draw)
             .unwrap();
-        self.end_label(buf);
+        end_label(buf, &self.extensions.debug);
 
         self.dev.cmd_end_render_pass(buf);
-        self.end_label(buf);
+        end_label(buf, &self.extensions.debug);
     }
 
     fn update_object_uniforms(&self, world: &World, entity_id: usize, settings: &RendererSettings) {
@@ -507,25 +474,28 @@ impl Renderer {
         proj
     }
 
-    fn begin_label(&self, buf: vk::CommandBuffer, text: &str, color: [u8; 3]) {
-        let color = [
-            color[0] as f32 / 255.,
-            color[1] as f32 / 255.,
-            color[2] as f32 / 255.,
-            1.,
-        ];
-        let label_name = CString::new(text).unwrap();
-        let label = *vk::DebugUtilsLabelEXT::builder()
-            .label_name(&label_name)
-            .color(color);
+    fn bind_pipeline(&self, buf: vk::CommandBuffer, pipeline: &Pipeline) {
         unsafe {
-            self.extensions
-                .debug
-                .cmd_begin_debug_utils_label(buf, &label)
+            self.dev
+                .cmd_bind_pipeline(buf, vk::PipelineBindPoint::GRAPHICS, pipeline.pipeline)
         };
     }
 
-    fn end_label(&self, buf: vk::CommandBuffer) {
-        unsafe { self.extensions.debug.cmd_end_debug_utils_label(buf) };
+    fn bind_descriptor_sets(
+        &self,
+        buf: vk::CommandBuffer,
+        pipeline: &Pipeline,
+        sets: &[vk::DescriptorSet; FRAMES_IN_FLIGHT],
+    ) {
+        unsafe {
+            self.dev.cmd_bind_descriptor_sets(
+                buf,
+                vk::PipelineBindPoint::GRAPHICS,
+                pipeline.layout,
+                0,
+                &[sets[self.flight_index]],
+                &[],
+            )
+        };
     }
 }

@@ -1,13 +1,13 @@
 use crate::cli::Args;
 use crate::config::DEFAULT_STAR_COUNT;
 use crate::mesh::MeshData;
-use crate::renderer::debug::{create_debug_messenger, debug_label};
+use crate::renderer::debug::{create_debug_messenger, set_label};
 use crate::renderer::descriptors::{
     create_descriptor_metadata, Descriptor, DescriptorConfig, DescriptorKind, DescriptorMetadata,
     DescriptorValue,
 };
 use crate::renderer::device::{select_device, DeviceInfo};
-use crate::renderer::graph::{create_pass, AttachmentConfig, Pass};
+use crate::renderer::graph::{create_pass, AttachmentConfig, Pass, PassConfig};
 use crate::renderer::pipeline::{create_pipeline, Pipeline, PipelineConfig};
 use crate::renderer::raytracing::{create_blas, create_tlas, RaytraceResources};
 use crate::renderer::shader::SpecializationConstant;
@@ -390,13 +390,13 @@ impl AsyncLoader {
     pub fn load_grass_chunk(&self, id: usize, blades_data: &[GrassBlade]) {
         trace!("loading grass chunk, \x1B[1mid\x1B[0m: {}", id);
         let blades = create_blade_buffer(blades_data, &self.dev);
-        debug_label(
+        set_label(
             blades.buffer,
             &format!("Grass buffer chunk={id}"),
             &self.debug_ext,
             &self.dev,
         );
-        debug_label(
+        set_label(
             blades.memory,
             &format!("Grass memory chunk={id}"),
             &self.debug_ext,
@@ -747,51 +747,62 @@ fn create_swapchain_all(
 }
 
 fn create_render_pass(msaa_samples: vk::SampleCountFlags, extent: vk::Extent2D, dev: &Dev) -> Pass {
-    let attachments = [
-        AttachmentConfig::new(COLOR_FORMAT)
-            .samples(msaa_samples)
-            .clear_color([0., 0., 0., 0.])
-            .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
-            .final_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-            .input_to(1)
-            .transient(),
-        AttachmentConfig::new(vk::Format::R32G32B32A32_SFLOAT)
-            .samples(msaa_samples)
-            .clear_color([0., 0., 0., 0.])
-            .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
-            .final_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-            .input_to(1)
-            .transient(),
-        AttachmentConfig::new(DEPTH_FORMAT)
-            .samples(msaa_samples)
-            .clear_depth(1.)
-            .layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
-            .transient(),
-        AttachmentConfig::new(COLOR_FORMAT)
-            .samples(msaa_samples)
-            .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
-            .store(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-            .usage(vk::ImageUsageFlags::SAMPLED)
-            .subpass(1),
-    ];
-    let dependencies = [vk::SubpassDependency {
-        src_subpass: 0,
-        dst_subpass: 1,
-        src_stage_mask: vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
-        dst_stage_mask: vk::PipelineStageFlags::FRAGMENT_SHADER,
-        src_access_mask: vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
-        dst_access_mask: vk::AccessFlags::INPUT_ATTACHMENT_READ,
-        dependency_flags: vk::DependencyFlags::BY_REGION,
-    }];
-    create_pass(extent, dev, &attachments, &dependencies)
+    create_pass(PassConfig {
+        debug_name: "Forward rendering pass",
+        debug_color: [160, 167, 161],
+        attachments: &[
+            AttachmentConfig::new(COLOR_FORMAT)
+                .samples(msaa_samples)
+                .clear_color([0., 0., 0., 0.])
+                .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+                .final_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                .input_to(1)
+                .transient(),
+            AttachmentConfig::new(vk::Format::R32G32B32A32_SFLOAT)
+                .samples(msaa_samples)
+                .clear_color([0., 0., 0., 0.])
+                .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+                .final_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                .input_to(1)
+                .transient(),
+            AttachmentConfig::new(DEPTH_FORMAT)
+                .samples(msaa_samples)
+                .clear_depth(1.)
+                .layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+                .transient(),
+            AttachmentConfig::new(COLOR_FORMAT)
+                .samples(msaa_samples)
+                .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+                .store(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                .usage(vk::ImageUsageFlags::SAMPLED)
+                .subpass(1),
+        ],
+        dependencies: &[vk::SubpassDependency {
+            src_subpass: 0,
+            dst_subpass: 1,
+            src_stage_mask: vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+            dst_stage_mask: vk::PipelineStageFlags::FRAGMENT_SHADER,
+            src_access_mask: vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
+            dst_access_mask: vk::AccessFlags::INPUT_ATTACHMENT_READ,
+            dependency_flags: vk::DependencyFlags::BY_REGION,
+        }],
+        extent,
+        dev,
+    })
 }
 
 fn create_gaussian_pass(extent: vk::Extent2D, dev: &Dev) -> Pass {
-    let attachments = [AttachmentConfig::new(COLOR_FORMAT)
-        .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
-        .store(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-        .usage(vk::ImageUsageFlags::SAMPLED)];
-    create_pass(extent, dev, &attachments, &[])
+    create_pass(PassConfig {
+        debug_name: "Gaussian pass",
+        debug_color: [244, 244, 247],
+        attachments: &[AttachmentConfig::new(COLOR_FORMAT)
+            .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+            .store(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+            .usage(vk::ImageUsageFlags::SAMPLED)],
+        dependencies: &[],
+        extent,
+        dev,
+    })
 }
 
 fn create_postprocess_pass(
@@ -800,11 +811,17 @@ fn create_postprocess_pass(
     extent: vk::Extent2D,
     dev: &Dev,
 ) -> Pass {
-    let attachments = [AttachmentConfig::new(format)
-        .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
-        .store(vk::ImageLayout::PRESENT_SRC_KHR)
-        .swapchain(&swapchain.image_views)];
-    create_pass(extent, dev, &attachments, &[])
+    create_pass(PassConfig {
+        debug_name: "Postprocess pass",
+        debug_color: [210, 206, 203],
+        attachments: &[AttachmentConfig::new(format)
+            .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+            .store(vk::ImageLayout::PRESENT_SRC_KHR)
+            .swapchain(&swapchain.image_views)],
+        dependencies: &[],
+        extent,
+        dev,
+    })
 }
 
 fn create_object_descriptor_metadata(supports_raytracing: bool, dev: &Dev) -> DescriptorMetadata {

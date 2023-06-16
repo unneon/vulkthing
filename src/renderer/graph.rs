@@ -1,13 +1,26 @@
+use crate::renderer::debug::begin_label;
 use crate::renderer::util::{Dev, ImageResources};
+use ash::extensions::ext::DebugUtils;
 use ash::vk;
 
 pub struct Pass {
+    debug_name: &'static str,
+    debug_color: [u8; 3],
     pub pass: vk::RenderPass,
     extent: vk::Extent2D,
     clears: Vec<vk::ClearValue>,
     pub resources: Vec<ImageResources>,
     framebuffers: Vec<vk::Framebuffer>,
     direct_to_swapchain: bool,
+}
+
+pub struct PassConfig<'a> {
+    pub debug_name: &'static str,
+    pub debug_color: [u8; 3],
+    pub attachments: &'a [AttachmentConfig<'a>],
+    pub dependencies: &'a [vk::SubpassDependency],
+    pub extent: vk::Extent2D,
+    pub dev: &'a Dev,
 }
 
 pub struct AttachmentConfig<'a> {
@@ -37,25 +50,39 @@ impl Pass {
         }
     }
 
-    pub fn begin(&self) -> vk::RenderPassBeginInfo {
+    pub fn begin(&self, buf: vk::CommandBuffer, dev: &Dev, debug_ext: &DebugUtils) {
         assert!(!self.direct_to_swapchain);
-        self.generic_begin(self.framebuffers[0])
+        self.generic_begin(buf, self.framebuffers[0], dev, debug_ext);
     }
 
-    pub fn begin_to_swapchain(&self, image_index: usize) -> vk::RenderPassBeginInfo {
+    pub fn begin_to_swapchain(
+        &self,
+        buf: vk::CommandBuffer,
+        image_index: usize,
+        dev: &Dev,
+        debug_ext: &DebugUtils,
+    ) {
         assert!(self.direct_to_swapchain);
-        self.generic_begin(self.framebuffers[image_index])
+        self.generic_begin(buf, self.framebuffers[image_index], dev, debug_ext);
     }
 
-    fn generic_begin(&self, framebuffer: vk::Framebuffer) -> vk::RenderPassBeginInfo {
-        *vk::RenderPassBeginInfo::builder()
+    fn generic_begin(
+        &self,
+        buf: vk::CommandBuffer,
+        framebuffer: vk::Framebuffer,
+        dev: &Dev,
+        debug_ext: &DebugUtils,
+    ) {
+        let info = *vk::RenderPassBeginInfo::builder()
             .render_pass(self.pass)
             .framebuffer(framebuffer)
             .render_area(vk::Rect2D {
                 offset: vk::Offset2D { x: 0, y: 0 },
                 extent: self.extent,
             })
-            .clear_values(&self.clears)
+            .clear_values(&self.clears);
+        begin_label(buf, self.debug_name, self.debug_color, debug_ext);
+        unsafe { dev.cmd_begin_render_pass(buf, &info, vk::SubpassContents::INLINE) };
     }
 }
 
@@ -137,13 +164,14 @@ impl<'a> AttachmentConfig<'a> {
     }
 }
 
-pub fn create_pass(
-    extent: vk::Extent2D,
-    dev: &Dev,
-    configs: &[AttachmentConfig],
-    dependencies: &[vk::SubpassDependency],
-) -> Pass {
-    let subpass_count = configs.iter().map(|config| config.subpass).max().unwrap() + 1;
+pub fn create_pass(config: PassConfig) -> Pass {
+    let subpass_count = config
+        .attachments
+        .iter()
+        .map(|config| config.subpass)
+        .max()
+        .unwrap()
+        + 1;
     let mut attachments = Vec::new();
     let mut color = vec![Vec::new(); subpass_count];
     let mut depth = vec![None; subpass_count];
@@ -153,81 +181,81 @@ pub fn create_pass(
     let mut framebuffer_attachments = Vec::new();
     let mut swapchain_index = None;
     let mut swapchain_views = None;
-    for (index, config) in configs.iter().enumerate() {
-        let attachment = *vk::AttachmentDescription::builder()
-            .format(config.format)
-            .samples(config.samples)
-            .load_op(if config.clear.is_some() {
+    for (index, attachment) in config.attachments.iter().enumerate() {
+        let description = *vk::AttachmentDescription::builder()
+            .format(attachment.format)
+            .samples(attachment.samples)
+            .load_op(if attachment.clear.is_some() {
                 vk::AttachmentLoadOp::CLEAR
             } else {
                 vk::AttachmentLoadOp::DONT_CARE
             })
-            .store_op(if config.store {
+            .store_op(if attachment.store {
                 vk::AttachmentStoreOp::STORE
             } else {
                 vk::AttachmentStoreOp::DONT_CARE
             })
             .initial_layout(vk::ImageLayout::UNDEFINED)
-            .final_layout(config.final_layout.unwrap_or(config.layout));
+            .final_layout(attachment.final_layout.unwrap_or(attachment.layout));
         let reference = *vk::AttachmentReference::builder()
             .attachment(index as u32)
-            .layout(config.layout);
-        attachments.push(attachment);
-        if config.layout == vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL {
-            color[config.subpass].push(reference);
-        } else if config.layout == vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL
-            && depth[config.subpass].is_none()
+            .layout(attachment.layout);
+        attachments.push(description);
+        if attachment.layout == vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL {
+            color[attachment.subpass].push(reference);
+        } else if attachment.layout == vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+            && depth[attachment.subpass].is_none()
         {
-            depth[config.subpass] = Some(reference);
+            depth[attachment.subpass] = Some(reference);
         } else {
             panic!(
                 "unimplemented case {:?} {:?}",
-                config.format,
-                depth[config.subpass].is_none(),
+                attachment.format,
+                depth[attachment.subpass].is_none(),
             );
         }
-        for as_input in &config.input_to {
+        for as_input in &attachment.input_to {
             let input_reference = *vk::AttachmentReference::builder()
                 .attachment(index as u32)
                 .layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL);
             input[*as_input].push(input_reference);
         }
-        if let Some(clear) = config.clear {
+        if let Some(clear) = attachment.clear {
             clears.push(clear);
         }
-        if config.swapchain.is_none() {
-            let mut flags = config.image_flags;
-            if config.layout == vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL {
+        if attachment.swapchain.is_none() {
+            let mut flags = attachment.image_flags;
+            if attachment.layout == vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL {
                 flags |= vk::ImageUsageFlags::COLOR_ATTACHMENT;
-            } else if config.layout == vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL {
+            } else if attachment.layout == vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL {
                 flags |= vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT;
             }
-            if config.transient {
+            if attachment.transient {
                 flags |= vk::ImageUsageFlags::TRANSIENT_ATTACHMENT;
             }
-            if !config.input_to.is_empty() {
+            if !attachment.input_to.is_empty() {
                 flags |= vk::ImageUsageFlags::INPUT_ATTACHMENT;
             }
             let resource = ImageResources::create(
-                config.format,
+                attachment.format,
                 vk::MemoryPropertyFlags::DEVICE_LOCAL,
                 vk::ImageTiling::OPTIMAL,
                 flags,
-                if config.layout == vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL {
+                if attachment.layout == vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL {
                     vk::ImageAspectFlags::COLOR
                 } else {
                     vk::ImageAspectFlags::DEPTH
                 },
-                extent,
-                config.samples,
-                dev,
+                config.extent,
+                attachment.samples,
+                config.dev,
             );
             framebuffer_attachments.push(resource.view);
             resources.push(resource);
         } else {
             framebuffer_attachments.push(vk::ImageView::null());
             swapchain_index = Some(index);
-            swapchain_views = config.swapchain;
+            swapchain_views = attachment.swapchain;
         }
     }
     let mut subpasses = Vec::new();
@@ -244,28 +272,30 @@ pub fn create_pass(
     let create_info = *vk::RenderPassCreateInfo::builder()
         .attachments(&attachments)
         .subpasses(&subpasses)
-        .dependencies(dependencies);
-    let pass = unsafe { dev.create_render_pass(&create_info, None) }.unwrap();
+        .dependencies(config.dependencies);
+    let pass = unsafe { config.dev.create_render_pass(&create_info, None) }.unwrap();
     let mut framebuffers = Vec::new();
     let info = *vk::FramebufferCreateInfo::builder()
         .render_pass(pass)
         .attachments(&framebuffer_attachments)
-        .width(extent.width)
-        .height(extent.height)
+        .width(config.extent.width)
+        .height(config.extent.height)
         .layers(1);
     if let Some(swapchain_index) = swapchain_index {
         for image in swapchain_views.unwrap() {
             unsafe { *(info.p_attachments.add(swapchain_index) as *mut vk::ImageView) = *image };
-            let framebuffer = unsafe { dev.create_framebuffer(&info, None) }.unwrap();
+            let framebuffer = unsafe { config.dev.create_framebuffer(&info, None) }.unwrap();
             framebuffers.push(framebuffer);
         }
     } else {
-        let framebuffer = unsafe { dev.create_framebuffer(&info, None) }.unwrap();
+        let framebuffer = unsafe { config.dev.create_framebuffer(&info, None) }.unwrap();
         framebuffers.push(framebuffer);
     }
     Pass {
+        debug_name: config.debug_name,
+        debug_color: config.debug_color,
         pass,
-        extent,
+        extent: config.extent,
         clears,
         resources,
         framebuffers,
