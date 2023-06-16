@@ -49,6 +49,9 @@ vec3 apply_tone_mapping(vec3 color) {
 vec3 postprocess(vec3 color) {
     // Assume the colors computed by the lighting shader are in [0, infinity) HDR.
 
+    // Apply bloom. It's meant to simulate light overwhelming a camera lens, so I think it should come before exposure?
+    color += postprocessing.bloom * textureLod(bloom, gl_FragCoord.xy, 0).rgb;
+
     // Apply camera exposure. Assumes exposure is non-negative.
     color = color * postprocessing.exposure;
 
@@ -84,6 +87,5 @@ void main() {
     for (int i = 0; i < msaa_samples; ++i) {
         total += postprocess(texelFetch(render, ivec2(gl_FragCoord.xy), i).rgb);
     }
-    total += postprocessing.bloom * textureLod(bloom, gl_FragCoord.xy, 0).rgb;
     out_color = vec4(total / msaa_samples, 1);
 }

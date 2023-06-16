@@ -182,9 +182,9 @@ fn build_postprocessing(ui: &Ui, postprocessing: &mut Postprocessing) {
     ui.slider_config("Exposure", 0.001, 100.)
         .flags(SliderFlags::LOGARITHMIC)
         .build(&mut postprocessing.exposure);
-    // ui.slider_config("Bloom", 0.001, 10.)
-    //     .flags(SliderFlags::LOGARITHMIC)
-    //     .build(&mut postprocessing.bloom);
+    ui.slider_config("Bloom strength", 0.01, 10.)
+        .flags(SliderFlags::LOGARITHMIC)
+        .build(&mut postprocessing.bloom);
     ui.slider("Temperature", -1.67, 1.67, &mut postprocessing.temperature);
     ui.slider("Tint", -1.67, 1.67, &mut postprocessing.tint);
     Drag::new("Contrast")
