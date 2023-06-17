@@ -76,6 +76,7 @@ pub const DEFAULT_ATMOSPHERE: Atmosphere = Atmosphere {
     sun_position: DEFAULT_SUN_POSITION,
     wavelengths: Vector3::new(700., 530., 440.),
     scattering_strength: 0.01,
+    henyey_greenstein_g: 0.,
 };
 
 pub const DEFAULT_GAUSSIAN: Gaussian = Gaussian {

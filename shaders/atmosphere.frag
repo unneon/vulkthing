@@ -17,6 +17,7 @@ layout(binding = 2) uniform Atmosphere {
     float scale;
     vec3 wavelengths;
     float scattering_strength;
+    float henyey_greenstein_g;
 } atmosphere;
 
 layout(binding = 3) uniform Camera {
@@ -65,6 +66,18 @@ float optical_depth(vec3 ray_origin, vec3 ray_direction, float ray_length) {
     return optical_depth;
 }
 
+// Computes how much light gets scattered depending on the cosine of the angle. Takes the cosine rather than the angle,
+// because that's cheaper to compute given two vectors. Can return results greater than 1 for some reason.
+float phase_function(float cos_theta) {
+    // The formula is claimed to be "adaptation" of the Henyey-Greenstein function, but it's not clear what was changed
+    // and why. Probably a good idea to read the original paper later.
+    // https://developer.nvidia.com/gpugems/gpugems2/part-ii-shading-lighting-and-shadows/chapter-16-accurate-atmospheric-scattering
+    float g = atmosphere.henyey_greenstein_g;
+    float c = cos_theta;
+    return (3 * (1 - g * g)) / (2 * (2 + g * g))
+        * (1 + c * c) / pow(1 + g * g - 2 * g * c, 1.5);
+}
+
 vec3 calculate_light(vec3 ray_origin, vec3 ray_direction, float ray_length, vec3 original_color) {
     // This entire function approach with assigning wavelengths to color channels is completely broken, given the output
     // is in sRGB color space. Fixing will come later, as I need to figure out how this should interact with the rest of
@@ -84,7 +97,8 @@ vec3 calculate_light(vec3 ray_origin, vec3 ray_direction, float ray_length, vec3
         float view_ray_optical_depth = optical_depth(in_scatter_point, -ray_direction, step_length * i);
         vec3 transmittance = exp(-scatter_coefficients * (sun_ray_optical_depth + view_ray_optical_depth));
         float local_density = density_at_point(in_scatter_point);
-        in_scattered_light += local_density * transmittance * scatter_coefficients * step_length;
+        float cos_angle = dot(normalize(sun_direction), normalize(-ray_direction));
+        in_scattered_light += local_density * phase_function(cos_angle) * transmittance * scatter_coefficients * step_length;
         in_scatter_point += ray_direction * step_length;
     }
     float original_optical_depth = optical_depth(ray_origin, ray_direction, ray_length);

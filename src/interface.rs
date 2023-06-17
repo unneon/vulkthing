@@ -150,6 +150,12 @@ impl Interface {
                     ui.slider_config("Scattering strength", 0.001, 100.)
                         .flags(SliderFlags::LOGARITHMIC)
                         .build(&mut atmosphere.scattering_strength);
+                    ui.slider(
+                        "Henyey-Greenstein g",
+                        -1.,
+                        0.,
+                        &mut atmosphere.henyey_greenstein_g,
+                    );
                     ui.slider("Planet radius", 0., 2000., &mut atmosphere.planet_radius);
                 }
                 if ui.collapsing_header("Bloom", TreeNodeFlags::DEFAULT_OPEN) {

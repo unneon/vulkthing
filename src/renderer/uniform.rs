@@ -60,6 +60,7 @@ pub struct Atmosphere {
     pub scale: f32,
     pub wavelengths: Vector3<f32>,
     pub scattering_strength: f32,
+    pub henyey_greenstein_g: f32,
 }
 
 #[repr(C)]
