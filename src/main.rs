@@ -62,6 +62,7 @@ fn main() {
     let cube_mesh = load_mesh("assets/cube.obj");
     let grass_mesh = load_mesh("assets/grass.obj");
     let tetrahedron_mesh = load_mesh("assets/tetrahedron.obj");
+    let icosahedron_mesh = load_mesh("assets/icosahedron.obj");
     let mut planet = DEFAULT_PLANET;
     let grass = Arc::new(Mutex::new(DEFAULT_GRASS));
     let planet_mesh = Arc::new(generate_planet(&planet));
@@ -72,7 +73,13 @@ fn main() {
     let mut world = World::new(&planet_mesh);
     let mut renderer = Renderer::new(
         &window,
-        &[&planet_mesh, &cube_mesh, &tetrahedron_mesh, &grass_mesh],
+        &[
+            &planet_mesh,
+            &cube_mesh,
+            &tetrahedron_mesh,
+            &grass_mesh,
+            &icosahedron_mesh,
+        ],
         &world,
         &args,
     );

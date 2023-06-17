@@ -92,7 +92,7 @@ impl World {
             },
             diffuse: Vector3::zeros(),
             emit: Vector3::from_element(1.),
-            mesh_id: 1,
+            mesh_id: 4,
         };
         let mut entities = vec![planet, sun];
         let mut rng = rand::thread_rng();
