@@ -270,6 +270,7 @@ pub fn create_image_view(
 }
 
 // TODO: Use 4x or less MSAA samples, as recommended by AMD.
+#[allow(dead_code)]
 pub fn find_max_msaa_samples(dev: &Dev) -> vk::SampleCountFlags {
     let best_order = [
         vk::SampleCountFlags::TYPE_64,

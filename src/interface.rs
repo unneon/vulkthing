@@ -4,6 +4,7 @@ use crate::planet::Planet;
 use crate::renderer::uniform::{Atmosphere, FragSettings, Gaussian, Postprocessing};
 use crate::renderer::{Renderer, RendererSettings};
 use crate::world::World;
+use ash::vk;
 use imgui::{Condition, Context, Drag, SliderFlags, TreeNodeFlags, Ui};
 use nalgebra::Vector3;
 use std::borrow::Cow;
@@ -26,6 +27,8 @@ pub struct Interface {
 pub struct InterfaceEvents {
     pub planet_changed: bool,
     pub grass_changed: bool,
+    pub rebuild_swapchain: bool,
+    pub rebuild_pipelines: bool,
 }
 
 impl Interface {
@@ -45,6 +48,8 @@ impl Interface {
         let mut events = InterfaceEvents {
             planet_changed: false,
             grass_changed: false,
+            rebuild_swapchain: false,
+            rebuild_pipelines: false,
         };
         ui.window("Debugging")
             .size([0., 0.], Condition::Always)
@@ -132,6 +137,8 @@ impl Interface {
                         .flags(SliderFlags::LOGARITHMIC)
                         .build(&mut renderer_settings.depth_far);
                     ui.checkbox("Ray-traced shadows", &mut frag_settings.use_ray_tracing);
+                    events.rebuild_swapchain |=
+                        enum_slider(ui, "MSAA", &mut renderer_settings.msaa_samples);
                 }
                 if ui.collapsing_header("Atmosphere", TreeNodeFlags::empty()) {
                     ui.checkbox("Enable", &mut atmosphere.enable);
@@ -172,6 +179,26 @@ impl Interface {
                 }
             });
         events
+    }
+}
+
+impl EnumInterface for vk::SampleCountFlags {
+    const VALUES: &'static [Self] = &[
+        vk::SampleCountFlags::TYPE_2,
+        vk::SampleCountFlags::TYPE_4,
+        vk::SampleCountFlags::TYPE_8,
+    ];
+
+    fn label(&self) -> Cow<str> {
+        if self.contains(vk::SampleCountFlags::TYPE_8) {
+            Cow::Borrowed("8x")
+        } else if self.contains(vk::SampleCountFlags::TYPE_4) {
+            Cow::Borrowed("4x")
+        } else if self.contains(vk::SampleCountFlags::TYPE_2) {
+            Cow::Borrowed("2x")
+        } else {
+            Cow::Borrowed("1x")
+        }
     }
 }
 
@@ -227,6 +254,21 @@ fn enum_combo<T: Copy + EnumInterface + PartialEq>(ui: &Ui, label: &str, value: 
         .unwrap()
         .0;
     let changed = ui.combo(label, &mut index, T::VALUES, T::label);
+    *value = T::VALUES[index];
+    changed
+}
+
+fn enum_slider<T: Copy + EnumInterface + PartialEq>(ui: &Ui, label: &str, value: &mut T) -> bool {
+    let mut index = T::VALUES
+        .iter()
+        .enumerate()
+        .find(|(_, x)| *x == value)
+        .unwrap()
+        .0;
+    let changed = ui
+        .slider_config(label, 0, T::VALUES.len() - 1)
+        .display_format(value.label())
+        .build(&mut index);
     *value = T::VALUES[index];
     changed
 }

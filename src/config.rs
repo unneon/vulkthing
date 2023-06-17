@@ -3,6 +3,7 @@ use crate::grass::Grass;
 use crate::planet::{NoiseType, Planet};
 use crate::renderer::uniform::{Atmosphere, FragSettings, Gaussian, Postprocessing, Tonemapper};
 use crate::renderer::RendererSettings;
+use ash::vk;
 use nalgebra::Vector3;
 
 pub const DEFAULT_PLANET: Planet = Planet {
@@ -57,6 +58,7 @@ pub const DEFAULT_CAMERA: FirstPersonCamera = FirstPersonCamera {
 pub const DEFAULT_RENDERER_SETTINGS: RendererSettings = RendererSettings {
     depth_near: 0.2,
     depth_far: 65536.,
+    msaa_samples: vk::SampleCountFlags::TYPE_2,
 };
 
 pub const DEFAULT_FRAG_SETTINGS: FragSettings = FragSettings {

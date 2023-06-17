@@ -71,6 +71,7 @@ fn main() {
         &planet_mesh,
     ));
     let mut world = World::new(&planet_mesh);
+    let mut renderer_settings = DEFAULT_RENDERER_SETTINGS;
     let mut renderer = Renderer::new(
         &window,
         &[
@@ -81,6 +82,7 @@ fn main() {
             &icosahedron_mesh,
         ],
         &world,
+        &renderer_settings,
         &args,
     );
     let mut interface = Interface::new(
@@ -89,7 +91,6 @@ fn main() {
     );
     let mut input_state = InputState::new();
     let mut last_update = Instant::now();
-    let mut renderer_settings = DEFAULT_RENDERER_SETTINGS;
     let mut frag_settings = DEFAULT_FRAG_SETTINGS;
     let mut atmosphere = DEFAULT_ATMOSPHERE;
     let mut gaussian = DEFAULT_GAUSSIAN;
@@ -172,6 +173,12 @@ fn main() {
                     &renderer,
                 );
                 assert!(!interface_events.planet_changed);
+                renderer.msaa_samples = renderer_settings.msaa_samples;
+                if interface_events.rebuild_swapchain {
+                    renderer.recreate_swapchain(window.window.inner_size());
+                } else if interface_events.rebuild_pipelines {
+                    renderer.recreate_pipelines();
+                }
                 renderer.unload_grass_chunks(
                     |chunk_id| {
                         let triangle_id = chunks[chunk_id][0];

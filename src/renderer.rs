@@ -47,7 +47,7 @@ pub struct Renderer {
     supports_raytracing: bool,
 
     // Parameters of the renderer that are required early for creating more important objects.
-    msaa_samples: vk::SampleCountFlags,
+    pub msaa_samples: vk::SampleCountFlags,
     unnormalized_sampler: vk::Sampler,
     atmosphere_uniform: UniformBuffer<Atmosphere>,
     gaussian_uniform: UniformBuffer<Gaussian>,
@@ -59,29 +59,24 @@ pub struct Renderer {
     object_descriptor_metadata: DescriptorMetadata,
     grass_descriptor_metadata: DescriptorMetadata,
     skybox_descriptor_metadata: DescriptorMetadata,
-    object_pipeline: Pipeline,
-    grass_pipeline: Pipeline,
-    skybox_pipeline: Pipeline,
     render: Pass,
 
     atmosphere_descriptor_metadata: DescriptorMetadata,
-    atmosphere_pipeline: Pipeline,
 
     gaussian_descriptor_metadata: DescriptorMetadata,
-    gaussian_pipeline: Pipeline,
     gaussian: Pass,
 
     // Description of the postprocessing pass, and also the actual descriptor pool. Necessary,
     // because the postprocessing pass depends on swapchain extent and needs to have the descriptor
     // set updated after window resize.
     postprocess_descriptor_metadata: DescriptorMetadata,
-    postprocess_pipeline: Pipeline,
     postprocess: Pass,
 
     // All resources that depend on swapchain extent (window size). So swapchain description, memory
     // used for all framebuffer attachments, framebuffers, and the mentioned postprocess descriptor
     // set. Projection matrix depends on the monitor aspect ratio, so it's included too.
     pub swapchain: Swapchain,
+    pipelines: Pipelines,
     atmosphere_descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
     gaussian_descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
     postprocess_descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
@@ -118,6 +113,15 @@ struct VulkanExtensions {
     surface: Surface,
 }
 
+struct Pipelines {
+    object: Pipeline,
+    grass: Pipeline,
+    skybox: Pipeline,
+    atmosphere: Pipeline,
+    gaussian: Pipeline,
+    postprocess: Pipeline,
+}
+
 struct Synchronization {
     image_available: [vk::Semaphore; FRAMES_IN_FLIGHT],
     render_finished: [vk::Semaphore; FRAMES_IN_FLIGHT],
@@ -151,6 +155,7 @@ pub struct AsyncLoader {
 pub struct RendererSettings {
     pub depth_near: f32,
     pub depth_far: f32,
+    pub msaa_samples: vk::SampleCountFlags,
 }
 
 const FRAMES_IN_FLIGHT: usize = 8;
@@ -241,10 +246,10 @@ impl Renderer {
         self.render.begin(buf, &self.dev, &self.extensions.debug);
 
         begin_label(buf, "Entity draws", [57, 65, 62], &self.extensions.debug);
-        self.bind_pipeline(buf, &self.object_pipeline);
+        self.bind_pipeline(buf, &self.pipelines.object);
         for (entity, gpu_entity) in world.entities().iter().zip(&self.entities) {
             let mesh = &self.mesh_objects[entity.mesh_id()];
-            self.bind_descriptor_sets(buf, &self.object_pipeline, &gpu_entity.descriptor_sets);
+            self.bind_descriptor_sets(buf, &self.pipelines.object, &gpu_entity.descriptor_sets);
             self.dev
                 .cmd_bind_vertex_buffers(buf, 0, &[mesh.vertex.buffer], &[0]);
             self.dev
@@ -253,8 +258,8 @@ impl Renderer {
         end_label(buf, &self.extensions.debug);
 
         begin_label(buf, "Grass draws", [100, 142, 55], &self.extensions.debug);
-        self.bind_pipeline(buf, &self.grass_pipeline);
-        self.bind_descriptor_sets(buf, &self.grass_pipeline, &self.grass_descriptor_sets);
+        self.bind_pipeline(buf, &self.pipelines.grass);
+        self.bind_descriptor_sets(buf, &self.pipelines.grass, &self.grass_descriptor_sets);
         for grass_chunk in self.grass_chunks.lock().unwrap().iter() {
             self.dev.cmd_bind_vertex_buffers(
                 buf,
@@ -276,8 +281,8 @@ impl Renderer {
         end_label(buf, &self.extensions.debug);
 
         begin_label(buf, "Skybox draw", [129, 147, 164], &self.extensions.debug);
-        self.bind_pipeline(buf, &self.skybox_pipeline);
-        self.bind_descriptor_sets(buf, &self.skybox_pipeline, &self.skybox_descriptor_sets);
+        self.bind_pipeline(buf, &self.pipelines.skybox);
+        self.bind_descriptor_sets(buf, &self.pipelines.skybox, &self.skybox_descriptor_sets);
         self.dev
             .cmd_bind_vertex_buffers(buf, 0, &[self.mesh_objects[1].vertex.buffer], &[0]);
         self.dev
@@ -292,10 +297,10 @@ impl Renderer {
             [84, 115, 144],
             &self.extensions.debug,
         );
-        self.bind_pipeline(buf, &self.atmosphere_pipeline);
+        self.bind_pipeline(buf, &self.pipelines.atmosphere);
         self.bind_descriptor_sets(
             buf,
-            &self.atmosphere_pipeline,
+            &self.pipelines.atmosphere,
             &self.atmosphere_descriptor_sets,
         );
         self.dev.cmd_draw(buf, 6, 1, 0, 0);
@@ -308,18 +313,11 @@ impl Renderer {
     unsafe fn record_gaussian_pass(&mut self, buf: vk::CommandBuffer) {
         self.gaussian.begin(buf, &self.dev, &self.extensions.debug);
 
-        self.dev.cmd_bind_pipeline(
+        self.bind_pipeline(buf, &self.pipelines.gaussian);
+        self.bind_descriptor_sets(
             buf,
-            vk::PipelineBindPoint::GRAPHICS,
-            self.gaussian_pipeline.pipeline,
-        );
-        self.dev.cmd_bind_descriptor_sets(
-            buf,
-            vk::PipelineBindPoint::GRAPHICS,
-            self.gaussian_pipeline.layout,
-            0,
-            &[self.gaussian_descriptor_sets[self.flight_index]],
-            &[],
+            &self.pipelines.gaussian,
+            &self.gaussian_descriptor_sets,
         );
         self.dev.cmd_draw(buf, 6, 1, 0, 0);
 
@@ -342,18 +340,11 @@ impl Renderer {
             [210, 206, 203],
             &self.extensions.debug,
         );
-        self.dev.cmd_bind_pipeline(
+        self.bind_pipeline(buf, &self.pipelines.postprocess);
+        self.bind_descriptor_sets(
             buf,
-            vk::PipelineBindPoint::GRAPHICS,
-            self.postprocess_pipeline.pipeline,
-        );
-        self.dev.cmd_bind_descriptor_sets(
-            buf,
-            vk::PipelineBindPoint::GRAPHICS,
-            self.postprocess_pipeline.layout,
-            0,
-            &[self.postprocess_descriptor_sets[self.flight_index]],
-            &[],
+            &self.pipelines.postprocess,
+            &self.postprocess_descriptor_sets,
         );
         self.dev.cmd_draw(buf, 6, 1, 0, 0);
         end_label(buf, &self.extensions.debug);

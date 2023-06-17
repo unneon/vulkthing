@@ -16,11 +16,11 @@ use crate::renderer::uniform::{
     Atmosphere, Camera, FragSettings, Gaussian, GrassUniform, Light, Material, ModelViewProjection,
     Postprocessing,
 };
-use crate::renderer::util::{find_max_msaa_samples, sample_count, vulkan_str, Buffer, Ctx, Dev};
+use crate::renderer::util::{sample_count, vulkan_str, Buffer, Ctx, Dev};
 use crate::renderer::vertex::{GrassBlade, Vertex};
 use crate::renderer::{
-    AsyncLoader, GrassChunk, MeshObject, Object, Renderer, Synchronization, UniformBuffer,
-    VulkanExtensions, FRAMES_IN_FLIGHT,
+    AsyncLoader, GrassChunk, MeshObject, Object, Pipelines, Renderer, RendererSettings,
+    Synchronization, UniformBuffer, VulkanExtensions, FRAMES_IN_FLIGHT,
 };
 use crate::window::Window;
 use crate::world::World;
@@ -53,7 +53,13 @@ pub const UNIFIED_MEMORY: vk::MemoryPropertyFlags = vk::MemoryPropertyFlags::fro
 );
 
 impl Renderer {
-    pub fn new(window: &Window, meshes: &[&MeshData], world: &World, args: &Args) -> Renderer {
+    pub fn new(
+        window: &Window,
+        meshes: &[&MeshData],
+        world: &World,
+        settings: &RendererSettings,
+        args: &Args,
+    ) -> Renderer {
         let entry = unsafe { Entry::load() }.unwrap();
         let instance = create_instance(window, &entry, args);
         let extensions = VulkanExtensions {
@@ -81,7 +87,7 @@ impl Renderer {
         let queue = unsafe { dev.get_device_queue(queue_family, 0) };
         let swapchain_ext = SwapchainKhr::new(&dev.instance, &dev);
 
-        let msaa_samples = find_max_msaa_samples(&dev);
+        let msaa_samples = settings.msaa_samples;
         let unnormalized_sampler = create_unnormalized_sampler(&dev);
         let atmosphere_uniform = UniformBuffer::create(&dev);
         let gaussian_uniform = UniformBuffer::create(&dev);
@@ -100,16 +106,10 @@ impl Renderer {
 
         let (
             swapchain,
-            object_pipeline,
-            grass_pipeline,
-            skybox_pipeline,
             render,
-            atmosphere_pipeline,
             atmosphere_descriptor_sets,
-            gaussian_pipeline,
             gaussian,
             gaussian_descriptor_sets,
-            postprocess_pipeline,
             postprocess,
             postprocess_descriptor_sets,
         ) = create_swapchain_all(
@@ -122,12 +122,23 @@ impl Renderer {
             &gaussian_uniform,
             &postprocessing,
             &camera,
+            &atmosphere_descriptor_metadata,
+            &gaussian_descriptor_metadata,
+            &postprocess_descriptor_metadata,
+            &dev,
+        );
+        let pipelines = create_pipelines(
             &object_descriptor_metadata,
             &grass_descriptor_metadata,
             &skybox_descriptor_metadata,
             &atmosphere_descriptor_metadata,
             &gaussian_descriptor_metadata,
             &postprocess_descriptor_metadata,
+            &render,
+            &gaussian,
+            &postprocess,
+            msaa_samples,
+            &swapchain,
             supports_raytracing,
             &dev,
         );
@@ -200,20 +211,15 @@ impl Renderer {
             object_descriptor_metadata,
             grass_descriptor_metadata,
             skybox_descriptor_metadata,
-            object_pipeline,
-            grass_pipeline,
-            skybox_pipeline,
             render,
             atmosphere_descriptor_metadata,
-            atmosphere_pipeline,
             gaussian_descriptor_metadata,
-            gaussian_pipeline,
             gaussian,
             atmosphere_descriptor_sets,
             postprocess_descriptor_metadata,
-            postprocess_pipeline,
             postprocess,
             swapchain,
+            pipelines,
             gaussian_descriptor_sets,
             postprocess_descriptor_sets,
             command_pools,
@@ -270,16 +276,10 @@ impl Renderer {
 
         let (
             swapchain,
-            object_pipeline,
-            grass_pipeline,
-            skybox_pipeline,
             render_pass,
-            atmosphere_pipeline,
             atmosphere_descriptor_sets,
-            gaussian_pipeline,
             gaussian,
             gaussian_descriptor_sets,
-            postprocess_pipeline,
             postprocess_pass,
             postprocess_descriptor_sets,
         ) = create_swapchain_all(
@@ -292,31 +292,43 @@ impl Renderer {
             &self.gaussian_uniform,
             &self.postprocessing,
             &self.camera,
-            &self.object_descriptor_metadata,
-            &self.grass_descriptor_metadata,
-            &self.skybox_descriptor_metadata,
             &self.atmosphere_descriptor_metadata,
             &self.gaussian_descriptor_metadata,
             &self.postprocess_descriptor_metadata,
-            self.supports_raytracing,
             &self.dev,
         );
 
         // Doing the assignments at the end guarantees any operation won't fail in the middle, and
         // makes it possible to easily compare new values to old ones.
         self.swapchain = swapchain;
-        self.object_pipeline = object_pipeline;
-        self.grass_pipeline = grass_pipeline;
-        self.skybox_pipeline = skybox_pipeline;
         self.render = render_pass;
-        self.atmosphere_pipeline = atmosphere_pipeline;
         self.atmosphere_descriptor_sets = atmosphere_descriptor_sets;
-        self.gaussian_pipeline = gaussian_pipeline;
         self.gaussian = gaussian;
         self.gaussian_descriptor_sets = gaussian_descriptor_sets;
-        self.postprocess_pipeline = postprocess_pipeline;
         self.postprocess = postprocess_pass;
         self.postprocess_descriptor_sets = postprocess_descriptor_sets;
+
+        self.recreate_pipelines();
+    }
+
+    pub fn recreate_pipelines(&mut self) {
+        unsafe { self.dev.device_wait_idle() }.unwrap();
+        self.cleanup_pipelines();
+        self.pipelines = create_pipelines(
+            &self.object_descriptor_metadata,
+            &self.grass_descriptor_metadata,
+            &self.skybox_descriptor_metadata,
+            &self.atmosphere_descriptor_metadata,
+            &self.gaussian_descriptor_metadata,
+            &self.postprocess_descriptor_metadata,
+            &self.render,
+            &self.gaussian,
+            &self.postprocess,
+            self.msaa_samples,
+            &self.swapchain,
+            self.supports_raytracing,
+            &self.dev,
+        );
     }
 
     pub fn get_async_loader(&self) -> AsyncLoader {
@@ -373,16 +385,19 @@ impl Renderer {
                 )
                 .unwrap();
             self.swapchain.cleanup(&self.dev);
-            self.object_pipeline.cleanup(&self.dev);
-            self.grass_pipeline.cleanup(&self.dev);
-            self.skybox_pipeline.cleanup(&self.dev);
-            self.atmosphere_pipeline.cleanup(&self.dev);
-            self.gaussian_pipeline.cleanup(&self.dev);
-            self.postprocess_pipeline.cleanup(&self.dev);
             self.render.cleanup(&self.dev);
             self.gaussian.cleanup(&self.dev);
             self.postprocess.cleanup(&self.dev);
         }
+    }
+
+    fn cleanup_pipelines(&mut self) {
+        self.pipelines.object.cleanup(&self.dev);
+        self.pipelines.grass.cleanup(&self.dev);
+        self.pipelines.skybox.cleanup(&self.dev);
+        self.pipelines.atmosphere.cleanup(&self.dev);
+        self.pipelines.gaussian.cleanup(&self.dev);
+        self.pipelines.postprocess.cleanup(&self.dev);
     }
 }
 
@@ -477,6 +492,7 @@ impl Drop for Renderer {
                 self.dev.destroy_command_pool(*pool, None);
             }
             self.cleanup_swapchain();
+            self.cleanup_pipelines();
             self.object_descriptor_metadata.cleanup(&self.dev);
             self.grass_descriptor_metadata.cleanup(&self.dev);
             self.skybox_descriptor_metadata.cleanup(&self.dev);
@@ -635,61 +651,21 @@ fn create_swapchain_all(
     gaussian_uniform: &UniformBuffer<Gaussian>,
     postprocessing: &UniformBuffer<Postprocessing>,
     camera: &UniformBuffer<Camera>,
-    object_descriptor_metadata: &DescriptorMetadata,
-    grass_descriptor_metadata: &DescriptorMetadata,
-    skybox_descriptor_metadata: &DescriptorMetadata,
     atmosphere_descriptor_metadata: &DescriptorMetadata,
     gaussian_descriptor_metadata: &DescriptorMetadata,
     postprocess_descriptor_metadata: &DescriptorMetadata,
-    supports_raytracing: bool,
     dev: &Dev,
 ) -> (
     Swapchain,
-    Pipeline,
-    Pipeline,
-    Pipeline,
-    Pass,
-    Pipeline,
-    [vk::DescriptorSet; FRAMES_IN_FLIGHT],
-    Pipeline,
     Pass,
     [vk::DescriptorSet; FRAMES_IN_FLIGHT],
-    Pipeline,
+    Pass,
+    [vk::DescriptorSet; FRAMES_IN_FLIGHT],
     Pass,
     [vk::DescriptorSet; FRAMES_IN_FLIGHT],
 ) {
     let swapchain = create_swapchain(surface, window_size, dev, surface_ext, swapchain_ext);
     let render = create_render_pass(msaa_samples, swapchain.extent, dev);
-    let object_pipeline = create_object_pipeline(
-        object_descriptor_metadata,
-        msaa_samples,
-        render.pass,
-        swapchain.extent,
-        supports_raytracing,
-        dev,
-    );
-    let grass_pipeline = create_grass_pipeline(
-        grass_descriptor_metadata,
-        msaa_samples,
-        render.pass,
-        swapchain.extent,
-        supports_raytracing,
-        dev,
-    );
-    let skybox_pipeline = create_skybox_pipeline(
-        skybox_descriptor_metadata,
-        msaa_samples,
-        render.pass,
-        swapchain.extent,
-        dev,
-    );
-    let atmosphere_pipeline = create_atmosphere_pipeline(
-        atmosphere_descriptor_metadata,
-        render.pass,
-        swapchain.extent,
-        msaa_samples,
-        dev,
-    );
     let atmosphere_descriptor_sets = create_atmosphere_descriptor_sets(
         render.resources[0].view,
         render.resources[1].view,
@@ -699,13 +675,6 @@ fn create_swapchain_all(
         dev,
     );
     let gaussian = create_gaussian_pass(swapchain.extent, dev);
-    let gaussian_pipeline = create_gaussian_pipeline(
-        gaussian_descriptor_metadata,
-        gaussian.pass,
-        swapchain.extent,
-        msaa_samples,
-        dev,
-    );
     let gaussian_descriptor_sets = create_gaussian_descriptor_sets(
         render.resources[3].view,
         gaussian_uniform,
@@ -714,14 +683,6 @@ fn create_swapchain_all(
     );
     let postprocess =
         create_postprocess_pass(swapchain.format.format, &swapchain, swapchain.extent, dev);
-    let postprocess_pipeline = create_postprocess_pipeline(
-        postprocess_descriptor_metadata,
-        postprocess.pass,
-        swapchain.extent,
-        supports_raytracing,
-        msaa_samples,
-        dev,
-    );
     let postprocess_descriptor_sets = create_postprocess_descriptor_sets(
         render.resources[3].view,
         gaussian.resources[0].view,
@@ -731,19 +692,83 @@ fn create_swapchain_all(
     );
     (
         swapchain,
-        object_pipeline,
-        grass_pipeline,
-        skybox_pipeline,
         render,
-        atmosphere_pipeline,
         atmosphere_descriptor_sets,
-        gaussian_pipeline,
         gaussian,
         gaussian_descriptor_sets,
-        postprocess_pipeline,
         postprocess,
         postprocess_descriptor_sets,
     )
+}
+
+fn create_pipelines(
+    object_descriptor_metadata: &DescriptorMetadata,
+    grass_descriptor_metadata: &DescriptorMetadata,
+    skybox_descriptor_metadata: &DescriptorMetadata,
+    atmosphere_descriptor_metadata: &DescriptorMetadata,
+    gaussian_descriptor_metadata: &DescriptorMetadata,
+    postprocess_descriptor_metadata: &DescriptorMetadata,
+    render: &Pass,
+    gaussian: &Pass,
+    postprocess: &Pass,
+    msaa_samples: vk::SampleCountFlags,
+    swapchain: &Swapchain,
+    supports_raytracing: bool,
+    dev: &Dev,
+) -> Pipelines {
+    let object = create_object_pipeline(
+        object_descriptor_metadata,
+        msaa_samples,
+        render.pass,
+        swapchain.extent,
+        supports_raytracing,
+        dev,
+    );
+    let grass = create_grass_pipeline(
+        grass_descriptor_metadata,
+        msaa_samples,
+        render.pass,
+        swapchain.extent,
+        supports_raytracing,
+        dev,
+    );
+    let skybox = create_skybox_pipeline(
+        skybox_descriptor_metadata,
+        msaa_samples,
+        render.pass,
+        swapchain.extent,
+        dev,
+    );
+    let atmosphere = create_atmosphere_pipeline(
+        atmosphere_descriptor_metadata,
+        render.pass,
+        swapchain.extent,
+        msaa_samples,
+        dev,
+    );
+    let gaussian = create_gaussian_pipeline(
+        gaussian_descriptor_metadata,
+        gaussian.pass,
+        swapchain.extent,
+        msaa_samples,
+        dev,
+    );
+    let postprocess = create_postprocess_pipeline(
+        postprocess_descriptor_metadata,
+        postprocess.pass,
+        swapchain.extent,
+        supports_raytracing,
+        msaa_samples,
+        dev,
+    );
+    Pipelines {
+        object,
+        grass,
+        skybox,
+        atmosphere,
+        gaussian,
+        postprocess,
+    }
 }
 
 fn create_render_pass(msaa_samples: vk::SampleCountFlags, extent: vk::Extent2D, dev: &Dev) -> Pass {
