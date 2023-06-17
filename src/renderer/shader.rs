@@ -1,13 +1,12 @@
-use crate::renderer::util::exists_newer_file;
-use ash::{vk, Device};
+use crate::renderer::util::Dev;
+use ash::vk;
 use log::{debug, error};
-use shaderc::ResolvedInclude;
+use shaderc::{CompilationArtifact, ResolvedInclude};
 use std::ffi::CStr;
-use std::fs::File;
 
 pub struct Shader<'a> {
-    logical_device: &'a Device,
-    pub module: vk::ShaderModule,
+    dev: &'a Dev,
+    module: vk::ShaderModule,
     pub stage_info: vk::PipelineShaderStageCreateInfo,
 }
 
@@ -18,7 +17,7 @@ pub struct SpecializationConstant {
 
 impl Drop for Shader<'_> {
     fn drop(&mut self) {
-        unsafe { self.logical_device.destroy_shader_module(self.module, None) };
+        unsafe { self.dev.destroy_shader_module(self.module, None) };
     }
 }
 
@@ -26,22 +25,29 @@ pub fn create_shader<'a>(
     glsl_path: &str,
     stage: vk::ShaderStageFlags,
     supports_raytracing: bool,
-    specialization_info: &vk::SpecializationInfo,
-    logical_device: &'a Device,
+    specialization: &vk::SpecializationInfo,
+    dev: &'a Dev,
 ) -> Shader<'a> {
-    let spirv_path = format!("{glsl_path}.spv");
-    if !exists_newer_file(&spirv_path, glsl_path) {
-        compile_shader(glsl_path, &spirv_path, stage, supports_raytracing);
+    let code = compile_glsl(glsl_path, stage, supports_raytracing);
+    let create_info = *vk::ShaderModuleCreateInfo::builder().code(code.as_binary());
+    let module = unsafe { dev.create_shader_module(&create_info, None) }.unwrap();
+    let stage_info = *vk::PipelineShaderStageCreateInfo::builder()
+        .stage(stage)
+        .module(module)
+        .name(CStr::from_bytes_with_nul(b"main\0").unwrap())
+        .specialization_info(specialization);
+    Shader {
+        dev,
+        stage_info,
+        module,
     }
-    load_shader(logical_device, &spirv_path, stage, specialization_info)
 }
 
-fn compile_shader(
+fn compile_glsl(
     glsl_path: &str,
-    spirv_path: &str,
     stage: vk::ShaderStageFlags,
     supports_raytracing: bool,
-) {
+) -> CompilationArtifact {
     let compiler = shaderc::Compiler::new().unwrap();
     let mut options = shaderc::CompileOptions::new().unwrap();
     if supports_raytracing {
@@ -82,36 +88,8 @@ fn compile_shader(
         }
         result => result.unwrap(),
     };
-    std::fs::write(spirv_path, spirv_data.as_binary_u8()).unwrap();
     debug!("shader GLSL compiled, \x1B[1mfile\x1B[0m: {glsl_path}");
-}
-
-fn load_shader<'a>(
-    logical_device: &'a Device,
-    spirv_path: &str,
-    stage: vk::ShaderStageFlags,
-    specialization_info: &vk::SpecializationInfo,
-) -> Shader<'a> {
-    let mut file = File::open(spirv_path).unwrap();
-    let aligned_code = ash::util::read_spv(&mut file).unwrap();
-    let module = unsafe {
-        logical_device.create_shader_module(
-            &vk::ShaderModuleCreateInfo::builder().code(&aligned_code),
-            None,
-        )
-    }
-    .unwrap();
-    debug!("shader SPIR-V loaded, \x1B[1mfile\x1B[0m: {spirv_path}");
-    let stage_info = *vk::PipelineShaderStageCreateInfo::builder()
-        .stage(stage)
-        .module(module)
-        .name(CStr::from_bytes_with_nul(b"main\0").unwrap())
-        .specialization_info(specialization_info);
-    Shader {
-        logical_device,
-        stage_info,
-        module,
-    }
+    spirv_data
 }
 
 pub fn create_specialization_entries(

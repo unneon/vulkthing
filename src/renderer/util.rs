@@ -327,13 +327,6 @@ fn find_memory_type(properties: vk::MemoryPropertyFlags, type_filter: u32, dev: 
     );
 }
 
-pub fn exists_newer_file(path: &str, reference: &str) -> bool {
-    let Ok(meta) = std::fs::metadata(path) else { return false; };
-    let path_mtime = meta.modified().unwrap();
-    let reference_mtime = std::fs::metadata(reference).unwrap().modified().unwrap();
-    path_mtime >= reference_mtime
-}
-
 pub fn vulkan_str(slice: &[i8]) -> &str {
     unsafe { CStr::from_ptr(slice.as_ptr()) }.to_str().unwrap()
 }
