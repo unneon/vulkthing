@@ -91,6 +91,12 @@ vec3 calculate_light(vec3 ray_origin, vec3 ray_direction, float ray_length, vec3
     vec3 in_scatter_point = ray_origin + ray_direction * step_length / 2;
     vec3 in_scattered_light = vec3(0);
     for (uint i = 0; i < atmosphere.scatter_point_count; ++i) {
+        // This is kind of wrong because the sun ray ignores the planet, which results in sunsets being red regardless
+        // of the direction you look in (rather than black color when looking away from the sun). Naive approach with
+        // ray_sphere results in color banding for some reason? Probably I should be smarter when integrating over
+        // in_scatter_point, so that I don't waste precision on scattering points where light is obstructed by the
+        // planet.
+        // TODO: Account for planet obstructing sun rays.
         vec3 sun_direction = normalize(atmosphere.sun_position - in_scatter_point);
         float sun_ray_length = ray_sphere(atmosphere.planet_position, atmosphere.scale * atmosphere.planet_radius, in_scatter_point, sun_direction).y;
         float sun_ray_optical_depth = optical_depth(in_scatter_point, sun_direction, sun_ray_length);

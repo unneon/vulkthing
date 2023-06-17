@@ -146,7 +146,7 @@ impl Interface {
                     ui.slider(
                         "Optical depth points",
                         1,
-                        4,
+                        32,
                         &mut atmosphere.optical_depth_point_count,
                     );
                     ui.slider_config("Density falloff", 0.001, 100.)
