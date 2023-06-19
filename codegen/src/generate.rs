@@ -71,6 +71,15 @@ struct Scratch {{"#
         )
         .unwrap();
     }
+    writeln!(
+        file,
+        r#"    assembly: vk::PipelineInputAssemblyStateCreateInfo,
+    viewport: vk::Viewport,
+    scissor: vk::Rect2D,
+    viewport_state: vk::PipelineViewportStateCreateInfo,
+    dynamic_state: vk::PipelineDynamicStateCreateInfo,"#
+    )
+    .unwrap();
     for pass in &renderer.passes {
         for subpass in &pass.subpasses {
             for pipeline in &subpass.pipelines {
@@ -89,16 +98,11 @@ struct Scratch {{"#
     {name}_vertex_bindings: [vk::VertexInputBindingDescription; {binding_count}],
     {name}_vertex_attributes: [vk::VertexInputAttributeDescription; {attribute_count}],
     {name}_vertex: vk::PipelineVertexInputStateCreateInfo,
-    {name}_assembly: vk::PipelineInputAssemblyStateCreateInfo,
-    {name}_viewport: vk::Viewport,
-    {name}_scissor: vk::Rect2D,
-    {name}_viewport_state: vk::PipelineViewportStateCreateInfo,
     {name}_rasterizer: vk::PipelineRasterizationStateCreateInfo,
     {name}_multisampling: vk::PipelineMultisampleStateCreateInfo,
     {name}_blend_attachments: [vk::PipelineColorBlendAttachmentState; {}],
     {name}_blend: vk::PipelineColorBlendStateCreateInfo,
     {name}_depth: vk::PipelineDepthStencilStateCreateInfo,
-    {name}_dynamic_state: vk::PipelineDynamicStateCreateInfo,
     {name}_pipeline: vk::GraphicsPipelineCreateInfo,"#,
                     subpass.color_attachments.len()
                 )
@@ -187,6 +191,45 @@ static mut SCRATCH: Scratch = Scratch {{"#
         )
         .unwrap();
     }
+    writeln!(
+        file,
+        r#"    assembly: vk::PipelineInputAssemblyStateCreateInfo {{
+        s_type: vk::StructureType::PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::PipelineInputAssemblyStateCreateFlags::empty(),
+        topology: vk::PrimitiveTopology::TRIANGLE_LIST,
+        primitive_restart_enable: 0,
+    }},
+    viewport: vk::Viewport {{
+        x: 0.,
+        y: 0.,
+        width: 0.,
+        height: 0.,
+        min_depth: 0.,
+        max_depth: 1.,
+    }},
+    scissor: vk::Rect2D {{
+        offset: vk::Offset2D {{ x: 0, y: 0 }},
+        extent: vk::Extent2D {{ width: 0, height: 0 }},
+    }},
+    viewport_state: vk::PipelineViewportStateCreateInfo {{
+        s_type: vk::StructureType::PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::PipelineViewportStateCreateFlags::empty(),
+        viewport_count: 1,
+        p_viewports: unsafe {{ &SCRATCH.viewport }},
+        scissor_count: 1,
+        p_scissors: unsafe {{ &SCRATCH.scissor }},
+    }},
+    dynamic_state: vk::PipelineDynamicStateCreateInfo {{
+        s_type: vk::StructureType::PIPELINE_DYNAMIC_STATE_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::PipelineDynamicStateCreateFlags::empty(),
+        dynamic_state_count: 0,
+        p_dynamic_states: std::ptr::null(),
+    }},"#
+    )
+    .unwrap();
     for pass in &renderer.passes {
         for (subpass_index, subpass) in pass.subpasses.iter().enumerate() {
             for pipeline in &subpass.pipelines {
@@ -284,34 +327,6 @@ static mut SCRATCH: Scratch = Scratch {{"#
         vertex_attribute_description_count: {attribute_count},
         p_vertex_attribute_descriptions: unsafe {{ SCRATCH.{name}_vertex_attributes.as_ptr() }},
     }},
-    {name}_assembly: vk::PipelineInputAssemblyStateCreateInfo {{
-        s_type: vk::StructureType::PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
-        p_next: std::ptr::null(),
-        flags: vk::PipelineInputAssemblyStateCreateFlags::empty(),
-        topology: vk::PrimitiveTopology::TRIANGLE_LIST,
-        primitive_restart_enable: 0,
-    }},
-    {name}_viewport: vk::Viewport {{
-        x: 0.,
-        y: 0.,
-        width: 0.,
-        height: 0.,
-        min_depth: 0.,
-        max_depth: 1.,
-    }},
-    {name}_scissor: vk::Rect2D {{
-        offset: vk::Offset2D {{ x: 0, y: 0 }},
-        extent: vk::Extent2D {{ width: 0, height: 0 }},
-    }},
-    {name}_viewport_state: vk::PipelineViewportStateCreateInfo {{
-        s_type: vk::StructureType::PIPELINE_VIEWPORT_STATE_CREATE_INFO,
-        p_next: std::ptr::null(),
-        flags: vk::PipelineViewportStateCreateFlags::empty(),
-        viewport_count: 1,
-        p_viewports: unsafe {{ &SCRATCH.{name}_viewport }},
-        scissor_count: 1,
-        p_scissors: unsafe {{ &SCRATCH.{name}_scissor }},
-    }},
     {name}_rasterizer: vk::PipelineRasterizationStateCreateInfo {{
         s_type: vk::StructureType::PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
         p_next: std::ptr::null(),
@@ -408,13 +423,6 @@ static mut SCRATCH: Scratch = Scratch {{"#
         min_depth_bounds: 0.,
         max_depth_bounds: 1.,
     }},
-    {name}_dynamic_state: vk::PipelineDynamicStateCreateInfo {{
-        s_type: vk::StructureType::PIPELINE_DYNAMIC_STATE_CREATE_INFO,
-        p_next: std::ptr::null(),
-        flags: vk::PipelineDynamicStateCreateFlags::empty(),
-        dynamic_state_count: 0,
-        p_dynamic_states: std::ptr::null(),
-    }},
     {name}_pipeline: vk::GraphicsPipelineCreateInfo {{
         s_type: vk::StructureType::GRAPHICS_PIPELINE_CREATE_INFO,
         p_next: std::ptr::null(),
@@ -422,14 +430,14 @@ static mut SCRATCH: Scratch = Scratch {{"#
         stage_count: 2,
         p_stages: unsafe {{ SCRATCH.{name}_shader_stages.as_ptr() }},
         p_vertex_input_state: unsafe {{ &SCRATCH.{name}_vertex }},
-        p_input_assembly_state: unsafe {{ &SCRATCH.{name}_assembly }},
+        p_input_assembly_state: unsafe {{ &SCRATCH.assembly }},
         p_tessellation_state: std::ptr::null(),
-        p_viewport_state: unsafe {{ &SCRATCH.{name}_viewport_state }},
+        p_viewport_state: unsafe {{ &SCRATCH.viewport_state }},
         p_rasterization_state: unsafe {{ &SCRATCH.{name}_rasterizer }},
         p_multisample_state: unsafe {{ &SCRATCH.{name}_multisampling }},
         p_depth_stencil_state: unsafe {{ &SCRATCH.{name}_depth }},
         p_color_blend_state: unsafe {{ &SCRATCH.{name}_blend }},
-        p_dynamic_state: unsafe {{ &SCRATCH.{name}_dynamic_state }},
+        p_dynamic_state: unsafe {{ &SCRATCH.dynamic_state }},
         layout: vk::PipelineLayout::null(),
         render_pass: vk::RenderPass::null(),
         subpass: {subpass_index},
@@ -555,7 +563,11 @@ pub fn create_pipelines("#
     supports_raytracing: bool,
     descriptor_set_layouts: &DescriptorSetLayouts,
     dev: &Dev,
-) -> Pipelines {{"#
+) -> Pipelines {{
+    unsafe {{ SCRATCH.viewport.width = swapchain.extent.width as f32 }};
+    unsafe {{ SCRATCH.viewport.height = swapchain.extent.height as f32 }};
+    unsafe {{ SCRATCH.scissor.extent.width = swapchain.extent.width }};
+    unsafe {{ SCRATCH.scissor.extent.height = swapchain.extent.height }};"#
     )
     .unwrap();
     for pass in &renderer.passes {
@@ -581,10 +593,6 @@ pub fn create_pipelines("#
     );
     unsafe {{ SCRATCH.{name}_shader_stages[0].module = vertex_shader.module }};
     unsafe {{ SCRATCH.{name}_shader_stages[1].module = fragment_shader.module }};
-    unsafe {{ SCRATCH.{name}_viewport.width = swapchain.extent.width as f32 }};
-    unsafe {{ SCRATCH.{name}_viewport.height = swapchain.extent.height as f32 }};
-    unsafe {{ SCRATCH.{name}_scissor.extent.width = swapchain.extent.width }};
-    unsafe {{ SCRATCH.{name}_scissor.extent.height = swapchain.extent.height }};
     unsafe {{ SCRATCH.{name}_pipeline.layout = layout }};
     unsafe {{ SCRATCH.{name}_pipeline.render_pass = {pass_name}.pass }};
     let pipeline = unsafe {{ dev.create_graphics_pipelines(vk::PipelineCache::null(), std::slice::from_ref(&SCRATCH.{name}_pipeline), None).unwrap_unchecked()[0] }};
