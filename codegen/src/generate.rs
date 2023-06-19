@@ -1,6 +1,13 @@
-use crate::config::{DescriptorBinding, Renderer, VertexAttribute};
+use crate::config::{DescriptorBinding, Pass, Pipeline, Renderer, Subpass, VertexAttribute};
+use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io::Write;
+
+impl Display for Pipeline {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.name.fmt(f)
+    }
+}
 
 pub fn generate_code(in_path: &str, renderer: &Renderer, mut file: File) {
     writeln!(
@@ -10,7 +17,6 @@ pub fn generate_code(in_path: &str, renderer: &Renderer, mut file: File) {
 use crate::renderer::shader::create_shader;
 use crate::renderer::util::Dev;
 use crate::renderer::Pass;
-use crate::renderer::Pipeline;
 use crate::renderer::Swapchain;
 use ash::vk;
 use std::ffi::CStr;
@@ -40,16 +46,22 @@ pub struct DescriptorSetLayouts {{"#
         file,
         r#"}}
 
+pub struct PipelineLayouts {{"#
+    )
+    .unwrap();
+    for_pipelines(renderer, |_, _, _, pipeline| {
+        writeln!(file, "    pub {pipeline}: vk::PipelineLayout,").unwrap();
+    });
+    writeln!(
+        file,
+        r#"}}
+
 pub struct Pipelines {{"#
     )
     .unwrap();
-    for pass in &renderer.passes {
-        for subpass in &pass.subpasses {
-            for pipeline in &subpass.pipelines {
-                writeln!(file, "    pub {}: Pipeline,", pipeline.name).unwrap();
-            }
-        }
-    }
+    for_pipelines(renderer, |_, _, _, pipeline| {
+        writeln!(file, "    pub {pipeline}: vk::Pipeline,").unwrap();
+    });
     writeln!(
         file,
         r#"}}
@@ -80,36 +92,31 @@ struct Scratch {{"#
     dynamic_state: vk::PipelineDynamicStateCreateInfo,"#
     )
     .unwrap();
-    for pass in &renderer.passes {
-        for subpass in &pass.subpasses {
-            for pipeline in &subpass.pipelines {
-                let name = &pipeline.name;
-                let binding_count = pipeline.vertex_bindings.len();
-                let attribute_count = pipeline
-                    .vertex_bindings
-                    .iter()
-                    .flat_map(|binding| binding.attributes.iter())
-                    .filter(|attribute| !attribute.unused)
-                    .count();
-                writeln!(
-                    file,
-                    r#"    {name}_pipeline_layout: vk::PipelineLayoutCreateInfo,
-    {name}_shader_stages: [vk::PipelineShaderStageCreateInfo; 2],
-    {name}_vertex_bindings: [vk::VertexInputBindingDescription; {binding_count}],
-    {name}_vertex_attributes: [vk::VertexInputAttributeDescription; {attribute_count}],
-    {name}_vertex: vk::PipelineVertexInputStateCreateInfo,
-    {name}_rasterizer: vk::PipelineRasterizationStateCreateInfo,
-    {name}_multisampling: vk::PipelineMultisampleStateCreateInfo,
-    {name}_blend_attachments: [vk::PipelineColorBlendAttachmentState; {}],
-    {name}_blend: vk::PipelineColorBlendStateCreateInfo,
-    {name}_depth: vk::PipelineDepthStencilStateCreateInfo,
-    {name}_pipeline: vk::GraphicsPipelineCreateInfo,"#,
-                    subpass.color_attachments.len()
-                )
-                .unwrap();
-            }
-        }
-    }
+    for_pipelines(renderer, |_, _, subpass, pipeline| {
+        let binding_count = pipeline.vertex_bindings.len();
+        let attribute_count = pipeline
+            .vertex_bindings
+            .iter()
+            .flat_map(|binding| binding.attributes.iter())
+            .filter(|attribute| !attribute.unused)
+            .count();
+        writeln!(
+            file,
+            r#"    {pipeline}_pipeline_layout: vk::PipelineLayoutCreateInfo,
+    {pipeline}_shader_stages: [vk::PipelineShaderStageCreateInfo; 2],
+    {pipeline}_vertex_bindings: [vk::VertexInputBindingDescription; {binding_count}],
+    {pipeline}_vertex_attributes: [vk::VertexInputAttributeDescription; {attribute_count}],
+    {pipeline}_vertex: vk::PipelineVertexInputStateCreateInfo,
+    {pipeline}_rasterizer: vk::PipelineRasterizationStateCreateInfo,
+    {pipeline}_multisampling: vk::PipelineMultisampleStateCreateInfo,
+    {pipeline}_blend_attachments: [vk::PipelineColorBlendAttachmentState; {}],
+    {pipeline}_blend: vk::PipelineColorBlendStateCreateInfo,
+    {pipeline}_depth: vk::PipelineDepthStencilStateCreateInfo,
+    {pipeline}_pipeline: vk::GraphicsPipelineCreateInfo,"#,
+            subpass.color_attachments.len()
+        )
+        .unwrap();
+    });
     writeln!(
         file,
         r#"}}
@@ -230,28 +237,26 @@ static mut SCRATCH: Scratch = Scratch {{"#
     }},"#
     )
     .unwrap();
-    for pass in &renderer.passes {
-        for (subpass_index, subpass) in pass.subpasses.iter().enumerate() {
-            for pipeline in &subpass.pipelines {
-                let name = &pipeline.name;
-                let attribute_count = pipeline
-                    .vertex_bindings
-                    .iter()
-                    .flat_map(|binding| binding.attributes.iter())
-                    .filter(|attribute| !attribute.unused)
-                    .count();
-                writeln!(
-                    file,
-                    r#"    {name}_pipeline_layout: vk::PipelineLayoutCreateInfo {{
+    for_pipelines(renderer, |pass, subpass_index, subpass, pipeline| {
+        let descriptor_count = pipeline.descriptor_sets.len();
+        let attribute_count = pipeline
+            .vertex_bindings
+            .iter()
+            .flat_map(|binding| binding.attributes.iter())
+            .filter(|attribute| !attribute.unused)
+            .count();
+        writeln!(
+            file,
+            r#"    {pipeline}_pipeline_layout: vk::PipelineLayoutCreateInfo {{
         s_type: vk::StructureType::PIPELINE_LAYOUT_CREATE_INFO,
         p_next: std::ptr::null(),
         flags: vk::PipelineLayoutCreateFlags::empty(),
-        set_layout_count: {},
+        set_layout_count: {descriptor_count},
         p_set_layouts: std::ptr::null(),
         push_constant_range_count: 0,
         p_push_constant_ranges: std::ptr::null(),
     }},
-    {name}_shader_stages: [
+    {pipeline}_shader_stages: [
         vk::PipelineShaderStageCreateInfo {{
             s_type: vk::StructureType::PIPELINE_SHADER_STAGE_CREATE_INFO,
             p_next: std::ptr::null(),
@@ -271,70 +276,72 @@ static mut SCRATCH: Scratch = Scratch {{"#
             p_specialization_info: std::ptr::null(),
         }},
     ],
-    {name}_vertex_bindings: ["#,
-                    pipeline.descriptor_sets.len(),
-                )
-                .unwrap();
-                for (binding_index, binding) in pipeline.vertex_bindings.iter().enumerate() {
-                    let stride: usize = binding.attributes.iter().map(attribute_size).sum();
-                    let rate = &binding.rate;
-                    writeln!(
-                        file,
-                        r#"        vk::VertexInputBindingDescription {{
+    {pipeline}_vertex_bindings: ["#
+        )
+        .unwrap();
+        for (binding_index, binding) in pipeline.vertex_bindings.iter().enumerate() {
+            let stride: usize = binding.attributes.iter().map(attribute_size).sum();
+            let rate = &binding.rate;
+            writeln!(
+                file,
+                r#"        vk::VertexInputBindingDescription {{
             binding: {binding_index},
             stride: {stride},
             input_rate: vk::VertexInputRate::{rate},
         }},"#,
-                    )
-                    .unwrap();
-                }
-                writeln!(
-                    file,
-                    r#"    ],
-    {name}_vertex_attributes: ["#
-                )
-                .unwrap();
-                let mut total_locations = 0;
-                for (binding_index, binding) in pipeline.vertex_bindings.iter().enumerate() {
-                    let mut offset = 0;
-                    for attribute in &binding.attributes {
-                        if !attribute.unused {
-                            let format = &attribute.format;
-                            writeln!(
-                                file,
-                                r#"        vk::VertexInputAttributeDescription {{
+            )
+            .unwrap();
+        }
+        writeln!(
+            file,
+            r#"    ],
+    {pipeline}_vertex_attributes: ["#
+        )
+        .unwrap();
+        let mut total_locations = 0;
+        for (binding_index, binding) in pipeline.vertex_bindings.iter().enumerate() {
+            let mut offset = 0;
+            for attribute in &binding.attributes {
+                if !attribute.unused {
+                    let format = &attribute.format;
+                    writeln!(
+                        file,
+                        r#"        vk::VertexInputAttributeDescription {{
             binding: {binding_index},
             location: {total_locations},
             format: vk::Format::{format},
             offset: {offset},
         }},"#
-                            )
-                            .unwrap();
-                            total_locations += 1;
-                        }
-                        offset += attribute_size(attribute);
-                    }
+                    )
+                    .unwrap();
+                    total_locations += 1;
                 }
-                writeln!(
-                    file,
-                    r#"    ],
-    {name}_vertex: vk::PipelineVertexInputStateCreateInfo {{
+                offset += attribute_size(attribute);
+            }
+        }
+        let vertex_binding_count = pipeline.vertex_bindings.len();
+        let cull_mode = &pipeline.cull_mode;
+        let rasterization_samples = if pass.msaa { "TYPE_2" } else { "TYPE_1" };
+        writeln!(
+            file,
+            r#"    ],
+    {pipeline}_vertex: vk::PipelineVertexInputStateCreateInfo {{
         s_type: vk::StructureType::PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
         p_next: std::ptr::null(),
         flags: vk::PipelineVertexInputStateCreateFlags::empty(),
-        vertex_binding_description_count: {},
-        p_vertex_binding_descriptions: unsafe {{ SCRATCH.{name}_vertex_bindings.as_ptr() }},
+        vertex_binding_description_count: {vertex_binding_count},
+        p_vertex_binding_descriptions: unsafe {{ SCRATCH.{pipeline}_vertex_bindings.as_ptr() }},
         vertex_attribute_description_count: {attribute_count},
-        p_vertex_attribute_descriptions: unsafe {{ SCRATCH.{name}_vertex_attributes.as_ptr() }},
+        p_vertex_attribute_descriptions: unsafe {{ SCRATCH.{pipeline}_vertex_attributes.as_ptr() }},
     }},
-    {name}_rasterizer: vk::PipelineRasterizationStateCreateInfo {{
+    {pipeline}_rasterizer: vk::PipelineRasterizationStateCreateInfo {{
         s_type: vk::StructureType::PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
         p_next: std::ptr::null(),
         flags: vk::PipelineRasterizationStateCreateFlags::empty(),
         depth_clamp_enable: 0,
         rasterizer_discard_enable: 0,
         polygon_mode: vk::PolygonMode::FILL,
-        cull_mode: vk::CullModeFlags::{},
+        cull_mode: vk::CullModeFlags::{cull_mode},
         front_face: vk::FrontFace::COUNTER_CLOCKWISE,
         depth_bias_enable: 0,
         depth_bias_constant_factor: 0.,
@@ -342,27 +349,24 @@ static mut SCRATCH: Scratch = Scratch {{"#
         depth_bias_slope_factor: 0.,
         line_width: 1.,
     }},
-    {name}_multisampling: vk::PipelineMultisampleStateCreateInfo {{
+    {pipeline}_multisampling: vk::PipelineMultisampleStateCreateInfo {{
         s_type: vk::StructureType::PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
         p_next: std::ptr::null(),
         flags: vk::PipelineMultisampleStateCreateFlags::empty(),
-        rasterization_samples: vk::SampleCountFlags::{},
+        rasterization_samples: vk::SampleCountFlags::{rasterization_samples},
         sample_shading_enable: 0,
         min_sample_shading: 0.,
         p_sample_mask: std::ptr::null(),
         alpha_to_coverage_enable: 0,
         alpha_to_one_enable: 0,
     }},
-    {name}_blend_attachments: ["#,
-                    pipeline.vertex_bindings.len(),
-                    pipeline.cull_mode,
-                    if pass.msaa { "TYPE_2" } else { "TYPE_1" },
-                )
-                .unwrap();
-                for _ in &subpass.color_attachments {
-                    writeln!(
-                        file,
-                        r#"        vk::PipelineColorBlendAttachmentState {{
+    {pipeline}_blend_attachments: ["#
+        )
+        .unwrap();
+        for _ in &subpass.color_attachments {
+            writeln!(
+                file,
+                r#"        vk::PipelineColorBlendAttachmentState {{
             blend_enable: 0,
             src_color_blend_factor: vk::BlendFactor::ZERO,
             dst_color_blend_factor: vk::BlendFactor::ZERO,
@@ -372,28 +376,29 @@ static mut SCRATCH: Scratch = Scratch {{"#
             alpha_blend_op: vk::BlendOp::ADD,
             color_write_mask: vk::ColorComponentFlags::RGBA,
         }},"#
-                    )
-                    .unwrap();
-                }
-                let depth_bool = if subpass.depth_attachment.is_some() {
-                    1
-                } else {
-                    0
-                };
-                writeln!(
-                    file,
-                    r#"    ],
-    {name}_blend: vk::PipelineColorBlendStateCreateInfo {{
+            )
+            .unwrap();
+        }
+        let depth_bool = if subpass.depth_attachment.is_some() {
+            1
+        } else {
+            0
+        };
+        let color_attachment_count = subpass.color_attachments.len();
+        writeln!(
+            file,
+            r#"    ],
+    {pipeline}_blend: vk::PipelineColorBlendStateCreateInfo {{
         s_type: vk::StructureType::PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
         p_next: std::ptr::null(),
         flags: vk::PipelineColorBlendStateCreateFlags::empty(),
         logic_op_enable: 0,
         logic_op: vk::LogicOp::CLEAR,
-        attachment_count: {},
-        p_attachments: unsafe {{ SCRATCH.{name}_blend_attachments.as_ptr() }},
+        attachment_count: {color_attachment_count},
+        p_attachments: unsafe {{ SCRATCH.{pipeline}_blend_attachments.as_ptr() }},
         blend_constants: [0., 0., 0., 0.],
     }},
-    {name}_depth: vk::PipelineDepthStencilStateCreateInfo {{
+    {pipeline}_depth: vk::PipelineDepthStencilStateCreateInfo {{
         s_type: vk::StructureType::PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
         p_next: std::ptr::null(),
         flags: vk::PipelineDepthStencilStateCreateFlags::empty(),
@@ -423,33 +428,30 @@ static mut SCRATCH: Scratch = Scratch {{"#
         min_depth_bounds: 0.,
         max_depth_bounds: 1.,
     }},
-    {name}_pipeline: vk::GraphicsPipelineCreateInfo {{
+    {pipeline}_pipeline: vk::GraphicsPipelineCreateInfo {{
         s_type: vk::StructureType::GRAPHICS_PIPELINE_CREATE_INFO,
         p_next: std::ptr::null(),
         flags: vk::PipelineCreateFlags::empty(),
         stage_count: 2,
-        p_stages: unsafe {{ SCRATCH.{name}_shader_stages.as_ptr() }},
-        p_vertex_input_state: unsafe {{ &SCRATCH.{name}_vertex }},
+        p_stages: unsafe {{ SCRATCH.{pipeline}_shader_stages.as_ptr() }},
+        p_vertex_input_state: unsafe {{ &SCRATCH.{pipeline}_vertex }},
         p_input_assembly_state: unsafe {{ &SCRATCH.assembly }},
         p_tessellation_state: std::ptr::null(),
         p_viewport_state: unsafe {{ &SCRATCH.viewport_state }},
-        p_rasterization_state: unsafe {{ &SCRATCH.{name}_rasterizer }},
-        p_multisample_state: unsafe {{ &SCRATCH.{name}_multisampling }},
-        p_depth_stencil_state: unsafe {{ &SCRATCH.{name}_depth }},
-        p_color_blend_state: unsafe {{ &SCRATCH.{name}_blend }},
+        p_rasterization_state: unsafe {{ &SCRATCH.{pipeline}_rasterizer }},
+        p_multisample_state: unsafe {{ &SCRATCH.{pipeline}_multisampling }},
+        p_depth_stencil_state: unsafe {{ &SCRATCH.{pipeline}_depth }},
+        p_color_blend_state: unsafe {{ &SCRATCH.{pipeline}_blend }},
         p_dynamic_state: unsafe {{ &SCRATCH.dynamic_state }},
         layout: vk::PipelineLayout::null(),
         render_pass: vk::RenderPass::null(),
         subpass: {subpass_index},
         base_pipeline_handle: vk::Pipeline::null(),
         base_pipeline_index: 0,
-    }},"#,
-                    subpass.color_attachments.len()
-                )
-                .unwrap();
-            }
-        }
-    }
+    }},"#
+        )
+        .unwrap();
+    });
     writeln!(
         file,
         r#"}};
@@ -488,17 +490,33 @@ impl DescriptorSetLayouts {{
         r#"    }}
 }}
 
+impl PipelineLayouts {{
+    pub fn cleanup(&self, dev: &Dev) {{"#
+    )
+    .unwrap();
+    for_pipelines(renderer, |_, _, _, pipeline| {
+        writeln!(
+            file,
+            "        unsafe {{ dev.destroy_pipeline_layout(self.{pipeline}, None) }};"
+        )
+        .unwrap();
+    });
+    writeln!(
+        file,
+        r#"    }}
+}}
+
 impl Pipelines {{
     pub fn cleanup(&self, dev: &Dev) {{"#
     )
     .unwrap();
-    for pass in &renderer.passes {
-        for subpass in &pass.subpasses {
-            for pipeline in &subpass.pipelines {
-                writeln!(file, "        self.{}.cleanup(dev);", pipeline.name).unwrap();
-            }
-        }
-    }
+    for_pipelines(renderer, |_, _, _, pipeline| {
+        writeln!(
+            file,
+            "        unsafe {{ dev.destroy_pipeline(self.{pipeline}, None) }};"
+        )
+        .unwrap();
+    });
     writeln!(
         file,
         r#"    }}
@@ -550,6 +568,29 @@ pub fn create_descriptor_set_layouts(samplers: &Samplers, dev: &Dev) -> Descript
 }}
 
 #[rustfmt::skip]
+pub fn create_pipeline_layouts(
+    descriptor_set_layouts: &DescriptorSetLayouts,
+    dev: &Dev,
+) -> PipelineLayouts {{"#
+    )
+    .unwrap();
+    for_pipelines(renderer, |_, _, _, pipeline| {
+        let descriptor_set = &pipeline.descriptor_sets[0];
+        writeln!(file, r#"    unsafe {{ SCRATCH.{pipeline}_pipeline_layout.p_set_layouts = &descriptor_set_layouts.{descriptor_set} }};"#).unwrap();
+    });
+    for_pipelines(renderer, |_, _, _, pipeline| {
+        writeln!(file, r#"    let {pipeline} = unsafe {{ dev.create_pipeline_layout(&SCRATCH.{pipeline}_pipeline_layout, None).unwrap_unchecked() }};"#).unwrap();
+    });
+    writeln!(file, "    PipelineLayouts {{").unwrap();
+    for_pipelines(renderer, |_, _, _, pipeline| {
+        writeln!(file, "        {pipeline},").unwrap();
+    });
+    writeln!(
+        file,
+        r#"    }}
+}}
+
+#[rustfmt::skip]
 pub fn create_pipelines("#
     )
     .unwrap();
@@ -561,7 +602,7 @@ pub fn create_pipelines("#
         r#"    _msaa_samples: vk::SampleCountFlags,
     swapchain: &Swapchain,
     supports_raytracing: bool,
-    descriptor_set_layouts: &DescriptorSetLayouts,
+    layouts: &PipelineLayouts,
     dev: &Dev,
 ) -> Pipelines {{
     unsafe {{ SCRATCH.viewport.width = swapchain.extent.width as f32 }};
@@ -570,50 +611,46 @@ pub fn create_pipelines("#
     unsafe {{ SCRATCH.scissor.extent.height = swapchain.extent.height }};"#
     )
     .unwrap();
-    for pass in &renderer.passes {
-        let pass_name = &pass.name;
-        for subpass in &pass.subpasses {
-            for pipeline in &subpass.pipelines {
-                let name = &pipeline.name;
-                assert_eq!(pipeline.descriptor_sets.len(), 1);
-                let descriptor_set = &pipeline.descriptor_sets[0];
-                writeln!(file, r#"    unsafe {{ SCRATCH.{name}_pipeline_layout.p_set_layouts = &descriptor_set_layouts.{descriptor_set} }};
-    let layout = unsafe {{ dev.create_pipeline_layout(&SCRATCH.{name}_pipeline_layout, None).unwrap_unchecked() }};
-    let vertex_shader = create_shader(
-        "shaders/{name}.vert",
+    for_pipelines(renderer, |pass, _, _, pipeline| {
+        let pass = &pass.name;
+        writeln!(file, r#"    let vertex_shader = create_shader(
+        "shaders/{pipeline}.vert",
         vk::ShaderStageFlags::VERTEX,
         supports_raytracing,
         dev,
     );
     let fragment_shader = create_shader(
-        "shaders/{name}.frag",
+        "shaders/{pipeline}.frag",
         vk::ShaderStageFlags::FRAGMENT,
         supports_raytracing,
         dev,
     );
-    unsafe {{ SCRATCH.{name}_shader_stages[0].module = vertex_shader.module }};
-    unsafe {{ SCRATCH.{name}_shader_stages[1].module = fragment_shader.module }};
-    unsafe {{ SCRATCH.{name}_pipeline.layout = layout }};
-    unsafe {{ SCRATCH.{name}_pipeline.render_pass = {pass_name}.pass }};
-    let pipeline = unsafe {{ dev.create_graphics_pipelines(vk::PipelineCache::null(), std::slice::from_ref(&SCRATCH.{name}_pipeline), None).unwrap_unchecked()[0] }};
-    let {name} = Pipeline {{ layout, pipeline }};"#).unwrap();
-            }
-        }
-    }
+    unsafe {{ SCRATCH.{pipeline}_shader_stages[0].module = vertex_shader.module }};
+    unsafe {{ SCRATCH.{pipeline}_shader_stages[1].module = fragment_shader.module }};
+    unsafe {{ SCRATCH.{pipeline}_pipeline.layout = layouts.{pipeline} }};
+    unsafe {{ SCRATCH.{pipeline}_pipeline.render_pass = {pass}.pass }};
+    let {pipeline} = unsafe {{ dev.create_graphics_pipelines(vk::PipelineCache::null(), std::slice::from_ref(&SCRATCH.{pipeline}_pipeline), None).unwrap_unchecked()[0] }};"#).unwrap();
+    });
     writeln!(file, "    Pipelines {{").unwrap();
-    for pass in &renderer.passes {
-        for subpass in &pass.subpasses {
-            for pipeline in &subpass.pipelines {
-                writeln!(file, "        {},", pipeline.name).unwrap();
-            }
-        }
-    }
+    for_pipelines(renderer, |_, _, _, pipeline| {
+        writeln!(file, "        {pipeline},").unwrap();
+    });
     writeln!(
         file,
         r#"    }}
 }}"#
     )
     .unwrap();
+}
+
+fn for_pipelines(renderer: &Renderer, mut f: impl FnMut(&Pass, usize, &Subpass, &Pipeline)) {
+    for pass in &renderer.passes {
+        for (subpass_index, subpass) in pass.subpasses.iter().enumerate() {
+            for pipeline in &subpass.pipelines {
+                f(pass, subpass_index, subpass, pipeline);
+            }
+        }
+    }
 }
 
 fn attribute_size(attribute: &VertexAttribute) -> usize {

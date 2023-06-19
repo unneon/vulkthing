@@ -3,7 +3,6 @@
 use crate::renderer::shader::create_shader;
 use crate::renderer::util::Dev;
 use crate::renderer::Pass;
-use crate::renderer::Pipeline;
 use crate::renderer::Swapchain;
 use ash::vk;
 use std::ffi::CStr;
@@ -21,13 +20,22 @@ pub struct DescriptorSetLayouts {
     pub postprocess: vk::DescriptorSetLayout,
 }
 
+pub struct PipelineLayouts {
+    pub object: vk::PipelineLayout,
+    pub grass: vk::PipelineLayout,
+    pub skybox: vk::PipelineLayout,
+    pub atmosphere: vk::PipelineLayout,
+    pub gaussian: vk::PipelineLayout,
+    pub postprocess: vk::PipelineLayout,
+}
+
 pub struct Pipelines {
-    pub object: Pipeline,
-    pub grass: Pipeline,
-    pub skybox: Pipeline,
-    pub atmosphere: Pipeline,
-    pub gaussian: Pipeline,
-    pub postprocess: Pipeline,
+    pub object: vk::Pipeline,
+    pub grass: vk::Pipeline,
+    pub skybox: vk::Pipeline,
+    pub atmosphere: vk::Pipeline,
+    pub gaussian: vk::Pipeline,
+    pub postprocess: vk::Pipeline,
 }
 
 struct Scratch {
@@ -1349,14 +1357,25 @@ impl DescriptorSetLayouts {
     }
 }
 
+impl PipelineLayouts {
+    pub fn cleanup(&self, dev: &Dev) {
+        unsafe { dev.destroy_pipeline_layout(self.object, None) };
+        unsafe { dev.destroy_pipeline_layout(self.grass, None) };
+        unsafe { dev.destroy_pipeline_layout(self.skybox, None) };
+        unsafe { dev.destroy_pipeline_layout(self.atmosphere, None) };
+        unsafe { dev.destroy_pipeline_layout(self.gaussian, None) };
+        unsafe { dev.destroy_pipeline_layout(self.postprocess, None) };
+    }
+}
+
 impl Pipelines {
     pub fn cleanup(&self, dev: &Dev) {
-        self.object.cleanup(dev);
-        self.grass.cleanup(dev);
-        self.skybox.cleanup(dev);
-        self.atmosphere.cleanup(dev);
-        self.gaussian.cleanup(dev);
-        self.postprocess.cleanup(dev);
+        unsafe { dev.destroy_pipeline(self.object, None) };
+        unsafe { dev.destroy_pipeline(self.grass, None) };
+        unsafe { dev.destroy_pipeline(self.skybox, None) };
+        unsafe { dev.destroy_pipeline(self.atmosphere, None) };
+        unsafe { dev.destroy_pipeline(self.gaussian, None) };
+        unsafe { dev.destroy_pipeline(self.postprocess, None) };
     }
 }
 
@@ -1390,6 +1409,33 @@ pub fn create_descriptor_set_layouts(samplers: &Samplers, dev: &Dev) -> Descript
 }
 
 #[rustfmt::skip]
+pub fn create_pipeline_layouts(
+    descriptor_set_layouts: &DescriptorSetLayouts,
+    dev: &Dev,
+) -> PipelineLayouts {
+    unsafe { SCRATCH.object_pipeline_layout.p_set_layouts = &descriptor_set_layouts.object };
+    unsafe { SCRATCH.grass_pipeline_layout.p_set_layouts = &descriptor_set_layouts.grass };
+    unsafe { SCRATCH.skybox_pipeline_layout.p_set_layouts = &descriptor_set_layouts.skybox };
+    unsafe { SCRATCH.atmosphere_pipeline_layout.p_set_layouts = &descriptor_set_layouts.atmosphere };
+    unsafe { SCRATCH.gaussian_pipeline_layout.p_set_layouts = &descriptor_set_layouts.gaussian };
+    unsafe { SCRATCH.postprocess_pipeline_layout.p_set_layouts = &descriptor_set_layouts.postprocess };
+    let object = unsafe { dev.create_pipeline_layout(&SCRATCH.object_pipeline_layout, None).unwrap_unchecked() };
+    let grass = unsafe { dev.create_pipeline_layout(&SCRATCH.grass_pipeline_layout, None).unwrap_unchecked() };
+    let skybox = unsafe { dev.create_pipeline_layout(&SCRATCH.skybox_pipeline_layout, None).unwrap_unchecked() };
+    let atmosphere = unsafe { dev.create_pipeline_layout(&SCRATCH.atmosphere_pipeline_layout, None).unwrap_unchecked() };
+    let gaussian = unsafe { dev.create_pipeline_layout(&SCRATCH.gaussian_pipeline_layout, None).unwrap_unchecked() };
+    let postprocess = unsafe { dev.create_pipeline_layout(&SCRATCH.postprocess_pipeline_layout, None).unwrap_unchecked() };
+    PipelineLayouts {
+        object,
+        grass,
+        skybox,
+        atmosphere,
+        gaussian,
+        postprocess,
+    }
+}
+
+#[rustfmt::skip]
 pub fn create_pipelines(
     render: &Pass,
     gaussian: &Pass,
@@ -1397,15 +1443,13 @@ pub fn create_pipelines(
     _msaa_samples: vk::SampleCountFlags,
     swapchain: &Swapchain,
     supports_raytracing: bool,
-    descriptor_set_layouts: &DescriptorSetLayouts,
+    layouts: &PipelineLayouts,
     dev: &Dev,
 ) -> Pipelines {
     unsafe { SCRATCH.viewport.width = swapchain.extent.width as f32 };
     unsafe { SCRATCH.viewport.height = swapchain.extent.height as f32 };
     unsafe { SCRATCH.scissor.extent.width = swapchain.extent.width };
     unsafe { SCRATCH.scissor.extent.height = swapchain.extent.height };
-    unsafe { SCRATCH.object_pipeline_layout.p_set_layouts = &descriptor_set_layouts.object };
-    let layout = unsafe { dev.create_pipeline_layout(&SCRATCH.object_pipeline_layout, None).unwrap_unchecked() };
     let vertex_shader = create_shader(
         "shaders/object.vert",
         vk::ShaderStageFlags::VERTEX,
@@ -1420,12 +1464,9 @@ pub fn create_pipelines(
     );
     unsafe { SCRATCH.object_shader_stages[0].module = vertex_shader.module };
     unsafe { SCRATCH.object_shader_stages[1].module = fragment_shader.module };
-    unsafe { SCRATCH.object_pipeline.layout = layout };
+    unsafe { SCRATCH.object_pipeline.layout = layouts.object };
     unsafe { SCRATCH.object_pipeline.render_pass = render.pass };
-    let pipeline = unsafe { dev.create_graphics_pipelines(vk::PipelineCache::null(), std::slice::from_ref(&SCRATCH.object_pipeline), None).unwrap_unchecked()[0] };
-    let object = Pipeline { layout, pipeline };
-    unsafe { SCRATCH.grass_pipeline_layout.p_set_layouts = &descriptor_set_layouts.grass };
-    let layout = unsafe { dev.create_pipeline_layout(&SCRATCH.grass_pipeline_layout, None).unwrap_unchecked() };
+    let object = unsafe { dev.create_graphics_pipelines(vk::PipelineCache::null(), std::slice::from_ref(&SCRATCH.object_pipeline), None).unwrap_unchecked()[0] };
     let vertex_shader = create_shader(
         "shaders/grass.vert",
         vk::ShaderStageFlags::VERTEX,
@@ -1440,12 +1481,9 @@ pub fn create_pipelines(
     );
     unsafe { SCRATCH.grass_shader_stages[0].module = vertex_shader.module };
     unsafe { SCRATCH.grass_shader_stages[1].module = fragment_shader.module };
-    unsafe { SCRATCH.grass_pipeline.layout = layout };
+    unsafe { SCRATCH.grass_pipeline.layout = layouts.grass };
     unsafe { SCRATCH.grass_pipeline.render_pass = render.pass };
-    let pipeline = unsafe { dev.create_graphics_pipelines(vk::PipelineCache::null(), std::slice::from_ref(&SCRATCH.grass_pipeline), None).unwrap_unchecked()[0] };
-    let grass = Pipeline { layout, pipeline };
-    unsafe { SCRATCH.skybox_pipeline_layout.p_set_layouts = &descriptor_set_layouts.skybox };
-    let layout = unsafe { dev.create_pipeline_layout(&SCRATCH.skybox_pipeline_layout, None).unwrap_unchecked() };
+    let grass = unsafe { dev.create_graphics_pipelines(vk::PipelineCache::null(), std::slice::from_ref(&SCRATCH.grass_pipeline), None).unwrap_unchecked()[0] };
     let vertex_shader = create_shader(
         "shaders/skybox.vert",
         vk::ShaderStageFlags::VERTEX,
@@ -1460,12 +1498,9 @@ pub fn create_pipelines(
     );
     unsafe { SCRATCH.skybox_shader_stages[0].module = vertex_shader.module };
     unsafe { SCRATCH.skybox_shader_stages[1].module = fragment_shader.module };
-    unsafe { SCRATCH.skybox_pipeline.layout = layout };
+    unsafe { SCRATCH.skybox_pipeline.layout = layouts.skybox };
     unsafe { SCRATCH.skybox_pipeline.render_pass = render.pass };
-    let pipeline = unsafe { dev.create_graphics_pipelines(vk::PipelineCache::null(), std::slice::from_ref(&SCRATCH.skybox_pipeline), None).unwrap_unchecked()[0] };
-    let skybox = Pipeline { layout, pipeline };
-    unsafe { SCRATCH.atmosphere_pipeline_layout.p_set_layouts = &descriptor_set_layouts.atmosphere };
-    let layout = unsafe { dev.create_pipeline_layout(&SCRATCH.atmosphere_pipeline_layout, None).unwrap_unchecked() };
+    let skybox = unsafe { dev.create_graphics_pipelines(vk::PipelineCache::null(), std::slice::from_ref(&SCRATCH.skybox_pipeline), None).unwrap_unchecked()[0] };
     let vertex_shader = create_shader(
         "shaders/atmosphere.vert",
         vk::ShaderStageFlags::VERTEX,
@@ -1480,12 +1515,9 @@ pub fn create_pipelines(
     );
     unsafe { SCRATCH.atmosphere_shader_stages[0].module = vertex_shader.module };
     unsafe { SCRATCH.atmosphere_shader_stages[1].module = fragment_shader.module };
-    unsafe { SCRATCH.atmosphere_pipeline.layout = layout };
+    unsafe { SCRATCH.atmosphere_pipeline.layout = layouts.atmosphere };
     unsafe { SCRATCH.atmosphere_pipeline.render_pass = render.pass };
-    let pipeline = unsafe { dev.create_graphics_pipelines(vk::PipelineCache::null(), std::slice::from_ref(&SCRATCH.atmosphere_pipeline), None).unwrap_unchecked()[0] };
-    let atmosphere = Pipeline { layout, pipeline };
-    unsafe { SCRATCH.gaussian_pipeline_layout.p_set_layouts = &descriptor_set_layouts.gaussian };
-    let layout = unsafe { dev.create_pipeline_layout(&SCRATCH.gaussian_pipeline_layout, None).unwrap_unchecked() };
+    let atmosphere = unsafe { dev.create_graphics_pipelines(vk::PipelineCache::null(), std::slice::from_ref(&SCRATCH.atmosphere_pipeline), None).unwrap_unchecked()[0] };
     let vertex_shader = create_shader(
         "shaders/gaussian.vert",
         vk::ShaderStageFlags::VERTEX,
@@ -1500,12 +1532,9 @@ pub fn create_pipelines(
     );
     unsafe { SCRATCH.gaussian_shader_stages[0].module = vertex_shader.module };
     unsafe { SCRATCH.gaussian_shader_stages[1].module = fragment_shader.module };
-    unsafe { SCRATCH.gaussian_pipeline.layout = layout };
+    unsafe { SCRATCH.gaussian_pipeline.layout = layouts.gaussian };
     unsafe { SCRATCH.gaussian_pipeline.render_pass = gaussian.pass };
-    let pipeline = unsafe { dev.create_graphics_pipelines(vk::PipelineCache::null(), std::slice::from_ref(&SCRATCH.gaussian_pipeline), None).unwrap_unchecked()[0] };
-    let gaussian = Pipeline { layout, pipeline };
-    unsafe { SCRATCH.postprocess_pipeline_layout.p_set_layouts = &descriptor_set_layouts.postprocess };
-    let layout = unsafe { dev.create_pipeline_layout(&SCRATCH.postprocess_pipeline_layout, None).unwrap_unchecked() };
+    let gaussian = unsafe { dev.create_graphics_pipelines(vk::PipelineCache::null(), std::slice::from_ref(&SCRATCH.gaussian_pipeline), None).unwrap_unchecked()[0] };
     let vertex_shader = create_shader(
         "shaders/postprocess.vert",
         vk::ShaderStageFlags::VERTEX,
@@ -1520,10 +1549,9 @@ pub fn create_pipelines(
     );
     unsafe { SCRATCH.postprocess_shader_stages[0].module = vertex_shader.module };
     unsafe { SCRATCH.postprocess_shader_stages[1].module = fragment_shader.module };
-    unsafe { SCRATCH.postprocess_pipeline.layout = layout };
+    unsafe { SCRATCH.postprocess_pipeline.layout = layouts.postprocess };
     unsafe { SCRATCH.postprocess_pipeline.render_pass = postprocess.pass };
-    let pipeline = unsafe { dev.create_graphics_pipelines(vk::PipelineCache::null(), std::slice::from_ref(&SCRATCH.postprocess_pipeline), None).unwrap_unchecked()[0] };
-    let postprocess = Pipeline { layout, pipeline };
+    let postprocess = unsafe { dev.create_graphics_pipelines(vk::PipelineCache::null(), std::slice::from_ref(&SCRATCH.postprocess_pipeline), None).unwrap_unchecked()[0] };
     Pipelines {
         object,
         grass,

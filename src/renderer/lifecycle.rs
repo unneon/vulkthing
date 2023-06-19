@@ -1,7 +1,9 @@
 use crate::cli::Args;
 use crate::config::DEFAULT_STAR_COUNT;
 use crate::mesh::MeshData;
-use crate::renderer::codegen::{create_descriptor_set_layouts, create_pipelines, create_samplers};
+use crate::renderer::codegen::{
+    create_descriptor_set_layouts, create_pipeline_layouts, create_pipelines, create_samplers,
+};
 use crate::renderer::debug::{create_debug_messenger, set_label};
 use crate::renderer::descriptors::{
     create_descriptor_metadata, Descriptor, DescriptorConfig, DescriptorKind, DescriptorMetadata,
@@ -18,8 +20,8 @@ use crate::renderer::uniform::{
 use crate::renderer::util::{vulkan_str, Buffer, Ctx, Dev};
 use crate::renderer::vertex::{GrassBlade, Vertex};
 use crate::renderer::{
-    AsyncLoader, GrassChunk, MeshObject, Object, Pipeline, Renderer, RendererSettings,
-    Synchronization, UniformBuffer, VulkanExtensions, FRAMES_IN_FLIGHT,
+    AsyncLoader, GrassChunk, MeshObject, Object, Renderer, RendererSettings, Synchronization,
+    UniformBuffer, VulkanExtensions, FRAMES_IN_FLIGHT,
 };
 use crate::window::Window;
 use crate::world::World;
@@ -143,6 +145,7 @@ impl Renderer {
             &postprocess_descriptor_metadata,
             &dev,
         );
+        let pipeline_layouts = create_pipeline_layouts(&descriptor_set_layouts, &dev);
         let pipelines = create_pipelines(
             &render,
             &gaussian,
@@ -150,7 +153,7 @@ impl Renderer {
             msaa_samples,
             &swapchain,
             supports_raytracing,
-            &descriptor_set_layouts,
+            &pipeline_layouts,
             &dev,
         );
 
@@ -220,6 +223,7 @@ impl Renderer {
             postprocessing,
             camera,
             descriptor_set_layouts,
+            pipeline_layouts,
             object_descriptor_metadata,
             grass_descriptor_metadata,
             skybox_descriptor_metadata,
@@ -333,7 +337,7 @@ impl Renderer {
             self.msaa_samples,
             &self.swapchain,
             self.supports_raytracing,
-            &self.descriptor_set_layouts,
+            &self.pipeline_layouts,
             &self.dev,
         );
     }
@@ -395,15 +399,6 @@ impl Renderer {
             self.render.cleanup(&self.dev);
             self.gaussian.cleanup(&self.dev);
             self.postprocess.cleanup(&self.dev);
-        }
-    }
-}
-
-impl Pipeline {
-    pub fn cleanup(&self, dev: &Device) {
-        unsafe {
-            dev.destroy_pipeline(self.pipeline, None);
-            dev.destroy_pipeline_layout(self.layout, None);
         }
     }
 }
@@ -500,6 +495,7 @@ impl Drop for Renderer {
             }
             self.cleanup_swapchain();
             self.pipelines.cleanup(&self.dev);
+            self.pipeline_layouts.cleanup(&self.dev);
             self.descriptor_set_layouts.cleanup(&self.dev);
             self.object_descriptor_metadata.cleanup(&self.dev);
             self.grass_descriptor_metadata.cleanup(&self.dev);

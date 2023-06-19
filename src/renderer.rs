@@ -12,7 +12,7 @@ mod util;
 pub mod vertex;
 
 use crate::grass::Grass;
-use crate::renderer::codegen::{DescriptorSetLayouts, Pipelines, Samplers};
+use crate::renderer::codegen::{DescriptorSetLayouts, PipelineLayouts, Pipelines, Samplers};
 use crate::renderer::debug::{begin_label, end_label};
 use crate::renderer::descriptors::DescriptorMetadata;
 use crate::renderer::graph::Pass;
@@ -57,6 +57,7 @@ pub struct Renderer {
     // Description of the main render pass. Doesn't contain any information about the objects yet,
     // only low-level data format descriptions.
     descriptor_set_layouts: DescriptorSetLayouts,
+    pipeline_layouts: PipelineLayouts,
     object_descriptor_metadata: DescriptorMetadata,
     grass_descriptor_metadata: DescriptorMetadata,
     skybox_descriptor_metadata: DescriptorMetadata,
@@ -112,11 +113,6 @@ pub struct Renderer {
 struct VulkanExtensions {
     debug: DebugUtils,
     surface: Surface,
-}
-
-pub struct Pipeline {
-    pipeline: vk::Pipeline,
-    layout: vk::PipelineLayout,
 }
 
 struct Synchronization {
@@ -243,10 +239,14 @@ impl Renderer {
         self.render.begin(buf, &self.dev, &self.extensions.debug);
 
         begin_label(buf, "Entity draws", [57, 65, 62], &self.extensions.debug);
-        self.bind_pipeline(buf, &self.pipelines.object);
+        self.bind_pipeline(buf, self.pipelines.object);
         for (entity, gpu_entity) in world.entities().iter().zip(&self.entities) {
             let mesh = &self.mesh_objects[entity.mesh_id()];
-            self.bind_descriptor_sets(buf, &self.pipelines.object, &gpu_entity.descriptor_sets);
+            self.bind_descriptor_sets(
+                buf,
+                self.pipeline_layouts.object,
+                &gpu_entity.descriptor_sets,
+            );
             self.dev
                 .cmd_bind_vertex_buffers(buf, 0, &[mesh.vertex.buffer], &[0]);
             self.dev
@@ -255,8 +255,12 @@ impl Renderer {
         end_label(buf, &self.extensions.debug);
 
         begin_label(buf, "Grass draws", [100, 142, 55], &self.extensions.debug);
-        self.bind_pipeline(buf, &self.pipelines.grass);
-        self.bind_descriptor_sets(buf, &self.pipelines.grass, &self.grass_descriptor_sets);
+        self.bind_pipeline(buf, self.pipelines.grass);
+        self.bind_descriptor_sets(
+            buf,
+            self.pipeline_layouts.grass,
+            &self.grass_descriptor_sets,
+        );
         for grass_chunk in self.grass_chunks.lock().unwrap().iter() {
             self.dev.cmd_bind_vertex_buffers(
                 buf,
@@ -278,8 +282,12 @@ impl Renderer {
         end_label(buf, &self.extensions.debug);
 
         begin_label(buf, "Skybox draw", [129, 147, 164], &self.extensions.debug);
-        self.bind_pipeline(buf, &self.pipelines.skybox);
-        self.bind_descriptor_sets(buf, &self.pipelines.skybox, &self.skybox_descriptor_sets);
+        self.bind_pipeline(buf, self.pipelines.skybox);
+        self.bind_descriptor_sets(
+            buf,
+            self.pipeline_layouts.skybox,
+            &self.skybox_descriptor_sets,
+        );
         self.dev
             .cmd_bind_vertex_buffers(buf, 0, &[self.mesh_objects[1].vertex.buffer], &[0]);
         self.dev
@@ -294,10 +302,10 @@ impl Renderer {
             [84, 115, 144],
             &self.extensions.debug,
         );
-        self.bind_pipeline(buf, &self.pipelines.atmosphere);
+        self.bind_pipeline(buf, self.pipelines.atmosphere);
         self.bind_descriptor_sets(
             buf,
-            &self.pipelines.atmosphere,
+            self.pipeline_layouts.atmosphere,
             &self.atmosphere_descriptor_sets,
         );
         self.dev.cmd_draw(buf, 6, 1, 0, 0);
@@ -310,10 +318,10 @@ impl Renderer {
     unsafe fn record_gaussian_pass(&mut self, buf: vk::CommandBuffer) {
         self.gaussian.begin(buf, &self.dev, &self.extensions.debug);
 
-        self.bind_pipeline(buf, &self.pipelines.gaussian);
+        self.bind_pipeline(buf, self.pipelines.gaussian);
         self.bind_descriptor_sets(
             buf,
-            &self.pipelines.gaussian,
+            self.pipeline_layouts.gaussian,
             &self.gaussian_descriptor_sets,
         );
         self.dev.cmd_draw(buf, 6, 1, 0, 0);
@@ -337,10 +345,10 @@ impl Renderer {
             [210, 206, 203],
             &self.extensions.debug,
         );
-        self.bind_pipeline(buf, &self.pipelines.postprocess);
+        self.bind_pipeline(buf, self.pipelines.postprocess);
         self.bind_descriptor_sets(
             buf,
-            &self.pipelines.postprocess,
+            self.pipeline_layouts.postprocess,
             &self.postprocess_descriptor_sets,
         );
         self.dev.cmd_draw(buf, 6, 1, 0, 0);
@@ -462,24 +470,24 @@ impl Renderer {
         proj
     }
 
-    fn bind_pipeline(&self, buf: vk::CommandBuffer, pipeline: &Pipeline) {
+    fn bind_pipeline(&self, buf: vk::CommandBuffer, pipeline: vk::Pipeline) {
         unsafe {
             self.dev
-                .cmd_bind_pipeline(buf, vk::PipelineBindPoint::GRAPHICS, pipeline.pipeline)
+                .cmd_bind_pipeline(buf, vk::PipelineBindPoint::GRAPHICS, pipeline)
         };
     }
 
     fn bind_descriptor_sets(
         &self,
         buf: vk::CommandBuffer,
-        pipeline: &Pipeline,
+        layout: vk::PipelineLayout,
         sets: &[vk::DescriptorSet; FRAMES_IN_FLIGHT],
     ) {
         unsafe {
             self.dev.cmd_bind_descriptor_sets(
                 buf,
                 vk::PipelineBindPoint::GRAPHICS,
-                pipeline.layout,
+                layout,
                 0,
                 &[sets[self.flight_index]],
                 &[],
