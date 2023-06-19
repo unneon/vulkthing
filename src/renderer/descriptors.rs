@@ -4,12 +4,13 @@ use ash::{vk, Device};
 
 pub struct DescriptorMetadata {
     pub pool: vk::DescriptorPool,
-    pub set_layout: vk::DescriptorSetLayout,
+    set_layout: vk::DescriptorSetLayout,
     config: Vec<Descriptor>,
 }
 
 pub struct DescriptorConfig<'a> {
     pub descriptors: Vec<Descriptor>,
+    pub layout: vk::DescriptorSetLayout,
     pub set_count: usize,
     pub dev: &'a Dev,
 }
@@ -112,7 +113,6 @@ impl DescriptorMetadata {
     pub fn cleanup(&self, dev: &Device) {
         unsafe {
             dev.destroy_descriptor_pool(self.pool, None);
-            dev.destroy_descriptor_set_layout(self.set_layout, None);
         }
     }
 }
@@ -149,25 +149,9 @@ pub fn create_descriptor_metadata(config: DescriptorConfig) -> DescriptorMetadat
         .max_sets((config.set_count * FRAMES_IN_FLIGHT) as u32);
     let pool = unsafe { config.dev.create_descriptor_pool(&pool_info, None) }.unwrap();
 
-    let mut bindings = Vec::new();
-    for (index, desc) in config.descriptors.iter().enumerate() {
-        let mut binding = vk::DescriptorSetLayoutBinding::builder()
-            .binding(index as u32)
-            .descriptor_count(1)
-            .descriptor_type(desc.kind.ty())
-            .stage_flags(desc.stage);
-        if let DescriptorKind::ImmutableSampler { sampler } = &desc.kind {
-            binding = binding.immutable_samplers(std::slice::from_ref(sampler));
-        }
-        bindings.push(*binding);
-    }
-    let layout_info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(&bindings);
-    let set_layout =
-        unsafe { config.dev.create_descriptor_set_layout(&layout_info, None) }.unwrap();
-
     DescriptorMetadata {
         pool,
-        set_layout,
+        set_layout: config.layout,
         config: config.descriptors,
     }
 }

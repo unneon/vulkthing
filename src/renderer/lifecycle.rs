@@ -1,7 +1,9 @@
 use crate::cli::Args;
 use crate::config::DEFAULT_STAR_COUNT;
 use crate::mesh::MeshData;
-use crate::renderer::codegen::create_samplers;
+use crate::renderer::codegen::{
+    create_descriptor_set_layouts, create_samplers, DescriptorSetLayouts,
+};
 use crate::renderer::debug::{create_debug_messenger, set_label};
 use crate::renderer::descriptors::{
     create_descriptor_metadata, Descriptor, DescriptorConfig, DescriptorKind, DescriptorMetadata,
@@ -95,15 +97,32 @@ impl Renderer {
         let postprocessing = UniformBuffer::create(&dev);
         let camera = UniformBuffer::create(&dev);
 
-        let object_descriptor_metadata =
-            create_object_descriptor_metadata(supports_raytracing, &dev);
-        let grass_descriptor_metadata = create_grass_descriptor_metadata(supports_raytracing, &dev);
-        let skybox_descriptor_metadata = create_skybox_descriptor_metadata(&dev);
-        let atmosphere_descriptor_metadata = create_atmosphere_descriptor_metadata(&dev);
-        let gaussian_descriptor_metadata =
-            create_gaussian_descriptor_metadata(samplers.pixel, &dev);
-        let postprocess_descriptor_metadata =
-            create_postprocess_descriptor_metadata(samplers.pixel, &dev);
+        let descriptor_set_layouts = create_descriptor_set_layouts(&samplers, &dev);
+
+        let object_descriptor_metadata = create_object_descriptor_metadata(
+            descriptor_set_layouts.object,
+            supports_raytracing,
+            &dev,
+        );
+        let grass_descriptor_metadata = create_grass_descriptor_metadata(
+            descriptor_set_layouts.grass,
+            supports_raytracing,
+            &dev,
+        );
+        let skybox_descriptor_metadata =
+            create_skybox_descriptor_metadata(descriptor_set_layouts.skybox, &dev);
+        let atmosphere_descriptor_metadata =
+            create_atmosphere_descriptor_metadata(descriptor_set_layouts.atmosphere, &dev);
+        let gaussian_descriptor_metadata = create_gaussian_descriptor_metadata(
+            descriptor_set_layouts.gaussian,
+            samplers.pixel,
+            &dev,
+        );
+        let postprocess_descriptor_metadata = create_postprocess_descriptor_metadata(
+            descriptor_set_layouts.postprocess,
+            samplers.pixel,
+            &dev,
+        );
 
         let (
             swapchain,
@@ -129,12 +148,7 @@ impl Renderer {
             &dev,
         );
         let pipelines = create_pipelines(
-            &object_descriptor_metadata,
-            &grass_descriptor_metadata,
-            &skybox_descriptor_metadata,
-            &atmosphere_descriptor_metadata,
-            &gaussian_descriptor_metadata,
-            &postprocess_descriptor_metadata,
+            &descriptor_set_layouts,
             &render,
             &gaussian,
             &postprocess,
@@ -209,6 +223,7 @@ impl Renderer {
             gaussian_uniform,
             postprocessing,
             camera,
+            descriptor_set_layouts,
             object_descriptor_metadata,
             grass_descriptor_metadata,
             skybox_descriptor_metadata,
@@ -316,12 +331,7 @@ impl Renderer {
         unsafe { self.dev.device_wait_idle() }.unwrap();
         self.cleanup_pipelines();
         self.pipelines = create_pipelines(
-            &self.object_descriptor_metadata,
-            &self.grass_descriptor_metadata,
-            &self.skybox_descriptor_metadata,
-            &self.atmosphere_descriptor_metadata,
-            &self.gaussian_descriptor_metadata,
-            &self.postprocess_descriptor_metadata,
+            &self.descriptor_set_layouts,
             &self.render,
             &self.gaussian,
             &self.postprocess,
@@ -494,6 +504,7 @@ impl Drop for Renderer {
             }
             self.cleanup_swapchain();
             self.cleanup_pipelines();
+            self.descriptor_set_layouts.cleanup(&self.dev);
             self.object_descriptor_metadata.cleanup(&self.dev);
             self.grass_descriptor_metadata.cleanup(&self.dev);
             self.skybox_descriptor_metadata.cleanup(&self.dev);
@@ -703,12 +714,7 @@ fn create_swapchain_all(
 }
 
 fn create_pipelines(
-    object_descriptor_metadata: &DescriptorMetadata,
-    grass_descriptor_metadata: &DescriptorMetadata,
-    skybox_descriptor_metadata: &DescriptorMetadata,
-    atmosphere_descriptor_metadata: &DescriptorMetadata,
-    gaussian_descriptor_metadata: &DescriptorMetadata,
-    postprocess_descriptor_metadata: &DescriptorMetadata,
+    descriptor_set_layouts: &DescriptorSetLayouts,
     render: &Pass,
     gaussian: &Pass,
     postprocess: &Pass,
@@ -718,7 +724,7 @@ fn create_pipelines(
     dev: &Dev,
 ) -> Pipelines {
     let object = create_object_pipeline(
-        object_descriptor_metadata,
+        descriptor_set_layouts.object,
         msaa_samples,
         render.pass,
         swapchain.extent,
@@ -726,7 +732,7 @@ fn create_pipelines(
         dev,
     );
     let grass = create_grass_pipeline(
-        grass_descriptor_metadata,
+        descriptor_set_layouts.grass,
         msaa_samples,
         render.pass,
         swapchain.extent,
@@ -734,28 +740,28 @@ fn create_pipelines(
         dev,
     );
     let skybox = create_skybox_pipeline(
-        skybox_descriptor_metadata,
+        descriptor_set_layouts.skybox,
         msaa_samples,
         render.pass,
         swapchain.extent,
         dev,
     );
     let atmosphere = create_atmosphere_pipeline(
-        atmosphere_descriptor_metadata,
+        descriptor_set_layouts.atmosphere,
         render.pass,
         swapchain.extent,
         msaa_samples,
         dev,
     );
     let gaussian = create_gaussian_pipeline(
-        gaussian_descriptor_metadata,
+        descriptor_set_layouts.gaussian,
         gaussian.pass,
         swapchain.extent,
         msaa_samples,
         dev,
     );
     let postprocess = create_postprocess_pipeline(
-        postprocess_descriptor_metadata,
+        descriptor_set_layouts.postprocess,
         postprocess.pass,
         swapchain.extent,
         supports_raytracing,
@@ -850,7 +856,11 @@ fn create_postprocess_pass(
     })
 }
 
-fn create_object_descriptor_metadata(supports_raytracing: bool, dev: &Dev) -> DescriptorMetadata {
+fn create_object_descriptor_metadata(
+    layout: vk::DescriptorSetLayout,
+    supports_raytracing: bool,
+    dev: &Dev,
+) -> DescriptorMetadata {
     let mut descriptors = vec![
         Descriptor {
             kind: DescriptorKind::UniformBuffer,
@@ -877,12 +887,17 @@ fn create_object_descriptor_metadata(supports_raytracing: bool, dev: &Dev) -> De
     }
     create_descriptor_metadata(DescriptorConfig {
         descriptors,
+        layout,
         set_count: 3 + DEFAULT_STAR_COUNT,
         dev,
     })
 }
 
-fn create_grass_descriptor_metadata(supports_raytracing: bool, dev: &Dev) -> DescriptorMetadata {
+fn create_grass_descriptor_metadata(
+    layout: vk::DescriptorSetLayout,
+    supports_raytracing: bool,
+    dev: &Dev,
+) -> DescriptorMetadata {
     let mut descriptors = vec![
         Descriptor {
             kind: DescriptorKind::UniformBuffer,
@@ -909,18 +924,23 @@ fn create_grass_descriptor_metadata(supports_raytracing: bool, dev: &Dev) -> Des
     }
     create_descriptor_metadata(DescriptorConfig {
         descriptors,
+        layout,
         set_count: 1,
         dev,
     })
 }
 
-fn create_skybox_descriptor_metadata(dev: &Dev) -> DescriptorMetadata {
+fn create_skybox_descriptor_metadata(
+    layout: vk::DescriptorSetLayout,
+    dev: &Dev,
+) -> DescriptorMetadata {
     let descriptors = vec![Descriptor {
         kind: DescriptorKind::UniformBuffer,
         stage: vk::ShaderStageFlags::VERTEX,
     }];
     create_descriptor_metadata(DescriptorConfig {
         descriptors,
+        layout,
         set_count: 1,
         dev,
     })
@@ -980,7 +1000,10 @@ fn create_skybox_descriptor_sets(
     metadata.create_sets(&[DescriptorValue::Buffer(mvp)], dev)
 }
 
-fn create_atmosphere_descriptor_metadata(dev: &Dev) -> DescriptorMetadata {
+fn create_atmosphere_descriptor_metadata(
+    layout: vk::DescriptorSetLayout,
+    dev: &Dev,
+) -> DescriptorMetadata {
     let descriptors = vec![
         Descriptor {
             kind: DescriptorKind::InputAttachment,
@@ -1001,6 +1024,7 @@ fn create_atmosphere_descriptor_metadata(dev: &Dev) -> DescriptorMetadata {
     ];
     create_descriptor_metadata(DescriptorConfig {
         descriptors,
+        layout,
         set_count: 1,
         dev,
     })
@@ -1025,7 +1049,11 @@ fn create_atmosphere_descriptor_sets(
     )
 }
 
-fn create_gaussian_descriptor_metadata(sampler: vk::Sampler, dev: &Dev) -> DescriptorMetadata {
+fn create_gaussian_descriptor_metadata(
+    layout: vk::DescriptorSetLayout,
+    sampler: vk::Sampler,
+    dev: &Dev,
+) -> DescriptorMetadata {
     create_descriptor_metadata(DescriptorConfig {
         descriptors: vec![
             Descriptor {
@@ -1037,6 +1065,7 @@ fn create_gaussian_descriptor_metadata(sampler: vk::Sampler, dev: &Dev) -> Descr
                 stage: vk::ShaderStageFlags::FRAGMENT,
             },
         ],
+        layout,
         set_count: 1,
         dev,
     })
@@ -1057,7 +1086,11 @@ fn create_gaussian_descriptor_sets(
     )
 }
 
-fn create_postprocess_descriptor_metadata(sampler: vk::Sampler, dev: &Dev) -> DescriptorMetadata {
+fn create_postprocess_descriptor_metadata(
+    layout: vk::DescriptorSetLayout,
+    sampler: vk::Sampler,
+    dev: &Dev,
+) -> DescriptorMetadata {
     create_descriptor_metadata(DescriptorConfig {
         descriptors: vec![
             Descriptor {
@@ -1073,6 +1106,7 @@ fn create_postprocess_descriptor_metadata(sampler: vk::Sampler, dev: &Dev) -> De
                 stage: vk::ShaderStageFlags::FRAGMENT,
             },
         ],
+        layout,
         set_count: 1,
         dev,
     })
@@ -1096,7 +1130,7 @@ fn create_postprocess_descriptor_sets(
 }
 
 fn create_object_pipeline(
-    descriptor_metadata: &DescriptorMetadata,
+    layout: vk::DescriptorSetLayout,
     msaa_samples: vk::SampleCountFlags,
     pass: vk::RenderPass,
     swapchain_extent: vk::Extent2D,
@@ -1129,7 +1163,7 @@ fn create_object_pipeline(
         ],
         msaa_samples,
         cull_mode: vk::CullModeFlags::BACK,
-        descriptor_layouts: &[descriptor_metadata.set_layout],
+        descriptor_layouts: &[layout],
         color_attachment_count: 2,
         depth_test: true,
         pass,
@@ -1141,7 +1175,7 @@ fn create_object_pipeline(
 }
 
 fn create_grass_pipeline(
-    descriptor_metadata: &DescriptorMetadata,
+    layout: vk::DescriptorSetLayout,
     msaa_samples: vk::SampleCountFlags,
     pass: vk::RenderPass,
     swapchain_extent: vk::Extent2D,
@@ -1217,7 +1251,7 @@ fn create_grass_pipeline(
         ],
         msaa_samples,
         cull_mode: vk::CullModeFlags::NONE,
-        descriptor_layouts: &[descriptor_metadata.set_layout],
+        descriptor_layouts: &[layout],
         color_attachment_count: 2,
         depth_test: true,
         pass,
@@ -1229,7 +1263,7 @@ fn create_grass_pipeline(
 }
 
 fn create_skybox_pipeline(
-    descriptor_metadata: &DescriptorMetadata,
+    layout: vk::DescriptorSetLayout,
     msaa_samples: vk::SampleCountFlags,
     pass: vk::RenderPass,
     swapchain_extent: vk::Extent2D,
@@ -1253,7 +1287,7 @@ fn create_skybox_pipeline(
         }],
         msaa_samples,
         cull_mode: vk::CullModeFlags::FRONT,
-        descriptor_layouts: &[descriptor_metadata.set_layout],
+        descriptor_layouts: &[layout],
         color_attachment_count: 2,
         depth_test: true,
         pass,
@@ -1265,7 +1299,7 @@ fn create_skybox_pipeline(
 }
 
 fn create_atmosphere_pipeline(
-    descriptors: &DescriptorMetadata,
+    layout: vk::DescriptorSetLayout,
     pass: vk::RenderPass,
     swapchain_extent: vk::Extent2D,
     msaa_samples: vk::SampleCountFlags,
@@ -1283,7 +1317,7 @@ fn create_atmosphere_pipeline(
         vertex_attributes: &[],
         msaa_samples,
         cull_mode: vk::CullModeFlags::BACK,
-        descriptor_layouts: &[descriptors.set_layout],
+        descriptor_layouts: &[layout],
         color_attachment_count: 1,
         depth_test: false,
         pass,
@@ -1295,7 +1329,7 @@ fn create_atmosphere_pipeline(
 }
 
 fn create_gaussian_pipeline(
-    descriptors: &DescriptorMetadata,
+    layout: vk::DescriptorSetLayout,
     pass: vk::RenderPass,
     swapchain_extent: vk::Extent2D,
     msaa_samples: vk::SampleCountFlags,
@@ -1313,7 +1347,7 @@ fn create_gaussian_pipeline(
         vertex_attributes: &[],
         msaa_samples: vk::SampleCountFlags::TYPE_1,
         cull_mode: vk::CullModeFlags::BACK,
-        descriptor_layouts: &[descriptors.set_layout],
+        descriptor_layouts: &[layout],
         color_attachment_count: 1,
         depth_test: false,
         pass,
@@ -1325,7 +1359,7 @@ fn create_gaussian_pipeline(
 }
 
 fn create_postprocess_pipeline(
-    descriptors: &DescriptorMetadata,
+    layout: vk::DescriptorSetLayout,
     pass: vk::RenderPass,
     swapchain_extent: vk::Extent2D,
     supports_raytracing: bool,
@@ -1344,7 +1378,7 @@ fn create_postprocess_pipeline(
         vertex_attributes: &[],
         msaa_samples: vk::SampleCountFlags::TYPE_1,
         cull_mode: vk::CullModeFlags::BACK,
-        descriptor_layouts: &[descriptors.set_layout],
+        descriptor_layouts: &[layout],
         color_attachment_count: 1,
         depth_test: false,
         pass,

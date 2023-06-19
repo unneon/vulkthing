@@ -39,7 +39,7 @@ descriptor-set "gaussian" {
 }
 descriptor-set "postprocess" {
     image "render" "FRAGMENT" "pixel" msaa=true
-    image "bloom" "FRAGENT" "pixel"
+    image "bloom" "FRAGMENT" "pixel"
     uniform "postprocessing" "FRAGMENT"
 }
 

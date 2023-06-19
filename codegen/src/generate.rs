@@ -1,4 +1,4 @@
-use crate::config::Renderer;
+use crate::config::{DescriptorBinding, Renderer};
 use std::fs::File;
 use std::io::Write;
 
@@ -20,14 +20,14 @@ pub struct Samplers {{"#
         file,
         r#"}}
 
-struct Scratch {{"#
+pub struct DescriptorSetLayouts {{"#
     )
     .unwrap();
-    for sampler in &renderer.samplers {
+    for descriptor_set in &renderer.descriptor_sets {
         writeln!(
             file,
-            "    {}_sampler_info: vk::SamplerCreateInfo,",
-            sampler.name
+            "    pub {}: vk::DescriptorSetLayout,",
+            descriptor_set.name
         )
         .unwrap();
     }
@@ -35,13 +35,35 @@ struct Scratch {{"#
         file,
         r#"}}
 
+struct Scratch {{"#
+    )
+    .unwrap();
+    for sampler in &renderer.samplers {
+        writeln!(file, "    {}_sampler: vk::SamplerCreateInfo,", sampler.name).unwrap();
+    }
+    for descriptor_set in &renderer.descriptor_sets {
+        writeln!(
+            file,
+            r#"    {}_bindings: [vk::DescriptorSetLayoutBinding; {}],
+    {}_layout: vk::DescriptorSetLayoutCreateInfo,"#,
+            descriptor_set.name,
+            descriptor_set.bindings.len(),
+            descriptor_set.name
+        )
+        .unwrap();
+    }
+    writeln!(
+        file,
+        r#"}}
+
+#[rustfmt::skip]
 static mut SCRATCH: Scratch = Scratch {{"#
     )
     .unwrap();
     for sampler in &renderer.samplers {
         writeln!(
             file,
-            r"    {}_sampler_info: vk::SamplerCreateInfo {{
+            r"    {}_sampler: vk::SamplerCreateInfo {{
         s_type: vk::StructureType::SAMPLER_CREATE_INFO,
         p_next: std::ptr::null(),
         flags: vk::SamplerCreateFlags::empty(),
@@ -72,6 +94,44 @@ static mut SCRATCH: Scratch = Scratch {{"#
         )
         .unwrap();
     }
+    for descriptor_set in &renderer.descriptor_sets {
+        writeln!(file, "    {}_bindings: [", descriptor_set.name).unwrap();
+        for (binding_index, binding) in descriptor_set.bindings.iter().enumerate() {
+            let (typ, stage) = match binding {
+                DescriptorBinding::AccelerationStructure(as_) => {
+                    ("ACCELERATION_STRUCTURE_KHR", &as_.stage)
+                }
+                DescriptorBinding::Image(image) => ("COMBINED_IMAGE_SAMPLER", &image.stage),
+                DescriptorBinding::InputAttachment(input) => ("INPUT_ATTACHMENT", &input.stage),
+                DescriptorBinding::Uniform(uniform) => ("UNIFORM_BUFFER", &uniform.stage),
+            };
+            writeln!(
+                file,
+                r#"        vk::DescriptorSetLayoutBinding {{
+            binding: {binding_index},
+            descriptor_type: vk::DescriptorType::{typ},
+            descriptor_count: 1,
+            stage_flags: vk::ShaderStageFlags::{stage},
+            p_immutable_samplers: std::ptr::null(),
+        }},"#,
+            )
+            .unwrap();
+        }
+        writeln!(
+            file,
+            r"    ],
+    {}_layout: vk::DescriptorSetLayoutCreateInfo {{
+        s_type: vk::StructureType::DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::DescriptorSetLayoutCreateFlags::empty(),
+        binding_count: {},
+        p_bindings: std::ptr::null(),
+    }},",
+            descriptor_set.name,
+            descriptor_set.bindings.len(),
+        )
+        .unwrap();
+    }
     writeln!(
         file,
         r#"}};
@@ -93,16 +153,68 @@ impl Samplers {{
         r#"    }}
 }}
 
+impl DescriptorSetLayouts {{
+    pub fn cleanup(&self, dev: &Dev) {{"#
+    )
+    .unwrap();
+    for descriptor_set in &renderer.descriptor_sets {
+        writeln!(
+            file,
+            "        unsafe {{ dev.destroy_descriptor_set_layout(self.{}, None) }};",
+            descriptor_set.name
+        )
+        .unwrap();
+    }
+    writeln!(
+        file,
+        r#"    }}
+}}
+
 #[rustfmt::skip]
 pub fn create_samplers(dev: &Dev) -> Samplers {{"#
     )
     .unwrap();
     for sampler in &renderer.samplers {
-        writeln!(file, "    let {} = unsafe {{ dev.create_sampler(&SCRATCH.{}_sampler_info, None).unwrap_unchecked() }};", sampler.name, sampler.name).unwrap();
+        writeln!(file, "    let {} = unsafe {{ dev.create_sampler(&SCRATCH.{}_sampler, None).unwrap_unchecked() }};", sampler.name, sampler.name).unwrap();
     }
     writeln!(file, "    Samplers {{").unwrap();
     for sampler in &renderer.samplers {
         writeln!(file, "        {},", sampler.name).unwrap();
+    }
+    writeln!(
+        file,
+        r#"    }}
+}}
+
+#[rustfmt::skip]
+pub fn create_descriptor_set_layouts(samplers: &Samplers, dev: &Dev) -> DescriptorSetLayouts {{"#
+    )
+    .unwrap();
+    for descriptor_set in &renderer.descriptor_sets {
+        for (binding_index, binding) in descriptor_set.bindings.iter().enumerate() {
+            if let DescriptorBinding::Image(image) = binding {
+                writeln!(
+                    file,
+                    "    unsafe {{ SCRATCH.{}_bindings[{binding_index}].p_immutable_samplers = &samplers.{} }};",
+                    descriptor_set.name, image.sampler,
+                )
+                .unwrap();
+            }
+        }
+        writeln!(
+            file,
+            "    unsafe {{ SCRATCH.{0}_layout.p_bindings = SCRATCH.{0}_bindings.as_ptr() }};",
+            descriptor_set.name
+        )
+        .unwrap();
+    }
+
+    for descriptor_set in &renderer.descriptor_sets {
+        writeln!(file, "    let {} = unsafe {{ dev.create_descriptor_set_layout(&SCRATCH.{}_layout, None).unwrap_unchecked() }};", descriptor_set.name, descriptor_set.name).unwrap();
+    }
+    writeln!(file, "    DescriptorSetLayouts {{").unwrap();
+    for descriptor_set in &renderer.descriptor_sets {
+        writeln!(file, "        {},", descriptor_set.name).unwrap();
     }
     writeln!(
         file,

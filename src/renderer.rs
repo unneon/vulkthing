@@ -13,7 +13,7 @@ mod util;
 pub mod vertex;
 
 use crate::grass::Grass;
-use crate::renderer::codegen::Samplers;
+use crate::renderer::codegen::{DescriptorSetLayouts, Samplers};
 use crate::renderer::debug::{begin_label, end_label};
 use crate::renderer::descriptors::DescriptorMetadata;
 use crate::renderer::graph::Pass;
@@ -58,6 +58,7 @@ pub struct Renderer {
 
     // Description of the main render pass. Doesn't contain any information about the objects yet,
     // only low-level data format descriptions.
+    descriptor_set_layouts: DescriptorSetLayouts,
     object_descriptor_metadata: DescriptorMetadata,
     grass_descriptor_metadata: DescriptorMetadata,
     skybox_descriptor_metadata: DescriptorMetadata,
