@@ -1,0 +1,148 @@
+mesh "cube"
+mesh "grass"
+mesh "icosahedron"
+mesh "planet" dynamic=true
+mesh "tetrahedron"
+
+sampler "pixel" {
+    address-mode-u "CLAMP_TO_BORDER"
+    address-mode-v "CLAMP_TO_BORDER"
+    unnormalized-coordinates
+}
+
+descriptor-set "object" {
+    uniform "mvp" "VERTEX"
+    uniform "material" "FRAGMENT"
+    uniform "light" "FRAGMENT"
+    uniform "settings" "FRAGMENT"
+    acceleration-structure "tlas" "FRAGMENT"
+}
+descriptor-set "grass" {
+    uniform "planet_mvp" "VERTEX"
+    uniform "grass" "VERTEX"
+    uniform "light" "FRAGMENT"
+    uniform "settings" "FRAGMENT"
+    acceleration-structure "tlas" "FRAGMENT"
+}
+descriptor-set "skybox" {
+    uniform "mvp" "VERTEX"
+}
+descriptor-set "atmosphere" {
+    input-attachment "render" "FRAGMENT" msaa=true
+    input-attachment "position" "FRAGMENT" msaa=true
+    uniform "atmosphere" "FRAGMENT"
+    uniform "camera" "FRAGMENT"
+}
+descriptor-set "gaussian" {
+    image "render" "FRAGMENT" "pixel" msaa=true
+    uniform "gaussian" "FRAGMENT"
+}
+descriptor-set "postprocess" {
+    image "render" "FRAGMENT" "pixel" msaa=true
+    image "bloom" "FRAGENT" "pixel"
+    uniform "postprocessing" "FRAGMENT"
+}
+
+pass "render" {
+    debug-name "Forward rendering pass"
+    debug-color 160 167 161
+    msaa
+    subpass "rasterization" {
+        color-attachment "color-1-rasterization" {
+            layout "COLOR_ATTACHMENT_OPTIMAL"
+            layout-final "SHADER_READ_ONLY_OPTIMAL"
+            clear 0 0 0 0
+            transient; store; input-attachment
+        }
+        color-attachment "position" {
+            layout "COLOR_ATTACHMENT_OPTIMAL"
+            layout-final "SHADER_READ_ONLY_OPTIMAL"
+            clear 0 0 0 0
+            transient; store; input-attachment
+        }
+        depth-attachment "depth" {
+            layout "DEPTH_STENCIL_ATTACHMENT_OPTIMAL"
+            clear 1
+            transient
+        }
+        pipeline "object" {
+            vertex-binding {
+                attribute "vertex_position" "R32G32B32_SFLOAT"
+                attribute "vertex_normal" "R32G32B32_SFLOAT"
+            }
+            descriptor-sets "object"
+        }
+        pipeline "grass" {
+            vertex-binding {
+                attribute "vertex_position" "R32G32B32_SFLOAT"
+                attribute "vertex_normal" "R32G32B32_SFLOAT"
+            }
+            vertex-binding rate="instance" {
+                attribute "blade_position" "R32G32B32_SFLOAT"
+                attribute "blade_up" "R32G32B32_SFLOAT"
+                attribute "blade_right" "R32G32B32_SFLOAT"
+                attribute "blade_front" "R32G32B32_SFLOAT"
+                attribute "blade_height_noise" "R32_SFLOAT"
+                attribute "ground_normal" "R32G32B32_SFLOAT"
+            }
+            descriptor-sets "grass"
+            cull-mode "NONE"
+        }
+        pipeline "skybox" {
+            vertex-binding {
+                attribute "vertex_position" "R32G32B32_SFLOAT"
+                attribute "vertex_normal" "R32G32B32_SFLOAT"
+            }
+            descriptor-sets "skybox"
+            cull-mode "FRONT"
+        }
+    }
+    subpass "atmosphere" {
+        input-attachment "color-1-rasterization"
+        input-attachment "position"
+        color-attachment "color-2-atmosphere" {
+            layout "COLOR_ATTACHMENT_OPTIMAL"
+            layout-final "SHADER_READ_ONLY_OPTIMAL"
+            store; sampled
+        }
+        pipeline "atmosphere" {
+            specialization "msaa_samples" "FRAGMENT"
+            descriptor-sets "atmosphere"
+        }
+    }
+    dependency {
+        src "rasterization" "COLOR_ATTACHMENT_OUTPUT" "COLOR_ATTACHMENT_WRITE"
+        dst "atmosphere" "FRAGMENT_SHADER" "INPUT_ATTACHMENT_READ"
+        by-region
+    }
+}
+pass "gaussian" {
+    debug-name "Gaussian pass"
+    debug-color 244 244 247
+    subpass "gaussian" {
+        color-attachment "blurred-bloom" {
+            layout "COLOR_ATTACHMENT_OPTIMAL"
+            layout-final "SHADER_READ_ONLY_OPTIMAL"
+            sampled; store
+        }
+        pipeline "gaussian" {
+            specialization "msaa_samples" "FRAGMENT"
+            descriptor-sets "gaussian"
+        }
+    }
+}
+pass "postprocess" {
+    debug-name "Postprocess pass"
+    debug-color 210 206 203
+    subpass "postprocess" {
+        color-attachment "color-3-postprocess" {
+            layout "COLOR_ATTACHMENT_OPTIMAL"
+            layout-final "PRESENT_SRC_KHR"
+            store; swapchain
+        }
+        pipeline "postprocess" {
+            specialization "msaa_samples" "FRAGMENT"
+            descriptor-sets "postprocess"
+        }
+    }
+}

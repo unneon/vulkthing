@@ -17,3 +17,8 @@ raw-window-handle = "0.5"
 shaderc = "0.8"
 tobj = { version = "3.2", default-features = false }
 winit = { version = "0.28", features = ["wayland", "x11"], default-features = false }
+
+[build-dependencies]
+codegen = { path = "codegen" }
+
+[workspace]

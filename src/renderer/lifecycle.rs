@@ -1,6 +1,7 @@
 use crate::cli::Args;
 use crate::config::DEFAULT_STAR_COUNT;
 use crate::mesh::MeshData;
+use crate::renderer::codegen::create_samplers;
 use crate::renderer::debug::{create_debug_messenger, set_label};
 use crate::renderer::descriptors::{
     create_descriptor_metadata, Descriptor, DescriptorConfig, DescriptorKind, DescriptorMetadata,
@@ -88,7 +89,7 @@ impl Renderer {
         let swapchain_ext = SwapchainKhr::new(&dev.instance, &dev);
 
         let msaa_samples = settings.msaa_samples;
-        let unnormalized_sampler = create_unnormalized_sampler(&dev);
+        let samplers = create_samplers(&dev);
         let atmosphere_uniform = UniformBuffer::create(&dev);
         let gaussian_uniform = UniformBuffer::create(&dev);
         let postprocessing = UniformBuffer::create(&dev);
@@ -100,9 +101,9 @@ impl Renderer {
         let skybox_descriptor_metadata = create_skybox_descriptor_metadata(&dev);
         let atmosphere_descriptor_metadata = create_atmosphere_descriptor_metadata(&dev);
         let gaussian_descriptor_metadata =
-            create_gaussian_descriptor_metadata(unnormalized_sampler, &dev);
+            create_gaussian_descriptor_metadata(samplers.pixel, &dev);
         let postprocess_descriptor_metadata =
-            create_postprocess_descriptor_metadata(unnormalized_sampler, &dev);
+            create_postprocess_descriptor_metadata(samplers.pixel, &dev);
 
         let (
             swapchain,
@@ -203,7 +204,7 @@ impl Renderer {
             swapchain_ext,
             supports_raytracing,
             msaa_samples,
-            unnormalized_sampler,
+            samplers,
             atmosphere_uniform,
             gaussian_uniform,
             postprocessing,
@@ -503,7 +504,7 @@ impl Drop for Renderer {
             self.gaussian_uniform.cleanup(&self.dev);
             self.postprocessing.cleanup(&self.dev);
             self.camera.cleanup(&self.dev);
-            self.dev.destroy_sampler(self.unnormalized_sampler, None);
+            self.samplers.cleanup(&self.dev);
             self.dev.destroy_device(None);
             self.extensions.surface.destroy_surface(self.surface, None);
             self.extensions
@@ -1376,14 +1377,6 @@ fn create_command_buffers(
         *buffer = unsafe { dev.allocate_command_buffers(&buffer_info) }.unwrap()[0];
     }
     buffers
-}
-
-fn create_unnormalized_sampler(dev: &Dev) -> vk::Sampler {
-    let sampler_info = vk::SamplerCreateInfo::builder()
-        .address_mode_u(vk::SamplerAddressMode::CLAMP_TO_BORDER)
-        .address_mode_v(vk::SamplerAddressMode::CLAMP_TO_BORDER)
-        .unnormalized_coordinates(true);
-    unsafe { dev.create_sampler(&sampler_info, None) }.unwrap()
 }
 
 pub fn create_mesh(model: &MeshData, supports_raytracing: bool, dev: &Dev) -> MeshObject {

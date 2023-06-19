@@ -1,3 +1,4 @@
+mod codegen;
 mod debug;
 mod descriptors;
 mod device;
@@ -12,6 +13,7 @@ mod util;
 pub mod vertex;
 
 use crate::grass::Grass;
+use crate::renderer::codegen::Samplers;
 use crate::renderer::debug::{begin_label, end_label};
 use crate::renderer::descriptors::DescriptorMetadata;
 use crate::renderer::graph::Pass;
@@ -48,7 +50,7 @@ pub struct Renderer {
 
     // Parameters of the renderer that are required early for creating more important objects.
     pub msaa_samples: vk::SampleCountFlags,
-    unnormalized_sampler: vk::Sampler,
+    samplers: Samplers,
     atmosphere_uniform: UniformBuffer<Atmosphere>,
     gaussian_uniform: UniformBuffer<Gaussian>,
     postprocessing: UniformBuffer<Postprocessing>,
