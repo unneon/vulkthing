@@ -96,7 +96,7 @@ static mut SCRATCH: Scratch = Scratch {
         p_next: std::ptr::null(),
         flags: vk::DescriptorSetLayoutCreateFlags::empty(),
         binding_count: 5,
-        p_bindings: std::ptr::null(),
+        p_bindings: unsafe { SCRATCH.object_bindings.as_ptr() },
     },
     grass_bindings: [
         vk::DescriptorSetLayoutBinding {
@@ -140,7 +140,7 @@ static mut SCRATCH: Scratch = Scratch {
         p_next: std::ptr::null(),
         flags: vk::DescriptorSetLayoutCreateFlags::empty(),
         binding_count: 5,
-        p_bindings: std::ptr::null(),
+        p_bindings: unsafe { SCRATCH.grass_bindings.as_ptr() },
     },
     skybox_bindings: [
         vk::DescriptorSetLayoutBinding {
@@ -156,7 +156,7 @@ static mut SCRATCH: Scratch = Scratch {
         p_next: std::ptr::null(),
         flags: vk::DescriptorSetLayoutCreateFlags::empty(),
         binding_count: 1,
-        p_bindings: std::ptr::null(),
+        p_bindings: unsafe { SCRATCH.skybox_bindings.as_ptr() },
     },
     atmosphere_bindings: [
         vk::DescriptorSetLayoutBinding {
@@ -193,7 +193,7 @@ static mut SCRATCH: Scratch = Scratch {
         p_next: std::ptr::null(),
         flags: vk::DescriptorSetLayoutCreateFlags::empty(),
         binding_count: 4,
-        p_bindings: std::ptr::null(),
+        p_bindings: unsafe { SCRATCH.atmosphere_bindings.as_ptr() },
     },
     gaussian_bindings: [
         vk::DescriptorSetLayoutBinding {
@@ -216,7 +216,7 @@ static mut SCRATCH: Scratch = Scratch {
         p_next: std::ptr::null(),
         flags: vk::DescriptorSetLayoutCreateFlags::empty(),
         binding_count: 2,
-        p_bindings: std::ptr::null(),
+        p_bindings: unsafe { SCRATCH.gaussian_bindings.as_ptr() },
     },
     postprocess_bindings: [
         vk::DescriptorSetLayoutBinding {
@@ -246,7 +246,7 @@ static mut SCRATCH: Scratch = Scratch {
         p_next: std::ptr::null(),
         flags: vk::DescriptorSetLayoutCreateFlags::empty(),
         binding_count: 3,
-        p_bindings: std::ptr::null(),
+        p_bindings: unsafe { SCRATCH.postprocess_bindings.as_ptr() },
     },
 };
 
@@ -277,15 +277,9 @@ pub fn create_samplers(dev: &Dev) -> Samplers {
 
 #[rustfmt::skip]
 pub fn create_descriptor_set_layouts(samplers: &Samplers, dev: &Dev) -> DescriptorSetLayouts {
-    unsafe { SCRATCH.object_layout.p_bindings = SCRATCH.object_bindings.as_ptr() };
-    unsafe { SCRATCH.grass_layout.p_bindings = SCRATCH.grass_bindings.as_ptr() };
-    unsafe { SCRATCH.skybox_layout.p_bindings = SCRATCH.skybox_bindings.as_ptr() };
-    unsafe { SCRATCH.atmosphere_layout.p_bindings = SCRATCH.atmosphere_bindings.as_ptr() };
     unsafe { SCRATCH.gaussian_bindings[0].p_immutable_samplers = &samplers.pixel };
-    unsafe { SCRATCH.gaussian_layout.p_bindings = SCRATCH.gaussian_bindings.as_ptr() };
     unsafe { SCRATCH.postprocess_bindings[0].p_immutable_samplers = &samplers.pixel };
     unsafe { SCRATCH.postprocess_bindings[1].p_immutable_samplers = &samplers.pixel };
-    unsafe { SCRATCH.postprocess_layout.p_bindings = SCRATCH.postprocess_bindings.as_ptr() };
     let object = unsafe { dev.create_descriptor_set_layout(&SCRATCH.object_layout, None).unwrap_unchecked() };
     let grass = unsafe { dev.create_descriptor_set_layout(&SCRATCH.grass_layout, None).unwrap_unchecked() };
     let skybox = unsafe { dev.create_descriptor_set_layout(&SCRATCH.skybox_layout, None).unwrap_unchecked() };

@@ -125,10 +125,11 @@ static mut SCRATCH: Scratch = Scratch {{"#
         p_next: std::ptr::null(),
         flags: vk::DescriptorSetLayoutCreateFlags::empty(),
         binding_count: {},
-        p_bindings: std::ptr::null(),
+        p_bindings: unsafe {{ SCRATCH.{}_bindings.as_ptr() }},
     }},",
             descriptor_set.name,
             descriptor_set.bindings.len(),
+            descriptor_set.name,
         )
         .unwrap();
     }
@@ -201,12 +202,6 @@ pub fn create_descriptor_set_layouts(samplers: &Samplers, dev: &Dev) -> Descript
                 .unwrap();
             }
         }
-        writeln!(
-            file,
-            "    unsafe {{ SCRATCH.{0}_layout.p_bindings = SCRATCH.{0}_bindings.as_ptr() }};",
-            descriptor_set.name
-        )
-        .unwrap();
     }
 
     for descriptor_set in &renderer.descriptor_sets {
