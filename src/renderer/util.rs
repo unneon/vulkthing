@@ -291,6 +291,7 @@ pub fn find_max_msaa_samples(dev: &Dev) -> vk::SampleCountFlags {
     vk::SampleCountFlags::TYPE_1
 }
 
+#[allow(dead_code)]
 pub fn sample_count(samples: vk::SampleCountFlags) -> usize {
     if samples.contains(vk::SampleCountFlags::TYPE_64) {
         64

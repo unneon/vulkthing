@@ -176,6 +176,8 @@ pub struct VertexAttribute {
     pub name: String,
     #[knuffel(argument)]
     pub format: String,
+    #[knuffel(property, default)]
+    pub unused: bool,
 }
 
 #[derive(Debug, Decode)]

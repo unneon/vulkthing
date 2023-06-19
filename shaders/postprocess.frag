@@ -6,7 +6,7 @@
 #include "tonemapper/reinhard.glsl"
 #include "tonemapper/rgb-clamping.glsl"
 
-layout(constant_id = 0) const int msaa_samples = 0;
+layout(constant_id = 0) const int msaa_samples = 2;
 
 layout(binding = 0) uniform sampler2DMS render;
 

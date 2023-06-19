@@ -4,7 +4,6 @@ mod descriptors;
 mod device;
 mod graph;
 mod lifecycle;
-mod pipeline;
 mod raytracing;
 mod shader;
 mod swapchain;
@@ -13,11 +12,10 @@ mod util;
 pub mod vertex;
 
 use crate::grass::Grass;
-use crate::renderer::codegen::{DescriptorSetLayouts, Samplers};
+use crate::renderer::codegen::{DescriptorSetLayouts, Pipelines, Samplers};
 use crate::renderer::debug::{begin_label, end_label};
 use crate::renderer::descriptors::DescriptorMetadata;
 use crate::renderer::graph::Pass;
-use crate::renderer::pipeline::Pipeline;
 use crate::renderer::raytracing::RaytraceResources;
 use crate::renderer::swapchain::Swapchain;
 use crate::renderer::uniform::{
@@ -116,13 +114,9 @@ struct VulkanExtensions {
     surface: Surface,
 }
 
-struct Pipelines {
-    object: Pipeline,
-    grass: Pipeline,
-    skybox: Pipeline,
-    atmosphere: Pipeline,
-    gaussian: Pipeline,
-    postprocess: Pipeline,
+pub struct Pipeline {
+    pipeline: vk::Pipeline,
+    layout: vk::PipelineLayout,
 }
 
 struct Synchronization {

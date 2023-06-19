@@ -77,7 +77,7 @@ pass "render" {
                 attribute "vertex_position" "R32G32B32_SFLOAT"
                 attribute "vertex_normal" "R32G32B32_SFLOAT"
             }
-            vertex-binding rate="instance" {
+            vertex-binding rate="INSTANCE" {
                 attribute "blade_position" "R32G32B32_SFLOAT"
                 attribute "blade_up" "R32G32B32_SFLOAT"
                 attribute "blade_right" "R32G32B32_SFLOAT"
@@ -91,7 +91,7 @@ pass "render" {
         pipeline "skybox" {
             vertex-binding {
                 attribute "vertex_position" "R32G32B32_SFLOAT"
-                attribute "vertex_normal" "R32G32B32_SFLOAT"
+                attribute "vertex_normal" "R32G32B32_SFLOAT" unused=true
             }
             descriptor-sets "skybox"
             cull-mode "FRONT"

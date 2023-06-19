@@ -1,9 +1,7 @@
 use crate::cli::Args;
 use crate::config::DEFAULT_STAR_COUNT;
 use crate::mesh::MeshData;
-use crate::renderer::codegen::{
-    create_descriptor_set_layouts, create_samplers, DescriptorSetLayouts,
-};
+use crate::renderer::codegen::{create_descriptor_set_layouts, create_pipelines, create_samplers};
 use crate::renderer::debug::{create_debug_messenger, set_label};
 use crate::renderer::descriptors::{
     create_descriptor_metadata, Descriptor, DescriptorConfig, DescriptorKind, DescriptorMetadata,
@@ -11,18 +9,16 @@ use crate::renderer::descriptors::{
 };
 use crate::renderer::device::{select_device, DeviceInfo};
 use crate::renderer::graph::{create_pass, AttachmentConfig, Pass, PassConfig};
-use crate::renderer::pipeline::{create_pipeline, Pipeline, PipelineConfig};
 use crate::renderer::raytracing::{create_blas, create_tlas, RaytraceResources};
-use crate::renderer::shader::SpecializationConstant;
 use crate::renderer::swapchain::{create_swapchain, Swapchain};
 use crate::renderer::uniform::{
     Atmosphere, Camera, FragSettings, Gaussian, GrassUniform, Light, Material, ModelViewProjection,
     Postprocessing,
 };
-use crate::renderer::util::{sample_count, vulkan_str, Buffer, Ctx, Dev};
+use crate::renderer::util::{vulkan_str, Buffer, Ctx, Dev};
 use crate::renderer::vertex::{GrassBlade, Vertex};
 use crate::renderer::{
-    AsyncLoader, GrassChunk, MeshObject, Object, Pipelines, Renderer, RendererSettings,
+    AsyncLoader, GrassChunk, MeshObject, Object, Pipeline, Renderer, RendererSettings,
     Synchronization, UniformBuffer, VulkanExtensions, FRAMES_IN_FLIGHT,
 };
 use crate::window::Window;
@@ -148,13 +144,13 @@ impl Renderer {
             &dev,
         );
         let pipelines = create_pipelines(
-            &descriptor_set_layouts,
             &render,
             &gaussian,
             &postprocess,
             msaa_samples,
             &swapchain,
             supports_raytracing,
+            &descriptor_set_layouts,
             &dev,
         );
 
@@ -329,15 +325,15 @@ impl Renderer {
 
     pub fn recreate_pipelines(&mut self) {
         unsafe { self.dev.device_wait_idle() }.unwrap();
-        self.cleanup_pipelines();
+        self.pipelines.cleanup(&self.dev);
         self.pipelines = create_pipelines(
-            &self.descriptor_set_layouts,
             &self.render,
             &self.gaussian,
             &self.postprocess,
             self.msaa_samples,
             &self.swapchain,
             self.supports_raytracing,
+            &self.descriptor_set_layouts,
             &self.dev,
         );
     }
@@ -401,14 +397,14 @@ impl Renderer {
             self.postprocess.cleanup(&self.dev);
         }
     }
+}
 
-    fn cleanup_pipelines(&mut self) {
-        self.pipelines.object.cleanup(&self.dev);
-        self.pipelines.grass.cleanup(&self.dev);
-        self.pipelines.skybox.cleanup(&self.dev);
-        self.pipelines.atmosphere.cleanup(&self.dev);
-        self.pipelines.gaussian.cleanup(&self.dev);
-        self.pipelines.postprocess.cleanup(&self.dev);
+impl Pipeline {
+    pub fn cleanup(&self, dev: &Device) {
+        unsafe {
+            dev.destroy_pipeline(self.pipeline, None);
+            dev.destroy_pipeline_layout(self.layout, None);
+        }
     }
 }
 
@@ -503,7 +499,7 @@ impl Drop for Renderer {
                 self.dev.destroy_command_pool(*pool, None);
             }
             self.cleanup_swapchain();
-            self.cleanup_pipelines();
+            self.pipelines.cleanup(&self.dev);
             self.descriptor_set_layouts.cleanup(&self.dev);
             self.object_descriptor_metadata.cleanup(&self.dev);
             self.grass_descriptor_metadata.cleanup(&self.dev);
@@ -711,71 +707,6 @@ fn create_swapchain_all(
         postprocess,
         postprocess_descriptor_sets,
     )
-}
-
-fn create_pipelines(
-    descriptor_set_layouts: &DescriptorSetLayouts,
-    render: &Pass,
-    gaussian: &Pass,
-    postprocess: &Pass,
-    msaa_samples: vk::SampleCountFlags,
-    swapchain: &Swapchain,
-    supports_raytracing: bool,
-    dev: &Dev,
-) -> Pipelines {
-    let object = create_object_pipeline(
-        descriptor_set_layouts.object,
-        msaa_samples,
-        render.pass,
-        swapchain.extent,
-        supports_raytracing,
-        dev,
-    );
-    let grass = create_grass_pipeline(
-        descriptor_set_layouts.grass,
-        msaa_samples,
-        render.pass,
-        swapchain.extent,
-        supports_raytracing,
-        dev,
-    );
-    let skybox = create_skybox_pipeline(
-        descriptor_set_layouts.skybox,
-        msaa_samples,
-        render.pass,
-        swapchain.extent,
-        dev,
-    );
-    let atmosphere = create_atmosphere_pipeline(
-        descriptor_set_layouts.atmosphere,
-        render.pass,
-        swapchain.extent,
-        msaa_samples,
-        dev,
-    );
-    let gaussian = create_gaussian_pipeline(
-        descriptor_set_layouts.gaussian,
-        gaussian.pass,
-        swapchain.extent,
-        msaa_samples,
-        dev,
-    );
-    let postprocess = create_postprocess_pipeline(
-        descriptor_set_layouts.postprocess,
-        postprocess.pass,
-        swapchain.extent,
-        supports_raytracing,
-        msaa_samples,
-        dev,
-    );
-    Pipelines {
-        object,
-        grass,
-        skybox,
-        atmosphere,
-        gaussian,
-        postprocess,
-    }
 }
 
 fn create_render_pass(msaa_samples: vk::SampleCountFlags, extent: vk::Extent2D, dev: &Dev) -> Pass {
@@ -1127,266 +1058,6 @@ fn create_postprocess_descriptor_sets(
         ],
         dev,
     )
-}
-
-fn create_object_pipeline(
-    layout: vk::DescriptorSetLayout,
-    msaa_samples: vk::SampleCountFlags,
-    pass: vk::RenderPass,
-    swapchain_extent: vk::Extent2D,
-    supports_raytracing: bool,
-    dev: &Dev,
-) -> Pipeline {
-    create_pipeline(PipelineConfig {
-        vertex_shader_path: "shaders/object.vert",
-        vertex_specialization: &[],
-        fragment_shader_path: "shaders/object.frag",
-        fragment_specialization: &[],
-        vertex_bindings: &[vk::VertexInputBindingDescription {
-            binding: 0,
-            stride: 24,
-            input_rate: vk::VertexInputRate::VERTEX,
-        }],
-        vertex_attributes: &[
-            vk::VertexInputAttributeDescription {
-                binding: 0,
-                location: 0,
-                format: vk::Format::R32G32B32_SFLOAT,
-                offset: 0,
-            },
-            vk::VertexInputAttributeDescription {
-                binding: 0,
-                location: 1,
-                format: vk::Format::R32G32B32_SFLOAT,
-                offset: 12,
-            },
-        ],
-        msaa_samples,
-        cull_mode: vk::CullModeFlags::BACK,
-        descriptor_layouts: &[layout],
-        color_attachment_count: 2,
-        depth_test: true,
-        pass,
-        subpass: 0,
-        supports_raytracing,
-        dev,
-        swapchain_extent,
-    })
-}
-
-fn create_grass_pipeline(
-    layout: vk::DescriptorSetLayout,
-    msaa_samples: vk::SampleCountFlags,
-    pass: vk::RenderPass,
-    swapchain_extent: vk::Extent2D,
-    supports_raytracing: bool,
-    dev: &Dev,
-) -> Pipeline {
-    create_pipeline(PipelineConfig {
-        vertex_shader_path: "shaders/grass.vert",
-        vertex_specialization: &[],
-        fragment_shader_path: "shaders/grass.frag",
-        fragment_specialization: &[],
-        vertex_bindings: &[
-            vk::VertexInputBindingDescription {
-                binding: 0,
-                stride: 24,
-                input_rate: vk::VertexInputRate::VERTEX,
-            },
-            vk::VertexInputBindingDescription {
-                binding: 1,
-                stride: 64,
-                input_rate: vk::VertexInputRate::INSTANCE,
-            },
-        ],
-        vertex_attributes: &[
-            vk::VertexInputAttributeDescription {
-                binding: 0,
-                location: 0,
-                format: vk::Format::R32G32B32_SFLOAT,
-                offset: 0,
-            },
-            vk::VertexInputAttributeDescription {
-                binding: 0,
-                location: 1,
-                format: vk::Format::R32G32B32_SFLOAT,
-                offset: 12,
-            },
-            vk::VertexInputAttributeDescription {
-                binding: 1,
-                location: 2,
-                format: vk::Format::R32G32B32_SFLOAT,
-                offset: 0,
-            },
-            vk::VertexInputAttributeDescription {
-                binding: 1,
-                location: 3,
-                format: vk::Format::R32G32B32_SFLOAT,
-                offset: 12,
-            },
-            vk::VertexInputAttributeDescription {
-                binding: 1,
-                location: 4,
-                format: vk::Format::R32G32B32_SFLOAT,
-                offset: 24,
-            },
-            vk::VertexInputAttributeDescription {
-                binding: 1,
-                location: 5,
-                format: vk::Format::R32G32B32_SFLOAT,
-                offset: 36,
-            },
-            vk::VertexInputAttributeDescription {
-                binding: 1,
-                location: 6,
-                format: vk::Format::R32_SFLOAT,
-                offset: 48,
-            },
-            vk::VertexInputAttributeDescription {
-                binding: 1,
-                location: 7,
-                format: vk::Format::R32G32B32_SFLOAT,
-                offset: 52,
-            },
-        ],
-        msaa_samples,
-        cull_mode: vk::CullModeFlags::NONE,
-        descriptor_layouts: &[layout],
-        color_attachment_count: 2,
-        depth_test: true,
-        pass,
-        subpass: 0,
-        supports_raytracing,
-        dev,
-        swapchain_extent,
-    })
-}
-
-fn create_skybox_pipeline(
-    layout: vk::DescriptorSetLayout,
-    msaa_samples: vk::SampleCountFlags,
-    pass: vk::RenderPass,
-    swapchain_extent: vk::Extent2D,
-    dev: &Dev,
-) -> Pipeline {
-    create_pipeline(PipelineConfig {
-        vertex_shader_path: "shaders/skybox.vert",
-        vertex_specialization: &[],
-        fragment_shader_path: "shaders/skybox.frag",
-        fragment_specialization: &[],
-        vertex_bindings: &[vk::VertexInputBindingDescription {
-            binding: 0,
-            stride: 24,
-            input_rate: vk::VertexInputRate::VERTEX,
-        }],
-        vertex_attributes: &[vk::VertexInputAttributeDescription {
-            binding: 0,
-            location: 0,
-            format: vk::Format::R32G32B32_SFLOAT,
-            offset: 0,
-        }],
-        msaa_samples,
-        cull_mode: vk::CullModeFlags::FRONT,
-        descriptor_layouts: &[layout],
-        color_attachment_count: 2,
-        depth_test: true,
-        pass,
-        subpass: 0,
-        supports_raytracing: false,
-        dev,
-        swapchain_extent,
-    })
-}
-
-fn create_atmosphere_pipeline(
-    layout: vk::DescriptorSetLayout,
-    pass: vk::RenderPass,
-    swapchain_extent: vk::Extent2D,
-    msaa_samples: vk::SampleCountFlags,
-    dev: &Dev,
-) -> Pipeline {
-    create_pipeline(PipelineConfig {
-        vertex_shader_path: "shaders/atmosphere.vert",
-        vertex_specialization: &[],
-        fragment_shader_path: "shaders/atmosphere.frag",
-        fragment_specialization: &[SpecializationConstant {
-            id: 0,
-            value: sample_count(msaa_samples) as i32,
-        }],
-        vertex_bindings: &[],
-        vertex_attributes: &[],
-        msaa_samples,
-        cull_mode: vk::CullModeFlags::BACK,
-        descriptor_layouts: &[layout],
-        color_attachment_count: 1,
-        depth_test: false,
-        pass,
-        subpass: 1,
-        supports_raytracing: false,
-        dev,
-        swapchain_extent,
-    })
-}
-
-fn create_gaussian_pipeline(
-    layout: vk::DescriptorSetLayout,
-    pass: vk::RenderPass,
-    swapchain_extent: vk::Extent2D,
-    msaa_samples: vk::SampleCountFlags,
-    dev: &Dev,
-) -> Pipeline {
-    create_pipeline(PipelineConfig {
-        vertex_shader_path: "shaders/gaussian.vert",
-        vertex_specialization: &[],
-        fragment_shader_path: "shaders/gaussian.frag",
-        fragment_specialization: &[SpecializationConstant {
-            id: 0,
-            value: sample_count(msaa_samples) as i32,
-        }],
-        vertex_bindings: &[],
-        vertex_attributes: &[],
-        msaa_samples: vk::SampleCountFlags::TYPE_1,
-        cull_mode: vk::CullModeFlags::BACK,
-        descriptor_layouts: &[layout],
-        color_attachment_count: 1,
-        depth_test: false,
-        pass,
-        subpass: 0,
-        supports_raytracing: false,
-        dev,
-        swapchain_extent,
-    })
-}
-
-fn create_postprocess_pipeline(
-    layout: vk::DescriptorSetLayout,
-    pass: vk::RenderPass,
-    swapchain_extent: vk::Extent2D,
-    supports_raytracing: bool,
-    msaa_samples: vk::SampleCountFlags,
-    dev: &Dev,
-) -> Pipeline {
-    create_pipeline(PipelineConfig {
-        vertex_shader_path: "shaders/postprocess.vert",
-        vertex_specialization: &[],
-        fragment_shader_path: "shaders/postprocess.frag",
-        fragment_specialization: &[SpecializationConstant {
-            id: 0,
-            value: sample_count(msaa_samples) as i32,
-        }],
-        vertex_bindings: &[],
-        vertex_attributes: &[],
-        msaa_samples: vk::SampleCountFlags::TYPE_1,
-        cull_mode: vk::CullModeFlags::BACK,
-        descriptor_layouts: &[layout],
-        color_attachment_count: 1,
-        depth_test: false,
-        pass,
-        subpass: 0,
-        supports_raytracing,
-        dev,
-        swapchain_extent,
-    })
 }
 
 fn create_command_pools(queue_family: u32, dev: &Dev) -> [vk::CommandPool; FRAMES_IN_FLIGHT] {
