@@ -1,36 +1,11 @@
-use crate::renderer::util::Dev;
-use ash::vk;
 use log::{debug, error};
-use shaderc::{CompilationArtifact, ResolvedInclude};
+use shaderc::{ResolvedInclude, ShaderKind};
 
-pub struct Shader<'a> {
-    dev: &'a Dev,
-    pub module: vk::ShaderModule,
-}
-
-impl Drop for Shader<'_> {
-    fn drop(&mut self) {
-        unsafe { self.dev.destroy_shader_module(self.module, None) };
-    }
-}
-
-pub fn create_shader<'a>(
+pub fn compile_glsl(
     glsl_path: &str,
-    stage: vk::ShaderStageFlags,
+    shader_kind: ShaderKind,
     supports_raytracing: bool,
-    dev: &'a Dev,
-) -> Shader<'a> {
-    let code = compile_glsl(glsl_path, stage, supports_raytracing);
-    let create_info = *vk::ShaderModuleCreateInfo::builder().code(code.as_binary());
-    let module = unsafe { dev.create_shader_module(&create_info, None) }.unwrap();
-    Shader { dev, module }
-}
-
-fn compile_glsl(
-    glsl_path: &str,
-    stage: vk::ShaderStageFlags,
-    supports_raytracing: bool,
-) -> CompilationArtifact {
+) -> Vec<u32> {
     let compiler = shaderc::Compiler::new().unwrap();
     let mut options = shaderc::CompileOptions::new().unwrap();
     if supports_raytracing {
@@ -43,13 +18,6 @@ fn compile_glsl(
         })
     });
     let glsl_text = std::fs::read_to_string(glsl_path).unwrap();
-    let shader_kind = if stage.contains(vk::ShaderStageFlags::VERTEX) {
-        shaderc::ShaderKind::Vertex
-    } else if stage.contains(vk::ShaderStageFlags::FRAGMENT) {
-        shaderc::ShaderKind::Fragment
-    } else {
-        panic!("unknown shader stage {stage:?}");
-    };
     let compile_result =
         compiler.compile_into_spirv(&glsl_text, shader_kind, glsl_path, "main", Some(&options));
     let spirv_data = match compile_result {
@@ -72,5 +40,5 @@ fn compile_glsl(
         result => result.unwrap(),
     };
     debug!("shader GLSL compiled, \x1B[1mfile\x1B[0m: {glsl_path}");
-    spirv_data
+    spirv_data.as_binary().to_owned()
 }

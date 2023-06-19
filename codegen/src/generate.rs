@@ -14,7 +14,7 @@ pub fn generate_code(in_path: &str, renderer: &Renderer, mut file: File) {
         file,
         r#"// Code generated from {in_path}.
 
-use crate::renderer::shader::create_shader;
+use crate::renderer::shader::compile_glsl;
 use crate::renderer::util::Dev;
 use crate::renderer::Pass;
 use crate::renderer::Swapchain;
@@ -52,6 +52,28 @@ pub struct PipelineLayouts {{"#
     .unwrap();
     for_pipelines(renderer, |_, _, _, pipeline| {
         writeln!(file, "    pub {pipeline}: vk::PipelineLayout,").unwrap();
+    });
+    writeln!(
+        file,
+        r#"}}
+
+pub struct Shaders {{"#
+    )
+    .unwrap();
+    for_pipelines(renderer, |_, _, _, pipeline| {
+        writeln!(file, "    pub {pipeline}_vertex: Vec<u32>,").unwrap();
+        writeln!(file, "    pub {pipeline}_fragment: Vec<u32>,").unwrap();
+    });
+    writeln!(
+        file,
+        r#"}}
+
+pub struct ShaderModules {{"#
+    )
+    .unwrap();
+    for_pipelines(renderer, |_, _, _, pipeline| {
+        writeln!(file, "    pub {pipeline}_vertex: vk::ShaderModule,").unwrap();
+        writeln!(file, "    pub {pipeline}_fragment: vk::ShaderModule,").unwrap();
     });
     writeln!(
         file,
@@ -106,6 +128,8 @@ struct Scratch {{"#
         writeln!(
             file,
             r#"    {pipeline}_pipeline_layout: vk::PipelineLayoutCreateInfo,
+    {pipeline}_shader_vertex: vk::ShaderModuleCreateInfo,
+    {pipeline}_shader_fragment: vk::ShaderModuleCreateInfo,
     {pipeline}_shader_stages: [vk::PipelineShaderStageCreateInfo; 2],
     {pipeline}_vertex_bindings: [vk::VertexInputBindingDescription; {binding_count}],
     {pipeline}_vertex_attributes: [vk::VertexInputAttributeDescription; {attribute_count}],
@@ -264,6 +288,20 @@ static mut SCRATCH: Scratch = Scratch {{"#
         p_set_layouts: std::ptr::null(),
         push_constant_range_count: 0,
         p_push_constant_ranges: std::ptr::null(),
+    }},
+    {pipeline}_shader_vertex: vk::ShaderModuleCreateInfo {{
+        s_type: vk::StructureType::SHADER_MODULE_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::ShaderModuleCreateFlags::empty(),
+        code_size: 0,
+        p_code: std::ptr::null(),
+    }},
+    {pipeline}_shader_fragment: vk::ShaderModuleCreateInfo {{
+        s_type: vk::StructureType::SHADER_MODULE_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::ShaderModuleCreateFlags::empty(),
+        code_size: 0,
+        p_code: std::ptr::null(),
     }},
     {pipeline}_shader_stages: [
         vk::PipelineShaderStageCreateInfo {{
@@ -515,6 +553,27 @@ impl PipelineLayouts {{
         r#"    }}
 }}
 
+impl ShaderModules {{
+    pub fn cleanup(&self, dev: &Dev) {{"#
+    )
+    .unwrap();
+    for_pipelines(renderer, |_, _, _, pipeline| {
+        writeln!(
+            file,
+            "        unsafe {{ dev.destroy_shader_module(self.{pipeline}_vertex, None) }};"
+        )
+        .unwrap();
+        writeln!(
+            file,
+            "        unsafe {{ dev.destroy_shader_module(self.{pipeline}_fragment, None) }};"
+        )
+        .unwrap();
+    });
+    writeln!(
+        file,
+        r#"    }}
+}}
+
 impl Pipelines {{
     pub fn cleanup(&self, dev: &Dev) {{"#
     )
@@ -600,6 +659,66 @@ pub fn create_pipeline_layouts(
 }}
 
 #[rustfmt::skip]
+pub fn create_shaders(supports_raytracing: bool) -> Shaders {{"#
+    )
+    .unwrap();
+    for_pipelines(renderer, |_, _, _, pipeline| {
+        writeln!(file, r#"    let {pipeline}_vertex = compile_glsl("shaders/{pipeline}.vert", shaderc::ShaderKind::Vertex, supports_raytracing);"#).unwrap();
+        writeln!(file, r#"    let {pipeline}_fragment = compile_glsl("shaders/{pipeline}.frag", shaderc::ShaderKind::Fragment, supports_raytracing);"#).unwrap();
+    });
+    writeln!(file, "    Shaders {{").unwrap();
+    for_pipelines(renderer, |_, _, _, pipeline| {
+        writeln!(file, "        {pipeline}_vertex,").unwrap();
+        writeln!(file, "        {pipeline}_fragment,").unwrap();
+    });
+    writeln!(
+        file,
+        r#"    }}
+}}
+
+#[rustfmt::skip]
+pub fn create_shader_modules(shaders: &Shaders, dev: &Dev) -> ShaderModules {{"#
+    )
+    .unwrap();
+    for_pipelines(renderer, |_, _, _, pipeline| {
+        writeln!(
+            file,
+            "    unsafe {{ SCRATCH.{pipeline}_shader_vertex.code_size = 4 * shaders.{pipeline}_vertex.len() }};"
+        )
+            .unwrap();
+        writeln!(
+            file,
+            "    unsafe {{ SCRATCH.{pipeline}_shader_fragment.code_size = 4 * shaders.{pipeline}_fragment.len() }};"
+        )
+            .unwrap();
+    });
+    for_pipelines(renderer, |_, _, _, pipeline| {
+        writeln!(
+            file,
+            "    unsafe {{ SCRATCH.{pipeline}_shader_vertex.p_code = shaders.{pipeline}_vertex.as_ptr() }};"
+        )
+        .unwrap();
+        writeln!(
+            file,
+            "    unsafe {{ SCRATCH.{pipeline}_shader_fragment.p_code = shaders.{pipeline}_fragment.as_ptr() }};"
+        )
+        .unwrap();
+    });
+    for_pipelines(renderer, |_, _, _, pipeline| {
+        writeln!(file, "    let {pipeline}_vertex = unsafe {{ dev.create_shader_module(&SCRATCH.{pipeline}_shader_vertex, None).unwrap_unchecked() }};").unwrap();
+        writeln!(file, "    let {pipeline}_fragment = unsafe {{ dev.create_shader_module(&SCRATCH.{pipeline}_shader_fragment, None).unwrap_unchecked() }};").unwrap();
+    });
+    writeln!(file, "    ShaderModules {{").unwrap();
+    for_pipelines(renderer, |_, _, _, pipeline| {
+        writeln!(file, "        {pipeline}_vertex,").unwrap();
+        writeln!(file, "        {pipeline}_fragment,").unwrap();
+    });
+    writeln!(
+        file,
+        r#"    }}
+}}
+
+#[rustfmt::skip]
 pub fn create_pipelines("#
     )
     .unwrap();
@@ -610,7 +729,7 @@ pub fn create_pipelines("#
         file,
         r#"    _msaa_samples: vk::SampleCountFlags,
     swapchain: &Swapchain,
-    supports_raytracing: bool,
+    shader_modules: &ShaderModules,
     layouts: &PipelineLayouts,
     dev: &Dev,
 ) -> Pipelines {{
@@ -620,25 +739,19 @@ pub fn create_pipelines("#
     unsafe {{ SCRATCH.scissor.extent.height = swapchain.extent.height }};"#
     )
     .unwrap();
+    for_pipelines(renderer, |_, _, _, pipeline| {
+        writeln!(
+            file,
+            r#"    unsafe {{ SCRATCH.{pipeline}_shader_stages[0].module = shader_modules.{pipeline}_vertex }};
+    unsafe {{ SCRATCH.{pipeline}_shader_stages[1].module = shader_modules.{pipeline}_fragment }};"#
+        )
+            .unwrap();
+    });
     for_pipelines(renderer, |pass, _, _, pipeline| {
         let pass = &pass.name;
         writeln!(
             file,
-            r#"    let vertex_shader = create_shader(
-        "shaders/{pipeline}.vert",
-        vk::ShaderStageFlags::VERTEX,
-        supports_raytracing,
-        dev,
-    );
-    let fragment_shader = create_shader(
-        "shaders/{pipeline}.frag",
-        vk::ShaderStageFlags::FRAGMENT,
-        supports_raytracing,
-        dev,
-    );
-    unsafe {{ SCRATCH.{pipeline}_shader_stages[0].module = vertex_shader.module }};
-    unsafe {{ SCRATCH.{pipeline}_shader_stages[1].module = fragment_shader.module }};
-    unsafe {{ SCRATCH.{pipeline}_pipeline.layout = layouts.{pipeline} }};
+            r#"    unsafe {{ SCRATCH.{pipeline}_pipeline.layout = layouts.{pipeline} }};
     unsafe {{ SCRATCH.{pipeline}_pipeline.render_pass = {pass}.pass }};"#
         )
         .unwrap();

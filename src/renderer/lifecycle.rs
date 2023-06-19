@@ -3,6 +3,7 @@ use crate::config::DEFAULT_STAR_COUNT;
 use crate::mesh::MeshData;
 use crate::renderer::codegen::{
     create_descriptor_set_layouts, create_pipeline_layouts, create_pipelines, create_samplers,
+    create_shader_modules, create_shaders,
 };
 use crate::renderer::debug::{create_debug_messenger, set_label};
 use crate::renderer::descriptors::{
@@ -146,16 +147,19 @@ impl Renderer {
             &dev,
         );
         let pipeline_layouts = create_pipeline_layouts(&descriptor_set_layouts, &dev);
+        let shaders = create_shaders(supports_raytracing);
+        let shader_modules = create_shader_modules(&shaders, &dev);
         let pipelines = create_pipelines(
             &render,
             &gaussian,
             &postprocess,
             msaa_samples,
             &swapchain,
-            supports_raytracing,
+            &shader_modules,
             &pipeline_layouts,
             &dev,
         );
+        shader_modules.cleanup(&dev);
 
         let command_pools = create_command_pools(queue_family, &dev);
         let command_buffers = create_command_buffers(&command_pools, &dev);
@@ -330,16 +334,19 @@ impl Renderer {
     pub fn recreate_pipelines(&mut self) {
         unsafe { self.dev.device_wait_idle() }.unwrap();
         self.pipelines.cleanup(&self.dev);
+        let shaders = create_shaders(self.supports_raytracing);
+        let shader_modules = create_shader_modules(&shaders, &self.dev);
         self.pipelines = create_pipelines(
             &self.render,
             &self.gaussian,
             &self.postprocess,
             self.msaa_samples,
             &self.swapchain,
-            self.supports_raytracing,
+            &shader_modules,
             &self.pipeline_layouts,
             &self.dev,
         );
+        shader_modules.cleanup(&self.dev);
     }
 
     pub fn get_async_loader(&self) -> AsyncLoader {

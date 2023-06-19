@@ -1,6 +1,6 @@
 // Code generated from renderer.kdl.
 
-use crate::renderer::shader::create_shader;
+use crate::renderer::shader::compile_glsl;
 use crate::renderer::util::Dev;
 use crate::renderer::Pass;
 use crate::renderer::Swapchain;
@@ -28,6 +28,36 @@ pub struct PipelineLayouts {
     pub atmosphere: vk::PipelineLayout,
     pub gaussian: vk::PipelineLayout,
     pub postprocess: vk::PipelineLayout,
+}
+
+pub struct Shaders {
+    pub object_vertex: Vec<u32>,
+    pub object_fragment: Vec<u32>,
+    pub grass_vertex: Vec<u32>,
+    pub grass_fragment: Vec<u32>,
+    pub skybox_vertex: Vec<u32>,
+    pub skybox_fragment: Vec<u32>,
+    pub atmosphere_vertex: Vec<u32>,
+    pub atmosphere_fragment: Vec<u32>,
+    pub gaussian_vertex: Vec<u32>,
+    pub gaussian_fragment: Vec<u32>,
+    pub postprocess_vertex: Vec<u32>,
+    pub postprocess_fragment: Vec<u32>,
+}
+
+pub struct ShaderModules {
+    pub object_vertex: vk::ShaderModule,
+    pub object_fragment: vk::ShaderModule,
+    pub grass_vertex: vk::ShaderModule,
+    pub grass_fragment: vk::ShaderModule,
+    pub skybox_vertex: vk::ShaderModule,
+    pub skybox_fragment: vk::ShaderModule,
+    pub atmosphere_vertex: vk::ShaderModule,
+    pub atmosphere_fragment: vk::ShaderModule,
+    pub gaussian_vertex: vk::ShaderModule,
+    pub gaussian_fragment: vk::ShaderModule,
+    pub postprocess_vertex: vk::ShaderModule,
+    pub postprocess_fragment: vk::ShaderModule,
 }
 
 #[repr(C)]
@@ -61,6 +91,8 @@ struct Scratch {
     viewport_state: vk::PipelineViewportStateCreateInfo,
     dynamic_state: vk::PipelineDynamicStateCreateInfo,
     object_pipeline_layout: vk::PipelineLayoutCreateInfo,
+    object_shader_vertex: vk::ShaderModuleCreateInfo,
+    object_shader_fragment: vk::ShaderModuleCreateInfo,
     object_shader_stages: [vk::PipelineShaderStageCreateInfo; 2],
     object_vertex_bindings: [vk::VertexInputBindingDescription; 1],
     object_vertex_attributes: [vk::VertexInputAttributeDescription; 2],
@@ -71,6 +103,8 @@ struct Scratch {
     object_blend: vk::PipelineColorBlendStateCreateInfo,
     object_depth: vk::PipelineDepthStencilStateCreateInfo,
     grass_pipeline_layout: vk::PipelineLayoutCreateInfo,
+    grass_shader_vertex: vk::ShaderModuleCreateInfo,
+    grass_shader_fragment: vk::ShaderModuleCreateInfo,
     grass_shader_stages: [vk::PipelineShaderStageCreateInfo; 2],
     grass_vertex_bindings: [vk::VertexInputBindingDescription; 2],
     grass_vertex_attributes: [vk::VertexInputAttributeDescription; 8],
@@ -81,6 +115,8 @@ struct Scratch {
     grass_blend: vk::PipelineColorBlendStateCreateInfo,
     grass_depth: vk::PipelineDepthStencilStateCreateInfo,
     skybox_pipeline_layout: vk::PipelineLayoutCreateInfo,
+    skybox_shader_vertex: vk::ShaderModuleCreateInfo,
+    skybox_shader_fragment: vk::ShaderModuleCreateInfo,
     skybox_shader_stages: [vk::PipelineShaderStageCreateInfo; 2],
     skybox_vertex_bindings: [vk::VertexInputBindingDescription; 1],
     skybox_vertex_attributes: [vk::VertexInputAttributeDescription; 1],
@@ -91,6 +127,8 @@ struct Scratch {
     skybox_blend: vk::PipelineColorBlendStateCreateInfo,
     skybox_depth: vk::PipelineDepthStencilStateCreateInfo,
     atmosphere_pipeline_layout: vk::PipelineLayoutCreateInfo,
+    atmosphere_shader_vertex: vk::ShaderModuleCreateInfo,
+    atmosphere_shader_fragment: vk::ShaderModuleCreateInfo,
     atmosphere_shader_stages: [vk::PipelineShaderStageCreateInfo; 2],
     atmosphere_vertex_bindings: [vk::VertexInputBindingDescription; 0],
     atmosphere_vertex_attributes: [vk::VertexInputAttributeDescription; 0],
@@ -101,6 +139,8 @@ struct Scratch {
     atmosphere_blend: vk::PipelineColorBlendStateCreateInfo,
     atmosphere_depth: vk::PipelineDepthStencilStateCreateInfo,
     gaussian_pipeline_layout: vk::PipelineLayoutCreateInfo,
+    gaussian_shader_vertex: vk::ShaderModuleCreateInfo,
+    gaussian_shader_fragment: vk::ShaderModuleCreateInfo,
     gaussian_shader_stages: [vk::PipelineShaderStageCreateInfo; 2],
     gaussian_vertex_bindings: [vk::VertexInputBindingDescription; 0],
     gaussian_vertex_attributes: [vk::VertexInputAttributeDescription; 0],
@@ -111,6 +151,8 @@ struct Scratch {
     gaussian_blend: vk::PipelineColorBlendStateCreateInfo,
     gaussian_depth: vk::PipelineDepthStencilStateCreateInfo,
     postprocess_pipeline_layout: vk::PipelineLayoutCreateInfo,
+    postprocess_shader_vertex: vk::ShaderModuleCreateInfo,
+    postprocess_shader_fragment: vk::ShaderModuleCreateInfo,
     postprocess_shader_stages: [vk::PipelineShaderStageCreateInfo; 2],
     postprocess_vertex_bindings: [vk::VertexInputBindingDescription; 0],
     postprocess_vertex_attributes: [vk::VertexInputAttributeDescription; 0],
@@ -388,6 +430,20 @@ static mut SCRATCH: Scratch = Scratch {
         push_constant_range_count: 0,
         p_push_constant_ranges: std::ptr::null(),
     },
+    object_shader_vertex: vk::ShaderModuleCreateInfo {
+        s_type: vk::StructureType::SHADER_MODULE_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::ShaderModuleCreateFlags::empty(),
+        code_size: 0,
+        p_code: std::ptr::null(),
+    },
+    object_shader_fragment: vk::ShaderModuleCreateInfo {
+        s_type: vk::StructureType::SHADER_MODULE_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::ShaderModuleCreateFlags::empty(),
+        code_size: 0,
+        p_code: std::ptr::null(),
+    },
     object_shader_stages: [
         vk::PipelineShaderStageCreateInfo {
             s_type: vk::StructureType::PIPELINE_SHADER_STAGE_CREATE_INFO,
@@ -555,6 +611,20 @@ static mut SCRATCH: Scratch = Scratch {
         p_set_layouts: std::ptr::null(),
         push_constant_range_count: 0,
         p_push_constant_ranges: std::ptr::null(),
+    },
+    grass_shader_vertex: vk::ShaderModuleCreateInfo {
+        s_type: vk::StructureType::SHADER_MODULE_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::ShaderModuleCreateFlags::empty(),
+        code_size: 0,
+        p_code: std::ptr::null(),
+    },
+    grass_shader_fragment: vk::ShaderModuleCreateInfo {
+        s_type: vk::StructureType::SHADER_MODULE_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::ShaderModuleCreateFlags::empty(),
+        code_size: 0,
+        p_code: std::ptr::null(),
     },
     grass_shader_stages: [
         vk::PipelineShaderStageCreateInfo {
@@ -765,6 +835,20 @@ static mut SCRATCH: Scratch = Scratch {
         push_constant_range_count: 0,
         p_push_constant_ranges: std::ptr::null(),
     },
+    skybox_shader_vertex: vk::ShaderModuleCreateInfo {
+        s_type: vk::StructureType::SHADER_MODULE_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::ShaderModuleCreateFlags::empty(),
+        code_size: 0,
+        p_code: std::ptr::null(),
+    },
+    skybox_shader_fragment: vk::ShaderModuleCreateInfo {
+        s_type: vk::StructureType::SHADER_MODULE_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::ShaderModuleCreateFlags::empty(),
+        code_size: 0,
+        p_code: std::ptr::null(),
+    },
     skybox_shader_stages: [
         vk::PipelineShaderStageCreateInfo {
             s_type: vk::StructureType::PIPELINE_SHADER_STAGE_CREATE_INFO,
@@ -927,6 +1011,20 @@ static mut SCRATCH: Scratch = Scratch {
         push_constant_range_count: 0,
         p_push_constant_ranges: std::ptr::null(),
     },
+    atmosphere_shader_vertex: vk::ShaderModuleCreateInfo {
+        s_type: vk::StructureType::SHADER_MODULE_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::ShaderModuleCreateFlags::empty(),
+        code_size: 0,
+        p_code: std::ptr::null(),
+    },
+    atmosphere_shader_fragment: vk::ShaderModuleCreateInfo {
+        s_type: vk::StructureType::SHADER_MODULE_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::ShaderModuleCreateFlags::empty(),
+        code_size: 0,
+        p_code: std::ptr::null(),
+    },
     atmosphere_shader_stages: [
         vk::PipelineShaderStageCreateInfo {
             s_type: vk::StructureType::PIPELINE_SHADER_STAGE_CREATE_INFO,
@@ -1068,6 +1166,20 @@ static mut SCRATCH: Scratch = Scratch {
         push_constant_range_count: 0,
         p_push_constant_ranges: std::ptr::null(),
     },
+    gaussian_shader_vertex: vk::ShaderModuleCreateInfo {
+        s_type: vk::StructureType::SHADER_MODULE_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::ShaderModuleCreateFlags::empty(),
+        code_size: 0,
+        p_code: std::ptr::null(),
+    },
+    gaussian_shader_fragment: vk::ShaderModuleCreateInfo {
+        s_type: vk::StructureType::SHADER_MODULE_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::ShaderModuleCreateFlags::empty(),
+        code_size: 0,
+        p_code: std::ptr::null(),
+    },
     gaussian_shader_stages: [
         vk::PipelineShaderStageCreateInfo {
             s_type: vk::StructureType::PIPELINE_SHADER_STAGE_CREATE_INFO,
@@ -1208,6 +1320,20 @@ static mut SCRATCH: Scratch = Scratch {
         p_set_layouts: std::ptr::null(),
         push_constant_range_count: 0,
         p_push_constant_ranges: std::ptr::null(),
+    },
+    postprocess_shader_vertex: vk::ShaderModuleCreateInfo {
+        s_type: vk::StructureType::SHADER_MODULE_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::ShaderModuleCreateFlags::empty(),
+        code_size: 0,
+        p_code: std::ptr::null(),
+    },
+    postprocess_shader_fragment: vk::ShaderModuleCreateInfo {
+        s_type: vk::StructureType::SHADER_MODULE_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::ShaderModuleCreateFlags::empty(),
+        code_size: 0,
+        p_code: std::ptr::null(),
     },
     postprocess_shader_stages: [
         vk::PipelineShaderStageCreateInfo {
@@ -1371,6 +1497,23 @@ impl PipelineLayouts {
     }
 }
 
+impl ShaderModules {
+    pub fn cleanup(&self, dev: &Dev) {
+        unsafe { dev.destroy_shader_module(self.object_vertex, None) };
+        unsafe { dev.destroy_shader_module(self.object_fragment, None) };
+        unsafe { dev.destroy_shader_module(self.grass_vertex, None) };
+        unsafe { dev.destroy_shader_module(self.grass_fragment, None) };
+        unsafe { dev.destroy_shader_module(self.skybox_vertex, None) };
+        unsafe { dev.destroy_shader_module(self.skybox_fragment, None) };
+        unsafe { dev.destroy_shader_module(self.atmosphere_vertex, None) };
+        unsafe { dev.destroy_shader_module(self.atmosphere_fragment, None) };
+        unsafe { dev.destroy_shader_module(self.gaussian_vertex, None) };
+        unsafe { dev.destroy_shader_module(self.gaussian_fragment, None) };
+        unsafe { dev.destroy_shader_module(self.postprocess_vertex, None) };
+        unsafe { dev.destroy_shader_module(self.postprocess_fragment, None) };
+    }
+}
+
 impl Pipelines {
     pub fn cleanup(&self, dev: &Dev) {
         unsafe { dev.destroy_pipeline(self.object, None) };
@@ -1439,13 +1582,97 @@ pub fn create_pipeline_layouts(
 }
 
 #[rustfmt::skip]
+pub fn create_shaders(supports_raytracing: bool) -> Shaders {
+    let object_vertex = compile_glsl("shaders/object.vert", shaderc::ShaderKind::Vertex, supports_raytracing);
+    let object_fragment = compile_glsl("shaders/object.frag", shaderc::ShaderKind::Fragment, supports_raytracing);
+    let grass_vertex = compile_glsl("shaders/grass.vert", shaderc::ShaderKind::Vertex, supports_raytracing);
+    let grass_fragment = compile_glsl("shaders/grass.frag", shaderc::ShaderKind::Fragment, supports_raytracing);
+    let skybox_vertex = compile_glsl("shaders/skybox.vert", shaderc::ShaderKind::Vertex, supports_raytracing);
+    let skybox_fragment = compile_glsl("shaders/skybox.frag", shaderc::ShaderKind::Fragment, supports_raytracing);
+    let atmosphere_vertex = compile_glsl("shaders/atmosphere.vert", shaderc::ShaderKind::Vertex, supports_raytracing);
+    let atmosphere_fragment = compile_glsl("shaders/atmosphere.frag", shaderc::ShaderKind::Fragment, supports_raytracing);
+    let gaussian_vertex = compile_glsl("shaders/gaussian.vert", shaderc::ShaderKind::Vertex, supports_raytracing);
+    let gaussian_fragment = compile_glsl("shaders/gaussian.frag", shaderc::ShaderKind::Fragment, supports_raytracing);
+    let postprocess_vertex = compile_glsl("shaders/postprocess.vert", shaderc::ShaderKind::Vertex, supports_raytracing);
+    let postprocess_fragment = compile_glsl("shaders/postprocess.frag", shaderc::ShaderKind::Fragment, supports_raytracing);
+    Shaders {
+        object_vertex,
+        object_fragment,
+        grass_vertex,
+        grass_fragment,
+        skybox_vertex,
+        skybox_fragment,
+        atmosphere_vertex,
+        atmosphere_fragment,
+        gaussian_vertex,
+        gaussian_fragment,
+        postprocess_vertex,
+        postprocess_fragment,
+    }
+}
+
+#[rustfmt::skip]
+pub fn create_shader_modules(shaders: &Shaders, dev: &Dev) -> ShaderModules {
+    unsafe { SCRATCH.object_shader_vertex.code_size = 4 * shaders.object_vertex.len() };
+    unsafe { SCRATCH.object_shader_fragment.code_size = 4 * shaders.object_fragment.len() };
+    unsafe { SCRATCH.grass_shader_vertex.code_size = 4 * shaders.grass_vertex.len() };
+    unsafe { SCRATCH.grass_shader_fragment.code_size = 4 * shaders.grass_fragment.len() };
+    unsafe { SCRATCH.skybox_shader_vertex.code_size = 4 * shaders.skybox_vertex.len() };
+    unsafe { SCRATCH.skybox_shader_fragment.code_size = 4 * shaders.skybox_fragment.len() };
+    unsafe { SCRATCH.atmosphere_shader_vertex.code_size = 4 * shaders.atmosphere_vertex.len() };
+    unsafe { SCRATCH.atmosphere_shader_fragment.code_size = 4 * shaders.atmosphere_fragment.len() };
+    unsafe { SCRATCH.gaussian_shader_vertex.code_size = 4 * shaders.gaussian_vertex.len() };
+    unsafe { SCRATCH.gaussian_shader_fragment.code_size = 4 * shaders.gaussian_fragment.len() };
+    unsafe { SCRATCH.postprocess_shader_vertex.code_size = 4 * shaders.postprocess_vertex.len() };
+    unsafe { SCRATCH.postprocess_shader_fragment.code_size = 4 * shaders.postprocess_fragment.len() };
+    unsafe { SCRATCH.object_shader_vertex.p_code = shaders.object_vertex.as_ptr() };
+    unsafe { SCRATCH.object_shader_fragment.p_code = shaders.object_fragment.as_ptr() };
+    unsafe { SCRATCH.grass_shader_vertex.p_code = shaders.grass_vertex.as_ptr() };
+    unsafe { SCRATCH.grass_shader_fragment.p_code = shaders.grass_fragment.as_ptr() };
+    unsafe { SCRATCH.skybox_shader_vertex.p_code = shaders.skybox_vertex.as_ptr() };
+    unsafe { SCRATCH.skybox_shader_fragment.p_code = shaders.skybox_fragment.as_ptr() };
+    unsafe { SCRATCH.atmosphere_shader_vertex.p_code = shaders.atmosphere_vertex.as_ptr() };
+    unsafe { SCRATCH.atmosphere_shader_fragment.p_code = shaders.atmosphere_fragment.as_ptr() };
+    unsafe { SCRATCH.gaussian_shader_vertex.p_code = shaders.gaussian_vertex.as_ptr() };
+    unsafe { SCRATCH.gaussian_shader_fragment.p_code = shaders.gaussian_fragment.as_ptr() };
+    unsafe { SCRATCH.postprocess_shader_vertex.p_code = shaders.postprocess_vertex.as_ptr() };
+    unsafe { SCRATCH.postprocess_shader_fragment.p_code = shaders.postprocess_fragment.as_ptr() };
+    let object_vertex = unsafe { dev.create_shader_module(&SCRATCH.object_shader_vertex, None).unwrap_unchecked() };
+    let object_fragment = unsafe { dev.create_shader_module(&SCRATCH.object_shader_fragment, None).unwrap_unchecked() };
+    let grass_vertex = unsafe { dev.create_shader_module(&SCRATCH.grass_shader_vertex, None).unwrap_unchecked() };
+    let grass_fragment = unsafe { dev.create_shader_module(&SCRATCH.grass_shader_fragment, None).unwrap_unchecked() };
+    let skybox_vertex = unsafe { dev.create_shader_module(&SCRATCH.skybox_shader_vertex, None).unwrap_unchecked() };
+    let skybox_fragment = unsafe { dev.create_shader_module(&SCRATCH.skybox_shader_fragment, None).unwrap_unchecked() };
+    let atmosphere_vertex = unsafe { dev.create_shader_module(&SCRATCH.atmosphere_shader_vertex, None).unwrap_unchecked() };
+    let atmosphere_fragment = unsafe { dev.create_shader_module(&SCRATCH.atmosphere_shader_fragment, None).unwrap_unchecked() };
+    let gaussian_vertex = unsafe { dev.create_shader_module(&SCRATCH.gaussian_shader_vertex, None).unwrap_unchecked() };
+    let gaussian_fragment = unsafe { dev.create_shader_module(&SCRATCH.gaussian_shader_fragment, None).unwrap_unchecked() };
+    let postprocess_vertex = unsafe { dev.create_shader_module(&SCRATCH.postprocess_shader_vertex, None).unwrap_unchecked() };
+    let postprocess_fragment = unsafe { dev.create_shader_module(&SCRATCH.postprocess_shader_fragment, None).unwrap_unchecked() };
+    ShaderModules {
+        object_vertex,
+        object_fragment,
+        grass_vertex,
+        grass_fragment,
+        skybox_vertex,
+        skybox_fragment,
+        atmosphere_vertex,
+        atmosphere_fragment,
+        gaussian_vertex,
+        gaussian_fragment,
+        postprocess_vertex,
+        postprocess_fragment,
+    }
+}
+
+#[rustfmt::skip]
 pub fn create_pipelines(
     render: &Pass,
     gaussian: &Pass,
     postprocess: &Pass,
     _msaa_samples: vk::SampleCountFlags,
     swapchain: &Swapchain,
-    supports_raytracing: bool,
+    shader_modules: &ShaderModules,
     layouts: &PipelineLayouts,
     dev: &Dev,
 ) -> Pipelines {
@@ -1453,100 +1680,28 @@ pub fn create_pipelines(
     unsafe { SCRATCH.viewport.height = swapchain.extent.height as f32 };
     unsafe { SCRATCH.scissor.extent.width = swapchain.extent.width };
     unsafe { SCRATCH.scissor.extent.height = swapchain.extent.height };
-    let vertex_shader = create_shader(
-        "shaders/object.vert",
-        vk::ShaderStageFlags::VERTEX,
-        supports_raytracing,
-        dev,
-    );
-    let fragment_shader = create_shader(
-        "shaders/object.frag",
-        vk::ShaderStageFlags::FRAGMENT,
-        supports_raytracing,
-        dev,
-    );
-    unsafe { SCRATCH.object_shader_stages[0].module = vertex_shader.module };
-    unsafe { SCRATCH.object_shader_stages[1].module = fragment_shader.module };
+    unsafe { SCRATCH.object_shader_stages[0].module = shader_modules.object_vertex };
+    unsafe { SCRATCH.object_shader_stages[1].module = shader_modules.object_fragment };
+    unsafe { SCRATCH.grass_shader_stages[0].module = shader_modules.grass_vertex };
+    unsafe { SCRATCH.grass_shader_stages[1].module = shader_modules.grass_fragment };
+    unsafe { SCRATCH.skybox_shader_stages[0].module = shader_modules.skybox_vertex };
+    unsafe { SCRATCH.skybox_shader_stages[1].module = shader_modules.skybox_fragment };
+    unsafe { SCRATCH.atmosphere_shader_stages[0].module = shader_modules.atmosphere_vertex };
+    unsafe { SCRATCH.atmosphere_shader_stages[1].module = shader_modules.atmosphere_fragment };
+    unsafe { SCRATCH.gaussian_shader_stages[0].module = shader_modules.gaussian_vertex };
+    unsafe { SCRATCH.gaussian_shader_stages[1].module = shader_modules.gaussian_fragment };
+    unsafe { SCRATCH.postprocess_shader_stages[0].module = shader_modules.postprocess_vertex };
+    unsafe { SCRATCH.postprocess_shader_stages[1].module = shader_modules.postprocess_fragment };
     unsafe { SCRATCH.object_pipeline.layout = layouts.object };
     unsafe { SCRATCH.object_pipeline.render_pass = render.pass };
-    let vertex_shader = create_shader(
-        "shaders/grass.vert",
-        vk::ShaderStageFlags::VERTEX,
-        supports_raytracing,
-        dev,
-    );
-    let fragment_shader = create_shader(
-        "shaders/grass.frag",
-        vk::ShaderStageFlags::FRAGMENT,
-        supports_raytracing,
-        dev,
-    );
-    unsafe { SCRATCH.grass_shader_stages[0].module = vertex_shader.module };
-    unsafe { SCRATCH.grass_shader_stages[1].module = fragment_shader.module };
     unsafe { SCRATCH.grass_pipeline.layout = layouts.grass };
     unsafe { SCRATCH.grass_pipeline.render_pass = render.pass };
-    let vertex_shader = create_shader(
-        "shaders/skybox.vert",
-        vk::ShaderStageFlags::VERTEX,
-        supports_raytracing,
-        dev,
-    );
-    let fragment_shader = create_shader(
-        "shaders/skybox.frag",
-        vk::ShaderStageFlags::FRAGMENT,
-        supports_raytracing,
-        dev,
-    );
-    unsafe { SCRATCH.skybox_shader_stages[0].module = vertex_shader.module };
-    unsafe { SCRATCH.skybox_shader_stages[1].module = fragment_shader.module };
     unsafe { SCRATCH.skybox_pipeline.layout = layouts.skybox };
     unsafe { SCRATCH.skybox_pipeline.render_pass = render.pass };
-    let vertex_shader = create_shader(
-        "shaders/atmosphere.vert",
-        vk::ShaderStageFlags::VERTEX,
-        supports_raytracing,
-        dev,
-    );
-    let fragment_shader = create_shader(
-        "shaders/atmosphere.frag",
-        vk::ShaderStageFlags::FRAGMENT,
-        supports_raytracing,
-        dev,
-    );
-    unsafe { SCRATCH.atmosphere_shader_stages[0].module = vertex_shader.module };
-    unsafe { SCRATCH.atmosphere_shader_stages[1].module = fragment_shader.module };
     unsafe { SCRATCH.atmosphere_pipeline.layout = layouts.atmosphere };
     unsafe { SCRATCH.atmosphere_pipeline.render_pass = render.pass };
-    let vertex_shader = create_shader(
-        "shaders/gaussian.vert",
-        vk::ShaderStageFlags::VERTEX,
-        supports_raytracing,
-        dev,
-    );
-    let fragment_shader = create_shader(
-        "shaders/gaussian.frag",
-        vk::ShaderStageFlags::FRAGMENT,
-        supports_raytracing,
-        dev,
-    );
-    unsafe { SCRATCH.gaussian_shader_stages[0].module = vertex_shader.module };
-    unsafe { SCRATCH.gaussian_shader_stages[1].module = fragment_shader.module };
     unsafe { SCRATCH.gaussian_pipeline.layout = layouts.gaussian };
     unsafe { SCRATCH.gaussian_pipeline.render_pass = gaussian.pass };
-    let vertex_shader = create_shader(
-        "shaders/postprocess.vert",
-        vk::ShaderStageFlags::VERTEX,
-        supports_raytracing,
-        dev,
-    );
-    let fragment_shader = create_shader(
-        "shaders/postprocess.frag",
-        vk::ShaderStageFlags::FRAGMENT,
-        supports_raytracing,
-        dev,
-    );
-    unsafe { SCRATCH.postprocess_shader_stages[0].module = vertex_shader.module };
-    unsafe { SCRATCH.postprocess_shader_stages[1].module = fragment_shader.module };
     unsafe { SCRATCH.postprocess_pipeline.layout = layouts.postprocess };
     unsafe { SCRATCH.postprocess_pipeline.render_pass = postprocess.pass };
     let mut pipelines = MaybeUninit::uninit();
