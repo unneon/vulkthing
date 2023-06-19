@@ -42,7 +42,7 @@ impl Samplers {
 
 #[rustfmt::skip]
 pub fn create_samplers(dev: &Dev) -> Samplers {
-    let pixel = unsafe { dev.create_sampler(&SCRATCH.pixel_sampler_info, None) }.unwrap();
+    let pixel = unsafe { dev.create_sampler(&SCRATCH.pixel_sampler_info, None).unwrap_unchecked() };
     Samplers {
         pixel,
     }

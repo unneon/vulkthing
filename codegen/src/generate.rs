@@ -98,7 +98,7 @@ pub fn create_samplers(dev: &Dev) -> Samplers {{"#
     )
     .unwrap();
     for sampler in &renderer.samplers {
-        writeln!(file, "    let {} = unsafe {{ dev.create_sampler(&SCRATCH.{}_sampler_info, None) }}.unwrap();", sampler.name, sampler.name).unwrap();
+        writeln!(file, "    let {} = unsafe {{ dev.create_sampler(&SCRATCH.{}_sampler_info, None).unwrap_unchecked() }};", sampler.name, sampler.name).unwrap();
     }
     writeln!(file, "    Samplers {{").unwrap();
     for sampler in &renderer.samplers {
