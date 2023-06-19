@@ -20,6 +20,7 @@ use crate::renderer::Pass;
 use crate::renderer::Swapchain;
 use ash::vk;
 use std::ffi::CStr;
+use std::mem::MaybeUninit;
 
 pub struct Samplers {{"#
     )
@@ -56,6 +57,7 @@ pub struct PipelineLayouts {{"#
         file,
         r#"}}
 
+#[repr(C)]
 pub struct Pipelines {{"#
     )
     .unwrap();
@@ -66,6 +68,7 @@ pub struct Pipelines {{"#
         file,
         r#"}}
 
+#[repr(C)]
 struct Scratch {{"#
     )
     .unwrap();
@@ -111,9 +114,15 @@ struct Scratch {{"#
     {pipeline}_multisampling: vk::PipelineMultisampleStateCreateInfo,
     {pipeline}_blend_attachments: [vk::PipelineColorBlendAttachmentState; {}],
     {pipeline}_blend: vk::PipelineColorBlendStateCreateInfo,
-    {pipeline}_depth: vk::PipelineDepthStencilStateCreateInfo,
-    {pipeline}_pipeline: vk::GraphicsPipelineCreateInfo,"#,
+    {pipeline}_depth: vk::PipelineDepthStencilStateCreateInfo,"#,
             subpass.color_attachments.len()
+        )
+        .unwrap();
+    });
+    for_pipelines(renderer, |_, _, _, pipeline| {
+        writeln!(
+            file,
+            "    {pipeline}_pipeline: vk::GraphicsPipelineCreateInfo,"
         )
         .unwrap();
     });
@@ -613,7 +622,9 @@ pub fn create_pipelines("#
     .unwrap();
     for_pipelines(renderer, |pass, _, _, pipeline| {
         let pass = &pass.name;
-        writeln!(file, r#"    let vertex_shader = create_shader(
+        writeln!(
+            file,
+            r#"    let vertex_shader = create_shader(
         "shaders/{pipeline}.vert",
         vk::ShaderStageFlags::VERTEX,
         supports_raytracing,
@@ -628,22 +639,40 @@ pub fn create_pipelines("#
     unsafe {{ SCRATCH.{pipeline}_shader_stages[0].module = vertex_shader.module }};
     unsafe {{ SCRATCH.{pipeline}_shader_stages[1].module = fragment_shader.module }};
     unsafe {{ SCRATCH.{pipeline}_pipeline.layout = layouts.{pipeline} }};
-    unsafe {{ SCRATCH.{pipeline}_pipeline.render_pass = {pass}.pass }};
-    let {pipeline} = unsafe {{ dev.create_graphics_pipelines(vk::PipelineCache::null(), std::slice::from_ref(&SCRATCH.{pipeline}_pipeline), None).unwrap_unchecked()[0] }};"#).unwrap();
+    unsafe {{ SCRATCH.{pipeline}_pipeline.render_pass = {pass}.pass }};"#
+        )
+        .unwrap();
     });
-    writeln!(file, "    Pipelines {{").unwrap();
+    let mut pipeline_count = 0;
+    let mut first_pipeline = None;
     for_pipelines(renderer, |_, _, _, pipeline| {
-        writeln!(file, "        {pipeline},").unwrap();
+        pipeline_count += 1;
+        if first_pipeline.is_none() {
+            first_pipeline = Some(pipeline);
+        }
     });
+    let first_pipeline = first_pipeline.unwrap();
     writeln!(
         file,
-        r#"    }}
+        r#"    let mut pipelines = MaybeUninit::uninit();
+    let _ = unsafe {{ (dev.fp_v1_0().create_graphics_pipelines)(
+        dev.handle(),
+        vk::PipelineCache::null(),
+        {pipeline_count},
+        &SCRATCH.{first_pipeline}_pipeline,
+        std::ptr::null(),
+        pipelines.as_mut_ptr() as *mut vk::Pipeline,
+    ) }};
+    unsafe {{ pipelines.assume_init() }}
 }}"#
     )
     .unwrap();
 }
 
-fn for_pipelines(renderer: &Renderer, mut f: impl FnMut(&Pass, usize, &Subpass, &Pipeline)) {
+fn for_pipelines<'a>(
+    renderer: &'a Renderer,
+    mut f: impl FnMut(&'a Pass, usize, &'a Subpass, &'a Pipeline),
+) {
     for pass in &renderer.passes {
         for (subpass_index, subpass) in pass.subpasses.iter().enumerate() {
             for pipeline in &subpass.pipelines {

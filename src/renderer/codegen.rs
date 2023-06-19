@@ -6,6 +6,7 @@ use crate::renderer::Pass;
 use crate::renderer::Swapchain;
 use ash::vk;
 use std::ffi::CStr;
+use std::mem::MaybeUninit;
 
 pub struct Samplers {
     pub pixel: vk::Sampler,
@@ -29,6 +30,7 @@ pub struct PipelineLayouts {
     pub postprocess: vk::PipelineLayout,
 }
 
+#[repr(C)]
 pub struct Pipelines {
     pub object: vk::Pipeline,
     pub grass: vk::Pipeline,
@@ -38,6 +40,7 @@ pub struct Pipelines {
     pub postprocess: vk::Pipeline,
 }
 
+#[repr(C)]
 struct Scratch {
     pixel_sampler: vk::SamplerCreateInfo,
     object_bindings: [vk::DescriptorSetLayoutBinding; 5],
@@ -67,7 +70,6 @@ struct Scratch {
     object_blend_attachments: [vk::PipelineColorBlendAttachmentState; 2],
     object_blend: vk::PipelineColorBlendStateCreateInfo,
     object_depth: vk::PipelineDepthStencilStateCreateInfo,
-    object_pipeline: vk::GraphicsPipelineCreateInfo,
     grass_pipeline_layout: vk::PipelineLayoutCreateInfo,
     grass_shader_stages: [vk::PipelineShaderStageCreateInfo; 2],
     grass_vertex_bindings: [vk::VertexInputBindingDescription; 2],
@@ -78,7 +80,6 @@ struct Scratch {
     grass_blend_attachments: [vk::PipelineColorBlendAttachmentState; 2],
     grass_blend: vk::PipelineColorBlendStateCreateInfo,
     grass_depth: vk::PipelineDepthStencilStateCreateInfo,
-    grass_pipeline: vk::GraphicsPipelineCreateInfo,
     skybox_pipeline_layout: vk::PipelineLayoutCreateInfo,
     skybox_shader_stages: [vk::PipelineShaderStageCreateInfo; 2],
     skybox_vertex_bindings: [vk::VertexInputBindingDescription; 1],
@@ -89,7 +90,6 @@ struct Scratch {
     skybox_blend_attachments: [vk::PipelineColorBlendAttachmentState; 2],
     skybox_blend: vk::PipelineColorBlendStateCreateInfo,
     skybox_depth: vk::PipelineDepthStencilStateCreateInfo,
-    skybox_pipeline: vk::GraphicsPipelineCreateInfo,
     atmosphere_pipeline_layout: vk::PipelineLayoutCreateInfo,
     atmosphere_shader_stages: [vk::PipelineShaderStageCreateInfo; 2],
     atmosphere_vertex_bindings: [vk::VertexInputBindingDescription; 0],
@@ -100,7 +100,6 @@ struct Scratch {
     atmosphere_blend_attachments: [vk::PipelineColorBlendAttachmentState; 1],
     atmosphere_blend: vk::PipelineColorBlendStateCreateInfo,
     atmosphere_depth: vk::PipelineDepthStencilStateCreateInfo,
-    atmosphere_pipeline: vk::GraphicsPipelineCreateInfo,
     gaussian_pipeline_layout: vk::PipelineLayoutCreateInfo,
     gaussian_shader_stages: [vk::PipelineShaderStageCreateInfo; 2],
     gaussian_vertex_bindings: [vk::VertexInputBindingDescription; 0],
@@ -111,7 +110,6 @@ struct Scratch {
     gaussian_blend_attachments: [vk::PipelineColorBlendAttachmentState; 1],
     gaussian_blend: vk::PipelineColorBlendStateCreateInfo,
     gaussian_depth: vk::PipelineDepthStencilStateCreateInfo,
-    gaussian_pipeline: vk::GraphicsPipelineCreateInfo,
     postprocess_pipeline_layout: vk::PipelineLayoutCreateInfo,
     postprocess_shader_stages: [vk::PipelineShaderStageCreateInfo; 2],
     postprocess_vertex_bindings: [vk::VertexInputBindingDescription; 0],
@@ -122,6 +120,11 @@ struct Scratch {
     postprocess_blend_attachments: [vk::PipelineColorBlendAttachmentState; 1],
     postprocess_blend: vk::PipelineColorBlendStateCreateInfo,
     postprocess_depth: vk::PipelineDepthStencilStateCreateInfo,
+    object_pipeline: vk::GraphicsPipelineCreateInfo,
+    grass_pipeline: vk::GraphicsPipelineCreateInfo,
+    skybox_pipeline: vk::GraphicsPipelineCreateInfo,
+    atmosphere_pipeline: vk::GraphicsPipelineCreateInfo,
+    gaussian_pipeline: vk::GraphicsPipelineCreateInfo,
     postprocess_pipeline: vk::GraphicsPipelineCreateInfo,
 }
 
@@ -1466,7 +1469,6 @@ pub fn create_pipelines(
     unsafe { SCRATCH.object_shader_stages[1].module = fragment_shader.module };
     unsafe { SCRATCH.object_pipeline.layout = layouts.object };
     unsafe { SCRATCH.object_pipeline.render_pass = render.pass };
-    let object = unsafe { dev.create_graphics_pipelines(vk::PipelineCache::null(), std::slice::from_ref(&SCRATCH.object_pipeline), None).unwrap_unchecked()[0] };
     let vertex_shader = create_shader(
         "shaders/grass.vert",
         vk::ShaderStageFlags::VERTEX,
@@ -1483,7 +1485,6 @@ pub fn create_pipelines(
     unsafe { SCRATCH.grass_shader_stages[1].module = fragment_shader.module };
     unsafe { SCRATCH.grass_pipeline.layout = layouts.grass };
     unsafe { SCRATCH.grass_pipeline.render_pass = render.pass };
-    let grass = unsafe { dev.create_graphics_pipelines(vk::PipelineCache::null(), std::slice::from_ref(&SCRATCH.grass_pipeline), None).unwrap_unchecked()[0] };
     let vertex_shader = create_shader(
         "shaders/skybox.vert",
         vk::ShaderStageFlags::VERTEX,
@@ -1500,7 +1501,6 @@ pub fn create_pipelines(
     unsafe { SCRATCH.skybox_shader_stages[1].module = fragment_shader.module };
     unsafe { SCRATCH.skybox_pipeline.layout = layouts.skybox };
     unsafe { SCRATCH.skybox_pipeline.render_pass = render.pass };
-    let skybox = unsafe { dev.create_graphics_pipelines(vk::PipelineCache::null(), std::slice::from_ref(&SCRATCH.skybox_pipeline), None).unwrap_unchecked()[0] };
     let vertex_shader = create_shader(
         "shaders/atmosphere.vert",
         vk::ShaderStageFlags::VERTEX,
@@ -1517,7 +1517,6 @@ pub fn create_pipelines(
     unsafe { SCRATCH.atmosphere_shader_stages[1].module = fragment_shader.module };
     unsafe { SCRATCH.atmosphere_pipeline.layout = layouts.atmosphere };
     unsafe { SCRATCH.atmosphere_pipeline.render_pass = render.pass };
-    let atmosphere = unsafe { dev.create_graphics_pipelines(vk::PipelineCache::null(), std::slice::from_ref(&SCRATCH.atmosphere_pipeline), None).unwrap_unchecked()[0] };
     let vertex_shader = create_shader(
         "shaders/gaussian.vert",
         vk::ShaderStageFlags::VERTEX,
@@ -1534,7 +1533,6 @@ pub fn create_pipelines(
     unsafe { SCRATCH.gaussian_shader_stages[1].module = fragment_shader.module };
     unsafe { SCRATCH.gaussian_pipeline.layout = layouts.gaussian };
     unsafe { SCRATCH.gaussian_pipeline.render_pass = gaussian.pass };
-    let gaussian = unsafe { dev.create_graphics_pipelines(vk::PipelineCache::null(), std::slice::from_ref(&SCRATCH.gaussian_pipeline), None).unwrap_unchecked()[0] };
     let vertex_shader = create_shader(
         "shaders/postprocess.vert",
         vk::ShaderStageFlags::VERTEX,
@@ -1551,13 +1549,14 @@ pub fn create_pipelines(
     unsafe { SCRATCH.postprocess_shader_stages[1].module = fragment_shader.module };
     unsafe { SCRATCH.postprocess_pipeline.layout = layouts.postprocess };
     unsafe { SCRATCH.postprocess_pipeline.render_pass = postprocess.pass };
-    let postprocess = unsafe { dev.create_graphics_pipelines(vk::PipelineCache::null(), std::slice::from_ref(&SCRATCH.postprocess_pipeline), None).unwrap_unchecked()[0] };
-    Pipelines {
-        object,
-        grass,
-        skybox,
-        atmosphere,
-        gaussian,
-        postprocess,
-    }
+    let mut pipelines = MaybeUninit::uninit();
+    let _ = unsafe { (dev.fp_v1_0().create_graphics_pipelines)(
+        dev.handle(),
+        vk::PipelineCache::null(),
+        6,
+        &SCRATCH.object_pipeline,
+        std::ptr::null(),
+        pipelines.as_mut_ptr() as *mut vk::Pipeline,
+    ) };
+    unsafe { pipelines.assume_init() }
 }
