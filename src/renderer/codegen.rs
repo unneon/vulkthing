@@ -1,9 +1,12 @@
 // Code generated from renderer.kdl.
 
+use crate::renderer::raytracing::RaytraceResources;
 use crate::renderer::shader::compile_glsl;
-use crate::renderer::util::Dev;
-use crate::renderer::Pass;
+#[rustfmt::skip]
+use crate::renderer::uniform::{Atmosphere, Camera, FragSettings, Gaussian, GrassUniform, Light, Material, ModelViewProjection, Postprocessing};
+use crate::renderer::util::{AnyUniformBuffer, Dev, UniformBuffer};
 use crate::renderer::Swapchain;
+use crate::renderer::{Pass, FRAMES_IN_FLIGHT};
 use ash::vk;
 use std::ffi::CStr;
 use std::mem::MaybeUninit;
@@ -19,6 +22,21 @@ pub struct DescriptorSetLayouts {
     pub atmosphere: vk::DescriptorSetLayout,
     pub gaussian: vk::DescriptorSetLayout,
     pub postprocess: vk::DescriptorSetLayout,
+}
+
+pub struct DescriptorPools {
+    pub object: vk::DescriptorPool,
+    pub object_layout: vk::DescriptorSetLayout,
+    pub grass: vk::DescriptorPool,
+    pub grass_layout: vk::DescriptorSetLayout,
+    pub skybox: vk::DescriptorPool,
+    pub skybox_layout: vk::DescriptorSetLayout,
+    pub atmosphere: vk::DescriptorPool,
+    pub atmosphere_layout: vk::DescriptorSetLayout,
+    pub gaussian: vk::DescriptorPool,
+    pub gaussian_layout: vk::DescriptorSetLayout,
+    pub postprocess: vk::DescriptorPool,
+    pub postprocess_layout: vk::DescriptorSetLayout,
 }
 
 pub struct PipelineLayouts {
@@ -75,16 +93,28 @@ struct Scratch {
     pixel_sampler: vk::SamplerCreateInfo,
     object_bindings: [vk::DescriptorSetLayoutBinding; 5],
     object_layout: vk::DescriptorSetLayoutCreateInfo,
+    object_pool_sizes: [vk::DescriptorPoolSize; 2],
+    object_pool: vk::DescriptorPoolCreateInfo,
     grass_bindings: [vk::DescriptorSetLayoutBinding; 5],
     grass_layout: vk::DescriptorSetLayoutCreateInfo,
+    grass_pool_sizes: [vk::DescriptorPoolSize; 2],
+    grass_pool: vk::DescriptorPoolCreateInfo,
     skybox_bindings: [vk::DescriptorSetLayoutBinding; 1],
     skybox_layout: vk::DescriptorSetLayoutCreateInfo,
+    skybox_pool_sizes: [vk::DescriptorPoolSize; 1],
+    skybox_pool: vk::DescriptorPoolCreateInfo,
     atmosphere_bindings: [vk::DescriptorSetLayoutBinding; 4],
     atmosphere_layout: vk::DescriptorSetLayoutCreateInfo,
+    atmosphere_pool_sizes: [vk::DescriptorPoolSize; 2],
+    atmosphere_pool: vk::DescriptorPoolCreateInfo,
     gaussian_bindings: [vk::DescriptorSetLayoutBinding; 2],
     gaussian_layout: vk::DescriptorSetLayoutCreateInfo,
+    gaussian_pool_sizes: [vk::DescriptorPoolSize; 2],
+    gaussian_pool: vk::DescriptorPoolCreateInfo,
     postprocess_bindings: [vk::DescriptorSetLayoutBinding; 3],
     postprocess_layout: vk::DescriptorSetLayoutCreateInfo,
+    postprocess_pool_sizes: [vk::DescriptorPoolSize; 2],
+    postprocess_pool: vk::DescriptorPoolCreateInfo,
     assembly: vk::PipelineInputAssemblyStateCreateInfo,
     viewport: vk::Viewport,
     scissor: vk::Rect2D,
@@ -236,6 +266,24 @@ static mut SCRATCH: Scratch = Scratch {
         binding_count: 5,
         p_bindings: unsafe { SCRATCH.object_bindings.as_ptr() },
     },
+    object_pool_sizes: [
+        vk::DescriptorPoolSize {
+            ty: vk::DescriptorType::UNIFORM_BUFFER,
+            descriptor_count: 32768,
+        },
+        vk::DescriptorPoolSize {
+            ty: vk::DescriptorType::ACCELERATION_STRUCTURE_KHR,
+            descriptor_count: 8192,
+        },
+    ],
+    object_pool: vk::DescriptorPoolCreateInfo {
+        s_type: vk::StructureType::DESCRIPTOR_POOL_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::DescriptorPoolCreateFlags::empty(),
+        max_sets: 8192,
+        pool_size_count: 2,
+        p_pool_sizes: unsafe { SCRATCH.object_pool_sizes.as_ptr() },
+    },
     grass_bindings: [
         vk::DescriptorSetLayoutBinding {
             binding: 0,
@@ -280,6 +328,24 @@ static mut SCRATCH: Scratch = Scratch {
         binding_count: 5,
         p_bindings: unsafe { SCRATCH.grass_bindings.as_ptr() },
     },
+    grass_pool_sizes: [
+        vk::DescriptorPoolSize {
+            ty: vk::DescriptorType::UNIFORM_BUFFER,
+            descriptor_count: 8,
+        },
+        vk::DescriptorPoolSize {
+            ty: vk::DescriptorType::ACCELERATION_STRUCTURE_KHR,
+            descriptor_count: 2,
+        },
+    ],
+    grass_pool: vk::DescriptorPoolCreateInfo {
+        s_type: vk::StructureType::DESCRIPTOR_POOL_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::DescriptorPoolCreateFlags::empty(),
+        max_sets: 2,
+        pool_size_count: 2,
+        p_pool_sizes: unsafe { SCRATCH.grass_pool_sizes.as_ptr() },
+    },
     skybox_bindings: [
         vk::DescriptorSetLayoutBinding {
             binding: 0,
@@ -295,6 +361,20 @@ static mut SCRATCH: Scratch = Scratch {
         flags: vk::DescriptorSetLayoutCreateFlags::empty(),
         binding_count: 1,
         p_bindings: unsafe { SCRATCH.skybox_bindings.as_ptr() },
+    },
+    skybox_pool_sizes: [
+        vk::DescriptorPoolSize {
+            ty: vk::DescriptorType::UNIFORM_BUFFER,
+            descriptor_count: 2,
+        },
+    ],
+    skybox_pool: vk::DescriptorPoolCreateInfo {
+        s_type: vk::StructureType::DESCRIPTOR_POOL_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::DescriptorPoolCreateFlags::empty(),
+        max_sets: 2,
+        pool_size_count: 1,
+        p_pool_sizes: unsafe { SCRATCH.skybox_pool_sizes.as_ptr() },
     },
     atmosphere_bindings: [
         vk::DescriptorSetLayoutBinding {
@@ -333,6 +413,24 @@ static mut SCRATCH: Scratch = Scratch {
         binding_count: 4,
         p_bindings: unsafe { SCRATCH.atmosphere_bindings.as_ptr() },
     },
+    atmosphere_pool_sizes: [
+        vk::DescriptorPoolSize {
+            ty: vk::DescriptorType::INPUT_ATTACHMENT,
+            descriptor_count: 4,
+        },
+        vk::DescriptorPoolSize {
+            ty: vk::DescriptorType::UNIFORM_BUFFER,
+            descriptor_count: 4,
+        },
+    ],
+    atmosphere_pool: vk::DescriptorPoolCreateInfo {
+        s_type: vk::StructureType::DESCRIPTOR_POOL_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::DescriptorPoolCreateFlags::empty(),
+        max_sets: 2,
+        pool_size_count: 2,
+        p_pool_sizes: unsafe { SCRATCH.atmosphere_pool_sizes.as_ptr() },
+    },
     gaussian_bindings: [
         vk::DescriptorSetLayoutBinding {
             binding: 0,
@@ -355,6 +453,24 @@ static mut SCRATCH: Scratch = Scratch {
         flags: vk::DescriptorSetLayoutCreateFlags::empty(),
         binding_count: 2,
         p_bindings: unsafe { SCRATCH.gaussian_bindings.as_ptr() },
+    },
+    gaussian_pool_sizes: [
+        vk::DescriptorPoolSize {
+            ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+            descriptor_count: 2,
+        },
+        vk::DescriptorPoolSize {
+            ty: vk::DescriptorType::UNIFORM_BUFFER,
+            descriptor_count: 2,
+        },
+    ],
+    gaussian_pool: vk::DescriptorPoolCreateInfo {
+        s_type: vk::StructureType::DESCRIPTOR_POOL_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::DescriptorPoolCreateFlags::empty(),
+        max_sets: 2,
+        pool_size_count: 2,
+        p_pool_sizes: unsafe { SCRATCH.gaussian_pool_sizes.as_ptr() },
     },
     postprocess_bindings: [
         vk::DescriptorSetLayoutBinding {
@@ -385,6 +501,24 @@ static mut SCRATCH: Scratch = Scratch {
         flags: vk::DescriptorSetLayoutCreateFlags::empty(),
         binding_count: 3,
         p_bindings: unsafe { SCRATCH.postprocess_bindings.as_ptr() },
+    },
+    postprocess_pool_sizes: [
+        vk::DescriptorPoolSize {
+            ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+            descriptor_count: 4,
+        },
+        vk::DescriptorPoolSize {
+            ty: vk::DescriptorType::UNIFORM_BUFFER,
+            descriptor_count: 2,
+        },
+    ],
+    postprocess_pool: vk::DescriptorPoolCreateInfo {
+        s_type: vk::StructureType::DESCRIPTOR_POOL_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::DescriptorPoolCreateFlags::empty(),
+        max_sets: 2,
+        pool_size_count: 2,
+        p_pool_sizes: unsafe { SCRATCH.postprocess_pool_sizes.as_ptr() },
     },
     assembly: vk::PipelineInputAssemblyStateCreateInfo {
         s_type: vk::StructureType::PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
@@ -1486,6 +1620,292 @@ impl DescriptorSetLayouts {
     }
 }
 
+#[rustfmt::skip]
+impl DescriptorPools {
+    pub fn alloc_object(
+        &self,
+        mvp: &UniformBuffer<ModelViewProjection>,
+        material: &UniformBuffer<Material>,
+        light: &UniformBuffer<Light>,
+        settings: &UniformBuffer<FragSettings>,
+        tlas: &Option<RaytraceResources>,
+        dev: &Dev,
+    ) -> [vk::DescriptorSet; FRAMES_IN_FLIGHT] {
+        let layouts = [self.object_layout; FRAMES_IN_FLIGHT];
+        let descriptor_set_alloc_info = vk::DescriptorSetAllocateInfo::builder()
+            .descriptor_pool(self.object)
+            .set_layouts(&layouts);
+        let descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT] =
+            unsafe { dev.allocate_descriptor_sets(&descriptor_set_alloc_info) }
+                .unwrap()
+                .try_into()
+                .unwrap();
+        for (flight_index, descriptor_set) in descriptor_sets.iter().enumerate() {
+            let mvp_buffer = mvp.descriptor(flight_index);
+            let mvp = *vk::WriteDescriptorSet::builder()
+                .dst_set(*descriptor_set)
+                .dst_binding(0)
+                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+                .buffer_info(std::slice::from_ref(&mvp_buffer));
+            let material_buffer = material.descriptor(flight_index);
+            let material = *vk::WriteDescriptorSet::builder()
+                .dst_set(*descriptor_set)
+                .dst_binding(1)
+                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+                .buffer_info(std::slice::from_ref(&material_buffer));
+            let light_buffer = light.descriptor(flight_index);
+            let light = *vk::WriteDescriptorSet::builder()
+                .dst_set(*descriptor_set)
+                .dst_binding(2)
+                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+                .buffer_info(std::slice::from_ref(&light_buffer));
+            let settings_buffer = settings.descriptor(flight_index);
+            let settings = *vk::WriteDescriptorSet::builder()
+                .dst_set(*descriptor_set)
+                .dst_binding(3)
+                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+                .buffer_info(std::slice::from_ref(&settings_buffer));
+            let mut tlas_acceleration_structure = *vk::WriteDescriptorSetAccelerationStructureKHR::builder()
+                .acceleration_structures(std::slice::from_ref(&tlas.as_ref().unwrap().acceleration_structure));
+            let mut tlas = *vk::WriteDescriptorSet::builder()
+                .dst_set(*descriptor_set)
+                .dst_binding(4)
+                .descriptor_type(vk::DescriptorType::ACCELERATION_STRUCTURE_KHR)
+                .push_next(&mut tlas_acceleration_structure);
+            tlas.descriptor_count = 1;
+            let writes = [mvp, material, light, settings, tlas];
+            unsafe { dev.update_descriptor_sets(&writes, &[]) };
+        }
+        descriptor_sets
+    }
+
+    pub fn alloc_grass(
+        &self,
+        planet_mvp: &UniformBuffer<ModelViewProjection>,
+        grass: &UniformBuffer<GrassUniform>,
+        light: &UniformBuffer<Light>,
+        settings: &UniformBuffer<FragSettings>,
+        tlas: &Option<RaytraceResources>,
+        dev: &Dev,
+    ) -> [vk::DescriptorSet; FRAMES_IN_FLIGHT] {
+        let layouts = [self.grass_layout; FRAMES_IN_FLIGHT];
+        let descriptor_set_alloc_info = vk::DescriptorSetAllocateInfo::builder()
+            .descriptor_pool(self.grass)
+            .set_layouts(&layouts);
+        let descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT] =
+            unsafe { dev.allocate_descriptor_sets(&descriptor_set_alloc_info) }
+                .unwrap()
+                .try_into()
+                .unwrap();
+        for (flight_index, descriptor_set) in descriptor_sets.iter().enumerate() {
+            let planet_mvp_buffer = planet_mvp.descriptor(flight_index);
+            let planet_mvp = *vk::WriteDescriptorSet::builder()
+                .dst_set(*descriptor_set)
+                .dst_binding(0)
+                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+                .buffer_info(std::slice::from_ref(&planet_mvp_buffer));
+            let grass_buffer = grass.descriptor(flight_index);
+            let grass = *vk::WriteDescriptorSet::builder()
+                .dst_set(*descriptor_set)
+                .dst_binding(1)
+                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+                .buffer_info(std::slice::from_ref(&grass_buffer));
+            let light_buffer = light.descriptor(flight_index);
+            let light = *vk::WriteDescriptorSet::builder()
+                .dst_set(*descriptor_set)
+                .dst_binding(2)
+                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+                .buffer_info(std::slice::from_ref(&light_buffer));
+            let settings_buffer = settings.descriptor(flight_index);
+            let settings = *vk::WriteDescriptorSet::builder()
+                .dst_set(*descriptor_set)
+                .dst_binding(3)
+                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+                .buffer_info(std::slice::from_ref(&settings_buffer));
+            let mut tlas_acceleration_structure = *vk::WriteDescriptorSetAccelerationStructureKHR::builder()
+                .acceleration_structures(std::slice::from_ref(&tlas.as_ref().unwrap().acceleration_structure));
+            let mut tlas = *vk::WriteDescriptorSet::builder()
+                .dst_set(*descriptor_set)
+                .dst_binding(4)
+                .descriptor_type(vk::DescriptorType::ACCELERATION_STRUCTURE_KHR)
+                .push_next(&mut tlas_acceleration_structure);
+            tlas.descriptor_count = 1;
+            let writes = [planet_mvp, grass, light, settings, tlas];
+            unsafe { dev.update_descriptor_sets(&writes, &[]) };
+        }
+        descriptor_sets
+    }
+
+    pub fn alloc_skybox(
+        &self,
+        mvp: &UniformBuffer<ModelViewProjection>,
+        dev: &Dev,
+    ) -> [vk::DescriptorSet; FRAMES_IN_FLIGHT] {
+        let layouts = [self.skybox_layout; FRAMES_IN_FLIGHT];
+        let descriptor_set_alloc_info = vk::DescriptorSetAllocateInfo::builder()
+            .descriptor_pool(self.skybox)
+            .set_layouts(&layouts);
+        let descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT] =
+            unsafe { dev.allocate_descriptor_sets(&descriptor_set_alloc_info) }
+                .unwrap()
+                .try_into()
+                .unwrap();
+        for (flight_index, descriptor_set) in descriptor_sets.iter().enumerate() {
+            let mvp_buffer = mvp.descriptor(flight_index);
+            let mvp = *vk::WriteDescriptorSet::builder()
+                .dst_set(*descriptor_set)
+                .dst_binding(0)
+                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+                .buffer_info(std::slice::from_ref(&mvp_buffer));
+            let writes = [mvp];
+            unsafe { dev.update_descriptor_sets(&writes, &[]) };
+        }
+        descriptor_sets
+    }
+
+    pub fn alloc_atmosphere(
+        &self,
+        render: vk::ImageView,
+        position: vk::ImageView,
+        atmosphere: &UniformBuffer<Atmosphere>,
+        camera: &UniformBuffer<Camera>,
+        dev: &Dev,
+    ) -> [vk::DescriptorSet; FRAMES_IN_FLIGHT] {
+        let layouts = [self.atmosphere_layout; FRAMES_IN_FLIGHT];
+        let descriptor_set_alloc_info = vk::DescriptorSetAllocateInfo::builder()
+            .descriptor_pool(self.atmosphere)
+            .set_layouts(&layouts);
+        let descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT] =
+            unsafe { dev.allocate_descriptor_sets(&descriptor_set_alloc_info) }
+                .unwrap()
+                .try_into()
+                .unwrap();
+        for (flight_index, descriptor_set) in descriptor_sets.iter().enumerate() {
+            let render_image = *vk::DescriptorImageInfo::builder()
+                .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                .image_view(render);
+            let render = *vk::WriteDescriptorSet::builder()
+                .dst_set(*descriptor_set)
+                .dst_binding(0)
+                .descriptor_type(vk::DescriptorType::INPUT_ATTACHMENT)
+                .image_info(std::slice::from_ref(&render_image));
+            let position_image = *vk::DescriptorImageInfo::builder()
+                .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                .image_view(position);
+            let position = *vk::WriteDescriptorSet::builder()
+                .dst_set(*descriptor_set)
+                .dst_binding(1)
+                .descriptor_type(vk::DescriptorType::INPUT_ATTACHMENT)
+                .image_info(std::slice::from_ref(&position_image));
+            let atmosphere_buffer = atmosphere.descriptor(flight_index);
+            let atmosphere = *vk::WriteDescriptorSet::builder()
+                .dst_set(*descriptor_set)
+                .dst_binding(2)
+                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+                .buffer_info(std::slice::from_ref(&atmosphere_buffer));
+            let camera_buffer = camera.descriptor(flight_index);
+            let camera = *vk::WriteDescriptorSet::builder()
+                .dst_set(*descriptor_set)
+                .dst_binding(3)
+                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+                .buffer_info(std::slice::from_ref(&camera_buffer));
+            let writes = [render, position, atmosphere, camera];
+            unsafe { dev.update_descriptor_sets(&writes, &[]) };
+        }
+        descriptor_sets
+    }
+
+    pub fn alloc_gaussian(
+        &self,
+        render: vk::ImageView,
+        gaussian: &UniformBuffer<Gaussian>,
+        dev: &Dev,
+    ) -> [vk::DescriptorSet; FRAMES_IN_FLIGHT] {
+        let layouts = [self.gaussian_layout; FRAMES_IN_FLIGHT];
+        let descriptor_set_alloc_info = vk::DescriptorSetAllocateInfo::builder()
+            .descriptor_pool(self.gaussian)
+            .set_layouts(&layouts);
+        let descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT] =
+            unsafe { dev.allocate_descriptor_sets(&descriptor_set_alloc_info) }
+                .unwrap()
+                .try_into()
+                .unwrap();
+        for (flight_index, descriptor_set) in descriptor_sets.iter().enumerate() {
+            let render_image = *vk::DescriptorImageInfo::builder()
+                .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                .image_view(render);
+            let render = *vk::WriteDescriptorSet::builder()
+                .dst_set(*descriptor_set)
+                .dst_binding(0)
+                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                .image_info(std::slice::from_ref(&render_image));
+            let gaussian_buffer = gaussian.descriptor(flight_index);
+            let gaussian = *vk::WriteDescriptorSet::builder()
+                .dst_set(*descriptor_set)
+                .dst_binding(1)
+                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+                .buffer_info(std::slice::from_ref(&gaussian_buffer));
+            let writes = [render, gaussian];
+            unsafe { dev.update_descriptor_sets(&writes, &[]) };
+        }
+        descriptor_sets
+    }
+
+    pub fn alloc_postprocess(
+        &self,
+        render: vk::ImageView,
+        bloom: vk::ImageView,
+        postprocessing: &UniformBuffer<Postprocessing>,
+        dev: &Dev,
+    ) -> [vk::DescriptorSet; FRAMES_IN_FLIGHT] {
+        let layouts = [self.postprocess_layout; FRAMES_IN_FLIGHT];
+        let descriptor_set_alloc_info = vk::DescriptorSetAllocateInfo::builder()
+            .descriptor_pool(self.postprocess)
+            .set_layouts(&layouts);
+        let descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT] =
+            unsafe { dev.allocate_descriptor_sets(&descriptor_set_alloc_info) }
+                .unwrap()
+                .try_into()
+                .unwrap();
+        for (flight_index, descriptor_set) in descriptor_sets.iter().enumerate() {
+            let render_image = *vk::DescriptorImageInfo::builder()
+                .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                .image_view(render);
+            let render = *vk::WriteDescriptorSet::builder()
+                .dst_set(*descriptor_set)
+                .dst_binding(0)
+                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                .image_info(std::slice::from_ref(&render_image));
+            let bloom_image = *vk::DescriptorImageInfo::builder()
+                .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                .image_view(bloom);
+            let bloom = *vk::WriteDescriptorSet::builder()
+                .dst_set(*descriptor_set)
+                .dst_binding(1)
+                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                .image_info(std::slice::from_ref(&bloom_image));
+            let postprocessing_buffer = postprocessing.descriptor(flight_index);
+            let postprocessing = *vk::WriteDescriptorSet::builder()
+                .dst_set(*descriptor_set)
+                .dst_binding(2)
+                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+                .buffer_info(std::slice::from_ref(&postprocessing_buffer));
+            let writes = [render, bloom, postprocessing];
+            unsafe { dev.update_descriptor_sets(&writes, &[]) };
+        }
+        descriptor_sets
+    }
+
+    pub fn cleanup(&self, dev: &Dev) {
+        unsafe { dev.destroy_descriptor_pool(self.object, None) };
+        unsafe { dev.destroy_descriptor_pool(self.grass, None) };
+        unsafe { dev.destroy_descriptor_pool(self.skybox, None) };
+        unsafe { dev.destroy_descriptor_pool(self.atmosphere, None) };
+        unsafe { dev.destroy_descriptor_pool(self.gaussian, None) };
+        unsafe { dev.destroy_descriptor_pool(self.postprocess, None) };
+    }
+}
+
 impl PipelineLayouts {
     pub fn cleanup(&self, dev: &Dev) {
         unsafe { dev.destroy_pipeline_layout(self.object, None) };
@@ -1551,6 +1971,30 @@ pub fn create_descriptor_set_layouts(samplers: &Samplers, dev: &Dev) -> Descript
         atmosphere,
         gaussian,
         postprocess,
+    }
+}
+
+#[rustfmt::skip]
+pub fn create_descriptor_pools(layouts: &DescriptorSetLayouts, dev: &Dev) -> DescriptorPools {
+    let object = unsafe { dev.create_descriptor_pool(&SCRATCH.object_pool, None).unwrap_unchecked() };
+    let grass = unsafe { dev.create_descriptor_pool(&SCRATCH.grass_pool, None).unwrap_unchecked() };
+    let skybox = unsafe { dev.create_descriptor_pool(&SCRATCH.skybox_pool, None).unwrap_unchecked() };
+    let atmosphere = unsafe { dev.create_descriptor_pool(&SCRATCH.atmosphere_pool, None).unwrap_unchecked() };
+    let gaussian = unsafe { dev.create_descriptor_pool(&SCRATCH.gaussian_pool, None).unwrap_unchecked() };
+    let postprocess = unsafe { dev.create_descriptor_pool(&SCRATCH.postprocess_pool, None).unwrap_unchecked() };
+    DescriptorPools {
+        object,
+        object_layout: layouts.object,
+        grass,
+        grass_layout: layouts.grass,
+        skybox,
+        skybox_layout: layouts.skybox,
+        atmosphere,
+        atmosphere_layout: layouts.atmosphere,
+        gaussian,
+        gaussian_layout: layouts.gaussian,
+        postprocess,
+        postprocess_layout: layouts.postprocess,
     }
 }
 

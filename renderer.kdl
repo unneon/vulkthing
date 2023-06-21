@@ -10,37 +10,37 @@ sampler "pixel" {
     unnormalized-coordinates
 }
 
-descriptor-set "object" {
-    uniform "mvp" "VERTEX"
-    uniform "material" "FRAGMENT"
-    uniform "light" "FRAGMENT"
-    uniform "settings" "FRAGMENT"
+descriptor-set "object" 4096 {
+    uniform "mvp" "VERTEX" "ModelViewProjection"
+    uniform "material" "FRAGMENT" "Material"
+    uniform "light" "FRAGMENT" "Light"
+    uniform "settings" "FRAGMENT" "FragSettings"
     acceleration-structure "tlas" "FRAGMENT"
 }
-descriptor-set "grass" {
-    uniform "planet_mvp" "VERTEX"
-    uniform "grass" "VERTEX"
-    uniform "light" "FRAGMENT"
-    uniform "settings" "FRAGMENT"
+descriptor-set "grass" 1 {
+    uniform "planet_mvp" "VERTEX" "ModelViewProjection"
+    uniform "grass" "VERTEX" "GrassUniform"
+    uniform "light" "FRAGMENT" "Light"
+    uniform "settings" "FRAGMENT" "FragSettings"
     acceleration-structure "tlas" "FRAGMENT"
 }
-descriptor-set "skybox" {
-    uniform "mvp" "VERTEX"
+descriptor-set "skybox" 1 {
+    uniform "mvp" "VERTEX" "ModelViewProjection"
 }
-descriptor-set "atmosphere" {
+descriptor-set "atmosphere" 1 {
     input-attachment "render" "FRAGMENT" msaa=true
     input-attachment "position" "FRAGMENT" msaa=true
-    uniform "atmosphere" "FRAGMENT"
-    uniform "camera" "FRAGMENT"
+    uniform "atmosphere" "FRAGMENT" "Atmosphere"
+    uniform "camera" "FRAGMENT" "Camera"
 }
-descriptor-set "gaussian" {
+descriptor-set "gaussian" 1 {
     image "render" "FRAGMENT" "pixel" msaa=true
-    uniform "gaussian" "FRAGMENT"
+    uniform "gaussian" "FRAGMENT" "Gaussian"
 }
-descriptor-set "postprocess" {
+descriptor-set "postprocess" 1 {
     image "render" "FRAGMENT" "pixel" msaa=true
     image "bloom" "FRAGMENT" "pixel"
-    uniform "postprocessing" "FRAGMENT"
+    uniform "postprocessing" "FRAGMENT" "Postprocessing"
 }
 
 pass "render" {

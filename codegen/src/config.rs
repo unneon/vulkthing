@@ -36,6 +36,8 @@ pub struct Sampler {
 pub struct DescriptorSet {
     #[knuffel(argument)]
     pub name: String,
+    #[knuffel(argument)]
+    pub pool_size: usize,
     #[knuffel(children)]
     pub bindings: Vec<DescriptorBinding>,
 }
@@ -84,6 +86,8 @@ pub struct UniformBinding {
     pub name: String,
     #[knuffel(argument)]
     pub stage: String,
+    #[knuffel(argument)]
+    pub typ: String,
 }
 
 #[derive(Debug, Decode)]

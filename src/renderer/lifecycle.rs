@@ -1,23 +1,15 @@
 use crate::cli::Args;
-use crate::config::DEFAULT_STAR_COUNT;
 use crate::mesh::MeshData;
 use crate::renderer::codegen::{
-    create_descriptor_set_layouts, create_pipeline_layouts, create_pipelines, create_samplers,
-    create_shader_modules, create_shaders,
+    create_descriptor_pools, create_descriptor_set_layouts, create_pipeline_layouts,
+    create_pipelines, create_samplers, create_shader_modules, create_shaders, DescriptorPools,
 };
 use crate::renderer::debug::{create_debug_messenger, set_label};
-use crate::renderer::descriptors::{
-    create_descriptor_metadata, Descriptor, DescriptorConfig, DescriptorKind, DescriptorMetadata,
-    DescriptorValue,
-};
 use crate::renderer::device::{select_device, DeviceInfo};
 use crate::renderer::graph::{create_pass, AttachmentConfig, Pass, PassConfig};
 use crate::renderer::raytracing::{create_blas, create_tlas, RaytraceResources};
 use crate::renderer::swapchain::{create_swapchain, Swapchain};
-use crate::renderer::uniform::{
-    Atmosphere, Camera, FragSettings, Gaussian, GrassUniform, Light, Material, ModelViewProjection,
-    Postprocessing,
-};
+use crate::renderer::uniform::{Atmosphere, Camera, FragSettings, Gaussian, Light, Postprocessing};
 use crate::renderer::util::{vulkan_str, Buffer, Ctx, Dev};
 use crate::renderer::vertex::{GrassBlade, Vertex};
 use crate::renderer::{
@@ -97,31 +89,7 @@ impl Renderer {
         let camera = UniformBuffer::create(&dev);
 
         let descriptor_set_layouts = create_descriptor_set_layouts(&samplers, &dev);
-
-        let object_descriptor_metadata = create_object_descriptor_metadata(
-            descriptor_set_layouts.object,
-            supports_raytracing,
-            &dev,
-        );
-        let grass_descriptor_metadata = create_grass_descriptor_metadata(
-            descriptor_set_layouts.grass,
-            supports_raytracing,
-            &dev,
-        );
-        let skybox_descriptor_metadata =
-            create_skybox_descriptor_metadata(descriptor_set_layouts.skybox, &dev);
-        let atmosphere_descriptor_metadata =
-            create_atmosphere_descriptor_metadata(descriptor_set_layouts.atmosphere, &dev);
-        let gaussian_descriptor_metadata = create_gaussian_descriptor_metadata(
-            descriptor_set_layouts.gaussian,
-            samplers.pixel,
-            &dev,
-        );
-        let postprocess_descriptor_metadata = create_postprocess_descriptor_metadata(
-            descriptor_set_layouts.postprocess,
-            samplers.pixel,
-            &dev,
-        );
+        let descriptor_pools = create_descriptor_pools(&descriptor_set_layouts, &dev);
 
         let (
             swapchain,
@@ -141,9 +109,7 @@ impl Renderer {
             &gaussian_uniform,
             &postprocessing,
             &camera,
-            &atmosphere_descriptor_metadata,
-            &gaussian_descriptor_metadata,
-            &postprocess_descriptor_metadata,
+            &descriptor_pools,
             &dev,
         );
         let pipeline_layouts = create_pipeline_layouts(&descriptor_set_layouts, &dev);
@@ -189,27 +155,25 @@ impl Renderer {
         let mut entities = Vec::new();
         for _ in world.entities() {
             entities.push(create_entity(
-                &object_descriptor_metadata,
+                &descriptor_pools,
                 &light,
                 &frag_settings,
-                tlas.as_ref(),
+                &tlas,
                 &dev,
             ));
         }
         let grass_mvp = UniformBuffer::create(&dev);
         let grass_uniform = UniformBuffer::create(&dev);
-        let grass_descriptor_sets = create_grass_descriptor_sets(
+        let grass_descriptor_sets = descriptor_pools.alloc_grass(
             &grass_mvp,
             &grass_uniform,
             &light,
             &frag_settings,
-            tlas.as_ref(),
-            &grass_descriptor_metadata,
+            &tlas,
             &dev,
         );
         let skybox_mvp = UniformBuffer::create(&dev);
-        let skybox_descriptor_sets =
-            create_skybox_descriptor_sets(&skybox_mvp, &skybox_descriptor_metadata, &dev);
+        let skybox_descriptor_sets = descriptor_pools.alloc_skybox(&skybox_mvp, &dev);
 
         Renderer {
             _entry: entry,
@@ -227,16 +191,11 @@ impl Renderer {
             postprocessing,
             camera,
             descriptor_set_layouts,
+            descriptor_pools,
             pipeline_layouts,
-            object_descriptor_metadata,
-            grass_descriptor_metadata,
-            skybox_descriptor_metadata,
             render,
-            atmosphere_descriptor_metadata,
-            gaussian_descriptor_metadata,
             gaussian,
             atmosphere_descriptor_sets,
-            postprocess_descriptor_metadata,
             postprocess,
             swapchain,
             pipelines,
@@ -312,9 +271,7 @@ impl Renderer {
             &self.gaussian_uniform,
             &self.postprocessing,
             &self.camera,
-            &self.atmosphere_descriptor_metadata,
-            &self.gaussian_descriptor_metadata,
-            &self.postprocess_descriptor_metadata,
+            &self.descriptor_pools,
             &self.dev,
         );
 
@@ -386,19 +343,19 @@ impl Renderer {
         unsafe {
             self.dev
                 .reset_descriptor_pool(
-                    self.gaussian_descriptor_metadata.pool,
+                    self.descriptor_pools.gaussian,
                     vk::DescriptorPoolResetFlags::empty(),
                 )
                 .unwrap();
             self.dev
                 .reset_descriptor_pool(
-                    self.postprocess_descriptor_metadata.pool,
+                    self.descriptor_pools.postprocess,
                     vk::DescriptorPoolResetFlags::empty(),
                 )
                 .unwrap();
             self.dev
                 .reset_descriptor_pool(
-                    self.atmosphere_descriptor_metadata.pool,
+                    self.descriptor_pools.atmosphere,
                     vk::DescriptorPoolResetFlags::empty(),
                 )
                 .unwrap();
@@ -503,13 +460,8 @@ impl Drop for Renderer {
             self.cleanup_swapchain();
             self.pipelines.cleanup(&self.dev);
             self.pipeline_layouts.cleanup(&self.dev);
+            self.descriptor_pools.cleanup(&self.dev);
             self.descriptor_set_layouts.cleanup(&self.dev);
-            self.object_descriptor_metadata.cleanup(&self.dev);
-            self.grass_descriptor_metadata.cleanup(&self.dev);
-            self.skybox_descriptor_metadata.cleanup(&self.dev);
-            self.atmosphere_descriptor_metadata.cleanup(&self.dev);
-            self.gaussian_descriptor_metadata.cleanup(&self.dev);
-            self.postprocess_descriptor_metadata.cleanup(&self.dev);
             self.atmosphere_uniform.cleanup(&self.dev);
             self.gaussian_uniform.cleanup(&self.dev);
             self.postprocessing.cleanup(&self.dev);
@@ -662,9 +614,7 @@ fn create_swapchain_all(
     gaussian_uniform: &UniformBuffer<Gaussian>,
     postprocessing: &UniformBuffer<Postprocessing>,
     camera: &UniformBuffer<Camera>,
-    atmosphere_descriptor_metadata: &DescriptorMetadata,
-    gaussian_descriptor_metadata: &DescriptorMetadata,
-    postprocess_descriptor_metadata: &DescriptorMetadata,
+    descriptor_pools: &DescriptorPools,
     dev: &Dev,
 ) -> (
     Swapchain,
@@ -677,28 +627,22 @@ fn create_swapchain_all(
 ) {
     let swapchain = create_swapchain(surface, window_size, dev, surface_ext, swapchain_ext);
     let render = create_render_pass(msaa_samples, swapchain.extent, dev);
-    let atmosphere_descriptor_sets = create_atmosphere_descriptor_sets(
+    let atmosphere_descriptor_sets = descriptor_pools.alloc_atmosphere(
         render.resources[0].view,
         render.resources[1].view,
         atmosphere_uniform,
         camera,
-        atmosphere_descriptor_metadata,
         dev,
     );
     let gaussian = create_gaussian_pass(swapchain.extent, dev);
-    let gaussian_descriptor_sets = create_gaussian_descriptor_sets(
-        render.resources[3].view,
-        gaussian_uniform,
-        gaussian_descriptor_metadata,
-        dev,
-    );
+    let gaussian_descriptor_sets =
+        descriptor_pools.alloc_gaussian(render.resources[3].view, gaussian_uniform, dev);
     let postprocess =
         create_postprocess_pass(swapchain.format.format, &swapchain, swapchain.extent, dev);
-    let postprocess_descriptor_sets = create_postprocess_descriptor_sets(
+    let postprocess_descriptor_sets = descriptor_pools.alloc_postprocess(
         render.resources[3].view,
         gaussian.resources[0].view,
         postprocessing,
-        postprocess_descriptor_metadata,
         dev,
     );
     (
@@ -790,279 +734,6 @@ fn create_postprocess_pass(
     })
 }
 
-fn create_object_descriptor_metadata(
-    layout: vk::DescriptorSetLayout,
-    supports_raytracing: bool,
-    dev: &Dev,
-) -> DescriptorMetadata {
-    let mut descriptors = vec![
-        Descriptor {
-            kind: DescriptorKind::UniformBuffer,
-            stage: vk::ShaderStageFlags::VERTEX,
-        },
-        Descriptor {
-            kind: DescriptorKind::UniformBuffer,
-            stage: vk::ShaderStageFlags::FRAGMENT,
-        },
-        Descriptor {
-            kind: DescriptorKind::UniformBuffer,
-            stage: vk::ShaderStageFlags::FRAGMENT,
-        },
-        Descriptor {
-            kind: DescriptorKind::UniformBuffer,
-            stage: vk::ShaderStageFlags::FRAGMENT,
-        },
-    ];
-    if supports_raytracing {
-        descriptors.push(Descriptor {
-            kind: DescriptorKind::AccelerationStructure,
-            stage: vk::ShaderStageFlags::FRAGMENT,
-        });
-    }
-    create_descriptor_metadata(DescriptorConfig {
-        descriptors,
-        layout,
-        set_count: 3 + DEFAULT_STAR_COUNT,
-        dev,
-    })
-}
-
-fn create_grass_descriptor_metadata(
-    layout: vk::DescriptorSetLayout,
-    supports_raytracing: bool,
-    dev: &Dev,
-) -> DescriptorMetadata {
-    let mut descriptors = vec![
-        Descriptor {
-            kind: DescriptorKind::UniformBuffer,
-            stage: vk::ShaderStageFlags::VERTEX,
-        },
-        Descriptor {
-            kind: DescriptorKind::UniformBuffer,
-            stage: vk::ShaderStageFlags::VERTEX,
-        },
-        Descriptor {
-            kind: DescriptorKind::UniformBuffer,
-            stage: vk::ShaderStageFlags::FRAGMENT,
-        },
-        Descriptor {
-            kind: DescriptorKind::UniformBuffer,
-            stage: vk::ShaderStageFlags::FRAGMENT,
-        },
-    ];
-    if supports_raytracing {
-        descriptors.push(Descriptor {
-            kind: DescriptorKind::AccelerationStructure,
-            stage: vk::ShaderStageFlags::FRAGMENT,
-        });
-    }
-    create_descriptor_metadata(DescriptorConfig {
-        descriptors,
-        layout,
-        set_count: 1,
-        dev,
-    })
-}
-
-fn create_skybox_descriptor_metadata(
-    layout: vk::DescriptorSetLayout,
-    dev: &Dev,
-) -> DescriptorMetadata {
-    let descriptors = vec![Descriptor {
-        kind: DescriptorKind::UniformBuffer,
-        stage: vk::ShaderStageFlags::VERTEX,
-    }];
-    create_descriptor_metadata(DescriptorConfig {
-        descriptors,
-        layout,
-        set_count: 1,
-        dev,
-    })
-}
-
-fn create_object_descriptor_sets(
-    mvp: &UniformBuffer<ModelViewProjection>,
-    material: &UniformBuffer<Material>,
-    light: &UniformBuffer<Light>,
-    frag_settings: &UniformBuffer<FragSettings>,
-    tlas: Option<&RaytraceResources>,
-    metadata: &DescriptorMetadata,
-    dev: &Dev,
-) -> [vk::DescriptorSet; FRAMES_IN_FLIGHT] {
-    let mut values = vec![
-        DescriptorValue::Buffer(mvp),
-        DescriptorValue::Buffer(material),
-        DescriptorValue::Buffer(light),
-        DescriptorValue::Buffer(frag_settings),
-    ];
-    if let Some(tlas) = tlas {
-        values.push(DescriptorValue::AccelerationStructure(
-            tlas.acceleration_structure,
-        ));
-    }
-    metadata.create_sets(&values, dev)
-}
-
-fn create_grass_descriptor_sets(
-    mvp: &UniformBuffer<ModelViewProjection>,
-    grass_uniform: &UniformBuffer<GrassUniform>,
-    light: &UniformBuffer<Light>,
-    frag_settings: &UniformBuffer<FragSettings>,
-    tlas: Option<&RaytraceResources>,
-    metadata: &DescriptorMetadata,
-    dev: &Dev,
-) -> [vk::DescriptorSet; FRAMES_IN_FLIGHT] {
-    let mut values = vec![
-        DescriptorValue::Buffer(mvp),
-        DescriptorValue::Buffer(grass_uniform),
-        DescriptorValue::Buffer(light),
-        DescriptorValue::Buffer(frag_settings),
-    ];
-    if let Some(tlas) = tlas {
-        values.push(DescriptorValue::AccelerationStructure(
-            tlas.acceleration_structure,
-        ));
-    }
-    metadata.create_sets(&values, dev)
-}
-
-fn create_skybox_descriptor_sets(
-    mvp: &UniformBuffer<ModelViewProjection>,
-    metadata: &DescriptorMetadata,
-    dev: &Dev,
-) -> [vk::DescriptorSet; FRAMES_IN_FLIGHT] {
-    metadata.create_sets(&[DescriptorValue::Buffer(mvp)], dev)
-}
-
-fn create_atmosphere_descriptor_metadata(
-    layout: vk::DescriptorSetLayout,
-    dev: &Dev,
-) -> DescriptorMetadata {
-    let descriptors = vec![
-        Descriptor {
-            kind: DescriptorKind::InputAttachment,
-            stage: vk::ShaderStageFlags::FRAGMENT,
-        },
-        Descriptor {
-            kind: DescriptorKind::InputAttachment,
-            stage: vk::ShaderStageFlags::FRAGMENT,
-        },
-        Descriptor {
-            kind: DescriptorKind::UniformBuffer,
-            stage: vk::ShaderStageFlags::FRAGMENT,
-        },
-        Descriptor {
-            kind: DescriptorKind::UniformBuffer,
-            stage: vk::ShaderStageFlags::FRAGMENT,
-        },
-    ];
-    create_descriptor_metadata(DescriptorConfig {
-        descriptors,
-        layout,
-        set_count: 1,
-        dev,
-    })
-}
-
-fn create_atmosphere_descriptor_sets(
-    offscreen_view: vk::ImageView,
-    position_view: vk::ImageView,
-    atmosphere: &UniformBuffer<Atmosphere>,
-    camera: &UniformBuffer<Camera>,
-    metadata: &DescriptorMetadata,
-    dev: &Dev,
-) -> [vk::DescriptorSet; FRAMES_IN_FLIGHT] {
-    metadata.create_sets(
-        &[
-            DescriptorValue::InputAttachment(offscreen_view),
-            DescriptorValue::InputAttachment(position_view),
-            DescriptorValue::Buffer(atmosphere),
-            DescriptorValue::Buffer(camera),
-        ],
-        dev,
-    )
-}
-
-fn create_gaussian_descriptor_metadata(
-    layout: vk::DescriptorSetLayout,
-    sampler: vk::Sampler,
-    dev: &Dev,
-) -> DescriptorMetadata {
-    create_descriptor_metadata(DescriptorConfig {
-        descriptors: vec![
-            Descriptor {
-                kind: DescriptorKind::ImmutableSampler { sampler },
-                stage: vk::ShaderStageFlags::FRAGMENT,
-            },
-            Descriptor {
-                kind: DescriptorKind::UniformBuffer,
-                stage: vk::ShaderStageFlags::FRAGMENT,
-            },
-        ],
-        layout,
-        set_count: 1,
-        dev,
-    })
-}
-
-fn create_gaussian_descriptor_sets(
-    offscreen_view: vk::ImageView,
-    gaussian_uniform: &UniformBuffer<Gaussian>,
-    metadata: &DescriptorMetadata,
-    dev: &Dev,
-) -> [vk::DescriptorSet; FRAMES_IN_FLIGHT] {
-    metadata.create_sets(
-        &[
-            DescriptorValue::Image(offscreen_view),
-            DescriptorValue::Buffer(gaussian_uniform),
-        ],
-        dev,
-    )
-}
-
-fn create_postprocess_descriptor_metadata(
-    layout: vk::DescriptorSetLayout,
-    sampler: vk::Sampler,
-    dev: &Dev,
-) -> DescriptorMetadata {
-    create_descriptor_metadata(DescriptorConfig {
-        descriptors: vec![
-            Descriptor {
-                kind: DescriptorKind::ImmutableSampler { sampler },
-                stage: vk::ShaderStageFlags::FRAGMENT,
-            },
-            Descriptor {
-                kind: DescriptorKind::ImmutableSampler { sampler },
-                stage: vk::ShaderStageFlags::FRAGMENT,
-            },
-            Descriptor {
-                kind: DescriptorKind::UniformBuffer,
-                stage: vk::ShaderStageFlags::FRAGMENT,
-            },
-        ],
-        layout,
-        set_count: 1,
-        dev,
-    })
-}
-
-fn create_postprocess_descriptor_sets(
-    offscreen_view: vk::ImageView,
-    bloom_view: vk::ImageView,
-    postprocessing: &UniformBuffer<Postprocessing>,
-    metadata: &DescriptorMetadata,
-    dev: &Dev,
-) -> [vk::DescriptorSet; FRAMES_IN_FLIGHT] {
-    metadata.create_sets(
-        &[
-            DescriptorValue::Image(offscreen_view),
-            DescriptorValue::Image(bloom_view),
-            DescriptorValue::Buffer(postprocessing),
-        ],
-        dev,
-    )
-}
-
 fn create_command_pools(queue_family: u32, dev: &Dev) -> [vk::CommandPool; FRAMES_IN_FLIGHT] {
     let command_pool_info = vk::CommandPoolCreateInfo::builder().queue_family_index(queue_family);
     let mut pools = [vk::CommandPool::null(); FRAMES_IN_FLIGHT];
@@ -1096,23 +767,16 @@ pub fn create_mesh(model: &MeshData, supports_raytracing: bool, dev: &Dev) -> Me
 }
 
 pub fn create_entity(
-    descriptor_metadata: &DescriptorMetadata,
+    descriptor_pools: &DescriptorPools,
     light: &UniformBuffer<Light>,
     frag_settings: &UniformBuffer<FragSettings>,
-    tlas: Option<&RaytraceResources>,
+    tlas: &Option<RaytraceResources>,
     dev: &Dev,
 ) -> Object {
     let mvp = UniformBuffer::create(dev);
     let material = UniformBuffer::create(dev);
-    let descriptor_sets = create_object_descriptor_sets(
-        &mvp,
-        &material,
-        light,
-        frag_settings,
-        tlas,
-        descriptor_metadata,
-        dev,
-    );
+    let descriptor_sets =
+        descriptor_pools.alloc_object(&mvp, &material, light, frag_settings, tlas, dev);
     Object {
         mvp,
         material,

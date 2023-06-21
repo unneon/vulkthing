@@ -1,6 +1,5 @@
 mod codegen;
 mod debug;
-mod descriptors;
 mod device;
 mod graph;
 mod lifecycle;
@@ -12,9 +11,10 @@ mod util;
 pub mod vertex;
 
 use crate::grass::Grass;
-use crate::renderer::codegen::{DescriptorSetLayouts, PipelineLayouts, Pipelines, Samplers};
+use crate::renderer::codegen::{
+    DescriptorPools, DescriptorSetLayouts, PipelineLayouts, Pipelines, Samplers,
+};
 use crate::renderer::debug::{begin_label, end_label};
-use crate::renderer::descriptors::DescriptorMetadata;
 use crate::renderer::graph::Pass;
 use crate::renderer::raytracing::RaytraceResources;
 use crate::renderer::swapchain::Swapchain;
@@ -57,21 +57,10 @@ pub struct Renderer {
     // Description of the main render pass. Doesn't contain any information about the objects yet,
     // only low-level data format descriptions.
     descriptor_set_layouts: DescriptorSetLayouts,
+    descriptor_pools: DescriptorPools,
     pipeline_layouts: PipelineLayouts,
-    object_descriptor_metadata: DescriptorMetadata,
-    grass_descriptor_metadata: DescriptorMetadata,
-    skybox_descriptor_metadata: DescriptorMetadata,
     render: Pass,
-
-    atmosphere_descriptor_metadata: DescriptorMetadata,
-
-    gaussian_descriptor_metadata: DescriptorMetadata,
     gaussian: Pass,
-
-    // Description of the postprocessing pass, and also the actual descriptor pool. Necessary,
-    // because the postprocessing pass depends on swapchain extent and needs to have the descriptor
-    // set updated after window resize.
-    postprocess_descriptor_metadata: DescriptorMetadata,
     postprocess: Pass,
 
     // All resources that depend on swapchain extent (window size). So swapchain description, memory
@@ -151,7 +140,7 @@ pub struct RendererSettings {
     pub msaa_samples: vk::SampleCountFlags,
 }
 
-const FRAMES_IN_FLIGHT: usize = 8;
+const FRAMES_IN_FLIGHT: usize = 2;
 
 impl Renderer {
     pub fn draw_frame(
