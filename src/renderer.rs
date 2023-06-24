@@ -118,7 +118,7 @@ pub struct MeshObject {
 pub struct Object {
     mvp: UniformBuffer<ModelViewProjection>,
     material: UniformBuffer<Material>,
-    descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
+    descriptors: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
 }
 
 pub struct GrassChunk {
@@ -231,11 +231,7 @@ impl Renderer {
         self.bind_pipeline(buf, self.pipelines.object);
         for (entity, gpu_entity) in world.entities().iter().zip(&self.entities) {
             let mesh = &self.mesh_objects[entity.mesh_id()];
-            self.bind_descriptor_sets(
-                buf,
-                self.pipeline_layouts.object,
-                &gpu_entity.descriptor_sets,
-            );
+            self.bind_descriptor_sets(buf, self.pipeline_layouts.object, &gpu_entity.descriptors);
             self.dev
                 .cmd_bind_vertex_buffers(buf, 0, &[mesh.vertex.buffer], &[0]);
             self.dev

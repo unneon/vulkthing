@@ -2,14 +2,13 @@ use crate::cli::Args;
 use crate::mesh::MeshData;
 use crate::renderer::codegen::{
     create_descriptor_pools, create_descriptor_set_layouts, create_pipeline_layouts,
-    create_pipelines, create_samplers, create_shader_modules, create_shaders, DescriptorPools,
+    create_pipelines, create_samplers, create_shader_modules, create_shaders,
 };
 use crate::renderer::debug::{create_debug_messenger, set_label};
 use crate::renderer::device::{select_device, DeviceInfo};
 use crate::renderer::graph::{create_pass, AttachmentConfig, Pass, PassConfig};
-use crate::renderer::raytracing::{create_blas, create_tlas, RaytraceResources};
+use crate::renderer::raytracing::{create_blas, create_tlas};
 use crate::renderer::swapchain::{create_swapchain, Swapchain};
-use crate::renderer::uniform::{FragSettings, Light};
 use crate::renderer::util::{vulkan_str, Buffer, Ctx, Dev};
 use crate::renderer::vertex::{GrassBlade, Vertex};
 use crate::renderer::{
@@ -146,7 +145,11 @@ impl Renderer {
 
         let mut mesh_objects = Vec::new();
         for mesh in meshes {
-            mesh_objects.push(create_mesh(mesh, supports_raytracing, &dev));
+            let vertex = create_vertex_buffer(&mesh.vertices, supports_raytracing, &dev);
+            mesh_objects.push(MeshObject {
+                triangle_count: mesh.vertices.len() / 3,
+                vertex,
+            });
         }
 
         let (tlas, blas) = if supports_raytracing {
@@ -159,13 +162,15 @@ impl Renderer {
 
         let mut entities = Vec::new();
         for _ in world.entities() {
-            entities.push(create_entity(
-                &descriptor_pools,
-                &light,
-                &frag_settings,
-                &tlas,
-                &dev,
-            ));
+            let mvp = UniformBuffer::create(&dev);
+            let material = UniformBuffer::create(&dev);
+            let descriptors =
+                descriptor_pools.alloc_object(&mvp, &material, &light, &frag_settings, &tlas, &dev);
+            entities.push(Object {
+                mvp,
+                material,
+                descriptors,
+            });
         }
         let grass_mvp = UniformBuffer::create(&dev);
         let grass_uniform = UniformBuffer::create(&dev);
@@ -703,32 +708,6 @@ fn create_command_buffers(
         *buffer = unsafe { dev.allocate_command_buffers(&buffer_info) }.unwrap()[0];
     }
     buffers
-}
-
-pub fn create_mesh(model: &MeshData, supports_raytracing: bool, dev: &Dev) -> MeshObject {
-    let vertex = create_vertex_buffer(&model.vertices, supports_raytracing, dev);
-    MeshObject {
-        triangle_count: model.vertices.len() / 3,
-        vertex,
-    }
-}
-
-pub fn create_entity(
-    descriptor_pools: &DescriptorPools,
-    light: &UniformBuffer<Light>,
-    frag_settings: &UniformBuffer<FragSettings>,
-    tlas: &Option<RaytraceResources>,
-    dev: &Dev,
-) -> Object {
-    let mvp = UniformBuffer::create(dev);
-    let material = UniformBuffer::create(dev);
-    let descriptor_sets =
-        descriptor_pools.alloc_object(&mvp, &material, light, frag_settings, tlas, dev);
-    Object {
-        mvp,
-        material,
-        descriptor_sets,
-    }
 }
 
 fn create_vertex_buffer(vertex_data: &[Vertex], supports_raytracing: bool, dev: &Dev) -> Buffer {
