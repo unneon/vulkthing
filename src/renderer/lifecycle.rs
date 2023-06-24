@@ -9,7 +9,7 @@ use crate::renderer::device::{select_device, DeviceInfo};
 use crate::renderer::graph::{create_pass, AttachmentConfig, Pass, PassConfig};
 use crate::renderer::raytracing::{create_blas, create_tlas, RaytraceResources};
 use crate::renderer::swapchain::{create_swapchain, Swapchain};
-use crate::renderer::uniform::{Atmosphere, Camera, FragSettings, Gaussian, Light, Postprocessing};
+use crate::renderer::uniform::{FragSettings, Light};
 use crate::renderer::util::{vulkan_str, Buffer, Ctx, Dev};
 use crate::renderer::vertex::{GrassBlade, Vertex};
 use crate::renderer::{
@@ -91,25 +91,30 @@ impl Renderer {
         let descriptor_set_layouts = create_descriptor_set_layouts(&samplers, &dev);
         let descriptor_pools = create_descriptor_pools(&descriptor_set_layouts, &dev);
 
-        let (
-            swapchain,
-            render,
-            atmosphere_descriptor_sets,
-            gaussian,
-            gaussian_descriptor_sets,
-            postprocess,
-            postprocess_descriptor_sets,
-        ) = create_swapchain_all(
+        let swapchain = create_swapchain(
+            surface,
             window.window.inner_size(),
+            &dev,
             &extensions.surface,
             &swapchain_ext,
-            surface,
-            msaa_samples,
+        );
+        let render = create_render_pass(msaa_samples, swapchain.extent, &dev);
+        let gaussian = create_gaussian_pass(swapchain.extent, &dev);
+        let postprocess =
+            create_postprocess_pass(swapchain.format.format, &swapchain, swapchain.extent, &dev);
+        let atmosphere_descriptor_sets = descriptor_pools.alloc_atmosphere(
+            render.resources[0].view,
+            render.resources[1].view,
             &atmosphere_uniform,
-            &gaussian_uniform,
-            &postprocessing,
             &camera,
-            &descriptor_pools,
+            &dev,
+        );
+        let gaussian_descriptor_sets =
+            descriptor_pools.alloc_gaussian(render.resources[3].view, &gaussian_uniform, &dev);
+        let postprocess_descriptor_sets = descriptor_pools.alloc_postprocess(
+            render.resources[3].view,
+            gaussian.resources[0].view,
+            &postprocessing,
             &dev,
         );
         let pipeline_layouts = create_pipeline_layouts(&descriptor_set_layouts, &dev);
@@ -253,38 +258,23 @@ impl Renderer {
         // contain not only things like image formats, but also some sizes.
         self.cleanup_swapchain();
 
-        let (
-            swapchain,
-            render_pass,
-            atmosphere_descriptor_sets,
-            gaussian,
-            gaussian_descriptor_sets,
-            postprocess_pass,
-            postprocess_descriptor_sets,
-        ) = create_swapchain_all(
+        self.swapchain = create_swapchain(
+            self.surface,
             window_size,
+            &self.dev,
             &self.extensions.surface,
             &self.swapchain_ext,
-            self.surface,
-            self.msaa_samples,
-            &self.atmosphere_uniform,
-            &self.gaussian_uniform,
-            &self.postprocessing,
-            &self.camera,
-            &self.descriptor_pools,
+        );
+        self.render = create_render_pass(self.msaa_samples, self.swapchain.extent, &self.dev);
+        self.gaussian = create_gaussian_pass(self.swapchain.extent, &self.dev);
+        self.postprocess = create_postprocess_pass(
+            self.swapchain.format.format,
+            &self.swapchain,
+            self.swapchain.extent,
             &self.dev,
         );
 
-        // Doing the assignments at the end guarantees any operation won't fail in the middle, and
-        // makes it possible to easily compare new values to old ones.
-        self.swapchain = swapchain;
-        self.render = render_pass;
-        self.atmosphere_descriptor_sets = atmosphere_descriptor_sets;
-        self.gaussian = gaussian;
-        self.gaussian_descriptor_sets = gaussian_descriptor_sets;
-        self.postprocess = postprocess_pass;
-        self.postprocess_descriptor_sets = postprocess_descriptor_sets;
-
+        self.update_offscreen_descriptors();
         self.recreate_pipelines();
     }
 
@@ -304,6 +294,35 @@ impl Renderer {
             &self.dev,
         );
         shader_modules.cleanup(&self.dev);
+    }
+
+    fn update_offscreen_descriptors(&self) {
+        // Trying to update only some of the descriptors can cause DEVICE_LOST for some reason. It
+        // happens even if I split the initial update right after creation into two parts, so it
+        // doesn't sound like something involving state. It might be worth it to figure out what's
+        // happening before I rewrite the descriptor set codegen to use batching properly. Or maybe
+        // I'll switch to VK_EXT_descriptor_buffer completely?
+        self.descriptor_pools.update_atmosphere(
+            &self.atmosphere_descriptor_sets,
+            self.render.resources[0].view,
+            self.render.resources[1].view,
+            &self.atmosphere_uniform,
+            &self.camera,
+            &self.dev,
+        );
+        self.descriptor_pools.update_gaussian(
+            &self.gaussian_descriptor_sets,
+            self.render.resources[3].view,
+            &self.gaussian_uniform,
+            &self.dev,
+        );
+        self.descriptor_pools.update_postprocess(
+            &self.postprocess_descriptor_sets,
+            self.render.resources[3].view,
+            self.gaussian.resources[0].view,
+            &self.postprocessing,
+            &self.dev,
+        );
     }
 
     pub fn get_async_loader(&self) -> AsyncLoader {
@@ -340,30 +359,10 @@ impl Renderer {
     }
 
     fn cleanup_swapchain(&mut self) {
-        unsafe {
-            self.dev
-                .reset_descriptor_pool(
-                    self.descriptor_pools.gaussian,
-                    vk::DescriptorPoolResetFlags::empty(),
-                )
-                .unwrap();
-            self.dev
-                .reset_descriptor_pool(
-                    self.descriptor_pools.postprocess,
-                    vk::DescriptorPoolResetFlags::empty(),
-                )
-                .unwrap();
-            self.dev
-                .reset_descriptor_pool(
-                    self.descriptor_pools.atmosphere,
-                    vk::DescriptorPoolResetFlags::empty(),
-                )
-                .unwrap();
-            self.swapchain.cleanup(&self.dev);
-            self.render.cleanup(&self.dev);
-            self.gaussian.cleanup(&self.dev);
-            self.postprocess.cleanup(&self.dev);
-        }
+        self.swapchain.cleanup(&self.dev);
+        self.render.cleanup(&self.dev);
+        self.gaussian.cleanup(&self.dev);
+        self.postprocess.cleanup(&self.dev);
     }
 }
 
@@ -602,58 +601,6 @@ fn create_logical_device(
     let create_info = *create_info.enabled_extension_names(&extensions);
 
     unsafe { instance.create_device(physical_device, &create_info, None) }.unwrap()
-}
-
-fn create_swapchain_all(
-    window_size: PhysicalSize<u32>,
-    surface_ext: &Surface,
-    swapchain_ext: &SwapchainKhr,
-    surface: vk::SurfaceKHR,
-    msaa_samples: vk::SampleCountFlags,
-    atmosphere_uniform: &UniformBuffer<Atmosphere>,
-    gaussian_uniform: &UniformBuffer<Gaussian>,
-    postprocessing: &UniformBuffer<Postprocessing>,
-    camera: &UniformBuffer<Camera>,
-    descriptor_pools: &DescriptorPools,
-    dev: &Dev,
-) -> (
-    Swapchain,
-    Pass,
-    [vk::DescriptorSet; FRAMES_IN_FLIGHT],
-    Pass,
-    [vk::DescriptorSet; FRAMES_IN_FLIGHT],
-    Pass,
-    [vk::DescriptorSet; FRAMES_IN_FLIGHT],
-) {
-    let swapchain = create_swapchain(surface, window_size, dev, surface_ext, swapchain_ext);
-    let render = create_render_pass(msaa_samples, swapchain.extent, dev);
-    let atmosphere_descriptor_sets = descriptor_pools.alloc_atmosphere(
-        render.resources[0].view,
-        render.resources[1].view,
-        atmosphere_uniform,
-        camera,
-        dev,
-    );
-    let gaussian = create_gaussian_pass(swapchain.extent, dev);
-    let gaussian_descriptor_sets =
-        descriptor_pools.alloc_gaussian(render.resources[3].view, gaussian_uniform, dev);
-    let postprocess =
-        create_postprocess_pass(swapchain.format.format, &swapchain, swapchain.extent, dev);
-    let postprocess_descriptor_sets = descriptor_pools.alloc_postprocess(
-        render.resources[3].view,
-        gaussian.resources[0].view,
-        postprocessing,
-        dev,
-    );
-    (
-        swapchain,
-        render,
-        atmosphere_descriptor_sets,
-        gaussian,
-        gaussian_descriptor_sets,
-        postprocess,
-        postprocess_descriptor_sets,
-    )
 }
 
 fn create_render_pass(msaa_samples: vk::SampleCountFlags, extent: vk::Extent2D, dev: &Dev) -> Pass {

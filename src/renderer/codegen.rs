@@ -1635,40 +1635,54 @@ impl DescriptorPools {
         let descriptor_set_alloc_info = vk::DescriptorSetAllocateInfo::builder()
             .descriptor_pool(self.object)
             .set_layouts(&layouts);
-        let descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT] =
+        let descriptors: [vk::DescriptorSet; FRAMES_IN_FLIGHT] =
             unsafe { dev.allocate_descriptor_sets(&descriptor_set_alloc_info) }
                 .unwrap()
                 .try_into()
                 .unwrap();
-        for (flight_index, descriptor_set) in descriptor_sets.iter().enumerate() {
+        self.update_object(&descriptors, mvp, material, light, settings, tlas, dev);
+        descriptors
+    }
+
+    pub fn update_object(
+        &self,
+        descriptors: &[vk::DescriptorSet; FRAMES_IN_FLIGHT],
+        mvp: &UniformBuffer<ModelViewProjection>,
+        material: &UniformBuffer<Material>,
+        light: &UniformBuffer<Light>,
+        settings: &UniformBuffer<FragSettings>,
+        tlas: &Option<RaytraceResources>,
+        dev: &Dev,
+    ) {
+        for (flight_index, descriptor) in descriptors.iter().enumerate() {
             let mvp_buffer = mvp.descriptor(flight_index);
             let mvp = *vk::WriteDescriptorSet::builder()
-                .dst_set(*descriptor_set)
+                .dst_set(*descriptor)
                 .dst_binding(0)
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
                 .buffer_info(std::slice::from_ref(&mvp_buffer));
             let material_buffer = material.descriptor(flight_index);
             let material = *vk::WriteDescriptorSet::builder()
-                .dst_set(*descriptor_set)
+                .dst_set(*descriptor)
                 .dst_binding(1)
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
                 .buffer_info(std::slice::from_ref(&material_buffer));
             let light_buffer = light.descriptor(flight_index);
             let light = *vk::WriteDescriptorSet::builder()
-                .dst_set(*descriptor_set)
+                .dst_set(*descriptor)
                 .dst_binding(2)
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
                 .buffer_info(std::slice::from_ref(&light_buffer));
             let settings_buffer = settings.descriptor(flight_index);
             let settings = *vk::WriteDescriptorSet::builder()
-                .dst_set(*descriptor_set)
+                .dst_set(*descriptor)
                 .dst_binding(3)
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
                 .buffer_info(std::slice::from_ref(&settings_buffer));
             let mut tlas_acceleration_structure = *vk::WriteDescriptorSetAccelerationStructureKHR::builder()
                 .acceleration_structures(std::slice::from_ref(&tlas.as_ref().unwrap().acceleration_structure));
             let mut tlas = *vk::WriteDescriptorSet::builder()
-                .dst_set(*descriptor_set)
+                .dst_set(*descriptor)
                 .dst_binding(4)
                 .descriptor_type(vk::DescriptorType::ACCELERATION_STRUCTURE_KHR)
                 .push_next(&mut tlas_acceleration_structure);
@@ -1676,7 +1690,6 @@ impl DescriptorPools {
             let writes = [mvp, material, light, settings, tlas];
             unsafe { dev.update_descriptor_sets(&writes, &[]) };
         }
-        descriptor_sets
     }
 
     pub fn alloc_grass(
@@ -1692,40 +1705,54 @@ impl DescriptorPools {
         let descriptor_set_alloc_info = vk::DescriptorSetAllocateInfo::builder()
             .descriptor_pool(self.grass)
             .set_layouts(&layouts);
-        let descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT] =
+        let descriptors: [vk::DescriptorSet; FRAMES_IN_FLIGHT] =
             unsafe { dev.allocate_descriptor_sets(&descriptor_set_alloc_info) }
                 .unwrap()
                 .try_into()
                 .unwrap();
-        for (flight_index, descriptor_set) in descriptor_sets.iter().enumerate() {
+        self.update_grass(&descriptors, planet_mvp, grass, light, settings, tlas, dev);
+        descriptors
+    }
+
+    pub fn update_grass(
+        &self,
+        descriptors: &[vk::DescriptorSet; FRAMES_IN_FLIGHT],
+        planet_mvp: &UniformBuffer<ModelViewProjection>,
+        grass: &UniformBuffer<GrassUniform>,
+        light: &UniformBuffer<Light>,
+        settings: &UniformBuffer<FragSettings>,
+        tlas: &Option<RaytraceResources>,
+        dev: &Dev,
+    ) {
+        for (flight_index, descriptor) in descriptors.iter().enumerate() {
             let planet_mvp_buffer = planet_mvp.descriptor(flight_index);
             let planet_mvp = *vk::WriteDescriptorSet::builder()
-                .dst_set(*descriptor_set)
+                .dst_set(*descriptor)
                 .dst_binding(0)
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
                 .buffer_info(std::slice::from_ref(&planet_mvp_buffer));
             let grass_buffer = grass.descriptor(flight_index);
             let grass = *vk::WriteDescriptorSet::builder()
-                .dst_set(*descriptor_set)
+                .dst_set(*descriptor)
                 .dst_binding(1)
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
                 .buffer_info(std::slice::from_ref(&grass_buffer));
             let light_buffer = light.descriptor(flight_index);
             let light = *vk::WriteDescriptorSet::builder()
-                .dst_set(*descriptor_set)
+                .dst_set(*descriptor)
                 .dst_binding(2)
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
                 .buffer_info(std::slice::from_ref(&light_buffer));
             let settings_buffer = settings.descriptor(flight_index);
             let settings = *vk::WriteDescriptorSet::builder()
-                .dst_set(*descriptor_set)
+                .dst_set(*descriptor)
                 .dst_binding(3)
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
                 .buffer_info(std::slice::from_ref(&settings_buffer));
             let mut tlas_acceleration_structure = *vk::WriteDescriptorSetAccelerationStructureKHR::builder()
                 .acceleration_structures(std::slice::from_ref(&tlas.as_ref().unwrap().acceleration_structure));
             let mut tlas = *vk::WriteDescriptorSet::builder()
-                .dst_set(*descriptor_set)
+                .dst_set(*descriptor)
                 .dst_binding(4)
                 .descriptor_type(vk::DescriptorType::ACCELERATION_STRUCTURE_KHR)
                 .push_next(&mut tlas_acceleration_structure);
@@ -1733,7 +1760,6 @@ impl DescriptorPools {
             let writes = [planet_mvp, grass, light, settings, tlas];
             unsafe { dev.update_descriptor_sets(&writes, &[]) };
         }
-        descriptor_sets
     }
 
     pub fn alloc_skybox(
@@ -1745,22 +1771,31 @@ impl DescriptorPools {
         let descriptor_set_alloc_info = vk::DescriptorSetAllocateInfo::builder()
             .descriptor_pool(self.skybox)
             .set_layouts(&layouts);
-        let descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT] =
+        let descriptors: [vk::DescriptorSet; FRAMES_IN_FLIGHT] =
             unsafe { dev.allocate_descriptor_sets(&descriptor_set_alloc_info) }
                 .unwrap()
                 .try_into()
                 .unwrap();
-        for (flight_index, descriptor_set) in descriptor_sets.iter().enumerate() {
+        self.update_skybox(&descriptors, mvp, dev);
+        descriptors
+    }
+
+    pub fn update_skybox(
+        &self,
+        descriptors: &[vk::DescriptorSet; FRAMES_IN_FLIGHT],
+        mvp: &UniformBuffer<ModelViewProjection>,
+        dev: &Dev,
+    ) {
+        for (flight_index, descriptor) in descriptors.iter().enumerate() {
             let mvp_buffer = mvp.descriptor(flight_index);
             let mvp = *vk::WriteDescriptorSet::builder()
-                .dst_set(*descriptor_set)
+                .dst_set(*descriptor)
                 .dst_binding(0)
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
                 .buffer_info(std::slice::from_ref(&mvp_buffer));
             let writes = [mvp];
             unsafe { dev.update_descriptor_sets(&writes, &[]) };
         }
-        descriptor_sets
     }
 
     pub fn alloc_atmosphere(
@@ -1775,17 +1810,30 @@ impl DescriptorPools {
         let descriptor_set_alloc_info = vk::DescriptorSetAllocateInfo::builder()
             .descriptor_pool(self.atmosphere)
             .set_layouts(&layouts);
-        let descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT] =
+        let descriptors: [vk::DescriptorSet; FRAMES_IN_FLIGHT] =
             unsafe { dev.allocate_descriptor_sets(&descriptor_set_alloc_info) }
                 .unwrap()
                 .try_into()
                 .unwrap();
-        for (flight_index, descriptor_set) in descriptor_sets.iter().enumerate() {
+        self.update_atmosphere(&descriptors, render, position, atmosphere, camera, dev);
+        descriptors
+    }
+
+    pub fn update_atmosphere(
+        &self,
+        descriptors: &[vk::DescriptorSet; FRAMES_IN_FLIGHT],
+        render: vk::ImageView,
+        position: vk::ImageView,
+        atmosphere: &UniformBuffer<Atmosphere>,
+        camera: &UniformBuffer<Camera>,
+        dev: &Dev,
+    ) {
+        for (flight_index, descriptor) in descriptors.iter().enumerate() {
             let render_image = *vk::DescriptorImageInfo::builder()
                 .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
                 .image_view(render);
             let render = *vk::WriteDescriptorSet::builder()
-                .dst_set(*descriptor_set)
+                .dst_set(*descriptor)
                 .dst_binding(0)
                 .descriptor_type(vk::DescriptorType::INPUT_ATTACHMENT)
                 .image_info(std::slice::from_ref(&render_image));
@@ -1793,26 +1841,25 @@ impl DescriptorPools {
                 .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
                 .image_view(position);
             let position = *vk::WriteDescriptorSet::builder()
-                .dst_set(*descriptor_set)
+                .dst_set(*descriptor)
                 .dst_binding(1)
                 .descriptor_type(vk::DescriptorType::INPUT_ATTACHMENT)
                 .image_info(std::slice::from_ref(&position_image));
             let atmosphere_buffer = atmosphere.descriptor(flight_index);
             let atmosphere = *vk::WriteDescriptorSet::builder()
-                .dst_set(*descriptor_set)
+                .dst_set(*descriptor)
                 .dst_binding(2)
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
                 .buffer_info(std::slice::from_ref(&atmosphere_buffer));
             let camera_buffer = camera.descriptor(flight_index);
             let camera = *vk::WriteDescriptorSet::builder()
-                .dst_set(*descriptor_set)
+                .dst_set(*descriptor)
                 .dst_binding(3)
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
                 .buffer_info(std::slice::from_ref(&camera_buffer));
             let writes = [render, position, atmosphere, camera];
             unsafe { dev.update_descriptor_sets(&writes, &[]) };
         }
-        descriptor_sets
     }
 
     pub fn alloc_gaussian(
@@ -1825,30 +1872,40 @@ impl DescriptorPools {
         let descriptor_set_alloc_info = vk::DescriptorSetAllocateInfo::builder()
             .descriptor_pool(self.gaussian)
             .set_layouts(&layouts);
-        let descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT] =
+        let descriptors: [vk::DescriptorSet; FRAMES_IN_FLIGHT] =
             unsafe { dev.allocate_descriptor_sets(&descriptor_set_alloc_info) }
                 .unwrap()
                 .try_into()
                 .unwrap();
-        for (flight_index, descriptor_set) in descriptor_sets.iter().enumerate() {
+        self.update_gaussian(&descriptors, render, gaussian, dev);
+        descriptors
+    }
+
+    pub fn update_gaussian(
+        &self,
+        descriptors: &[vk::DescriptorSet; FRAMES_IN_FLIGHT],
+        render: vk::ImageView,
+        gaussian: &UniformBuffer<Gaussian>,
+        dev: &Dev,
+    ) {
+        for (flight_index, descriptor) in descriptors.iter().enumerate() {
             let render_image = *vk::DescriptorImageInfo::builder()
                 .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
                 .image_view(render);
             let render = *vk::WriteDescriptorSet::builder()
-                .dst_set(*descriptor_set)
+                .dst_set(*descriptor)
                 .dst_binding(0)
                 .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
                 .image_info(std::slice::from_ref(&render_image));
             let gaussian_buffer = gaussian.descriptor(flight_index);
             let gaussian = *vk::WriteDescriptorSet::builder()
-                .dst_set(*descriptor_set)
+                .dst_set(*descriptor)
                 .dst_binding(1)
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
                 .buffer_info(std::slice::from_ref(&gaussian_buffer));
             let writes = [render, gaussian];
             unsafe { dev.update_descriptor_sets(&writes, &[]) };
         }
-        descriptor_sets
     }
 
     pub fn alloc_postprocess(
@@ -1862,17 +1919,29 @@ impl DescriptorPools {
         let descriptor_set_alloc_info = vk::DescriptorSetAllocateInfo::builder()
             .descriptor_pool(self.postprocess)
             .set_layouts(&layouts);
-        let descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT] =
+        let descriptors: [vk::DescriptorSet; FRAMES_IN_FLIGHT] =
             unsafe { dev.allocate_descriptor_sets(&descriptor_set_alloc_info) }
                 .unwrap()
                 .try_into()
                 .unwrap();
-        for (flight_index, descriptor_set) in descriptor_sets.iter().enumerate() {
+        self.update_postprocess(&descriptors, render, bloom, postprocessing, dev);
+        descriptors
+    }
+
+    pub fn update_postprocess(
+        &self,
+        descriptors: &[vk::DescriptorSet; FRAMES_IN_FLIGHT],
+        render: vk::ImageView,
+        bloom: vk::ImageView,
+        postprocessing: &UniformBuffer<Postprocessing>,
+        dev: &Dev,
+    ) {
+        for (flight_index, descriptor) in descriptors.iter().enumerate() {
             let render_image = *vk::DescriptorImageInfo::builder()
                 .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
                 .image_view(render);
             let render = *vk::WriteDescriptorSet::builder()
-                .dst_set(*descriptor_set)
+                .dst_set(*descriptor)
                 .dst_binding(0)
                 .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
                 .image_info(std::slice::from_ref(&render_image));
@@ -1880,20 +1949,19 @@ impl DescriptorPools {
                 .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
                 .image_view(bloom);
             let bloom = *vk::WriteDescriptorSet::builder()
-                .dst_set(*descriptor_set)
+                .dst_set(*descriptor)
                 .dst_binding(1)
                 .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
                 .image_info(std::slice::from_ref(&bloom_image));
             let postprocessing_buffer = postprocessing.descriptor(flight_index);
             let postprocessing = *vk::WriteDescriptorSet::builder()
-                .dst_set(*descriptor_set)
+                .dst_set(*descriptor)
                 .dst_binding(2)
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
                 .buffer_info(std::slice::from_ref(&postprocessing_buffer));
             let writes = [render, bloom, postprocessing];
             unsafe { dev.update_descriptor_sets(&writes, &[]) };
         }
-        descriptor_sets
     }
 
     pub fn cleanup(&self, dev: &Dev) {
