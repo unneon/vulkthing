@@ -4,9 +4,8 @@ use crate::renderer::raytracing::RaytraceResources;
 use crate::renderer::shader::compile_glsl;
 #[rustfmt::skip]
 use crate::renderer::uniform::{Atmosphere, Camera, FragSettings, Gaussian, GrassUniform, Light, Material, ModelViewProjection, Postprocessing};
-use crate::renderer::util::{AnyUniformBuffer, Dev, UniformBuffer};
-use crate::renderer::Swapchain;
-use crate::renderer::{Pass, FRAMES_IN_FLIGHT};
+use crate::renderer::util::{AnyUniformBuffer, Dev, ImageResources, UniformBuffer};
+use crate::renderer::{Pass, Swapchain, COLOR_FORMAT, DEPTH_FORMAT, FRAMES_IN_FLIGHT};
 use ash::vk;
 use std::ffi::CStr;
 use std::mem::MaybeUninit;
@@ -79,6 +78,13 @@ pub struct ShaderModules {
 }
 
 #[repr(C)]
+pub struct Passes {
+    pub render: Pass,
+    pub gaussian: Pass,
+    pub postprocess: Pass,
+}
+
+#[repr(C)]
 pub struct Pipelines {
     pub object: vk::Pipeline,
     pub grass: vk::Pipeline,
@@ -91,6 +97,24 @@ pub struct Pipelines {
 #[repr(C)]
 struct Scratch {
     pixel_sampler: vk::SamplerCreateInfo,
+    render_rasterization_color: [vk::AttachmentReference; 2],
+    render_rasterization_depth: vk::AttachmentReference,
+    render_atmosphere_color: [vk::AttachmentReference; 1],
+    render_atmosphere_input: [vk::AttachmentReference; 2],
+    render_attachments: [vk::AttachmentDescription; 4],
+    render_subpasses: [vk::SubpassDescription; 2],
+    render_dependencies: [vk::SubpassDependency; 1],
+    render_pass: vk::RenderPassCreateInfo,
+    gaussian_gaussian_color: [vk::AttachmentReference; 1],
+    gaussian_attachments: [vk::AttachmentDescription; 1],
+    gaussian_subpasses: [vk::SubpassDescription; 1],
+    gaussian_dependencies: [vk::SubpassDependency; 0],
+    gaussian_pass: vk::RenderPassCreateInfo,
+    postprocess_postprocess_color: [vk::AttachmentReference; 1],
+    postprocess_attachments: [vk::AttachmentDescription; 1],
+    postprocess_subpasses: [vk::SubpassDescription; 1],
+    postprocess_dependencies: [vk::SubpassDependency; 0],
+    postprocess_pass: vk::RenderPassCreateInfo,
     object_bindings: [vk::DescriptorSetLayoutBinding; 5],
     object_layout: vk::DescriptorSetLayoutCreateInfo,
     object_pool_sizes: [vk::DescriptorPoolSize; 2],
@@ -221,6 +245,222 @@ static mut SCRATCH: Scratch = Scratch {
         max_lod: 0.,
         border_color: vk::BorderColor::FLOAT_TRANSPARENT_BLACK,
         unnormalized_coordinates: 1,
+    },
+    render_rasterization_color: [
+        vk::AttachmentReference {
+            attachment: 0,
+            layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+        },
+        vk::AttachmentReference {
+            attachment: 1,
+            layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+        },
+    ],
+    render_rasterization_depth: vk::AttachmentReference {
+        attachment: 2,
+        layout: vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+    },
+    render_atmosphere_color: [
+        vk::AttachmentReference {
+            attachment: 3,
+            layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+        },
+    ],
+    render_atmosphere_input: [
+        vk::AttachmentReference {
+            attachment: 0,
+            layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+        },
+        vk::AttachmentReference {
+            attachment: 1,
+            layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+        },
+    ],
+    render_attachments: [
+        vk::AttachmentDescription {
+            flags: vk::AttachmentDescriptionFlags::empty(),
+            format: COLOR_FORMAT,
+            samples: vk::SampleCountFlags::TYPE_2,
+            load_op: vk::AttachmentLoadOp::CLEAR,
+            store_op: vk::AttachmentStoreOp::STORE,
+            stencil_load_op: vk::AttachmentLoadOp::DONT_CARE,
+            stencil_store_op: vk::AttachmentStoreOp::DONT_CARE,
+            initial_layout: vk::ImageLayout::UNDEFINED,
+            final_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+        },
+        vk::AttachmentDescription {
+            flags: vk::AttachmentDescriptionFlags::empty(),
+            format: vk::Format::R32G32B32A32_SFLOAT,
+            samples: vk::SampleCountFlags::TYPE_2,
+            load_op: vk::AttachmentLoadOp::CLEAR,
+            store_op: vk::AttachmentStoreOp::STORE,
+            stencil_load_op: vk::AttachmentLoadOp::DONT_CARE,
+            stencil_store_op: vk::AttachmentStoreOp::DONT_CARE,
+            initial_layout: vk::ImageLayout::UNDEFINED,
+            final_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+        },
+        vk::AttachmentDescription {
+            flags: vk::AttachmentDescriptionFlags::empty(),
+            format: DEPTH_FORMAT,
+            samples: vk::SampleCountFlags::TYPE_2,
+            load_op: vk::AttachmentLoadOp::CLEAR,
+            store_op: vk::AttachmentStoreOp::DONT_CARE,
+            stencil_load_op: vk::AttachmentLoadOp::DONT_CARE,
+            stencil_store_op: vk::AttachmentStoreOp::DONT_CARE,
+            initial_layout: vk::ImageLayout::UNDEFINED,
+            final_layout: vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+        },
+        vk::AttachmentDescription {
+            flags: vk::AttachmentDescriptionFlags::empty(),
+            format: COLOR_FORMAT,
+            samples: vk::SampleCountFlags::TYPE_2,
+            load_op: vk::AttachmentLoadOp::DONT_CARE,
+            store_op: vk::AttachmentStoreOp::STORE,
+            stencil_load_op: vk::AttachmentLoadOp::DONT_CARE,
+            stencil_store_op: vk::AttachmentStoreOp::DONT_CARE,
+            initial_layout: vk::ImageLayout::UNDEFINED,
+            final_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+        },
+    ],
+    render_subpasses: [
+        vk::SubpassDescription {
+            flags: vk::SubpassDescriptionFlags::empty(),
+            pipeline_bind_point: vk::PipelineBindPoint::GRAPHICS,
+            input_attachment_count: 0,
+            p_input_attachments: std::ptr::null(),
+            color_attachment_count: 2,
+            p_color_attachments: unsafe { SCRATCH.render_rasterization_color.as_ptr() },
+            p_resolve_attachments: std::ptr::null(),
+            p_depth_stencil_attachment: unsafe { &SCRATCH.render_rasterization_depth },
+            preserve_attachment_count: 0,
+            p_preserve_attachments: std::ptr::null(),
+        },
+        vk::SubpassDescription {
+            flags: vk::SubpassDescriptionFlags::empty(),
+            pipeline_bind_point: vk::PipelineBindPoint::GRAPHICS,
+            input_attachment_count: 2,
+            p_input_attachments: unsafe { SCRATCH.render_atmosphere_input.as_ptr() },
+            color_attachment_count: 1,
+            p_color_attachments: unsafe { SCRATCH.render_atmosphere_color.as_ptr() },
+            p_resolve_attachments: std::ptr::null(),
+            p_depth_stencil_attachment: std::ptr::null(),
+            preserve_attachment_count: 0,
+            p_preserve_attachments: std::ptr::null(),
+        },
+    ],
+    render_dependencies: [
+        vk::SubpassDependency {
+            src_subpass: 0,
+            dst_subpass: 1,
+            src_stage_mask: vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+            dst_stage_mask: vk::PipelineStageFlags::FRAGMENT_SHADER,
+            src_access_mask: vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
+            dst_access_mask: vk::AccessFlags::INPUT_ATTACHMENT_READ,
+            dependency_flags: vk::DependencyFlags::BY_REGION,
+        },
+    ],
+    render_pass: vk::RenderPassCreateInfo {
+        s_type: vk::StructureType::RENDER_PASS_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::RenderPassCreateFlags::empty(),
+        attachment_count: 4,
+        p_attachments: unsafe { SCRATCH.render_attachments.as_ptr() },
+        subpass_count: 2,
+        p_subpasses: unsafe { SCRATCH.render_subpasses.as_ptr() },
+        dependency_count: 1,
+        p_dependencies: unsafe { SCRATCH.render_dependencies.as_ptr() },
+    },
+    gaussian_gaussian_color: [
+        vk::AttachmentReference {
+            attachment: 0,
+            layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+        },
+    ],
+    gaussian_attachments: [
+        vk::AttachmentDescription {
+            flags: vk::AttachmentDescriptionFlags::empty(),
+            format: COLOR_FORMAT,
+            samples: vk::SampleCountFlags::TYPE_1,
+            load_op: vk::AttachmentLoadOp::DONT_CARE,
+            store_op: vk::AttachmentStoreOp::STORE,
+            stencil_load_op: vk::AttachmentLoadOp::DONT_CARE,
+            stencil_store_op: vk::AttachmentStoreOp::DONT_CARE,
+            initial_layout: vk::ImageLayout::UNDEFINED,
+            final_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+        },
+    ],
+    gaussian_subpasses: [
+        vk::SubpassDescription {
+            flags: vk::SubpassDescriptionFlags::empty(),
+            pipeline_bind_point: vk::PipelineBindPoint::GRAPHICS,
+            input_attachment_count: 0,
+            p_input_attachments: std::ptr::null(),
+            color_attachment_count: 1,
+            p_color_attachments: unsafe { SCRATCH.gaussian_gaussian_color.as_ptr() },
+            p_resolve_attachments: std::ptr::null(),
+            p_depth_stencil_attachment: std::ptr::null(),
+            preserve_attachment_count: 0,
+            p_preserve_attachments: std::ptr::null(),
+        },
+    ],
+    gaussian_dependencies: [
+    ],
+    gaussian_pass: vk::RenderPassCreateInfo {
+        s_type: vk::StructureType::RENDER_PASS_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::RenderPassCreateFlags::empty(),
+        attachment_count: 1,
+        p_attachments: unsafe { SCRATCH.gaussian_attachments.as_ptr() },
+        subpass_count: 1,
+        p_subpasses: unsafe { SCRATCH.gaussian_subpasses.as_ptr() },
+        dependency_count: 0,
+        p_dependencies: unsafe { SCRATCH.gaussian_dependencies.as_ptr() },
+    },
+    postprocess_postprocess_color: [
+        vk::AttachmentReference {
+            attachment: 0,
+            layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+        },
+    ],
+    postprocess_attachments: [
+        vk::AttachmentDescription {
+            flags: vk::AttachmentDescriptionFlags::empty(),
+            format: vk::Format::UNDEFINED,
+            samples: vk::SampleCountFlags::TYPE_1,
+            load_op: vk::AttachmentLoadOp::DONT_CARE,
+            store_op: vk::AttachmentStoreOp::STORE,
+            stencil_load_op: vk::AttachmentLoadOp::DONT_CARE,
+            stencil_store_op: vk::AttachmentStoreOp::DONT_CARE,
+            initial_layout: vk::ImageLayout::UNDEFINED,
+            final_layout: vk::ImageLayout::PRESENT_SRC_KHR,
+        },
+    ],
+    postprocess_subpasses: [
+        vk::SubpassDescription {
+            flags: vk::SubpassDescriptionFlags::empty(),
+            pipeline_bind_point: vk::PipelineBindPoint::GRAPHICS,
+            input_attachment_count: 0,
+            p_input_attachments: std::ptr::null(),
+            color_attachment_count: 1,
+            p_color_attachments: unsafe { SCRATCH.postprocess_postprocess_color.as_ptr() },
+            p_resolve_attachments: std::ptr::null(),
+            p_depth_stencil_attachment: std::ptr::null(),
+            preserve_attachment_count: 0,
+            p_preserve_attachments: std::ptr::null(),
+        },
+    ],
+    postprocess_dependencies: [
+    ],
+    postprocess_pass: vk::RenderPassCreateInfo {
+        s_type: vk::StructureType::RENDER_PASS_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::RenderPassCreateFlags::empty(),
+        attachment_count: 1,
+        p_attachments: unsafe { SCRATCH.postprocess_attachments.as_ptr() },
+        subpass_count: 1,
+        p_subpasses: unsafe { SCRATCH.postprocess_subpasses.as_ptr() },
+        dependency_count: 0,
+        p_dependencies: unsafe { SCRATCH.postprocess_dependencies.as_ptr() },
     },
     object_bindings: [
         vk::DescriptorSetLayoutBinding {
@@ -2002,6 +2242,14 @@ impl ShaderModules {
     }
 }
 
+impl Passes {
+    pub fn cleanup(&self, dev: &Dev) {
+        self.render.cleanup(dev);
+        self.gaussian.cleanup(dev);
+        self.postprocess.cleanup(dev);
+    }
+}
+
 impl Pipelines {
     pub fn cleanup(&self, dev: &Dev) {
         unsafe { dev.destroy_pipeline(self.object, None) };
@@ -2063,6 +2311,156 @@ pub fn create_descriptor_pools(layouts: &DescriptorSetLayouts, dev: &Dev) -> Des
         gaussian_layout: layouts.gaussian,
         postprocess,
         postprocess_layout: layouts.postprocess,
+    }
+}
+
+#[allow(unused_mut)]
+#[rustfmt::skip]
+pub fn create_render_passes(
+    swapchain: &Swapchain,
+    dev: &Dev,
+) -> Passes {
+    unsafe { SCRATCH.postprocess_attachments[0].format = swapchain.format.format };
+    let render = unsafe { dev.create_render_pass(&SCRATCH.render_pass, None).unwrap_unchecked() };
+    let gaussian = unsafe { dev.create_render_pass(&SCRATCH.gaussian_pass, None).unwrap_unchecked() };
+    let postprocess = unsafe { dev.create_render_pass(&SCRATCH.postprocess_pass, None).unwrap_unchecked() };
+    let mut framebuffer_attachments = Vec::new();
+    let mut framebuffers = Vec::new();
+    let mut resources = Vec::new();
+    let resource = ImageResources::create(
+        COLOR_FORMAT,
+        vk::MemoryPropertyFlags::DEVICE_LOCAL,
+        vk::ImageTiling::OPTIMAL,
+        vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::INPUT_ATTACHMENT | vk::ImageUsageFlags::TRANSIENT_ATTACHMENT,
+        vk::ImageAspectFlags::COLOR,
+        swapchain.extent,
+        vk::SampleCountFlags::TYPE_2,
+        dev,
+    );
+    framebuffer_attachments.push(resource.view);
+    resources.push(resource);
+    let resource = ImageResources::create(
+        vk::Format::R32G32B32A32_SFLOAT,
+        vk::MemoryPropertyFlags::DEVICE_LOCAL,
+        vk::ImageTiling::OPTIMAL,
+        vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::INPUT_ATTACHMENT | vk::ImageUsageFlags::TRANSIENT_ATTACHMENT,
+        vk::ImageAspectFlags::COLOR,
+        swapchain.extent,
+        vk::SampleCountFlags::TYPE_2,
+        dev,
+    );
+    framebuffer_attachments.push(resource.view);
+    resources.push(resource);
+    let resource = ImageResources::create(
+        DEPTH_FORMAT,
+        vk::MemoryPropertyFlags::DEVICE_LOCAL,
+        vk::ImageTiling::OPTIMAL,
+        vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT | vk::ImageUsageFlags::TRANSIENT_ATTACHMENT,
+        vk::ImageAspectFlags::DEPTH,
+        swapchain.extent,
+        vk::SampleCountFlags::TYPE_2,
+        dev,
+    );
+    framebuffer_attachments.push(resource.view);
+    resources.push(resource);
+    let resource = ImageResources::create(
+        COLOR_FORMAT,
+        vk::MemoryPropertyFlags::DEVICE_LOCAL,
+        vk::ImageTiling::OPTIMAL,
+        vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::SAMPLED,
+        vk::ImageAspectFlags::COLOR,
+        swapchain.extent,
+        vk::SampleCountFlags::TYPE_2,
+        dev,
+    );
+    framebuffer_attachments.push(resource.view);
+    resources.push(resource);
+    let info = *vk::FramebufferCreateInfo::builder()
+        .render_pass(render)
+        .attachments(&framebuffer_attachments)
+        .width(swapchain.extent.width)
+        .height(swapchain.extent.height)
+        .layers(1);
+    let framebuffer = unsafe { dev.create_framebuffer(&info, None) }.unwrap();
+    framebuffers.push(framebuffer);
+    let render = Pass {
+        debug_name: "Forward rendering pass",
+        debug_color: [160, 167, 161],
+        pass: render,
+        extent: swapchain.extent,
+        clears: vec![
+            vk::ClearValue { color: vk::ClearColorValue { float32: [0.0, 0.0, 0.0, 0.0] } },
+            vk::ClearValue { color: vk::ClearColorValue { float32: [0.0, 0.0, 0.0, 0.0] } },
+            vk::ClearValue { depth_stencil: vk::ClearDepthStencilValue { depth: 1.0, stencil: 0 } },
+        ],
+        resources,
+        framebuffers,
+        direct_to_swapchain: false,
+    };
+    let mut framebuffer_attachments = Vec::new();
+    let mut framebuffers = Vec::new();
+    let mut resources = Vec::new();
+    let resource = ImageResources::create(
+        COLOR_FORMAT,
+        vk::MemoryPropertyFlags::DEVICE_LOCAL,
+        vk::ImageTiling::OPTIMAL,
+        vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::SAMPLED,
+        vk::ImageAspectFlags::COLOR,
+        swapchain.extent,
+        vk::SampleCountFlags::TYPE_1,
+        dev,
+    );
+    framebuffer_attachments.push(resource.view);
+    resources.push(resource);
+    let info = *vk::FramebufferCreateInfo::builder()
+        .render_pass(gaussian)
+        .attachments(&framebuffer_attachments)
+        .width(swapchain.extent.width)
+        .height(swapchain.extent.height)
+        .layers(1);
+    let framebuffer = unsafe { dev.create_framebuffer(&info, None) }.unwrap();
+    framebuffers.push(framebuffer);
+    let gaussian = Pass {
+        debug_name: "Gaussian pass",
+        debug_color: [244, 244, 247],
+        pass: gaussian,
+        extent: swapchain.extent,
+        clears: vec![
+        ],
+        resources,
+        framebuffers,
+        direct_to_swapchain: false,
+    };
+    let mut framebuffer_attachments = Vec::new();
+    let mut framebuffers = Vec::new();
+    let mut resources = Vec::new();
+    framebuffer_attachments.push(vk::ImageView::null());
+    let info = *vk::FramebufferCreateInfo::builder()
+        .render_pass(postprocess)
+        .attachments(&framebuffer_attachments)
+        .width(swapchain.extent.width)
+        .height(swapchain.extent.height)
+        .layers(1);
+    for image in &swapchain.image_views {
+        unsafe { *(info.p_attachments.add(0) as *mut vk::ImageView) = *image };
+        let framebuffer = unsafe { dev.create_framebuffer(&info, None) }.unwrap();
+        framebuffers.push(framebuffer);
+    }
+    let postprocess = Pass {
+        debug_name: "Postprocess pass",
+        debug_color: [210, 206, 203],
+        pass: postprocess,
+        extent: swapchain.extent,
+        clears: vec![
+        ],
+        resources,
+        framebuffers,
+        direct_to_swapchain: true,
+    };
+    Passes {
+        render,
+        gaussian,
+        postprocess,
     }
 }
 

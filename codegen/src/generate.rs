@@ -1,8 +1,9 @@
 use crate::config::{
     DescriptorBinding, DescriptorSet, Pass, Pipeline, Renderer, Subpass, VertexAttribute,
 };
+use crate::helper::AttachmentType;
 use std::borrow::Cow;
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io::Write;
@@ -83,7 +84,19 @@ impl Display for DescriptorSet {
     }
 }
 
+impl Display for Pass {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.name.fmt(f)
+    }
+}
+
 impl Display for Pipeline {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.name.fmt(f)
+    }
+}
+
+impl Display for Subpass {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.name.fmt(f)
     }
@@ -117,9 +130,8 @@ use crate::renderer::uniform::{{"#
     writeln!(
         file,
         r#"}};
-use crate::renderer::util::{{AnyUniformBuffer, Dev, UniformBuffer}};
-use crate::renderer::Swapchain;
-use crate::renderer::{{Pass, FRAMES_IN_FLIGHT}};
+use crate::renderer::util::{{AnyUniformBuffer, Dev, ImageResources, UniformBuffer}};
+use crate::renderer::{{Pass, Swapchain, COLOR_FORMAT, DEPTH_FORMAT, FRAMES_IN_FLIGHT}};
 use ash::vk;
 use std::ffi::CStr;
 use std::mem::MaybeUninit;
@@ -197,6 +209,17 @@ pub struct ShaderModules {{"#
         r#"}}
 
 #[repr(C)]
+pub struct Passes {{"#
+    )
+    .unwrap();
+    for pass in &renderer.passes {
+        writeln!(file, "    pub {pass}: Pass,").unwrap();
+    }
+    writeln!(
+        file,
+        r#"}}
+
+#[repr(C)]
 pub struct Pipelines {{"#
     )
     .unwrap();
@@ -213,6 +236,40 @@ struct Scratch {{"#
     .unwrap();
     for sampler in &renderer.samplers {
         writeln!(file, "    {}_sampler: vk::SamplerCreateInfo,", sampler.name).unwrap();
+    }
+    for pass in &renderer.passes {
+        let attachment_count: usize = pass.subpasses.iter().map(Subpass::attachment_count).sum();
+        let subpass_count = pass.subpasses.len();
+        let dependency_count = pass.dependencies.len();
+        for subpass in &pass.subpasses {
+            let color_count = subpass.color_attachments.len();
+            let input_count = subpass.input_attachment.len();
+            if color_count != 0 {
+                writeln!(
+                    file,
+                    "    {pass}_{subpass}_color: [vk::AttachmentReference; {color_count}],"
+                )
+                .unwrap();
+            }
+            if subpass.depth_attachment.is_some() {
+                writeln!(file, "    {pass}_{subpass}_depth: vk::AttachmentReference,").unwrap();
+            }
+            if input_count != 0 {
+                writeln!(
+                    file,
+                    "    {pass}_{subpass}_input: [vk::AttachmentReference; {input_count}],"
+                )
+                .unwrap();
+            }
+        }
+        writeln!(
+            file,
+            r#"    {pass}_attachments: [vk::AttachmentDescription; {attachment_count}],
+    {pass}_subpasses: [vk::SubpassDescription; {subpass_count}],
+    {pass}_dependencies: [vk::SubpassDependency; {dependency_count}],
+    {pass}_pass: vk::RenderPassCreateInfo,"#
+        )
+        .unwrap();
     }
     let mut all_pool_sizes: Vec<Vec<(BindingType, usize)>> =
         vec![Vec::new(); renderer.descriptor_sets.len()];
@@ -326,6 +383,198 @@ static mut SCRATCH: Scratch = Scratch {{"#
         )
         .unwrap();
     }
+    for pass in &renderer.passes {
+        let mut attachment_indices = HashMap::new();
+        let mut attachment_index = 0;
+        for subpass in &pass.subpasses {
+            if !subpass.color_attachments.is_empty() {
+                writeln!(file, "    {pass}_{subpass}_color: [",).unwrap();
+                for color in &subpass.color_attachments {
+                    let attachment_layout = &color.layout;
+                    writeln!(
+                        file,
+                        r#"        vk::AttachmentReference {{
+            attachment: {attachment_index},
+            layout: vk::ImageLayout::{attachment_layout},
+        }},"#
+                    )
+                    .unwrap();
+                    attachment_indices.insert(color.name.as_str(), attachment_index);
+                    attachment_index += 1;
+                }
+                writeln!(file, "    ],",).unwrap();
+            }
+            if let Some(depth) = &subpass.depth_attachment {
+                let attachment_layout = &depth.layout;
+                writeln!(
+                    file,
+                    r#"    {pass}_{subpass}_depth: vk::AttachmentReference {{
+        attachment: {attachment_index},
+        layout: vk::ImageLayout::{attachment_layout},
+    }},"#
+                )
+                .unwrap();
+                attachment_index += 1;
+            }
+            if !subpass.input_attachment.is_empty() {
+                writeln!(file, "    {pass}_{subpass}_input: [",).unwrap();
+                for input in &subpass.input_attachment {
+                    let attachment_index = attachment_indices[input.as_str()];
+                    writeln!(
+                        file,
+                        r#"        vk::AttachmentReference {{
+            attachment: {attachment_index},
+            layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+        }},"#
+                    )
+                    .unwrap();
+                }
+                writeln!(file, "    ],",).unwrap();
+            }
+        }
+        writeln!(file, "    {pass}_attachments: [").unwrap();
+        for subpass in &pass.subpasses {
+            let attachments = subpass
+                .color_attachments
+                .iter()
+                .map(|a| (AttachmentType::Color, a))
+                .chain(
+                    subpass
+                        .depth_attachment
+                        .iter()
+                        .map(|a| (AttachmentType::Depth, a)),
+                );
+            for (attachment_type, attachment) in attachments {
+                let attachment_format = if let Some(format) = &attachment.format {
+                    format!("vk::Format::{format}")
+                } else if attachment.swapchain {
+                    "vk::Format::UNDEFINED".to_owned()
+                } else if attachment_type == AttachmentType::Color {
+                    "COLOR_FORMAT".to_owned()
+                } else {
+                    "DEPTH_FORMAT".to_owned()
+                };
+                let attachment_samples = if subpass.msaa { "TYPE_2" } else { "TYPE_1" };
+                let attachment_load = if attachment.clear.is_some() {
+                    "CLEAR"
+                } else {
+                    "DONT_CARE"
+                };
+                let attachment_store = if attachment.store {
+                    "STORE"
+                } else {
+                    "DONT_CARE"
+                };
+                let attachment_final = if let Some(layout) = &attachment.layout_final {
+                    layout
+                } else {
+                    &attachment.layout
+                };
+                writeln!(
+                    file,
+                    r#"        vk::AttachmentDescription {{
+            flags: vk::AttachmentDescriptionFlags::empty(),
+            format: {attachment_format},
+            samples: vk::SampleCountFlags::{attachment_samples},
+            load_op: vk::AttachmentLoadOp::{attachment_load},
+            store_op: vk::AttachmentStoreOp::{attachment_store},
+            stencil_load_op: vk::AttachmentLoadOp::DONT_CARE,
+            stencil_store_op: vk::AttachmentStoreOp::DONT_CARE,
+            initial_layout: vk::ImageLayout::UNDEFINED,
+            final_layout: vk::ImageLayout::{attachment_final},
+        }},"#
+                )
+                .unwrap();
+            }
+        }
+        writeln!(file, "    ],").unwrap();
+
+        writeln!(file, "    {pass}_subpasses: [").unwrap();
+        for subpass in &pass.subpasses {
+            let color_count = subpass.color_attachments.len();
+            let color_ptr = if color_count != 0 {
+                format!("unsafe {{ SCRATCH.{pass}_{subpass}_color.as_ptr() }}")
+            } else {
+                "std::ptr::null()".to_owned()
+            };
+            let depth_ptr = if subpass.depth_attachment.is_some() {
+                format!("unsafe {{ &SCRATCH.{pass}_{subpass}_depth }}")
+            } else {
+                "std::ptr::null()".to_owned()
+            };
+            let input_count = subpass.input_attachment.len();
+            let input_ptr = if input_count != 0 {
+                format!("unsafe {{ SCRATCH.{pass}_{subpass}_input.as_ptr() }}")
+            } else {
+                "std::ptr::null()".to_owned()
+            };
+            writeln!(
+                file,
+                r#"        vk::SubpassDescription {{
+            flags: vk::SubpassDescriptionFlags::empty(),
+            pipeline_bind_point: vk::PipelineBindPoint::GRAPHICS,
+            input_attachment_count: {input_count},
+            p_input_attachments: {input_ptr},
+            color_attachment_count: {color_count},
+            p_color_attachments: {color_ptr},
+            p_resolve_attachments: std::ptr::null(),
+            p_depth_stencil_attachment: {depth_ptr},
+            preserve_attachment_count: 0,
+            p_preserve_attachments: std::ptr::null(),
+        }},"#
+            )
+            .unwrap();
+        }
+        writeln!(file, "    ],").unwrap();
+
+        writeln!(file, "    {pass}_dependencies: [").unwrap();
+        for dep in &pass.dependencies {
+            let src_index = pass.subpass_index(&dep.src.subpass);
+            let dst_index = pass.subpass_index(&dep.dst.subpass);
+            let src_stage = &dep.src.stage_mask;
+            let dst_stage = &dep.dst.stage_mask;
+            let src_access = &dep.src.access_mask;
+            let dst_access = &dep.dst.access_mask;
+            let flags = if dep.by_region {
+                "vk::DependencyFlags::BY_REGION"
+            } else {
+                "vk::DependencyFlags::empty()"
+            };
+            writeln!(
+                file,
+                r#"        vk::SubpassDependency {{
+            src_subpass: {src_index},
+            dst_subpass: {dst_index},
+            src_stage_mask: vk::PipelineStageFlags::{src_stage},
+            dst_stage_mask: vk::PipelineStageFlags::{dst_stage},
+            src_access_mask: vk::AccessFlags::{src_access},
+            dst_access_mask: vk::AccessFlags::{dst_access},
+            dependency_flags: {flags},
+        }},"#
+            )
+            .unwrap();
+        }
+        writeln!(file, "    ],").unwrap();
+
+        let attachment_count: usize = pass.subpasses.iter().map(Subpass::attachment_count).sum();
+        let subpass_count = pass.subpasses.len();
+        let dependency_count = pass.dependencies.len();
+        writeln!(
+            file,
+            r#"    {pass}_pass: vk::RenderPassCreateInfo {{
+        s_type: vk::StructureType::RENDER_PASS_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::RenderPassCreateFlags::empty(),
+        attachment_count: {attachment_count},
+        p_attachments: unsafe {{ SCRATCH.{pass}_attachments.as_ptr() }},
+        subpass_count: {subpass_count},
+        p_subpasses: unsafe {{ SCRATCH.{pass}_subpasses.as_ptr() }},
+        dependency_count: {dependency_count},
+        p_dependencies: unsafe {{ SCRATCH.{pass}_dependencies.as_ptr() }},
+    }},"#
+        )
+        .unwrap();
+    }
     for (descriptor_set_index, descriptor_set) in renderer.descriptor_sets.iter().enumerate() {
         writeln!(file, "    {}_bindings: [", descriptor_set.name).unwrap();
         for (binding_index, binding) in descriptor_set.bindings.iter().enumerate() {
@@ -423,7 +672,7 @@ static mut SCRATCH: Scratch = Scratch {{"#
     }},"#
     )
     .unwrap();
-    for_pipelines(renderer, |pass, subpass_index, subpass, pipeline| {
+    for_pipelines(renderer, |_, subpass_index, subpass, pipeline| {
         let descriptor_count = pipeline.descriptor_sets.len();
         let attribute_count = pipeline
             .vertex_bindings
@@ -521,7 +770,7 @@ static mut SCRATCH: Scratch = Scratch {{"#
         }
         let vertex_binding_count = pipeline.vertex_bindings.len();
         let cull_mode = &pipeline.cull_mode;
-        let rasterization_samples = if pass.msaa { "TYPE_2" } else { "TYPE_1" };
+        let rasterization_samples = if subpass.msaa { "TYPE_2" } else { "TYPE_1" };
         writeln!(
             file,
             r#"    ],
@@ -872,6 +1121,18 @@ impl ShaderModules {{
         r#"    }}
 }}
 
+impl Passes {{
+    pub fn cleanup(&self, dev: &Dev) {{"#
+    )
+    .unwrap();
+    for pass in &renderer.passes {
+        writeln!(file, "        self.{pass}.cleanup(dev);").unwrap();
+    }
+    writeln!(
+        file,
+        r#"    }}
+}}
+
 impl Pipelines {{
     pub fn cleanup(&self, dev: &Dev) {{"#
     )
@@ -948,6 +1209,161 @@ pub fn create_descriptor_pools(layouts: &DescriptorSetLayouts, dev: &Dev) -> Des
             "        {descriptor_set}_layout: layouts.{descriptor_set},"
         )
         .unwrap();
+    }
+    writeln!(
+        file,
+        r#"    }}
+}}
+
+#[allow(unused_mut)]
+#[rustfmt::skip]
+pub fn create_render_passes(
+    swapchain: &Swapchain,
+    dev: &Dev,
+) -> Passes {{"#
+    )
+    .unwrap();
+    for pass in &renderer.passes {
+        for (_, attachment_index, _, attachment) in pass.attachments() {
+            if attachment.swapchain {
+                writeln!(file, "    unsafe {{ SCRATCH.{pass}_attachments[{attachment_index}].format = swapchain.format.format }};").unwrap();
+            }
+        }
+    }
+    for pass in &renderer.passes {
+        writeln!(file, "    let {pass} = unsafe {{ dev.create_render_pass(&SCRATCH.{pass}_pass, None).unwrap_unchecked() }};").unwrap();
+    }
+    for pass in &renderer.passes {
+        writeln!(
+            file,
+            r#"    let mut framebuffer_attachments = Vec::new();
+    let mut framebuffers = Vec::new();
+    let mut resources = Vec::new();"#
+        )
+        .unwrap();
+        for (subpass, _, attachment_type, attachment) in pass.attachments() {
+            if !attachment.swapchain {
+                let format = if let Some(format) = &attachment.format {
+                    format!("vk::Format::{format}")
+                } else if attachment_type == AttachmentType::Color {
+                    "COLOR_FORMAT".to_owned()
+                } else {
+                    "DEPTH_FORMAT".to_owned()
+                };
+                let mut flags = match attachment_type {
+                    AttachmentType::Color => "vk::ImageUsageFlags::COLOR_ATTACHMENT",
+                    AttachmentType::Depth => "vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT",
+                }
+                .to_owned();
+                if pass.used_as_input(attachment) {
+                    flags += " | vk::ImageUsageFlags::INPUT_ATTACHMENT";
+                }
+                if attachment.sampled {
+                    flags += " | vk::ImageUsageFlags::SAMPLED";
+                }
+                if attachment.transient {
+                    flags += " | vk::ImageUsageFlags::TRANSIENT_ATTACHMENT";
+                }
+                let aspect = match attachment_type {
+                    AttachmentType::Color => "COLOR",
+                    AttachmentType::Depth => "DEPTH",
+                };
+                let samples = if subpass.msaa { "TYPE_2" } else { "TYPE_1" };
+                writeln!(
+                    file,
+                    r#"    let resource = ImageResources::create(
+        {format},
+        vk::MemoryPropertyFlags::DEVICE_LOCAL,
+        vk::ImageTiling::OPTIMAL,
+        {flags},
+        vk::ImageAspectFlags::{aspect},
+        swapchain.extent,
+        vk::SampleCountFlags::{samples},
+        dev,
+    );
+    framebuffer_attachments.push(resource.view);
+    resources.push(resource);"#
+                )
+                .unwrap();
+            } else {
+                writeln!(
+                    file,
+                    "    framebuffer_attachments.push(vk::ImageView::null());"
+                )
+                .unwrap();
+            }
+        }
+        writeln!(
+            file,
+            r#"    let info = *vk::FramebufferCreateInfo::builder()
+        .render_pass({pass})
+        .attachments(&framebuffer_attachments)
+        .width(swapchain.extent.width)
+        .height(swapchain.extent.height)
+        .layers(1);"#
+        )
+        .unwrap();
+        if pass.writes_to_swapchain() {
+            let swapchain_index = pass.swapchain_attachment_index();
+            writeln!(
+                file,
+                r#"    for image in &swapchain.image_views {{
+        unsafe {{ *(info.p_attachments.add({swapchain_index}) as *mut vk::ImageView) = *image }};
+        let framebuffer = unsafe {{ dev.create_framebuffer(&info, None) }}.unwrap();
+        framebuffers.push(framebuffer);
+    }}"#
+            )
+            .unwrap();
+        } else {
+            writeln!(
+                file,
+                r#"    let framebuffer = unsafe {{ dev.create_framebuffer(&info, None) }}.unwrap();
+    framebuffers.push(framebuffer);"#
+            )
+            .unwrap();
+        }
+        let debug_name = &pass.debug_name;
+        let debug_r = pass.debug_color.red;
+        let debug_g = pass.debug_color.green;
+        let debug_b = pass.debug_color.blue;
+        let direct_to_swapchain = pass.writes_to_swapchain();
+        writeln!(
+            file,
+            r#"    let {pass} = Pass {{
+        debug_name: {debug_name:?},
+        debug_color: [{debug_r}, {debug_g}, {debug_b}],
+        pass: {pass},
+        extent: swapchain.extent,
+        clears: vec!["#
+        )
+        .unwrap();
+        for subpass in &pass.subpasses {
+            for color in &subpass.color_attachments {
+                if let Some(clear) = &color.clear {
+                    let clear: Vec<_> = clear.iter().map(|c| *c as f32).collect();
+                    writeln!(file, "            vk::ClearValue {{ color: vk::ClearColorValue {{ float32: {clear:?} }} }},").unwrap();
+                }
+            }
+            if let Some(depth) = &subpass.depth_attachment {
+                if let Some(clear) = &depth.clear {
+                    let clear = clear[0] as f32;
+                    writeln!(file, "            vk::ClearValue {{ depth_stencil: vk::ClearDepthStencilValue {{ depth: {clear:?}, stencil: 0 }} }},").unwrap();
+                }
+            }
+        }
+        writeln!(
+            file,
+            r#"        ],
+        resources,
+        framebuffers,
+        direct_to_swapchain: {direct_to_swapchain:?},
+    }};"#
+        )
+        .unwrap();
+    }
+    writeln!(file, "    Passes {{").unwrap();
+    for pass in &renderer.passes {
+        writeln!(file, "        {pass},").unwrap();
     }
     writeln!(
         file,

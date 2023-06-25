@@ -2,13 +2,12 @@ use crate::cli::Args;
 use crate::mesh::MeshData;
 use crate::renderer::codegen::{
     create_descriptor_pools, create_descriptor_set_layouts, create_pipeline_layouts,
-    create_pipelines, create_samplers, create_shader_modules, create_shaders,
+    create_pipelines, create_render_passes, create_samplers, create_shader_modules, create_shaders,
 };
 use crate::renderer::debug::{create_debug_messenger, set_label};
 use crate::renderer::device::{select_device, DeviceInfo};
-use crate::renderer::graph::{create_pass, AttachmentConfig, Pass, PassConfig};
 use crate::renderer::raytracing::{create_blas, create_tlas};
-use crate::renderer::swapchain::{create_swapchain, Swapchain};
+use crate::renderer::swapchain::create_swapchain;
 use crate::renderer::util::{vulkan_str, Buffer, Ctx, Dev};
 use crate::renderer::vertex::{GrassBlade, Vertex};
 use crate::renderer::{
@@ -31,13 +30,6 @@ use std::ffi::CString;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use winit::dpi::PhysicalSize;
-
-// Format used for passing HDR data between render passes to enable realistic differences in
-// lighting parameters and improve postprocessing effect quality, not related to monitor HDR.
-// Support for this format is required by the Vulkan specification.
-const COLOR_FORMAT: vk::Format = vk::Format::R16G16B16A16_SFLOAT;
-
-const DEPTH_FORMAT: vk::Format = vk::Format::D32_SFLOAT;
 
 pub const UNIFIED_MEMORY: vk::MemoryPropertyFlags = vk::MemoryPropertyFlags::from_raw(
     vk::MemoryPropertyFlags::DEVICE_LOCAL.as_raw()
@@ -97,22 +89,22 @@ impl Renderer {
             &extensions.surface,
             &swapchain_ext,
         );
-        let render = create_render_pass(msaa_samples, swapchain.extent, &dev);
-        let gaussian = create_gaussian_pass(swapchain.extent, &dev);
-        let postprocess =
-            create_postprocess_pass(swapchain.format.format, &swapchain, swapchain.extent, &dev);
+        let passes = create_render_passes(&swapchain, &dev);
         let atmosphere_descriptor_sets = descriptor_pools.alloc_atmosphere(
-            render.resources[0].view,
-            render.resources[1].view,
+            passes.render.resources[0].view,
+            passes.render.resources[1].view,
             &atmosphere_uniform,
             &camera,
             &dev,
         );
-        let gaussian_descriptor_sets =
-            descriptor_pools.alloc_gaussian(render.resources[3].view, &gaussian_uniform, &dev);
+        let gaussian_descriptor_sets = descriptor_pools.alloc_gaussian(
+            passes.render.resources[3].view,
+            &gaussian_uniform,
+            &dev,
+        );
         let postprocess_descriptor_sets = descriptor_pools.alloc_postprocess(
-            render.resources[3].view,
-            gaussian.resources[0].view,
+            passes.render.resources[3].view,
+            passes.gaussian.resources[0].view,
             &postprocessing,
             &dev,
         );
@@ -120,9 +112,9 @@ impl Renderer {
         let shaders = create_shaders(supports_raytracing);
         let shader_modules = create_shader_modules(&shaders, &dev);
         let pipelines = create_pipelines(
-            &render,
-            &gaussian,
-            &postprocess,
+            &passes.render,
+            &passes.gaussian,
+            &passes.postprocess,
             msaa_samples,
             &swapchain,
             &shader_modules,
@@ -203,10 +195,8 @@ impl Renderer {
             descriptor_set_layouts,
             descriptor_pools,
             pipeline_layouts,
-            render,
-            gaussian,
+            passes,
             atmosphere_descriptor_sets,
-            postprocess,
             swapchain,
             pipelines,
             gaussian_descriptor_sets,
@@ -240,7 +230,7 @@ impl Renderer {
                 self.dev.logical.clone(),
                 self.queue,
                 self.command_pools[0],
-                self.postprocess.pass,
+                self.passes.postprocess.pass,
                 imgui,
                 Some(imgui_rs_vulkan_renderer::Options {
                     in_flight_frames: FRAMES_IN_FLIGHT,
@@ -270,14 +260,7 @@ impl Renderer {
             &self.extensions.surface,
             &self.swapchain_ext,
         );
-        self.render = create_render_pass(self.msaa_samples, self.swapchain.extent, &self.dev);
-        self.gaussian = create_gaussian_pass(self.swapchain.extent, &self.dev);
-        self.postprocess = create_postprocess_pass(
-            self.swapchain.format.format,
-            &self.swapchain,
-            self.swapchain.extent,
-            &self.dev,
-        );
+        self.passes = create_render_passes(&self.swapchain, &self.dev);
 
         self.update_offscreen_descriptors();
         self.recreate_pipelines();
@@ -289,9 +272,9 @@ impl Renderer {
         let shaders = create_shaders(self.supports_raytracing);
         let shader_modules = create_shader_modules(&shaders, &self.dev);
         self.pipelines = create_pipelines(
-            &self.render,
-            &self.gaussian,
-            &self.postprocess,
+            &self.passes.render,
+            &self.passes.gaussian,
+            &self.passes.postprocess,
             self.msaa_samples,
             &self.swapchain,
             &shader_modules,
@@ -309,22 +292,22 @@ impl Renderer {
         // I'll switch to VK_EXT_descriptor_buffer completely?
         self.descriptor_pools.update_atmosphere(
             &self.atmosphere_descriptor_sets,
-            self.render.resources[0].view,
-            self.render.resources[1].view,
+            self.passes.render.resources[0].view,
+            self.passes.render.resources[1].view,
             &self.atmosphere_uniform,
             &self.camera,
             &self.dev,
         );
         self.descriptor_pools.update_gaussian(
             &self.gaussian_descriptor_sets,
-            self.render.resources[3].view,
+            self.passes.render.resources[3].view,
             &self.gaussian_uniform,
             &self.dev,
         );
         self.descriptor_pools.update_postprocess(
             &self.postprocess_descriptor_sets,
-            self.render.resources[3].view,
-            self.gaussian.resources[0].view,
+            self.passes.render.resources[3].view,
+            self.passes.gaussian.resources[0].view,
             &self.postprocessing,
             &self.dev,
         );
@@ -365,9 +348,7 @@ impl Renderer {
 
     fn cleanup_swapchain(&mut self) {
         self.swapchain.cleanup(&self.dev);
-        self.render.cleanup(&self.dev);
-        self.gaussian.cleanup(&self.dev);
-        self.postprocess.cleanup(&self.dev);
+        self.passes.cleanup(&self.dev);
     }
 }
 
@@ -606,84 +587,6 @@ fn create_logical_device(
     let create_info = *create_info.enabled_extension_names(&extensions);
 
     unsafe { instance.create_device(physical_device, &create_info, None) }.unwrap()
-}
-
-fn create_render_pass(msaa_samples: vk::SampleCountFlags, extent: vk::Extent2D, dev: &Dev) -> Pass {
-    create_pass(PassConfig {
-        debug_name: "Forward rendering pass",
-        debug_color: [160, 167, 161],
-        attachments: &[
-            AttachmentConfig::new(COLOR_FORMAT)
-                .samples(msaa_samples)
-                .clear_color([0., 0., 0., 0.])
-                .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
-                .final_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-                .input_to(1)
-                .transient(),
-            AttachmentConfig::new(vk::Format::R32G32B32A32_SFLOAT)
-                .samples(msaa_samples)
-                .clear_color([0., 0., 0., 0.])
-                .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
-                .final_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-                .input_to(1)
-                .transient(),
-            AttachmentConfig::new(DEPTH_FORMAT)
-                .samples(msaa_samples)
-                .clear_depth(1.)
-                .layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
-                .transient(),
-            AttachmentConfig::new(COLOR_FORMAT)
-                .samples(msaa_samples)
-                .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
-                .store(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-                .usage(vk::ImageUsageFlags::SAMPLED)
-                .subpass(1),
-        ],
-        dependencies: &[vk::SubpassDependency {
-            src_subpass: 0,
-            dst_subpass: 1,
-            src_stage_mask: vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
-            dst_stage_mask: vk::PipelineStageFlags::FRAGMENT_SHADER,
-            src_access_mask: vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
-            dst_access_mask: vk::AccessFlags::INPUT_ATTACHMENT_READ,
-            dependency_flags: vk::DependencyFlags::BY_REGION,
-        }],
-        extent,
-        dev,
-    })
-}
-
-fn create_gaussian_pass(extent: vk::Extent2D, dev: &Dev) -> Pass {
-    create_pass(PassConfig {
-        debug_name: "Gaussian pass",
-        debug_color: [244, 244, 247],
-        attachments: &[AttachmentConfig::new(COLOR_FORMAT)
-            .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
-            .store(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-            .usage(vk::ImageUsageFlags::SAMPLED)],
-        dependencies: &[],
-        extent,
-        dev,
-    })
-}
-
-fn create_postprocess_pass(
-    format: vk::Format,
-    swapchain: &Swapchain,
-    extent: vk::Extent2D,
-    dev: &Dev,
-) -> Pass {
-    create_pass(PassConfig {
-        debug_name: "Postprocess pass",
-        debug_color: [210, 206, 203],
-        attachments: &[AttachmentConfig::new(format)
-            .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
-            .store(vk::ImageLayout::PRESENT_SRC_KHR)
-            .swapchain(&swapchain.image_views)],
-        dependencies: &[],
-        extent,
-        dev,
-    })
 }
 
 fn create_command_pools(queue_family: u32, dev: &Dev) -> [vk::CommandPool; FRAMES_IN_FLIGHT] {

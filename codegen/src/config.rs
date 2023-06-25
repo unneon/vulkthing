@@ -98,8 +98,6 @@ pub struct Pass {
     pub debug_name: String,
     #[knuffel(child)]
     pub debug_color: SdrColor,
-    #[knuffel(child)]
-    pub msaa: bool,
     #[knuffel(children(name = "subpass"))]
     pub subpasses: Vec<Subpass>,
     #[knuffel(children(name = "dependency"))]
@@ -120,6 +118,8 @@ pub struct SdrColor {
 pub struct Subpass {
     #[knuffel(argument)]
     pub name: String,
+    #[knuffel(child)]
+    pub msaa: bool,
     #[knuffel(children(name = "input-attachment"), unwrap(argument))]
     pub input_attachment: Vec<String>,
     #[knuffel(children(name = "color-attachment"))]
@@ -134,6 +134,8 @@ pub struct Subpass {
 pub struct Attachment {
     #[knuffel(argument)]
     pub name: String,
+    #[knuffel(child, unwrap(argument))]
+    pub format: Option<String>,
     #[knuffel(child, unwrap(argument))]
     pub layout: String,
     #[knuffel(child, unwrap(argument))]

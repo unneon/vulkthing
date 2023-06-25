@@ -12,7 +12,7 @@ pub mod vertex;
 
 use crate::grass::Grass;
 use crate::renderer::codegen::{
-    DescriptorPools, DescriptorSetLayouts, PipelineLayouts, Pipelines, Samplers,
+    DescriptorPools, DescriptorSetLayouts, Passes, PipelineLayouts, Pipelines, Samplers,
 };
 use crate::renderer::debug::{begin_label, end_label};
 use crate::renderer::graph::Pass;
@@ -59,9 +59,7 @@ pub struct Renderer {
     descriptor_set_layouts: DescriptorSetLayouts,
     descriptor_pools: DescriptorPools,
     pipeline_layouts: PipelineLayouts,
-    render: Pass,
-    gaussian: Pass,
-    postprocess: Pass,
+    passes: Passes,
 
     // All resources that depend on swapchain extent (window size). So swapchain description, memory
     // used for all framebuffer attachments, framebuffers, and the mentioned postprocess descriptor
@@ -141,6 +139,13 @@ pub struct RendererSettings {
 }
 
 const FRAMES_IN_FLIGHT: usize = 2;
+
+// Format used for passing HDR data between render passes to enable realistic differences in
+// lighting parameters and improve postprocessing effect quality, not related to monitor HDR.
+// Support for this format is required by the Vulkan specification.
+const COLOR_FORMAT: vk::Format = vk::Format::R16G16B16A16_SFLOAT;
+
+const DEPTH_FORMAT: vk::Format = vk::Format::D32_SFLOAT;
 
 impl Renderer {
     pub fn draw_frame(
@@ -225,7 +230,9 @@ impl Renderer {
     }
 
     unsafe fn record_render_pass(&self, buf: vk::CommandBuffer, world: &World) {
-        self.render.begin(buf, &self.dev, &self.extensions.debug);
+        self.passes
+            .render
+            .begin(buf, &self.dev, &self.extensions.debug);
 
         begin_label(buf, "Entity draws", [57, 65, 62], &self.extensions.debug);
         self.bind_pipeline(buf, self.pipelines.object);
@@ -301,7 +308,9 @@ impl Renderer {
     }
 
     unsafe fn record_gaussian_pass(&mut self, buf: vk::CommandBuffer) {
-        self.gaussian.begin(buf, &self.dev, &self.extensions.debug);
+        self.passes
+            .gaussian
+            .begin(buf, &self.dev, &self.extensions.debug);
 
         self.bind_pipeline(buf, self.pipelines.gaussian);
         self.bind_descriptor_sets(
@@ -321,8 +330,12 @@ impl Renderer {
         image_index: usize,
         ui_draw: &DrawData,
     ) {
-        self.postprocess
-            .begin_to_swapchain(buf, image_index, &self.dev, &self.extensions.debug);
+        self.passes.postprocess.begin_to_swapchain(
+            buf,
+            image_index,
+            &self.dev,
+            &self.extensions.debug,
+        );
 
         begin_label(
             buf,

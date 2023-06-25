@@ -2,6 +2,7 @@
 
 mod config;
 mod generate;
+mod helper;
 
 use crate::config::Renderer;
 use crate::generate::generate_code;

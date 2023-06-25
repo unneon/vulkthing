@@ -46,8 +46,8 @@ descriptor-set "postprocess" 1 {
 pass "render" {
     debug-name "Forward rendering pass"
     debug-color 160 167 161
-    msaa
     subpass "rasterization" {
+        msaa
         color-attachment "color-1-rasterization" {
             layout "COLOR_ATTACHMENT_OPTIMAL"
             layout-final "SHADER_READ_ONLY_OPTIMAL"
@@ -55,6 +55,7 @@ pass "render" {
             transient; store; input-attachment
         }
         color-attachment "position" {
+            format "R32G32B32A32_SFLOAT"
             layout "COLOR_ATTACHMENT_OPTIMAL"
             layout-final "SHADER_READ_ONLY_OPTIMAL"
             clear 0 0 0 0
@@ -98,6 +99,7 @@ pass "render" {
         }
     }
     subpass "atmosphere" {
+        msaa
         input-attachment "color-1-rasterization"
         input-attachment "position"
         color-attachment "color-2-atmosphere" {
