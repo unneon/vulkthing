@@ -1,31 +1,3 @@
-#version 450
-
-layout(constant_id = 0) const int msaa_samples = 2;
-
-layout(binding = 0, input_attachment_index = 0) uniform subpassInputMS render;
-
-layout(binding = 1, input_attachment_index = 1) uniform subpassInputMS position;
-
-layout(binding = 2) uniform Atmosphere {
-    bool enable;
-    uint scatter_point_count;
-    uint optical_depth_point_count;
-    float density_falloff;
-    vec3 planet_position;
-    float planet_radius;
-    vec3 sun_position;
-    float scale;
-    vec3 wavelengths;
-    float scattering_strength;
-    float henyey_greenstein_g;
-} atmosphere;
-
-layout(binding = 3) uniform Camera {
-    vec3 position;
-} camera;
-
-layout(location = 0) out vec4 out_color;
-
 vec2 ray_sphere(vec3 sphere_centre, float sphere_radius, vec3 ray_origin, vec3 ray_direction) {
     vec3 offset = ray_origin - sphere_centre;
     float a = 1;
@@ -127,13 +99,4 @@ vec3 compute_atmosphere(vec3 original_color, vec3 position) {
         return calculate_light(point_in_atmosphere, ray_direction, distance_through_atmosphere, original_color);
     }
     return original_color;
-}
-
-void main() {
-    vec3 color = subpassLoad(render, gl_SampleID).rgb;
-    if (atmosphere.enable) {
-        vec3 position = subpassLoad(position, gl_SampleID).xyz;
-        color = compute_atmosphere(color, position);
-    }
-    out_color = vec4(color, 1);
 }

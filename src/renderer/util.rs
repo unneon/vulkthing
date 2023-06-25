@@ -28,7 +28,7 @@ pub struct Buffer {
 }
 
 pub struct ImageResources {
-    image: vk::Image,
+    pub image: vk::Image,
     memory: vk::DeviceMemory,
     pub view: vk::ImageView,
 }

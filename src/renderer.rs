@@ -10,6 +10,7 @@ pub mod uniform;
 mod util;
 pub mod vertex;
 
+use crate::config;
 use crate::grass::Grass;
 use crate::renderer::codegen::{
     DescriptorPools, DescriptorSetLayouts, Passes, PipelineLayouts, Pipelines, Samplers,
@@ -19,16 +20,16 @@ use crate::renderer::graph::Pass;
 use crate::renderer::raytracing::RaytraceResources;
 use crate::renderer::swapchain::Swapchain;
 use crate::renderer::uniform::{
-    Atmosphere, Camera, FragSettings, Gaussian, GrassUniform, Light, Material, ModelViewProjection,
+    Atmosphere, Camera, FragSettings, GrassUniform, Light, Material, ModelViewProjection,
     Postprocessing,
 };
-use crate::renderer::util::{Buffer, Dev, UniformBuffer};
+use crate::renderer::util::{Buffer, Dev, ImageResources, UniformBuffer};
 use crate::world::World;
 use ash::extensions::ext::DebugUtils;
 use ash::extensions::khr::{Surface, Swapchain as SwapchainKhr};
 use ash::{vk, Entry};
 use imgui::DrawData;
-use nalgebra::{Matrix4, Vector3};
+use nalgebra::{Matrix4, Vector2, Vector3};
 use std::f32::consts::FRAC_PI_4;
 use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex};
@@ -50,7 +51,8 @@ pub struct Renderer {
     pub msaa_samples: vk::SampleCountFlags,
     samplers: Samplers,
     atmosphere_uniform: UniformBuffer<Atmosphere>,
-    gaussian_uniform: UniformBuffer<Gaussian>,
+    gaussian_horizontal_uniform: UniformBuffer<uniform::Gaussian>,
+    gaussian_vertical_uniform: UniformBuffer<uniform::Gaussian>,
     postprocessing: UniformBuffer<Postprocessing>,
     camera: UniformBuffer<Camera>,
 
@@ -60,6 +62,7 @@ pub struct Renderer {
     descriptor_pools: DescriptorPools,
     pipeline_layouts: PipelineLayouts,
     passes: Passes,
+    lowres_bloom: ImageResources,
 
     // All resources that depend on swapchain extent (window size). So swapchain description, memory
     // used for all framebuffer attachments, framebuffers, and the mentioned postprocess descriptor
@@ -67,7 +70,8 @@ pub struct Renderer {
     pub swapchain: Swapchain,
     pipelines: Pipelines,
     atmosphere_descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
-    gaussian_descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
+    gaussian_horizontal_descriptors: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
+    gaussian_vertical_descriptors: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
     postprocess_descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
 
     // Vulkan objects actually used for command recording and synchronization. Also internal
@@ -155,7 +159,7 @@ impl Renderer {
         settings: &RendererSettings,
         frag_settings: &FragSettings,
         atmosphere: &Atmosphere,
-        gaussian: &Gaussian,
+        gaussian: &config::Gaussian,
         postprocessing: &Postprocessing,
         window_size: PhysicalSize<u32>,
         ui_draw: &DrawData,
@@ -172,7 +176,7 @@ impl Renderer {
         self.light.write(self.flight_index, &world.light());
         self.frag_settings.write(self.flight_index, frag_settings);
         self.atmosphere_uniform.write(self.flight_index, atmosphere);
-        self.gaussian_uniform.write(self.flight_index, gaussian);
+        self.update_gaussian_uniforms(gaussian);
         self.postprocessing.write(self.flight_index, postprocessing);
         self.update_camera_uniform(world);
         self.submit_graphics();
@@ -224,7 +228,7 @@ impl Renderer {
             .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
         self.dev.begin_command_buffer(buf, &begin_info).unwrap();
         self.record_render_pass(buf, world);
-        self.record_gaussian_pass(buf);
+        self.record_gaussian_passes(buf);
         self.record_postprocess_pass(buf, image_index, ui_draw);
         self.dev.end_command_buffer(buf).unwrap();
     }
@@ -294,10 +298,10 @@ impl Renderer {
             [84, 115, 144],
             &self.extensions.debug,
         );
-        self.bind_pipeline(buf, self.pipelines.atmosphere);
+        self.bind_pipeline(buf, self.pipelines.deferred);
         self.bind_descriptor_sets(
             buf,
-            self.pipeline_layouts.atmosphere,
+            self.pipeline_layouts.deferred,
             &self.atmosphere_descriptor_sets,
         );
         self.dev.cmd_draw(buf, 6, 1, 0, 0);
@@ -307,16 +311,31 @@ impl Renderer {
         end_label(buf, &self.extensions.debug);
     }
 
-    unsafe fn record_gaussian_pass(&mut self, buf: vk::CommandBuffer) {
+    unsafe fn record_gaussian_passes(&mut self, buf: vk::CommandBuffer) {
         self.passes
-            .gaussian
+            .gaussian_horizontal
             .begin(buf, &self.dev, &self.extensions.debug);
 
-        self.bind_pipeline(buf, self.pipelines.gaussian);
+        self.bind_pipeline(buf, self.pipelines.gaussian_horizontal);
         self.bind_descriptor_sets(
             buf,
-            self.pipeline_layouts.gaussian,
-            &self.gaussian_descriptor_sets,
+            self.pipeline_layouts.gaussian_horizontal,
+            &self.gaussian_horizontal_descriptors,
+        );
+        self.dev.cmd_draw(buf, 6, 1, 0, 0);
+
+        self.dev.cmd_end_render_pass(buf);
+        end_label(buf, &self.extensions.debug);
+
+        self.passes
+            .gaussian_vertical
+            .begin(buf, &self.dev, &self.extensions.debug);
+
+        self.bind_pipeline(buf, self.pipelines.gaussian_vertical);
+        self.bind_descriptor_sets(
+            buf,
+            self.pipeline_layouts.gaussian_vertical,
+            &self.gaussian_vertical_descriptors,
         );
         self.dev.cmd_draw(buf, 6, 1, 0, 0);
 
@@ -413,6 +432,27 @@ impl Renderer {
             proj: self.projection_matrix(settings),
         };
         self.skybox_mvp.write(self.flight_index, &mvp);
+    }
+
+    fn update_gaussian_uniforms(&self, gaussian: &config::Gaussian) {
+        self.gaussian_horizontal_uniform.write(
+            self.flight_index,
+            &uniform::Gaussian {
+                step: Vector2::new(1, 0),
+                threshold: gaussian.threshold,
+                radius: gaussian.radius as i32,
+                exponent_coefficient: gaussian.exponent_coefficient,
+            },
+        );
+        self.gaussian_vertical_uniform.write(
+            self.flight_index,
+            &uniform::Gaussian {
+                step: Vector2::new(0, 1),
+                threshold: gaussian.threshold,
+                radius: gaussian.radius as i32,
+                exponent_coefficient: gaussian.exponent_coefficient,
+            },
+        );
     }
 
     fn update_camera_uniform(&self, world: &World) {

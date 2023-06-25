@@ -1,7 +1,8 @@
+use crate::config;
 use crate::config::DEFAULT_PLANET_SCALE;
 use crate::grass::Grass;
 use crate::planet::Planet;
-use crate::renderer::uniform::{Atmosphere, FragSettings, Gaussian, Postprocessing};
+use crate::renderer::uniform::{Atmosphere, FragSettings, Postprocessing};
 use crate::renderer::{Renderer, RendererSettings};
 use crate::world::World;
 use ash::vk;
@@ -40,7 +41,7 @@ impl Interface {
         renderer_settings: &mut RendererSettings,
         frag_settings: &mut FragSettings,
         atmosphere: &mut Atmosphere,
-        gaussian: &mut Gaussian,
+        gaussian: &mut config::Gaussian,
         postprocessing: &mut Postprocessing,
         renderer: &Renderer,
     ) -> InterfaceEvents {
@@ -169,7 +170,7 @@ impl Interface {
                     ui.slider_config("Threshold", 0.001, 12.)
                         .flags(SliderFlags::LOGARITHMIC)
                         .build(&mut gaussian.threshold);
-                    ui.slider("Radius", 0, 20, &mut gaussian.radius);
+                    ui.slider("Radius", 0, 64, &mut gaussian.radius);
                     ui.slider_config("Exponent coefficient", 0.001, 100.)
                         .flags(SliderFlags::LOGARITHMIC)
                         .build(&mut gaussian.exponent_coefficient);

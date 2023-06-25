@@ -1,5 +1,5 @@
 use log::{debug, error};
-use shaderc::{ResolvedInclude, ShaderKind};
+use shaderc::{EnvVersion, ResolvedInclude, ShaderKind, TargetEnv};
 
 pub fn compile_glsl(
     glsl_path: &str,
@@ -8,6 +8,7 @@ pub fn compile_glsl(
 ) -> Vec<u32> {
     let compiler = shaderc::Compiler::new().unwrap();
     let mut options = shaderc::CompileOptions::new().unwrap();
+    options.set_target_env(TargetEnv::Vulkan, EnvVersion::Vulkan1_1 as u32);
     if supports_raytracing {
         options.add_macro_definition("SUPPORTS_RAYTRACING", Some(""));
     }

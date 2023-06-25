@@ -1,5 +1,5 @@
 use crate::config::{
-    DescriptorBinding, DescriptorSet, Pass, Pipeline, Renderer, Subpass, VertexAttribute,
+    DescriptorBinding, DescriptorSet, Pass, Pipeline, Renderer, Sampler, Subpass, VertexAttribute,
 };
 use crate::helper::AttachmentType;
 use std::borrow::Cow;
@@ -13,6 +13,7 @@ enum BindingType {
     AccelerationStructure,
     Image,
     InputAttachment,
+    StorageImage,
     Uniform,
 }
 
@@ -22,6 +23,7 @@ impl BindingType {
             BindingType::AccelerationStructure => "ACCELERATION_STRUCTURE_KHR",
             BindingType::Image => "COMBINED_IMAGE_SAMPLER",
             BindingType::InputAttachment => "INPUT_ATTACHMENT",
+            BindingType::StorageImage => "STORAGE_IMAGE",
             BindingType::Uniform => "UNIFORM_BUFFER",
         }
     }
@@ -33,16 +35,8 @@ impl DescriptorBinding {
             DescriptorBinding::AccelerationStructure(_) => BindingType::AccelerationStructure,
             DescriptorBinding::Image(_) => BindingType::Image,
             DescriptorBinding::InputAttachment(_) => BindingType::InputAttachment,
+            DescriptorBinding::StorageImage(_) => BindingType::StorageImage,
             DescriptorBinding::Uniform(_) => BindingType::Uniform,
-        }
-    }
-
-    fn descriptor_type_name(&self) -> &'static str {
-        match self {
-            DescriptorBinding::AccelerationStructure(_) => "ACCELERATION_STRUCTURE_KHR",
-            DescriptorBinding::Image(_) => "COMBINED_IMAGE_SAMPLER",
-            DescriptorBinding::InputAttachment(_) => "INPUT_ATTACHMENT",
-            DescriptorBinding::Uniform(_) => "UNIFORM_BUFFER",
         }
     }
 
@@ -51,6 +45,7 @@ impl DescriptorBinding {
             DescriptorBinding::AccelerationStructure(as_) => &as_.name,
             DescriptorBinding::Image(image) => &image.name,
             DescriptorBinding::InputAttachment(input) => &input.name,
+            DescriptorBinding::StorageImage(image) => &image.name,
             DescriptorBinding::Uniform(uniform) => &uniform.name,
         }
     }
@@ -60,6 +55,7 @@ impl DescriptorBinding {
             DescriptorBinding::AccelerationStructure(as_) => &as_.stage,
             DescriptorBinding::Image(image) => &image.stage,
             DescriptorBinding::InputAttachment(input) => &input.stage,
+            DescriptorBinding::StorageImage(image) => &image.stage,
             DescriptorBinding::Uniform(uniform) => &uniform.stage,
         }
     }
@@ -67,9 +63,9 @@ impl DescriptorBinding {
     fn value_type(&self) -> Cow<'static, str> {
         match self {
             DescriptorBinding::AccelerationStructure(_) => "&Option<RaytraceResources>".into(),
-            DescriptorBinding::Image(_) | DescriptorBinding::InputAttachment(_) => {
-                "vk::ImageView".into()
-            }
+            DescriptorBinding::Image(_)
+            | DescriptorBinding::InputAttachment(_)
+            | DescriptorBinding::StorageImage(_) => "vk::ImageView".into(),
             DescriptorBinding::Uniform(uniform) => {
                 let typ = &uniform.typ;
                 format!("&UniformBuffer<{typ}>").into()
@@ -91,6 +87,12 @@ impl Display for Pass {
 }
 
 impl Display for Pipeline {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.name.fmt(f)
+    }
+}
+
+impl Display for Sampler {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.name.fmt(f)
     }
@@ -130,8 +132,10 @@ use crate::renderer::uniform::{{"#
     writeln!(
         file,
         r#"}};
+use crate::renderer::debug::set_label;
 use crate::renderer::util::{{AnyUniformBuffer, Dev, ImageResources, UniformBuffer}};
 use crate::renderer::{{Pass, Swapchain, COLOR_FORMAT, DEPTH_FORMAT, FRAMES_IN_FLIGHT}};
+use ash::extensions::ext::DebugUtils;
 use ash::vk;
 use std::ffi::CStr;
 use std::mem::MaybeUninit;
@@ -350,18 +354,25 @@ static mut SCRATCH: Scratch = Scratch {{"#
     )
     .unwrap();
     for sampler in &renderer.samplers {
+        let filter = &sampler.filter;
+        let address_mode = &sampler.address_mode;
+        let unnormalized_coordinates = if sampler.unnormalized_coordinates {
+            1
+        } else {
+            0
+        };
         writeln!(
             file,
-            r"    {}_sampler: vk::SamplerCreateInfo {{
+            r"    {sampler}_sampler: vk::SamplerCreateInfo {{
         s_type: vk::StructureType::SAMPLER_CREATE_INFO,
         p_next: std::ptr::null(),
         flags: vk::SamplerCreateFlags::empty(),
-        mag_filter: vk::Filter::NEAREST,
-        min_filter: vk::Filter::NEAREST,
+        mag_filter: vk::Filter::{filter},
+        min_filter: vk::Filter::{filter},
         mipmap_mode: vk::SamplerMipmapMode::NEAREST,
-        address_mode_u: vk::SamplerAddressMode::{},
-        address_mode_v: vk::SamplerAddressMode::{},
-        address_mode_w: vk::SamplerAddressMode::REPEAT,
+        address_mode_u: vk::SamplerAddressMode::{address_mode},
+        address_mode_v: vk::SamplerAddressMode::{address_mode},
+        address_mode_w: vk::SamplerAddressMode::{address_mode},
         mip_lod_bias: 0.,
         anisotropy_enable: 0,
         max_anisotropy: 0.,
@@ -370,16 +381,8 @@ static mut SCRATCH: Scratch = Scratch {{"#
         min_lod: 0.,
         max_lod: 0.,
         border_color: vk::BorderColor::FLOAT_TRANSPARENT_BLACK,
-        unnormalized_coordinates: {},
-    }},",
-            sampler.name,
-            sampler.address_mode_u,
-            sampler.address_mode_v,
-            if sampler.unnormalized_coordinates {
-                1
-            } else {
-                0
-            }
+        unnormalized_coordinates: {unnormalized_coordinates},
+    }},"
         )
         .unwrap();
     }
@@ -578,7 +581,7 @@ static mut SCRATCH: Scratch = Scratch {{"#
     for (descriptor_set_index, descriptor_set) in renderer.descriptor_sets.iter().enumerate() {
         writeln!(file, "    {}_bindings: [", descriptor_set.name).unwrap();
         for (binding_index, binding) in descriptor_set.bindings.iter().enumerate() {
-            let typ = binding.descriptor_type_name();
+            let typ = binding.descriptor_type().name();
             let stage = binding.stage();
             writeln!(
                 file,
@@ -996,12 +999,12 @@ impl DescriptorPools {{"#
             file,
             r#"        dev: &Dev,
     ) {{
-        for (flight_index, descriptor) in descriptors.iter().enumerate() {{"#
+        for (_flight_index, descriptor) in descriptors.iter().enumerate() {{"#
         )
         .unwrap();
         for (binding_index, binding) in descriptor_set.bindings.iter().enumerate() {
             let binding_name = binding.name();
-            let binding_type = binding.descriptor_type_name();
+            let binding_type = binding.descriptor_type().name();
             let write_mutable = match binding {
                 DescriptorBinding::AccelerationStructure(_) => "mut ",
                 _ => "",
@@ -1010,19 +1013,34 @@ impl DescriptorPools {{"#
                 DescriptorBinding::AccelerationStructure(_) => writeln!(
                     file,
                     r#"            let mut {binding_name}_acceleration_structure = *vk::WriteDescriptorSetAccelerationStructureKHR::builder()
-                .acceleration_structures(std::slice::from_ref(&{binding_name}.as_ref().unwrap().acceleration_structure));"#
+                .acceleration_structures({binding_name}.as_ref().map(|as_| std::slice::from_ref(&as_.acceleration_structure)).unwrap_or_default());"#
                 )
                     .unwrap(),
-                DescriptorBinding::Image(_) | DescriptorBinding::InputAttachment(_) => writeln!(
+                DescriptorBinding::Image(image) => {
+                    let layout = &image.layout;
+                    writeln!(
+                        file,
+                        r#"            let {binding_name}_image = *vk::DescriptorImageInfo::builder()
+                .image_layout(vk::ImageLayout::{layout})
+                .image_view({binding_name});"#
+                    )
+                        .unwrap()
+                },
+                DescriptorBinding::InputAttachment(_) => writeln!(
                     file,
                     r#"            let {binding_name}_image = *vk::DescriptorImageInfo::builder()
                 .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
                 .image_view({binding_name});"#
                 )
-                .unwrap(),
+                    .unwrap(),
+                DescriptorBinding::StorageImage(_) => writeln!(file,
+                    r#"            let {binding_name}_image = *vk::DescriptorImageInfo::builder()
+                .image_layout(vk::ImageLayout::GENERAL)
+                .image_view({binding_name});"#
+                ).unwrap(),
                 DescriptorBinding::Uniform(_) => writeln!(
                     file,
-                    r#"            let {binding_name}_buffer = {binding_name}.descriptor(flight_index);"#
+                    r#"            let {binding_name}_buffer = {binding_name}.descriptor(_flight_index);"#
                 )
                 .unwrap(),
             }
@@ -1041,7 +1059,9 @@ impl DescriptorPools {{"#
             {binding_name}.descriptor_count = 1;"#
                 )
                 .unwrap(),
-                DescriptorBinding::Image(_) | DescriptorBinding::InputAttachment(_) => writeln!(
+                DescriptorBinding::Image(_)
+                | DescriptorBinding::InputAttachment(_)
+                | DescriptorBinding::StorageImage(_) => writeln!(
                     file,
                     r#"                .image_info(std::slice::from_ref(&{binding_name}_image));"#
                 )
@@ -1220,6 +1240,7 @@ pub fn create_descriptor_pools(layouts: &DescriptorSetLayouts, dev: &Dev) -> Des
 pub fn create_render_passes(
     swapchain: &Swapchain,
     dev: &Dev,
+    debug_ext: &DebugUtils,
 ) -> Passes {{"#
     )
     .unwrap();
@@ -1232,6 +1253,13 @@ pub fn create_render_passes(
     }
     for pass in &renderer.passes {
         writeln!(file, "    let {pass} = unsafe {{ dev.create_render_pass(&SCRATCH.{pass}_pass, None).unwrap_unchecked() }};").unwrap();
+    }
+    for pass in &renderer.passes {
+        writeln!(
+            file,
+            "    set_label({pass}, \"RENDER-PASS-{pass}\", debug_ext, dev);"
+        )
+        .unwrap();
     }
     for pass in &renderer.passes {
         writeln!(
@@ -1398,8 +1426,16 @@ pub fn create_shaders(supports_raytracing: bool) -> Shaders {{"#
     )
     .unwrap();
     for_pipelines(renderer, |_, _, _, pipeline| {
-        writeln!(file, r#"    let {pipeline}_vertex = compile_glsl("shaders/{pipeline}.vert", shaderc::ShaderKind::Vertex, supports_raytracing);"#).unwrap();
-        writeln!(file, r#"    let {pipeline}_fragment = compile_glsl("shaders/{pipeline}.frag", shaderc::ShaderKind::Fragment, supports_raytracing);"#).unwrap();
+        let vertex_shader = match &pipeline.vertex_shader {
+            Some(path) => path.clone(),
+            None => format!("{pipeline}.vert"),
+        };
+        let fragment_shader = match &pipeline.fragment_shader {
+            Some(path) => path.clone(),
+            None => format!("{pipeline}.frag"),
+        };
+        writeln!(file, r#"    let {pipeline}_vertex = compile_glsl("shaders/{vertex_shader}", shaderc::ShaderKind::Vertex, supports_raytracing);"#).unwrap();
+        writeln!(file, r#"    let {pipeline}_fragment = compile_glsl("shaders/{fragment_shader}", shaderc::ShaderKind::Fragment, supports_raytracing);"#).unwrap();
     });
     writeln!(file, "    Shaders {{").unwrap();
     for_pipelines(renderer, |_, _, _, pipeline| {

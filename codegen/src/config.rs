@@ -25,9 +25,9 @@ pub struct Sampler {
     #[knuffel(argument)]
     pub name: String,
     #[knuffel(child, unwrap(argument))]
-    pub address_mode_u: String,
+    pub filter: String,
     #[knuffel(child, unwrap(argument))]
-    pub address_mode_v: String,
+    pub address_mode: String,
     #[knuffel(child)]
     pub unnormalized_coordinates: bool,
 }
@@ -47,6 +47,7 @@ pub enum DescriptorBinding {
     AccelerationStructure(AccelerationStructureBinding),
     Image(ImageBinding),
     InputAttachment(InputAttachmentBinding),
+    StorageImage(StorageImageBinding),
     Uniform(UniformBinding),
 }
 
@@ -68,6 +69,8 @@ pub struct ImageBinding {
     pub sampler: String,
     #[knuffel(property, default)]
     pub msaa: bool,
+    #[knuffel(property, default = "SHADER_READ_ONLY_OPTIMAL".to_owned())]
+    pub layout: String,
 }
 
 #[derive(Debug, Decode)]
@@ -78,6 +81,14 @@ pub struct InputAttachmentBinding {
     pub stage: String,
     #[knuffel(property, default)]
     pub msaa: bool,
+}
+
+#[derive(Debug, Decode)]
+pub struct StorageImageBinding {
+    #[knuffel(argument)]
+    pub name: String,
+    #[knuffel(argument)]
+    pub stage: String,
 }
 
 #[derive(Debug, Decode)]
@@ -158,8 +169,12 @@ pub struct Attachment {
 pub struct Pipeline {
     #[knuffel(argument)]
     pub name: String,
+    #[knuffel(child, unwrap(argument))]
+    pub vertex_shader: Option<String>,
     #[knuffel(children(name = "vertex-binding"))]
     pub vertex_bindings: Vec<VertexBinding>,
+    #[knuffel(child, unwrap(argument))]
+    pub fragment_shader: Option<String>,
     #[knuffel(children(name = "specialization"))]
     pub specializations: Vec<Specialization>,
     #[knuffel(child, unwrap(arguments))]

@@ -1,5 +1,5 @@
 use crate::interface::EnumInterface;
-use nalgebra::{Matrix4, Vector3};
+use nalgebra::{Matrix4, Vector2, Vector3};
 use std::borrow::Cow;
 
 #[repr(C)]
@@ -66,6 +66,7 @@ pub struct Atmosphere {
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct Gaussian {
+    pub step: Vector2<i32>,
     pub threshold: f32,
     pub radius: i32,
     pub exponent_coefficient: f32,

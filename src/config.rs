@@ -1,10 +1,16 @@
 use crate::camera::first_person::FirstPersonCamera;
 use crate::grass::Grass;
 use crate::planet::{NoiseType, Planet};
-use crate::renderer::uniform::{Atmosphere, FragSettings, Gaussian, Postprocessing, Tonemapper};
+use crate::renderer::uniform::{Atmosphere, FragSettings, Postprocessing, Tonemapper};
 use crate::renderer::RendererSettings;
 use ash::vk;
 use nalgebra::Vector3;
+
+pub struct Gaussian {
+    pub threshold: f32,
+    pub radius: usize,
+    pub exponent_coefficient: f32,
+}
 
 pub const DEFAULT_PLANET: Planet = Planet {
     resolution: 400,
@@ -83,8 +89,8 @@ pub const DEFAULT_ATMOSPHERE: Atmosphere = Atmosphere {
 
 pub const DEFAULT_GAUSSIAN: Gaussian = Gaussian {
     threshold: 1.,
-    radius: 2,
-    exponent_coefficient: 0.7,
+    radius: 8,
+    exponent_coefficient: 1.5,
 };
 
 pub const DEFAULT_POSTPROCESSING: Postprocessing = Postprocessing {

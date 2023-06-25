@@ -4,22 +4,26 @@ use crate::renderer::raytracing::RaytraceResources;
 use crate::renderer::shader::compile_glsl;
 #[rustfmt::skip]
 use crate::renderer::uniform::{Atmosphere, Camera, FragSettings, Gaussian, GrassUniform, Light, Material, ModelViewProjection, Postprocessing};
+use crate::renderer::debug::set_label;
 use crate::renderer::util::{AnyUniformBuffer, Dev, ImageResources, UniformBuffer};
 use crate::renderer::{Pass, Swapchain, COLOR_FORMAT, DEPTH_FORMAT, FRAMES_IN_FLIGHT};
+use ash::extensions::ext::DebugUtils;
 use ash::vk;
 use std::ffi::CStr;
 use std::mem::MaybeUninit;
 
 pub struct Samplers {
-    pub pixel: vk::Sampler,
+    pub nearest: vk::Sampler,
+    pub bilinear: vk::Sampler,
 }
 
 pub struct DescriptorSetLayouts {
     pub object: vk::DescriptorSetLayout,
     pub grass: vk::DescriptorSetLayout,
     pub skybox: vk::DescriptorSetLayout,
-    pub atmosphere: vk::DescriptorSetLayout,
-    pub gaussian: vk::DescriptorSetLayout,
+    pub deferred: vk::DescriptorSetLayout,
+    pub gaussian_horizontal: vk::DescriptorSetLayout,
+    pub gaussian_vertical: vk::DescriptorSetLayout,
     pub postprocess: vk::DescriptorSetLayout,
 }
 
@@ -30,10 +34,12 @@ pub struct DescriptorPools {
     pub grass_layout: vk::DescriptorSetLayout,
     pub skybox: vk::DescriptorPool,
     pub skybox_layout: vk::DescriptorSetLayout,
-    pub atmosphere: vk::DescriptorPool,
-    pub atmosphere_layout: vk::DescriptorSetLayout,
-    pub gaussian: vk::DescriptorPool,
-    pub gaussian_layout: vk::DescriptorSetLayout,
+    pub deferred: vk::DescriptorPool,
+    pub deferred_layout: vk::DescriptorSetLayout,
+    pub gaussian_horizontal: vk::DescriptorPool,
+    pub gaussian_horizontal_layout: vk::DescriptorSetLayout,
+    pub gaussian_vertical: vk::DescriptorPool,
+    pub gaussian_vertical_layout: vk::DescriptorSetLayout,
     pub postprocess: vk::DescriptorPool,
     pub postprocess_layout: vk::DescriptorSetLayout,
 }
@@ -42,8 +48,9 @@ pub struct PipelineLayouts {
     pub object: vk::PipelineLayout,
     pub grass: vk::PipelineLayout,
     pub skybox: vk::PipelineLayout,
-    pub atmosphere: vk::PipelineLayout,
-    pub gaussian: vk::PipelineLayout,
+    pub deferred: vk::PipelineLayout,
+    pub gaussian_horizontal: vk::PipelineLayout,
+    pub gaussian_vertical: vk::PipelineLayout,
     pub postprocess: vk::PipelineLayout,
 }
 
@@ -54,10 +61,12 @@ pub struct Shaders {
     pub grass_fragment: Vec<u32>,
     pub skybox_vertex: Vec<u32>,
     pub skybox_fragment: Vec<u32>,
-    pub atmosphere_vertex: Vec<u32>,
-    pub atmosphere_fragment: Vec<u32>,
-    pub gaussian_vertex: Vec<u32>,
-    pub gaussian_fragment: Vec<u32>,
+    pub deferred_vertex: Vec<u32>,
+    pub deferred_fragment: Vec<u32>,
+    pub gaussian_horizontal_vertex: Vec<u32>,
+    pub gaussian_horizontal_fragment: Vec<u32>,
+    pub gaussian_vertical_vertex: Vec<u32>,
+    pub gaussian_vertical_fragment: Vec<u32>,
     pub postprocess_vertex: Vec<u32>,
     pub postprocess_fragment: Vec<u32>,
 }
@@ -69,10 +78,12 @@ pub struct ShaderModules {
     pub grass_fragment: vk::ShaderModule,
     pub skybox_vertex: vk::ShaderModule,
     pub skybox_fragment: vk::ShaderModule,
-    pub atmosphere_vertex: vk::ShaderModule,
-    pub atmosphere_fragment: vk::ShaderModule,
-    pub gaussian_vertex: vk::ShaderModule,
-    pub gaussian_fragment: vk::ShaderModule,
+    pub deferred_vertex: vk::ShaderModule,
+    pub deferred_fragment: vk::ShaderModule,
+    pub gaussian_horizontal_vertex: vk::ShaderModule,
+    pub gaussian_horizontal_fragment: vk::ShaderModule,
+    pub gaussian_vertical_vertex: vk::ShaderModule,
+    pub gaussian_vertical_fragment: vk::ShaderModule,
     pub postprocess_vertex: vk::ShaderModule,
     pub postprocess_fragment: vk::ShaderModule,
 }
@@ -80,7 +91,8 @@ pub struct ShaderModules {
 #[repr(C)]
 pub struct Passes {
     pub render: Pass,
-    pub gaussian: Pass,
+    pub gaussian_horizontal: Pass,
+    pub gaussian_vertical: Pass,
     pub postprocess: Pass,
 }
 
@@ -89,52 +101,62 @@ pub struct Pipelines {
     pub object: vk::Pipeline,
     pub grass: vk::Pipeline,
     pub skybox: vk::Pipeline,
-    pub atmosphere: vk::Pipeline,
-    pub gaussian: vk::Pipeline,
+    pub deferred: vk::Pipeline,
+    pub gaussian_horizontal: vk::Pipeline,
+    pub gaussian_vertical: vk::Pipeline,
     pub postprocess: vk::Pipeline,
 }
 
 #[repr(C)]
 struct Scratch {
-    pixel_sampler: vk::SamplerCreateInfo,
-    render_rasterization_color: [vk::AttachmentReference; 2],
+    nearest_sampler: vk::SamplerCreateInfo,
+    bilinear_sampler: vk::SamplerCreateInfo,
+    render_rasterization_color: [vk::AttachmentReference; 1],
     render_rasterization_depth: vk::AttachmentReference,
-    render_atmosphere_color: [vk::AttachmentReference; 1],
-    render_atmosphere_input: [vk::AttachmentReference; 2],
-    render_attachments: [vk::AttachmentDescription; 4],
+    render_deferred_input: [vk::AttachmentReference; 1],
+    render_attachments: [vk::AttachmentDescription; 2],
     render_subpasses: [vk::SubpassDescription; 2],
     render_dependencies: [vk::SubpassDependency; 1],
     render_pass: vk::RenderPassCreateInfo,
-    gaussian_gaussian_color: [vk::AttachmentReference; 1],
-    gaussian_attachments: [vk::AttachmentDescription; 1],
-    gaussian_subpasses: [vk::SubpassDescription; 1],
-    gaussian_dependencies: [vk::SubpassDependency; 0],
-    gaussian_pass: vk::RenderPassCreateInfo,
+    gaussian_horizontal_gaussian_color: [vk::AttachmentReference; 1],
+    gaussian_horizontal_attachments: [vk::AttachmentDescription; 1],
+    gaussian_horizontal_subpasses: [vk::SubpassDescription; 1],
+    gaussian_horizontal_dependencies: [vk::SubpassDependency; 0],
+    gaussian_horizontal_pass: vk::RenderPassCreateInfo,
+    gaussian_vertical_gaussian_color: [vk::AttachmentReference; 1],
+    gaussian_vertical_attachments: [vk::AttachmentDescription; 1],
+    gaussian_vertical_subpasses: [vk::SubpassDescription; 1],
+    gaussian_vertical_dependencies: [vk::SubpassDependency; 0],
+    gaussian_vertical_pass: vk::RenderPassCreateInfo,
     postprocess_postprocess_color: [vk::AttachmentReference; 1],
     postprocess_attachments: [vk::AttachmentDescription; 1],
     postprocess_subpasses: [vk::SubpassDescription; 1],
     postprocess_dependencies: [vk::SubpassDependency; 0],
     postprocess_pass: vk::RenderPassCreateInfo,
-    object_bindings: [vk::DescriptorSetLayoutBinding; 5],
+    object_bindings: [vk::DescriptorSetLayoutBinding; 7],
     object_layout: vk::DescriptorSetLayoutCreateInfo,
     object_pool_sizes: [vk::DescriptorPoolSize; 2],
     object_pool: vk::DescriptorPoolCreateInfo,
-    grass_bindings: [vk::DescriptorSetLayoutBinding; 5],
+    grass_bindings: [vk::DescriptorSetLayoutBinding; 7],
     grass_layout: vk::DescriptorSetLayoutCreateInfo,
     grass_pool_sizes: [vk::DescriptorPoolSize; 2],
     grass_pool: vk::DescriptorPoolCreateInfo,
-    skybox_bindings: [vk::DescriptorSetLayoutBinding; 1],
+    skybox_bindings: [vk::DescriptorSetLayoutBinding; 3],
     skybox_layout: vk::DescriptorSetLayoutCreateInfo,
     skybox_pool_sizes: [vk::DescriptorPoolSize; 1],
     skybox_pool: vk::DescriptorPoolCreateInfo,
-    atmosphere_bindings: [vk::DescriptorSetLayoutBinding; 4],
-    atmosphere_layout: vk::DescriptorSetLayoutCreateInfo,
-    atmosphere_pool_sizes: [vk::DescriptorPoolSize; 2],
-    atmosphere_pool: vk::DescriptorPoolCreateInfo,
-    gaussian_bindings: [vk::DescriptorSetLayoutBinding; 2],
-    gaussian_layout: vk::DescriptorSetLayoutCreateInfo,
-    gaussian_pool_sizes: [vk::DescriptorPoolSize; 2],
-    gaussian_pool: vk::DescriptorPoolCreateInfo,
+    deferred_bindings: [vk::DescriptorSetLayoutBinding; 3],
+    deferred_layout: vk::DescriptorSetLayoutCreateInfo,
+    deferred_pool_sizes: [vk::DescriptorPoolSize; 3],
+    deferred_pool: vk::DescriptorPoolCreateInfo,
+    gaussian_horizontal_bindings: [vk::DescriptorSetLayoutBinding; 2],
+    gaussian_horizontal_layout: vk::DescriptorSetLayoutCreateInfo,
+    gaussian_horizontal_pool_sizes: [vk::DescriptorPoolSize; 2],
+    gaussian_horizontal_pool: vk::DescriptorPoolCreateInfo,
+    gaussian_vertical_bindings: [vk::DescriptorSetLayoutBinding; 2],
+    gaussian_vertical_layout: vk::DescriptorSetLayoutCreateInfo,
+    gaussian_vertical_pool_sizes: [vk::DescriptorPoolSize; 2],
+    gaussian_vertical_pool: vk::DescriptorPoolCreateInfo,
     postprocess_bindings: [vk::DescriptorSetLayoutBinding; 3],
     postprocess_layout: vk::DescriptorSetLayoutCreateInfo,
     postprocess_pool_sizes: [vk::DescriptorPoolSize; 2],
@@ -153,7 +175,7 @@ struct Scratch {
     object_vertex: vk::PipelineVertexInputStateCreateInfo,
     object_rasterizer: vk::PipelineRasterizationStateCreateInfo,
     object_multisampling: vk::PipelineMultisampleStateCreateInfo,
-    object_blend_attachments: [vk::PipelineColorBlendAttachmentState; 2],
+    object_blend_attachments: [vk::PipelineColorBlendAttachmentState; 1],
     object_blend: vk::PipelineColorBlendStateCreateInfo,
     object_depth: vk::PipelineDepthStencilStateCreateInfo,
     grass_pipeline_layout: vk::PipelineLayoutCreateInfo,
@@ -165,7 +187,7 @@ struct Scratch {
     grass_vertex: vk::PipelineVertexInputStateCreateInfo,
     grass_rasterizer: vk::PipelineRasterizationStateCreateInfo,
     grass_multisampling: vk::PipelineMultisampleStateCreateInfo,
-    grass_blend_attachments: [vk::PipelineColorBlendAttachmentState; 2],
+    grass_blend_attachments: [vk::PipelineColorBlendAttachmentState; 1],
     grass_blend: vk::PipelineColorBlendStateCreateInfo,
     grass_depth: vk::PipelineDepthStencilStateCreateInfo,
     skybox_pipeline_layout: vk::PipelineLayoutCreateInfo,
@@ -177,33 +199,45 @@ struct Scratch {
     skybox_vertex: vk::PipelineVertexInputStateCreateInfo,
     skybox_rasterizer: vk::PipelineRasterizationStateCreateInfo,
     skybox_multisampling: vk::PipelineMultisampleStateCreateInfo,
-    skybox_blend_attachments: [vk::PipelineColorBlendAttachmentState; 2],
+    skybox_blend_attachments: [vk::PipelineColorBlendAttachmentState; 1],
     skybox_blend: vk::PipelineColorBlendStateCreateInfo,
     skybox_depth: vk::PipelineDepthStencilStateCreateInfo,
-    atmosphere_pipeline_layout: vk::PipelineLayoutCreateInfo,
-    atmosphere_shader_vertex: vk::ShaderModuleCreateInfo,
-    atmosphere_shader_fragment: vk::ShaderModuleCreateInfo,
-    atmosphere_shader_stages: [vk::PipelineShaderStageCreateInfo; 2],
-    atmosphere_vertex_bindings: [vk::VertexInputBindingDescription; 0],
-    atmosphere_vertex_attributes: [vk::VertexInputAttributeDescription; 0],
-    atmosphere_vertex: vk::PipelineVertexInputStateCreateInfo,
-    atmosphere_rasterizer: vk::PipelineRasterizationStateCreateInfo,
-    atmosphere_multisampling: vk::PipelineMultisampleStateCreateInfo,
-    atmosphere_blend_attachments: [vk::PipelineColorBlendAttachmentState; 1],
-    atmosphere_blend: vk::PipelineColorBlendStateCreateInfo,
-    atmosphere_depth: vk::PipelineDepthStencilStateCreateInfo,
-    gaussian_pipeline_layout: vk::PipelineLayoutCreateInfo,
-    gaussian_shader_vertex: vk::ShaderModuleCreateInfo,
-    gaussian_shader_fragment: vk::ShaderModuleCreateInfo,
-    gaussian_shader_stages: [vk::PipelineShaderStageCreateInfo; 2],
-    gaussian_vertex_bindings: [vk::VertexInputBindingDescription; 0],
-    gaussian_vertex_attributes: [vk::VertexInputAttributeDescription; 0],
-    gaussian_vertex: vk::PipelineVertexInputStateCreateInfo,
-    gaussian_rasterizer: vk::PipelineRasterizationStateCreateInfo,
-    gaussian_multisampling: vk::PipelineMultisampleStateCreateInfo,
-    gaussian_blend_attachments: [vk::PipelineColorBlendAttachmentState; 1],
-    gaussian_blend: vk::PipelineColorBlendStateCreateInfo,
-    gaussian_depth: vk::PipelineDepthStencilStateCreateInfo,
+    deferred_pipeline_layout: vk::PipelineLayoutCreateInfo,
+    deferred_shader_vertex: vk::ShaderModuleCreateInfo,
+    deferred_shader_fragment: vk::ShaderModuleCreateInfo,
+    deferred_shader_stages: [vk::PipelineShaderStageCreateInfo; 2],
+    deferred_vertex_bindings: [vk::VertexInputBindingDescription; 0],
+    deferred_vertex_attributes: [vk::VertexInputAttributeDescription; 0],
+    deferred_vertex: vk::PipelineVertexInputStateCreateInfo,
+    deferred_rasterizer: vk::PipelineRasterizationStateCreateInfo,
+    deferred_multisampling: vk::PipelineMultisampleStateCreateInfo,
+    deferred_blend_attachments: [vk::PipelineColorBlendAttachmentState; 0],
+    deferred_blend: vk::PipelineColorBlendStateCreateInfo,
+    deferred_depth: vk::PipelineDepthStencilStateCreateInfo,
+    gaussian_horizontal_pipeline_layout: vk::PipelineLayoutCreateInfo,
+    gaussian_horizontal_shader_vertex: vk::ShaderModuleCreateInfo,
+    gaussian_horizontal_shader_fragment: vk::ShaderModuleCreateInfo,
+    gaussian_horizontal_shader_stages: [vk::PipelineShaderStageCreateInfo; 2],
+    gaussian_horizontal_vertex_bindings: [vk::VertexInputBindingDescription; 0],
+    gaussian_horizontal_vertex_attributes: [vk::VertexInputAttributeDescription; 0],
+    gaussian_horizontal_vertex: vk::PipelineVertexInputStateCreateInfo,
+    gaussian_horizontal_rasterizer: vk::PipelineRasterizationStateCreateInfo,
+    gaussian_horizontal_multisampling: vk::PipelineMultisampleStateCreateInfo,
+    gaussian_horizontal_blend_attachments: [vk::PipelineColorBlendAttachmentState; 1],
+    gaussian_horizontal_blend: vk::PipelineColorBlendStateCreateInfo,
+    gaussian_horizontal_depth: vk::PipelineDepthStencilStateCreateInfo,
+    gaussian_vertical_pipeline_layout: vk::PipelineLayoutCreateInfo,
+    gaussian_vertical_shader_vertex: vk::ShaderModuleCreateInfo,
+    gaussian_vertical_shader_fragment: vk::ShaderModuleCreateInfo,
+    gaussian_vertical_shader_stages: [vk::PipelineShaderStageCreateInfo; 2],
+    gaussian_vertical_vertex_bindings: [vk::VertexInputBindingDescription; 0],
+    gaussian_vertical_vertex_attributes: [vk::VertexInputAttributeDescription; 0],
+    gaussian_vertical_vertex: vk::PipelineVertexInputStateCreateInfo,
+    gaussian_vertical_rasterizer: vk::PipelineRasterizationStateCreateInfo,
+    gaussian_vertical_multisampling: vk::PipelineMultisampleStateCreateInfo,
+    gaussian_vertical_blend_attachments: [vk::PipelineColorBlendAttachmentState; 1],
+    gaussian_vertical_blend: vk::PipelineColorBlendStateCreateInfo,
+    gaussian_vertical_depth: vk::PipelineDepthStencilStateCreateInfo,
     postprocess_pipeline_layout: vk::PipelineLayoutCreateInfo,
     postprocess_shader_vertex: vk::ShaderModuleCreateInfo,
     postprocess_shader_fragment: vk::ShaderModuleCreateInfo,
@@ -219,14 +253,15 @@ struct Scratch {
     object_pipeline: vk::GraphicsPipelineCreateInfo,
     grass_pipeline: vk::GraphicsPipelineCreateInfo,
     skybox_pipeline: vk::GraphicsPipelineCreateInfo,
-    atmosphere_pipeline: vk::GraphicsPipelineCreateInfo,
-    gaussian_pipeline: vk::GraphicsPipelineCreateInfo,
+    deferred_pipeline: vk::GraphicsPipelineCreateInfo,
+    gaussian_horizontal_pipeline: vk::GraphicsPipelineCreateInfo,
+    gaussian_vertical_pipeline: vk::GraphicsPipelineCreateInfo,
     postprocess_pipeline: vk::GraphicsPipelineCreateInfo,
 }
 
 #[rustfmt::skip]
 static mut SCRATCH: Scratch = Scratch {
-    pixel_sampler: vk::SamplerCreateInfo {
+    nearest_sampler: vk::SamplerCreateInfo {
         s_type: vk::StructureType::SAMPLER_CREATE_INFO,
         p_next: std::ptr::null(),
         flags: vk::SamplerCreateFlags::empty(),
@@ -235,7 +270,27 @@ static mut SCRATCH: Scratch = Scratch {
         mipmap_mode: vk::SamplerMipmapMode::NEAREST,
         address_mode_u: vk::SamplerAddressMode::CLAMP_TO_BORDER,
         address_mode_v: vk::SamplerAddressMode::CLAMP_TO_BORDER,
-        address_mode_w: vk::SamplerAddressMode::REPEAT,
+        address_mode_w: vk::SamplerAddressMode::CLAMP_TO_BORDER,
+        mip_lod_bias: 0.,
+        anisotropy_enable: 0,
+        max_anisotropy: 0.,
+        compare_enable: 0,
+        compare_op: vk::CompareOp::NEVER,
+        min_lod: 0.,
+        max_lod: 0.,
+        border_color: vk::BorderColor::FLOAT_TRANSPARENT_BLACK,
+        unnormalized_coordinates: 1,
+    },
+    bilinear_sampler: vk::SamplerCreateInfo {
+        s_type: vk::StructureType::SAMPLER_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::SamplerCreateFlags::empty(),
+        mag_filter: vk::Filter::LINEAR,
+        min_filter: vk::Filter::LINEAR,
+        mipmap_mode: vk::SamplerMipmapMode::NEAREST,
+        address_mode_u: vk::SamplerAddressMode::CLAMP_TO_BORDER,
+        address_mode_v: vk::SamplerAddressMode::CLAMP_TO_BORDER,
+        address_mode_w: vk::SamplerAddressMode::CLAMP_TO_BORDER,
         mip_lod_bias: 0.,
         anisotropy_enable: 0,
         max_anisotropy: 0.,
@@ -251,28 +306,14 @@ static mut SCRATCH: Scratch = Scratch {
             attachment: 0,
             layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
         },
-        vk::AttachmentReference {
-            attachment: 1,
-            layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
-        },
     ],
     render_rasterization_depth: vk::AttachmentReference {
-        attachment: 2,
+        attachment: 1,
         layout: vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
     },
-    render_atmosphere_color: [
-        vk::AttachmentReference {
-            attachment: 3,
-            layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
-        },
-    ],
-    render_atmosphere_input: [
+    render_deferred_input: [
         vk::AttachmentReference {
             attachment: 0,
-            layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-        },
-        vk::AttachmentReference {
-            attachment: 1,
             layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
         },
     ],
@@ -280,17 +321,6 @@ static mut SCRATCH: Scratch = Scratch {
         vk::AttachmentDescription {
             flags: vk::AttachmentDescriptionFlags::empty(),
             format: COLOR_FORMAT,
-            samples: vk::SampleCountFlags::TYPE_2,
-            load_op: vk::AttachmentLoadOp::CLEAR,
-            store_op: vk::AttachmentStoreOp::STORE,
-            stencil_load_op: vk::AttachmentLoadOp::DONT_CARE,
-            stencil_store_op: vk::AttachmentStoreOp::DONT_CARE,
-            initial_layout: vk::ImageLayout::UNDEFINED,
-            final_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-        },
-        vk::AttachmentDescription {
-            flags: vk::AttachmentDescriptionFlags::empty(),
-            format: vk::Format::R32G32B32A32_SFLOAT,
             samples: vk::SampleCountFlags::TYPE_2,
             load_op: vk::AttachmentLoadOp::CLEAR,
             store_op: vk::AttachmentStoreOp::STORE,
@@ -310,17 +340,6 @@ static mut SCRATCH: Scratch = Scratch {
             initial_layout: vk::ImageLayout::UNDEFINED,
             final_layout: vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
         },
-        vk::AttachmentDescription {
-            flags: vk::AttachmentDescriptionFlags::empty(),
-            format: COLOR_FORMAT,
-            samples: vk::SampleCountFlags::TYPE_2,
-            load_op: vk::AttachmentLoadOp::DONT_CARE,
-            store_op: vk::AttachmentStoreOp::STORE,
-            stencil_load_op: vk::AttachmentLoadOp::DONT_CARE,
-            stencil_store_op: vk::AttachmentStoreOp::DONT_CARE,
-            initial_layout: vk::ImageLayout::UNDEFINED,
-            final_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-        },
     ],
     render_subpasses: [
         vk::SubpassDescription {
@@ -328,7 +347,7 @@ static mut SCRATCH: Scratch = Scratch {
             pipeline_bind_point: vk::PipelineBindPoint::GRAPHICS,
             input_attachment_count: 0,
             p_input_attachments: std::ptr::null(),
-            color_attachment_count: 2,
+            color_attachment_count: 1,
             p_color_attachments: unsafe { SCRATCH.render_rasterization_color.as_ptr() },
             p_resolve_attachments: std::ptr::null(),
             p_depth_stencil_attachment: unsafe { &SCRATCH.render_rasterization_depth },
@@ -338,10 +357,10 @@ static mut SCRATCH: Scratch = Scratch {
         vk::SubpassDescription {
             flags: vk::SubpassDescriptionFlags::empty(),
             pipeline_bind_point: vk::PipelineBindPoint::GRAPHICS,
-            input_attachment_count: 2,
-            p_input_attachments: unsafe { SCRATCH.render_atmosphere_input.as_ptr() },
-            color_attachment_count: 1,
-            p_color_attachments: unsafe { SCRATCH.render_atmosphere_color.as_ptr() },
+            input_attachment_count: 1,
+            p_input_attachments: unsafe { SCRATCH.render_deferred_input.as_ptr() },
+            color_attachment_count: 0,
+            p_color_attachments: std::ptr::null(),
             p_resolve_attachments: std::ptr::null(),
             p_depth_stencil_attachment: std::ptr::null(),
             preserve_attachment_count: 0,
@@ -363,20 +382,20 @@ static mut SCRATCH: Scratch = Scratch {
         s_type: vk::StructureType::RENDER_PASS_CREATE_INFO,
         p_next: std::ptr::null(),
         flags: vk::RenderPassCreateFlags::empty(),
-        attachment_count: 4,
+        attachment_count: 2,
         p_attachments: unsafe { SCRATCH.render_attachments.as_ptr() },
         subpass_count: 2,
         p_subpasses: unsafe { SCRATCH.render_subpasses.as_ptr() },
         dependency_count: 1,
         p_dependencies: unsafe { SCRATCH.render_dependencies.as_ptr() },
     },
-    gaussian_gaussian_color: [
+    gaussian_horizontal_gaussian_color: [
         vk::AttachmentReference {
             attachment: 0,
             layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
         },
     ],
-    gaussian_attachments: [
+    gaussian_horizontal_attachments: [
         vk::AttachmentDescription {
             flags: vk::AttachmentDescriptionFlags::empty(),
             format: COLOR_FORMAT,
@@ -389,32 +408,78 @@ static mut SCRATCH: Scratch = Scratch {
             final_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
         },
     ],
-    gaussian_subpasses: [
+    gaussian_horizontal_subpasses: [
         vk::SubpassDescription {
             flags: vk::SubpassDescriptionFlags::empty(),
             pipeline_bind_point: vk::PipelineBindPoint::GRAPHICS,
             input_attachment_count: 0,
             p_input_attachments: std::ptr::null(),
             color_attachment_count: 1,
-            p_color_attachments: unsafe { SCRATCH.gaussian_gaussian_color.as_ptr() },
+            p_color_attachments: unsafe { SCRATCH.gaussian_horizontal_gaussian_color.as_ptr() },
             p_resolve_attachments: std::ptr::null(),
             p_depth_stencil_attachment: std::ptr::null(),
             preserve_attachment_count: 0,
             p_preserve_attachments: std::ptr::null(),
         },
     ],
-    gaussian_dependencies: [
+    gaussian_horizontal_dependencies: [
     ],
-    gaussian_pass: vk::RenderPassCreateInfo {
+    gaussian_horizontal_pass: vk::RenderPassCreateInfo {
         s_type: vk::StructureType::RENDER_PASS_CREATE_INFO,
         p_next: std::ptr::null(),
         flags: vk::RenderPassCreateFlags::empty(),
         attachment_count: 1,
-        p_attachments: unsafe { SCRATCH.gaussian_attachments.as_ptr() },
+        p_attachments: unsafe { SCRATCH.gaussian_horizontal_attachments.as_ptr() },
         subpass_count: 1,
-        p_subpasses: unsafe { SCRATCH.gaussian_subpasses.as_ptr() },
+        p_subpasses: unsafe { SCRATCH.gaussian_horizontal_subpasses.as_ptr() },
         dependency_count: 0,
-        p_dependencies: unsafe { SCRATCH.gaussian_dependencies.as_ptr() },
+        p_dependencies: unsafe { SCRATCH.gaussian_horizontal_dependencies.as_ptr() },
+    },
+    gaussian_vertical_gaussian_color: [
+        vk::AttachmentReference {
+            attachment: 0,
+            layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+        },
+    ],
+    gaussian_vertical_attachments: [
+        vk::AttachmentDescription {
+            flags: vk::AttachmentDescriptionFlags::empty(),
+            format: COLOR_FORMAT,
+            samples: vk::SampleCountFlags::TYPE_1,
+            load_op: vk::AttachmentLoadOp::DONT_CARE,
+            store_op: vk::AttachmentStoreOp::STORE,
+            stencil_load_op: vk::AttachmentLoadOp::DONT_CARE,
+            stencil_store_op: vk::AttachmentStoreOp::DONT_CARE,
+            initial_layout: vk::ImageLayout::UNDEFINED,
+            final_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+        },
+    ],
+    gaussian_vertical_subpasses: [
+        vk::SubpassDescription {
+            flags: vk::SubpassDescriptionFlags::empty(),
+            pipeline_bind_point: vk::PipelineBindPoint::GRAPHICS,
+            input_attachment_count: 0,
+            p_input_attachments: std::ptr::null(),
+            color_attachment_count: 1,
+            p_color_attachments: unsafe { SCRATCH.gaussian_vertical_gaussian_color.as_ptr() },
+            p_resolve_attachments: std::ptr::null(),
+            p_depth_stencil_attachment: std::ptr::null(),
+            preserve_attachment_count: 0,
+            p_preserve_attachments: std::ptr::null(),
+        },
+    ],
+    gaussian_vertical_dependencies: [
+    ],
+    gaussian_vertical_pass: vk::RenderPassCreateInfo {
+        s_type: vk::StructureType::RENDER_PASS_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::RenderPassCreateFlags::empty(),
+        attachment_count: 1,
+        p_attachments: unsafe { SCRATCH.gaussian_vertical_attachments.as_ptr() },
+        subpass_count: 1,
+        p_subpasses: unsafe { SCRATCH.gaussian_vertical_subpasses.as_ptr() },
+        dependency_count: 0,
+        p_dependencies: unsafe { SCRATCH.gaussian_vertical_dependencies.as_ptr() },
     },
     postprocess_postprocess_color: [
         vk::AttachmentReference {
@@ -493,6 +558,20 @@ static mut SCRATCH: Scratch = Scratch {
         },
         vk::DescriptorSetLayoutBinding {
             binding: 4,
+            descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
+            descriptor_count: 1,
+            stage_flags: vk::ShaderStageFlags::FRAGMENT,
+            p_immutable_samplers: std::ptr::null(),
+        },
+        vk::DescriptorSetLayoutBinding {
+            binding: 5,
+            descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
+            descriptor_count: 1,
+            stage_flags: vk::ShaderStageFlags::FRAGMENT,
+            p_immutable_samplers: std::ptr::null(),
+        },
+        vk::DescriptorSetLayoutBinding {
+            binding: 6,
             descriptor_type: vk::DescriptorType::ACCELERATION_STRUCTURE_KHR,
             descriptor_count: 1,
             stage_flags: vk::ShaderStageFlags::FRAGMENT,
@@ -503,13 +582,13 @@ static mut SCRATCH: Scratch = Scratch {
         s_type: vk::StructureType::DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
         p_next: std::ptr::null(),
         flags: vk::DescriptorSetLayoutCreateFlags::empty(),
-        binding_count: 5,
+        binding_count: 7,
         p_bindings: unsafe { SCRATCH.object_bindings.as_ptr() },
     },
     object_pool_sizes: [
         vk::DescriptorPoolSize {
             ty: vk::DescriptorType::UNIFORM_BUFFER,
-            descriptor_count: 32768,
+            descriptor_count: 49152,
         },
         vk::DescriptorPoolSize {
             ty: vk::DescriptorType::ACCELERATION_STRUCTURE_KHR,
@@ -555,6 +634,20 @@ static mut SCRATCH: Scratch = Scratch {
         },
         vk::DescriptorSetLayoutBinding {
             binding: 4,
+            descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
+            descriptor_count: 1,
+            stage_flags: vk::ShaderStageFlags::FRAGMENT,
+            p_immutable_samplers: std::ptr::null(),
+        },
+        vk::DescriptorSetLayoutBinding {
+            binding: 5,
+            descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
+            descriptor_count: 1,
+            stage_flags: vk::ShaderStageFlags::FRAGMENT,
+            p_immutable_samplers: std::ptr::null(),
+        },
+        vk::DescriptorSetLayoutBinding {
+            binding: 6,
             descriptor_type: vk::DescriptorType::ACCELERATION_STRUCTURE_KHR,
             descriptor_count: 1,
             stage_flags: vk::ShaderStageFlags::FRAGMENT,
@@ -565,13 +658,13 @@ static mut SCRATCH: Scratch = Scratch {
         s_type: vk::StructureType::DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
         p_next: std::ptr::null(),
         flags: vk::DescriptorSetLayoutCreateFlags::empty(),
-        binding_count: 5,
+        binding_count: 7,
         p_bindings: unsafe { SCRATCH.grass_bindings.as_ptr() },
     },
     grass_pool_sizes: [
         vk::DescriptorPoolSize {
             ty: vk::DescriptorType::UNIFORM_BUFFER,
-            descriptor_count: 8,
+            descriptor_count: 12,
         },
         vk::DescriptorPoolSize {
             ty: vk::DescriptorType::ACCELERATION_STRUCTURE_KHR,
@@ -594,39 +687,9 @@ static mut SCRATCH: Scratch = Scratch {
             stage_flags: vk::ShaderStageFlags::VERTEX,
             p_immutable_samplers: std::ptr::null(),
         },
-    ],
-    skybox_layout: vk::DescriptorSetLayoutCreateInfo {
-        s_type: vk::StructureType::DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-        p_next: std::ptr::null(),
-        flags: vk::DescriptorSetLayoutCreateFlags::empty(),
-        binding_count: 1,
-        p_bindings: unsafe { SCRATCH.skybox_bindings.as_ptr() },
-    },
-    skybox_pool_sizes: [
-        vk::DescriptorPoolSize {
-            ty: vk::DescriptorType::UNIFORM_BUFFER,
-            descriptor_count: 2,
-        },
-    ],
-    skybox_pool: vk::DescriptorPoolCreateInfo {
-        s_type: vk::StructureType::DESCRIPTOR_POOL_CREATE_INFO,
-        p_next: std::ptr::null(),
-        flags: vk::DescriptorPoolCreateFlags::empty(),
-        max_sets: 2,
-        pool_size_count: 1,
-        p_pool_sizes: unsafe { SCRATCH.skybox_pool_sizes.as_ptr() },
-    },
-    atmosphere_bindings: [
-        vk::DescriptorSetLayoutBinding {
-            binding: 0,
-            descriptor_type: vk::DescriptorType::INPUT_ATTACHMENT,
-            descriptor_count: 1,
-            stage_flags: vk::ShaderStageFlags::FRAGMENT,
-            p_immutable_samplers: std::ptr::null(),
-        },
         vk::DescriptorSetLayoutBinding {
             binding: 1,
-            descriptor_type: vk::DescriptorType::INPUT_ATTACHMENT,
+            descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
             descriptor_count: 1,
             stage_flags: vk::ShaderStageFlags::FRAGMENT,
             p_immutable_samplers: std::ptr::null(),
@@ -638,40 +701,81 @@ static mut SCRATCH: Scratch = Scratch {
             stage_flags: vk::ShaderStageFlags::FRAGMENT,
             p_immutable_samplers: std::ptr::null(),
         },
+    ],
+    skybox_layout: vk::DescriptorSetLayoutCreateInfo {
+        s_type: vk::StructureType::DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::DescriptorSetLayoutCreateFlags::empty(),
+        binding_count: 3,
+        p_bindings: unsafe { SCRATCH.skybox_bindings.as_ptr() },
+    },
+    skybox_pool_sizes: [
+        vk::DescriptorPoolSize {
+            ty: vk::DescriptorType::UNIFORM_BUFFER,
+            descriptor_count: 6,
+        },
+    ],
+    skybox_pool: vk::DescriptorPoolCreateInfo {
+        s_type: vk::StructureType::DESCRIPTOR_POOL_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::DescriptorPoolCreateFlags::empty(),
+        max_sets: 2,
+        pool_size_count: 1,
+        p_pool_sizes: unsafe { SCRATCH.skybox_pool_sizes.as_ptr() },
+    },
+    deferred_bindings: [
         vk::DescriptorSetLayoutBinding {
-            binding: 3,
+            binding: 0,
+            descriptor_type: vk::DescriptorType::INPUT_ATTACHMENT,
+            descriptor_count: 1,
+            stage_flags: vk::ShaderStageFlags::FRAGMENT,
+            p_immutable_samplers: std::ptr::null(),
+        },
+        vk::DescriptorSetLayoutBinding {
+            binding: 1,
+            descriptor_type: vk::DescriptorType::STORAGE_IMAGE,
+            descriptor_count: 1,
+            stage_flags: vk::ShaderStageFlags::FRAGMENT,
+            p_immutable_samplers: std::ptr::null(),
+        },
+        vk::DescriptorSetLayoutBinding {
+            binding: 2,
             descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
             descriptor_count: 1,
             stage_flags: vk::ShaderStageFlags::FRAGMENT,
             p_immutable_samplers: std::ptr::null(),
         },
     ],
-    atmosphere_layout: vk::DescriptorSetLayoutCreateInfo {
+    deferred_layout: vk::DescriptorSetLayoutCreateInfo {
         s_type: vk::StructureType::DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
         p_next: std::ptr::null(),
         flags: vk::DescriptorSetLayoutCreateFlags::empty(),
-        binding_count: 4,
-        p_bindings: unsafe { SCRATCH.atmosphere_bindings.as_ptr() },
+        binding_count: 3,
+        p_bindings: unsafe { SCRATCH.deferred_bindings.as_ptr() },
     },
-    atmosphere_pool_sizes: [
+    deferred_pool_sizes: [
         vk::DescriptorPoolSize {
             ty: vk::DescriptorType::INPUT_ATTACHMENT,
-            descriptor_count: 4,
+            descriptor_count: 2,
+        },
+        vk::DescriptorPoolSize {
+            ty: vk::DescriptorType::STORAGE_IMAGE,
+            descriptor_count: 2,
         },
         vk::DescriptorPoolSize {
             ty: vk::DescriptorType::UNIFORM_BUFFER,
-            descriptor_count: 4,
+            descriptor_count: 2,
         },
     ],
-    atmosphere_pool: vk::DescriptorPoolCreateInfo {
+    deferred_pool: vk::DescriptorPoolCreateInfo {
         s_type: vk::StructureType::DESCRIPTOR_POOL_CREATE_INFO,
         p_next: std::ptr::null(),
         flags: vk::DescriptorPoolCreateFlags::empty(),
         max_sets: 2,
-        pool_size_count: 2,
-        p_pool_sizes: unsafe { SCRATCH.atmosphere_pool_sizes.as_ptr() },
+        pool_size_count: 3,
+        p_pool_sizes: unsafe { SCRATCH.deferred_pool_sizes.as_ptr() },
     },
-    gaussian_bindings: [
+    gaussian_horizontal_bindings: [
         vk::DescriptorSetLayoutBinding {
             binding: 0,
             descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
@@ -687,14 +791,14 @@ static mut SCRATCH: Scratch = Scratch {
             p_immutable_samplers: std::ptr::null(),
         },
     ],
-    gaussian_layout: vk::DescriptorSetLayoutCreateInfo {
+    gaussian_horizontal_layout: vk::DescriptorSetLayoutCreateInfo {
         s_type: vk::StructureType::DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
         p_next: std::ptr::null(),
         flags: vk::DescriptorSetLayoutCreateFlags::empty(),
         binding_count: 2,
-        p_bindings: unsafe { SCRATCH.gaussian_bindings.as_ptr() },
+        p_bindings: unsafe { SCRATCH.gaussian_horizontal_bindings.as_ptr() },
     },
-    gaussian_pool_sizes: [
+    gaussian_horizontal_pool_sizes: [
         vk::DescriptorPoolSize {
             ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
             descriptor_count: 2,
@@ -704,13 +808,54 @@ static mut SCRATCH: Scratch = Scratch {
             descriptor_count: 2,
         },
     ],
-    gaussian_pool: vk::DescriptorPoolCreateInfo {
+    gaussian_horizontal_pool: vk::DescriptorPoolCreateInfo {
         s_type: vk::StructureType::DESCRIPTOR_POOL_CREATE_INFO,
         p_next: std::ptr::null(),
         flags: vk::DescriptorPoolCreateFlags::empty(),
         max_sets: 2,
         pool_size_count: 2,
-        p_pool_sizes: unsafe { SCRATCH.gaussian_pool_sizes.as_ptr() },
+        p_pool_sizes: unsafe { SCRATCH.gaussian_horizontal_pool_sizes.as_ptr() },
+    },
+    gaussian_vertical_bindings: [
+        vk::DescriptorSetLayoutBinding {
+            binding: 0,
+            descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+            descriptor_count: 1,
+            stage_flags: vk::ShaderStageFlags::FRAGMENT,
+            p_immutable_samplers: std::ptr::null(),
+        },
+        vk::DescriptorSetLayoutBinding {
+            binding: 1,
+            descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
+            descriptor_count: 1,
+            stage_flags: vk::ShaderStageFlags::FRAGMENT,
+            p_immutable_samplers: std::ptr::null(),
+        },
+    ],
+    gaussian_vertical_layout: vk::DescriptorSetLayoutCreateInfo {
+        s_type: vk::StructureType::DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::DescriptorSetLayoutCreateFlags::empty(),
+        binding_count: 2,
+        p_bindings: unsafe { SCRATCH.gaussian_vertical_bindings.as_ptr() },
+    },
+    gaussian_vertical_pool_sizes: [
+        vk::DescriptorPoolSize {
+            ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+            descriptor_count: 2,
+        },
+        vk::DescriptorPoolSize {
+            ty: vk::DescriptorType::UNIFORM_BUFFER,
+            descriptor_count: 2,
+        },
+    ],
+    gaussian_vertical_pool: vk::DescriptorPoolCreateInfo {
+        s_type: vk::StructureType::DESCRIPTOR_POOL_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::DescriptorPoolCreateFlags::empty(),
+        max_sets: 2,
+        pool_size_count: 2,
+        p_pool_sizes: unsafe { SCRATCH.gaussian_vertical_pool_sizes.as_ptr() },
     },
     postprocess_bindings: [
         vk::DescriptorSetLayoutBinding {
@@ -905,16 +1050,6 @@ static mut SCRATCH: Scratch = Scratch {
             alpha_blend_op: vk::BlendOp::ADD,
             color_write_mask: vk::ColorComponentFlags::RGBA,
         },
-        vk::PipelineColorBlendAttachmentState {
-            blend_enable: 0,
-            src_color_blend_factor: vk::BlendFactor::ZERO,
-            dst_color_blend_factor: vk::BlendFactor::ZERO,
-            color_blend_op: vk::BlendOp::ADD,
-            src_alpha_blend_factor: vk::BlendFactor::ZERO,
-            dst_alpha_blend_factor: vk::BlendFactor::ZERO,
-            alpha_blend_op: vk::BlendOp::ADD,
-            color_write_mask: vk::ColorComponentFlags::RGBA,
-        },
     ],
     object_blend: vk::PipelineColorBlendStateCreateInfo {
         s_type: vk::StructureType::PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
@@ -922,7 +1057,7 @@ static mut SCRATCH: Scratch = Scratch {
         flags: vk::PipelineColorBlendStateCreateFlags::empty(),
         logic_op_enable: 0,
         logic_op: vk::LogicOp::CLEAR,
-        attachment_count: 2,
+        attachment_count: 1,
         p_attachments: unsafe { SCRATCH.object_blend_attachments.as_ptr() },
         blend_constants: [0., 0., 0., 0.],
     },
@@ -1128,16 +1263,6 @@ static mut SCRATCH: Scratch = Scratch {
             alpha_blend_op: vk::BlendOp::ADD,
             color_write_mask: vk::ColorComponentFlags::RGBA,
         },
-        vk::PipelineColorBlendAttachmentState {
-            blend_enable: 0,
-            src_color_blend_factor: vk::BlendFactor::ZERO,
-            dst_color_blend_factor: vk::BlendFactor::ZERO,
-            color_blend_op: vk::BlendOp::ADD,
-            src_alpha_blend_factor: vk::BlendFactor::ZERO,
-            dst_alpha_blend_factor: vk::BlendFactor::ZERO,
-            alpha_blend_op: vk::BlendOp::ADD,
-            color_write_mask: vk::ColorComponentFlags::RGBA,
-        },
     ],
     grass_blend: vk::PipelineColorBlendStateCreateInfo {
         s_type: vk::StructureType::PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
@@ -1145,7 +1270,7 @@ static mut SCRATCH: Scratch = Scratch {
         flags: vk::PipelineColorBlendStateCreateFlags::empty(),
         logic_op_enable: 0,
         logic_op: vk::LogicOp::CLEAR,
-        attachment_count: 2,
+        attachment_count: 1,
         p_attachments: unsafe { SCRATCH.grass_blend_attachments.as_ptr() },
         blend_constants: [0., 0., 0., 0.],
     },
@@ -1304,16 +1429,6 @@ static mut SCRATCH: Scratch = Scratch {
             alpha_blend_op: vk::BlendOp::ADD,
             color_write_mask: vk::ColorComponentFlags::RGBA,
         },
-        vk::PipelineColorBlendAttachmentState {
-            blend_enable: 0,
-            src_color_blend_factor: vk::BlendFactor::ZERO,
-            dst_color_blend_factor: vk::BlendFactor::ZERO,
-            color_blend_op: vk::BlendOp::ADD,
-            src_alpha_blend_factor: vk::BlendFactor::ZERO,
-            dst_alpha_blend_factor: vk::BlendFactor::ZERO,
-            alpha_blend_op: vk::BlendOp::ADD,
-            color_write_mask: vk::ColorComponentFlags::RGBA,
-        },
     ],
     skybox_blend: vk::PipelineColorBlendStateCreateInfo {
         s_type: vk::StructureType::PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
@@ -1321,7 +1436,7 @@ static mut SCRATCH: Scratch = Scratch {
         flags: vk::PipelineColorBlendStateCreateFlags::empty(),
         logic_op_enable: 0,
         logic_op: vk::LogicOp::CLEAR,
-        attachment_count: 2,
+        attachment_count: 1,
         p_attachments: unsafe { SCRATCH.skybox_blend_attachments.as_ptr() },
         blend_constants: [0., 0., 0., 0.],
     },
@@ -1376,7 +1491,7 @@ static mut SCRATCH: Scratch = Scratch {
         base_pipeline_handle: vk::Pipeline::null(),
         base_pipeline_index: 0,
     },
-    atmosphere_pipeline_layout: vk::PipelineLayoutCreateInfo {
+    deferred_pipeline_layout: vk::PipelineLayoutCreateInfo {
         s_type: vk::StructureType::PIPELINE_LAYOUT_CREATE_INFO,
         p_next: std::ptr::null(),
         flags: vk::PipelineLayoutCreateFlags::empty(),
@@ -1385,21 +1500,21 @@ static mut SCRATCH: Scratch = Scratch {
         push_constant_range_count: 0,
         p_push_constant_ranges: std::ptr::null(),
     },
-    atmosphere_shader_vertex: vk::ShaderModuleCreateInfo {
+    deferred_shader_vertex: vk::ShaderModuleCreateInfo {
         s_type: vk::StructureType::SHADER_MODULE_CREATE_INFO,
         p_next: std::ptr::null(),
         flags: vk::ShaderModuleCreateFlags::empty(),
         code_size: 0,
         p_code: std::ptr::null(),
     },
-    atmosphere_shader_fragment: vk::ShaderModuleCreateInfo {
+    deferred_shader_fragment: vk::ShaderModuleCreateInfo {
         s_type: vk::StructureType::SHADER_MODULE_CREATE_INFO,
         p_next: std::ptr::null(),
         flags: vk::ShaderModuleCreateFlags::empty(),
         code_size: 0,
         p_code: std::ptr::null(),
     },
-    atmosphere_shader_stages: [
+    deferred_shader_stages: [
         vk::PipelineShaderStageCreateInfo {
             s_type: vk::StructureType::PIPELINE_SHADER_STAGE_CREATE_INFO,
             p_next: std::ptr::null(),
@@ -1419,20 +1534,20 @@ static mut SCRATCH: Scratch = Scratch {
             p_specialization_info: std::ptr::null(),
         },
     ],
-    atmosphere_vertex_bindings: [
+    deferred_vertex_bindings: [
     ],
-    atmosphere_vertex_attributes: [
+    deferred_vertex_attributes: [
     ],
-    atmosphere_vertex: vk::PipelineVertexInputStateCreateInfo {
+    deferred_vertex: vk::PipelineVertexInputStateCreateInfo {
         s_type: vk::StructureType::PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
         p_next: std::ptr::null(),
         flags: vk::PipelineVertexInputStateCreateFlags::empty(),
         vertex_binding_description_count: 0,
-        p_vertex_binding_descriptions: unsafe { SCRATCH.atmosphere_vertex_bindings.as_ptr() },
+        p_vertex_binding_descriptions: unsafe { SCRATCH.deferred_vertex_bindings.as_ptr() },
         vertex_attribute_description_count: 0,
-        p_vertex_attribute_descriptions: unsafe { SCRATCH.atmosphere_vertex_attributes.as_ptr() },
+        p_vertex_attribute_descriptions: unsafe { SCRATCH.deferred_vertex_attributes.as_ptr() },
     },
-    atmosphere_rasterizer: vk::PipelineRasterizationStateCreateInfo {
+    deferred_rasterizer: vk::PipelineRasterizationStateCreateInfo {
         s_type: vk::StructureType::PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
         p_next: std::ptr::null(),
         flags: vk::PipelineRasterizationStateCreateFlags::empty(),
@@ -1447,162 +1562,7 @@ static mut SCRATCH: Scratch = Scratch {
         depth_bias_slope_factor: 0.,
         line_width: 1.,
     },
-    atmosphere_multisampling: vk::PipelineMultisampleStateCreateInfo {
-        s_type: vk::StructureType::PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
-        p_next: std::ptr::null(),
-        flags: vk::PipelineMultisampleStateCreateFlags::empty(),
-        rasterization_samples: vk::SampleCountFlags::TYPE_2,
-        sample_shading_enable: 0,
-        min_sample_shading: 0.,
-        p_sample_mask: std::ptr::null(),
-        alpha_to_coverage_enable: 0,
-        alpha_to_one_enable: 0,
-    },
-    atmosphere_blend_attachments: [
-        vk::PipelineColorBlendAttachmentState {
-            blend_enable: 0,
-            src_color_blend_factor: vk::BlendFactor::ZERO,
-            dst_color_blend_factor: vk::BlendFactor::ZERO,
-            color_blend_op: vk::BlendOp::ADD,
-            src_alpha_blend_factor: vk::BlendFactor::ZERO,
-            dst_alpha_blend_factor: vk::BlendFactor::ZERO,
-            alpha_blend_op: vk::BlendOp::ADD,
-            color_write_mask: vk::ColorComponentFlags::RGBA,
-        },
-    ],
-    atmosphere_blend: vk::PipelineColorBlendStateCreateInfo {
-        s_type: vk::StructureType::PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
-        p_next: std::ptr::null(),
-        flags: vk::PipelineColorBlendStateCreateFlags::empty(),
-        logic_op_enable: 0,
-        logic_op: vk::LogicOp::CLEAR,
-        attachment_count: 1,
-        p_attachments: unsafe { SCRATCH.atmosphere_blend_attachments.as_ptr() },
-        blend_constants: [0., 0., 0., 0.],
-    },
-    atmosphere_depth: vk::PipelineDepthStencilStateCreateInfo {
-        s_type: vk::StructureType::PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
-        p_next: std::ptr::null(),
-        flags: vk::PipelineDepthStencilStateCreateFlags::empty(),
-        depth_test_enable: 0,
-        depth_write_enable: 0,
-        depth_compare_op: vk::CompareOp::LESS,
-        depth_bounds_test_enable: 0,
-        stencil_test_enable: 0,
-        front: vk::StencilOpState {
-            fail_op: vk::StencilOp::KEEP,
-            pass_op: vk::StencilOp::KEEP,
-            depth_fail_op: vk::StencilOp::KEEP,
-            compare_op: vk::CompareOp::NEVER,
-            compare_mask: 0,
-            write_mask: 0,
-            reference: 0,
-        },
-        back: vk::StencilOpState {
-            fail_op: vk::StencilOp::KEEP,
-            pass_op: vk::StencilOp::KEEP,
-            depth_fail_op: vk::StencilOp::KEEP,
-            compare_op: vk::CompareOp::NEVER,
-            compare_mask: 0,
-            write_mask: 0,
-            reference: 0,
-        },
-        min_depth_bounds: 0.,
-        max_depth_bounds: 1.,
-    },
-    atmosphere_pipeline: vk::GraphicsPipelineCreateInfo {
-        s_type: vk::StructureType::GRAPHICS_PIPELINE_CREATE_INFO,
-        p_next: std::ptr::null(),
-        flags: vk::PipelineCreateFlags::empty(),
-        stage_count: 2,
-        p_stages: unsafe { SCRATCH.atmosphere_shader_stages.as_ptr() },
-        p_vertex_input_state: unsafe { &SCRATCH.atmosphere_vertex },
-        p_input_assembly_state: unsafe { &SCRATCH.assembly },
-        p_tessellation_state: std::ptr::null(),
-        p_viewport_state: unsafe { &SCRATCH.viewport_state },
-        p_rasterization_state: unsafe { &SCRATCH.atmosphere_rasterizer },
-        p_multisample_state: unsafe { &SCRATCH.atmosphere_multisampling },
-        p_depth_stencil_state: unsafe { &SCRATCH.atmosphere_depth },
-        p_color_blend_state: unsafe { &SCRATCH.atmosphere_blend },
-        p_dynamic_state: unsafe { &SCRATCH.dynamic_state },
-        layout: vk::PipelineLayout::null(),
-        render_pass: vk::RenderPass::null(),
-        subpass: 1,
-        base_pipeline_handle: vk::Pipeline::null(),
-        base_pipeline_index: 0,
-    },
-    gaussian_pipeline_layout: vk::PipelineLayoutCreateInfo {
-        s_type: vk::StructureType::PIPELINE_LAYOUT_CREATE_INFO,
-        p_next: std::ptr::null(),
-        flags: vk::PipelineLayoutCreateFlags::empty(),
-        set_layout_count: 1,
-        p_set_layouts: std::ptr::null(),
-        push_constant_range_count: 0,
-        p_push_constant_ranges: std::ptr::null(),
-    },
-    gaussian_shader_vertex: vk::ShaderModuleCreateInfo {
-        s_type: vk::StructureType::SHADER_MODULE_CREATE_INFO,
-        p_next: std::ptr::null(),
-        flags: vk::ShaderModuleCreateFlags::empty(),
-        code_size: 0,
-        p_code: std::ptr::null(),
-    },
-    gaussian_shader_fragment: vk::ShaderModuleCreateInfo {
-        s_type: vk::StructureType::SHADER_MODULE_CREATE_INFO,
-        p_next: std::ptr::null(),
-        flags: vk::ShaderModuleCreateFlags::empty(),
-        code_size: 0,
-        p_code: std::ptr::null(),
-    },
-    gaussian_shader_stages: [
-        vk::PipelineShaderStageCreateInfo {
-            s_type: vk::StructureType::PIPELINE_SHADER_STAGE_CREATE_INFO,
-            p_next: std::ptr::null(),
-            flags: vk::PipelineShaderStageCreateFlags::empty(),
-            stage: vk::ShaderStageFlags::VERTEX,
-            module: vk::ShaderModule::null(),
-            p_name: unsafe { CStr::from_bytes_with_nul_unchecked(b"main\0") }.as_ptr(),
-            p_specialization_info: std::ptr::null(),
-        },
-        vk::PipelineShaderStageCreateInfo {
-            s_type: vk::StructureType::PIPELINE_SHADER_STAGE_CREATE_INFO,
-            p_next: std::ptr::null(),
-            flags: vk::PipelineShaderStageCreateFlags::empty(),
-            stage: vk::ShaderStageFlags::FRAGMENT,
-            module: vk::ShaderModule::null(),
-            p_name: unsafe { CStr::from_bytes_with_nul_unchecked(b"main\0") }.as_ptr(),
-            p_specialization_info: std::ptr::null(),
-        },
-    ],
-    gaussian_vertex_bindings: [
-    ],
-    gaussian_vertex_attributes: [
-    ],
-    gaussian_vertex: vk::PipelineVertexInputStateCreateInfo {
-        s_type: vk::StructureType::PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
-        p_next: std::ptr::null(),
-        flags: vk::PipelineVertexInputStateCreateFlags::empty(),
-        vertex_binding_description_count: 0,
-        p_vertex_binding_descriptions: unsafe { SCRATCH.gaussian_vertex_bindings.as_ptr() },
-        vertex_attribute_description_count: 0,
-        p_vertex_attribute_descriptions: unsafe { SCRATCH.gaussian_vertex_attributes.as_ptr() },
-    },
-    gaussian_rasterizer: vk::PipelineRasterizationStateCreateInfo {
-        s_type: vk::StructureType::PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
-        p_next: std::ptr::null(),
-        flags: vk::PipelineRasterizationStateCreateFlags::empty(),
-        depth_clamp_enable: 0,
-        rasterizer_discard_enable: 0,
-        polygon_mode: vk::PolygonMode::FILL,
-        cull_mode: vk::CullModeFlags::BACK,
-        front_face: vk::FrontFace::COUNTER_CLOCKWISE,
-        depth_bias_enable: 0,
-        depth_bias_constant_factor: 0.,
-        depth_bias_clamp: 0.,
-        depth_bias_slope_factor: 0.,
-        line_width: 1.,
-    },
-    gaussian_multisampling: vk::PipelineMultisampleStateCreateInfo {
+    deferred_multisampling: vk::PipelineMultisampleStateCreateInfo {
         s_type: vk::StructureType::PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
         p_next: std::ptr::null(),
         flags: vk::PipelineMultisampleStateCreateFlags::empty(),
@@ -1613,29 +1573,19 @@ static mut SCRATCH: Scratch = Scratch {
         alpha_to_coverage_enable: 0,
         alpha_to_one_enable: 0,
     },
-    gaussian_blend_attachments: [
-        vk::PipelineColorBlendAttachmentState {
-            blend_enable: 0,
-            src_color_blend_factor: vk::BlendFactor::ZERO,
-            dst_color_blend_factor: vk::BlendFactor::ZERO,
-            color_blend_op: vk::BlendOp::ADD,
-            src_alpha_blend_factor: vk::BlendFactor::ZERO,
-            dst_alpha_blend_factor: vk::BlendFactor::ZERO,
-            alpha_blend_op: vk::BlendOp::ADD,
-            color_write_mask: vk::ColorComponentFlags::RGBA,
-        },
+    deferred_blend_attachments: [
     ],
-    gaussian_blend: vk::PipelineColorBlendStateCreateInfo {
+    deferred_blend: vk::PipelineColorBlendStateCreateInfo {
         s_type: vk::StructureType::PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
         p_next: std::ptr::null(),
         flags: vk::PipelineColorBlendStateCreateFlags::empty(),
         logic_op_enable: 0,
         logic_op: vk::LogicOp::CLEAR,
-        attachment_count: 1,
-        p_attachments: unsafe { SCRATCH.gaussian_blend_attachments.as_ptr() },
+        attachment_count: 0,
+        p_attachments: unsafe { SCRATCH.deferred_blend_attachments.as_ptr() },
         blend_constants: [0., 0., 0., 0.],
     },
-    gaussian_depth: vk::PipelineDepthStencilStateCreateInfo {
+    deferred_depth: vk::PipelineDepthStencilStateCreateInfo {
         s_type: vk::StructureType::PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
         p_next: std::ptr::null(),
         flags: vk::PipelineDepthStencilStateCreateFlags::empty(),
@@ -1665,20 +1615,330 @@ static mut SCRATCH: Scratch = Scratch {
         min_depth_bounds: 0.,
         max_depth_bounds: 1.,
     },
-    gaussian_pipeline: vk::GraphicsPipelineCreateInfo {
+    deferred_pipeline: vk::GraphicsPipelineCreateInfo {
         s_type: vk::StructureType::GRAPHICS_PIPELINE_CREATE_INFO,
         p_next: std::ptr::null(),
         flags: vk::PipelineCreateFlags::empty(),
         stage_count: 2,
-        p_stages: unsafe { SCRATCH.gaussian_shader_stages.as_ptr() },
-        p_vertex_input_state: unsafe { &SCRATCH.gaussian_vertex },
+        p_stages: unsafe { SCRATCH.deferred_shader_stages.as_ptr() },
+        p_vertex_input_state: unsafe { &SCRATCH.deferred_vertex },
         p_input_assembly_state: unsafe { &SCRATCH.assembly },
         p_tessellation_state: std::ptr::null(),
         p_viewport_state: unsafe { &SCRATCH.viewport_state },
-        p_rasterization_state: unsafe { &SCRATCH.gaussian_rasterizer },
-        p_multisample_state: unsafe { &SCRATCH.gaussian_multisampling },
-        p_depth_stencil_state: unsafe { &SCRATCH.gaussian_depth },
-        p_color_blend_state: unsafe { &SCRATCH.gaussian_blend },
+        p_rasterization_state: unsafe { &SCRATCH.deferred_rasterizer },
+        p_multisample_state: unsafe { &SCRATCH.deferred_multisampling },
+        p_depth_stencil_state: unsafe { &SCRATCH.deferred_depth },
+        p_color_blend_state: unsafe { &SCRATCH.deferred_blend },
+        p_dynamic_state: unsafe { &SCRATCH.dynamic_state },
+        layout: vk::PipelineLayout::null(),
+        render_pass: vk::RenderPass::null(),
+        subpass: 1,
+        base_pipeline_handle: vk::Pipeline::null(),
+        base_pipeline_index: 0,
+    },
+    gaussian_horizontal_pipeline_layout: vk::PipelineLayoutCreateInfo {
+        s_type: vk::StructureType::PIPELINE_LAYOUT_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::PipelineLayoutCreateFlags::empty(),
+        set_layout_count: 1,
+        p_set_layouts: std::ptr::null(),
+        push_constant_range_count: 0,
+        p_push_constant_ranges: std::ptr::null(),
+    },
+    gaussian_horizontal_shader_vertex: vk::ShaderModuleCreateInfo {
+        s_type: vk::StructureType::SHADER_MODULE_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::ShaderModuleCreateFlags::empty(),
+        code_size: 0,
+        p_code: std::ptr::null(),
+    },
+    gaussian_horizontal_shader_fragment: vk::ShaderModuleCreateInfo {
+        s_type: vk::StructureType::SHADER_MODULE_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::ShaderModuleCreateFlags::empty(),
+        code_size: 0,
+        p_code: std::ptr::null(),
+    },
+    gaussian_horizontal_shader_stages: [
+        vk::PipelineShaderStageCreateInfo {
+            s_type: vk::StructureType::PIPELINE_SHADER_STAGE_CREATE_INFO,
+            p_next: std::ptr::null(),
+            flags: vk::PipelineShaderStageCreateFlags::empty(),
+            stage: vk::ShaderStageFlags::VERTEX,
+            module: vk::ShaderModule::null(),
+            p_name: unsafe { CStr::from_bytes_with_nul_unchecked(b"main\0") }.as_ptr(),
+            p_specialization_info: std::ptr::null(),
+        },
+        vk::PipelineShaderStageCreateInfo {
+            s_type: vk::StructureType::PIPELINE_SHADER_STAGE_CREATE_INFO,
+            p_next: std::ptr::null(),
+            flags: vk::PipelineShaderStageCreateFlags::empty(),
+            stage: vk::ShaderStageFlags::FRAGMENT,
+            module: vk::ShaderModule::null(),
+            p_name: unsafe { CStr::from_bytes_with_nul_unchecked(b"main\0") }.as_ptr(),
+            p_specialization_info: std::ptr::null(),
+        },
+    ],
+    gaussian_horizontal_vertex_bindings: [
+    ],
+    gaussian_horizontal_vertex_attributes: [
+    ],
+    gaussian_horizontal_vertex: vk::PipelineVertexInputStateCreateInfo {
+        s_type: vk::StructureType::PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::PipelineVertexInputStateCreateFlags::empty(),
+        vertex_binding_description_count: 0,
+        p_vertex_binding_descriptions: unsafe { SCRATCH.gaussian_horizontal_vertex_bindings.as_ptr() },
+        vertex_attribute_description_count: 0,
+        p_vertex_attribute_descriptions: unsafe { SCRATCH.gaussian_horizontal_vertex_attributes.as_ptr() },
+    },
+    gaussian_horizontal_rasterizer: vk::PipelineRasterizationStateCreateInfo {
+        s_type: vk::StructureType::PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::PipelineRasterizationStateCreateFlags::empty(),
+        depth_clamp_enable: 0,
+        rasterizer_discard_enable: 0,
+        polygon_mode: vk::PolygonMode::FILL,
+        cull_mode: vk::CullModeFlags::BACK,
+        front_face: vk::FrontFace::COUNTER_CLOCKWISE,
+        depth_bias_enable: 0,
+        depth_bias_constant_factor: 0.,
+        depth_bias_clamp: 0.,
+        depth_bias_slope_factor: 0.,
+        line_width: 1.,
+    },
+    gaussian_horizontal_multisampling: vk::PipelineMultisampleStateCreateInfo {
+        s_type: vk::StructureType::PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::PipelineMultisampleStateCreateFlags::empty(),
+        rasterization_samples: vk::SampleCountFlags::TYPE_1,
+        sample_shading_enable: 0,
+        min_sample_shading: 0.,
+        p_sample_mask: std::ptr::null(),
+        alpha_to_coverage_enable: 0,
+        alpha_to_one_enable: 0,
+    },
+    gaussian_horizontal_blend_attachments: [
+        vk::PipelineColorBlendAttachmentState {
+            blend_enable: 0,
+            src_color_blend_factor: vk::BlendFactor::ZERO,
+            dst_color_blend_factor: vk::BlendFactor::ZERO,
+            color_blend_op: vk::BlendOp::ADD,
+            src_alpha_blend_factor: vk::BlendFactor::ZERO,
+            dst_alpha_blend_factor: vk::BlendFactor::ZERO,
+            alpha_blend_op: vk::BlendOp::ADD,
+            color_write_mask: vk::ColorComponentFlags::RGBA,
+        },
+    ],
+    gaussian_horizontal_blend: vk::PipelineColorBlendStateCreateInfo {
+        s_type: vk::StructureType::PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::PipelineColorBlendStateCreateFlags::empty(),
+        logic_op_enable: 0,
+        logic_op: vk::LogicOp::CLEAR,
+        attachment_count: 1,
+        p_attachments: unsafe { SCRATCH.gaussian_horizontal_blend_attachments.as_ptr() },
+        blend_constants: [0., 0., 0., 0.],
+    },
+    gaussian_horizontal_depth: vk::PipelineDepthStencilStateCreateInfo {
+        s_type: vk::StructureType::PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::PipelineDepthStencilStateCreateFlags::empty(),
+        depth_test_enable: 0,
+        depth_write_enable: 0,
+        depth_compare_op: vk::CompareOp::LESS,
+        depth_bounds_test_enable: 0,
+        stencil_test_enable: 0,
+        front: vk::StencilOpState {
+            fail_op: vk::StencilOp::KEEP,
+            pass_op: vk::StencilOp::KEEP,
+            depth_fail_op: vk::StencilOp::KEEP,
+            compare_op: vk::CompareOp::NEVER,
+            compare_mask: 0,
+            write_mask: 0,
+            reference: 0,
+        },
+        back: vk::StencilOpState {
+            fail_op: vk::StencilOp::KEEP,
+            pass_op: vk::StencilOp::KEEP,
+            depth_fail_op: vk::StencilOp::KEEP,
+            compare_op: vk::CompareOp::NEVER,
+            compare_mask: 0,
+            write_mask: 0,
+            reference: 0,
+        },
+        min_depth_bounds: 0.,
+        max_depth_bounds: 1.,
+    },
+    gaussian_horizontal_pipeline: vk::GraphicsPipelineCreateInfo {
+        s_type: vk::StructureType::GRAPHICS_PIPELINE_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::PipelineCreateFlags::empty(),
+        stage_count: 2,
+        p_stages: unsafe { SCRATCH.gaussian_horizontal_shader_stages.as_ptr() },
+        p_vertex_input_state: unsafe { &SCRATCH.gaussian_horizontal_vertex },
+        p_input_assembly_state: unsafe { &SCRATCH.assembly },
+        p_tessellation_state: std::ptr::null(),
+        p_viewport_state: unsafe { &SCRATCH.viewport_state },
+        p_rasterization_state: unsafe { &SCRATCH.gaussian_horizontal_rasterizer },
+        p_multisample_state: unsafe { &SCRATCH.gaussian_horizontal_multisampling },
+        p_depth_stencil_state: unsafe { &SCRATCH.gaussian_horizontal_depth },
+        p_color_blend_state: unsafe { &SCRATCH.gaussian_horizontal_blend },
+        p_dynamic_state: unsafe { &SCRATCH.dynamic_state },
+        layout: vk::PipelineLayout::null(),
+        render_pass: vk::RenderPass::null(),
+        subpass: 0,
+        base_pipeline_handle: vk::Pipeline::null(),
+        base_pipeline_index: 0,
+    },
+    gaussian_vertical_pipeline_layout: vk::PipelineLayoutCreateInfo {
+        s_type: vk::StructureType::PIPELINE_LAYOUT_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::PipelineLayoutCreateFlags::empty(),
+        set_layout_count: 1,
+        p_set_layouts: std::ptr::null(),
+        push_constant_range_count: 0,
+        p_push_constant_ranges: std::ptr::null(),
+    },
+    gaussian_vertical_shader_vertex: vk::ShaderModuleCreateInfo {
+        s_type: vk::StructureType::SHADER_MODULE_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::ShaderModuleCreateFlags::empty(),
+        code_size: 0,
+        p_code: std::ptr::null(),
+    },
+    gaussian_vertical_shader_fragment: vk::ShaderModuleCreateInfo {
+        s_type: vk::StructureType::SHADER_MODULE_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::ShaderModuleCreateFlags::empty(),
+        code_size: 0,
+        p_code: std::ptr::null(),
+    },
+    gaussian_vertical_shader_stages: [
+        vk::PipelineShaderStageCreateInfo {
+            s_type: vk::StructureType::PIPELINE_SHADER_STAGE_CREATE_INFO,
+            p_next: std::ptr::null(),
+            flags: vk::PipelineShaderStageCreateFlags::empty(),
+            stage: vk::ShaderStageFlags::VERTEX,
+            module: vk::ShaderModule::null(),
+            p_name: unsafe { CStr::from_bytes_with_nul_unchecked(b"main\0") }.as_ptr(),
+            p_specialization_info: std::ptr::null(),
+        },
+        vk::PipelineShaderStageCreateInfo {
+            s_type: vk::StructureType::PIPELINE_SHADER_STAGE_CREATE_INFO,
+            p_next: std::ptr::null(),
+            flags: vk::PipelineShaderStageCreateFlags::empty(),
+            stage: vk::ShaderStageFlags::FRAGMENT,
+            module: vk::ShaderModule::null(),
+            p_name: unsafe { CStr::from_bytes_with_nul_unchecked(b"main\0") }.as_ptr(),
+            p_specialization_info: std::ptr::null(),
+        },
+    ],
+    gaussian_vertical_vertex_bindings: [
+    ],
+    gaussian_vertical_vertex_attributes: [
+    ],
+    gaussian_vertical_vertex: vk::PipelineVertexInputStateCreateInfo {
+        s_type: vk::StructureType::PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::PipelineVertexInputStateCreateFlags::empty(),
+        vertex_binding_description_count: 0,
+        p_vertex_binding_descriptions: unsafe { SCRATCH.gaussian_vertical_vertex_bindings.as_ptr() },
+        vertex_attribute_description_count: 0,
+        p_vertex_attribute_descriptions: unsafe { SCRATCH.gaussian_vertical_vertex_attributes.as_ptr() },
+    },
+    gaussian_vertical_rasterizer: vk::PipelineRasterizationStateCreateInfo {
+        s_type: vk::StructureType::PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::PipelineRasterizationStateCreateFlags::empty(),
+        depth_clamp_enable: 0,
+        rasterizer_discard_enable: 0,
+        polygon_mode: vk::PolygonMode::FILL,
+        cull_mode: vk::CullModeFlags::BACK,
+        front_face: vk::FrontFace::COUNTER_CLOCKWISE,
+        depth_bias_enable: 0,
+        depth_bias_constant_factor: 0.,
+        depth_bias_clamp: 0.,
+        depth_bias_slope_factor: 0.,
+        line_width: 1.,
+    },
+    gaussian_vertical_multisampling: vk::PipelineMultisampleStateCreateInfo {
+        s_type: vk::StructureType::PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::PipelineMultisampleStateCreateFlags::empty(),
+        rasterization_samples: vk::SampleCountFlags::TYPE_1,
+        sample_shading_enable: 0,
+        min_sample_shading: 0.,
+        p_sample_mask: std::ptr::null(),
+        alpha_to_coverage_enable: 0,
+        alpha_to_one_enable: 0,
+    },
+    gaussian_vertical_blend_attachments: [
+        vk::PipelineColorBlendAttachmentState {
+            blend_enable: 0,
+            src_color_blend_factor: vk::BlendFactor::ZERO,
+            dst_color_blend_factor: vk::BlendFactor::ZERO,
+            color_blend_op: vk::BlendOp::ADD,
+            src_alpha_blend_factor: vk::BlendFactor::ZERO,
+            dst_alpha_blend_factor: vk::BlendFactor::ZERO,
+            alpha_blend_op: vk::BlendOp::ADD,
+            color_write_mask: vk::ColorComponentFlags::RGBA,
+        },
+    ],
+    gaussian_vertical_blend: vk::PipelineColorBlendStateCreateInfo {
+        s_type: vk::StructureType::PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::PipelineColorBlendStateCreateFlags::empty(),
+        logic_op_enable: 0,
+        logic_op: vk::LogicOp::CLEAR,
+        attachment_count: 1,
+        p_attachments: unsafe { SCRATCH.gaussian_vertical_blend_attachments.as_ptr() },
+        blend_constants: [0., 0., 0., 0.],
+    },
+    gaussian_vertical_depth: vk::PipelineDepthStencilStateCreateInfo {
+        s_type: vk::StructureType::PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::PipelineDepthStencilStateCreateFlags::empty(),
+        depth_test_enable: 0,
+        depth_write_enable: 0,
+        depth_compare_op: vk::CompareOp::LESS,
+        depth_bounds_test_enable: 0,
+        stencil_test_enable: 0,
+        front: vk::StencilOpState {
+            fail_op: vk::StencilOp::KEEP,
+            pass_op: vk::StencilOp::KEEP,
+            depth_fail_op: vk::StencilOp::KEEP,
+            compare_op: vk::CompareOp::NEVER,
+            compare_mask: 0,
+            write_mask: 0,
+            reference: 0,
+        },
+        back: vk::StencilOpState {
+            fail_op: vk::StencilOp::KEEP,
+            pass_op: vk::StencilOp::KEEP,
+            depth_fail_op: vk::StencilOp::KEEP,
+            compare_op: vk::CompareOp::NEVER,
+            compare_mask: 0,
+            write_mask: 0,
+            reference: 0,
+        },
+        min_depth_bounds: 0.,
+        max_depth_bounds: 1.,
+    },
+    gaussian_vertical_pipeline: vk::GraphicsPipelineCreateInfo {
+        s_type: vk::StructureType::GRAPHICS_PIPELINE_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::PipelineCreateFlags::empty(),
+        stage_count: 2,
+        p_stages: unsafe { SCRATCH.gaussian_vertical_shader_stages.as_ptr() },
+        p_vertex_input_state: unsafe { &SCRATCH.gaussian_vertical_vertex },
+        p_input_assembly_state: unsafe { &SCRATCH.assembly },
+        p_tessellation_state: std::ptr::null(),
+        p_viewport_state: unsafe { &SCRATCH.viewport_state },
+        p_rasterization_state: unsafe { &SCRATCH.gaussian_vertical_rasterizer },
+        p_multisample_state: unsafe { &SCRATCH.gaussian_vertical_multisampling },
+        p_depth_stencil_state: unsafe { &SCRATCH.gaussian_vertical_depth },
+        p_color_blend_state: unsafe { &SCRATCH.gaussian_vertical_blend },
         p_dynamic_state: unsafe { &SCRATCH.dynamic_state },
         layout: vk::PipelineLayout::null(),
         render_pass: vk::RenderPass::null(),
@@ -1845,7 +2105,8 @@ static mut SCRATCH: Scratch = Scratch {
 
 impl Samplers {
     pub fn cleanup(&self, dev: &Dev) {
-        unsafe { dev.destroy_sampler(self.pixel, None) };
+        unsafe { dev.destroy_sampler(self.nearest, None) };
+        unsafe { dev.destroy_sampler(self.bilinear, None) };
     }
 }
 
@@ -1854,8 +2115,9 @@ impl DescriptorSetLayouts {
         unsafe { dev.destroy_descriptor_set_layout(self.object, None) };
         unsafe { dev.destroy_descriptor_set_layout(self.grass, None) };
         unsafe { dev.destroy_descriptor_set_layout(self.skybox, None) };
-        unsafe { dev.destroy_descriptor_set_layout(self.atmosphere, None) };
-        unsafe { dev.destroy_descriptor_set_layout(self.gaussian, None) };
+        unsafe { dev.destroy_descriptor_set_layout(self.deferred, None) };
+        unsafe { dev.destroy_descriptor_set_layout(self.gaussian_horizontal, None) };
+        unsafe { dev.destroy_descriptor_set_layout(self.gaussian_vertical, None) };
         unsafe { dev.destroy_descriptor_set_layout(self.postprocess, None) };
     }
 }
@@ -1868,6 +2130,8 @@ impl DescriptorPools {
         material: &UniformBuffer<Material>,
         light: &UniformBuffer<Light>,
         settings: &UniformBuffer<FragSettings>,
+        atmosphere: &UniformBuffer<Atmosphere>,
+        camera: &UniformBuffer<Camera>,
         tlas: &Option<RaytraceResources>,
         dev: &Dev,
     ) -> [vk::DescriptorSet; FRAMES_IN_FLIGHT] {
@@ -1880,7 +2144,7 @@ impl DescriptorPools {
                 .unwrap()
                 .try_into()
                 .unwrap();
-        self.update_object(&descriptors, mvp, material, light, settings, tlas, dev);
+        self.update_object(&descriptors, mvp, material, light, settings, atmosphere, camera, tlas, dev);
         descriptors
     }
 
@@ -1891,43 +2155,57 @@ impl DescriptorPools {
         material: &UniformBuffer<Material>,
         light: &UniformBuffer<Light>,
         settings: &UniformBuffer<FragSettings>,
+        atmosphere: &UniformBuffer<Atmosphere>,
+        camera: &UniformBuffer<Camera>,
         tlas: &Option<RaytraceResources>,
         dev: &Dev,
     ) {
-        for (flight_index, descriptor) in descriptors.iter().enumerate() {
-            let mvp_buffer = mvp.descriptor(flight_index);
+        for (_flight_index, descriptor) in descriptors.iter().enumerate() {
+            let mvp_buffer = mvp.descriptor(_flight_index);
             let mvp = *vk::WriteDescriptorSet::builder()
                 .dst_set(*descriptor)
                 .dst_binding(0)
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
                 .buffer_info(std::slice::from_ref(&mvp_buffer));
-            let material_buffer = material.descriptor(flight_index);
+            let material_buffer = material.descriptor(_flight_index);
             let material = *vk::WriteDescriptorSet::builder()
                 .dst_set(*descriptor)
                 .dst_binding(1)
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
                 .buffer_info(std::slice::from_ref(&material_buffer));
-            let light_buffer = light.descriptor(flight_index);
+            let light_buffer = light.descriptor(_flight_index);
             let light = *vk::WriteDescriptorSet::builder()
                 .dst_set(*descriptor)
                 .dst_binding(2)
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
                 .buffer_info(std::slice::from_ref(&light_buffer));
-            let settings_buffer = settings.descriptor(flight_index);
+            let settings_buffer = settings.descriptor(_flight_index);
             let settings = *vk::WriteDescriptorSet::builder()
                 .dst_set(*descriptor)
                 .dst_binding(3)
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
                 .buffer_info(std::slice::from_ref(&settings_buffer));
-            let mut tlas_acceleration_structure = *vk::WriteDescriptorSetAccelerationStructureKHR::builder()
-                .acceleration_structures(std::slice::from_ref(&tlas.as_ref().unwrap().acceleration_structure));
-            let mut tlas = *vk::WriteDescriptorSet::builder()
+            let atmosphere_buffer = atmosphere.descriptor(_flight_index);
+            let atmosphere = *vk::WriteDescriptorSet::builder()
                 .dst_set(*descriptor)
                 .dst_binding(4)
+                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+                .buffer_info(std::slice::from_ref(&atmosphere_buffer));
+            let camera_buffer = camera.descriptor(_flight_index);
+            let camera = *vk::WriteDescriptorSet::builder()
+                .dst_set(*descriptor)
+                .dst_binding(5)
+                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+                .buffer_info(std::slice::from_ref(&camera_buffer));
+            let mut tlas_acceleration_structure = *vk::WriteDescriptorSetAccelerationStructureKHR::builder()
+                .acceleration_structures(tlas.as_ref().map(|as_| std::slice::from_ref(&as_.acceleration_structure)).unwrap_or_default());
+            let mut tlas = *vk::WriteDescriptorSet::builder()
+                .dst_set(*descriptor)
+                .dst_binding(6)
                 .descriptor_type(vk::DescriptorType::ACCELERATION_STRUCTURE_KHR)
                 .push_next(&mut tlas_acceleration_structure);
             tlas.descriptor_count = 1;
-            let writes = [mvp, material, light, settings, tlas];
+            let writes = [mvp, material, light, settings, atmosphere, camera, tlas];
             unsafe { dev.update_descriptor_sets(&writes, &[]) };
         }
     }
@@ -1938,6 +2216,8 @@ impl DescriptorPools {
         grass: &UniformBuffer<GrassUniform>,
         light: &UniformBuffer<Light>,
         settings: &UniformBuffer<FragSettings>,
+        atmosphere: &UniformBuffer<Atmosphere>,
+        camera: &UniformBuffer<Camera>,
         tlas: &Option<RaytraceResources>,
         dev: &Dev,
     ) -> [vk::DescriptorSet; FRAMES_IN_FLIGHT] {
@@ -1950,7 +2230,7 @@ impl DescriptorPools {
                 .unwrap()
                 .try_into()
                 .unwrap();
-        self.update_grass(&descriptors, planet_mvp, grass, light, settings, tlas, dev);
+        self.update_grass(&descriptors, planet_mvp, grass, light, settings, atmosphere, camera, tlas, dev);
         descriptors
     }
 
@@ -1961,43 +2241,57 @@ impl DescriptorPools {
         grass: &UniformBuffer<GrassUniform>,
         light: &UniformBuffer<Light>,
         settings: &UniformBuffer<FragSettings>,
+        atmosphere: &UniformBuffer<Atmosphere>,
+        camera: &UniformBuffer<Camera>,
         tlas: &Option<RaytraceResources>,
         dev: &Dev,
     ) {
-        for (flight_index, descriptor) in descriptors.iter().enumerate() {
-            let planet_mvp_buffer = planet_mvp.descriptor(flight_index);
+        for (_flight_index, descriptor) in descriptors.iter().enumerate() {
+            let planet_mvp_buffer = planet_mvp.descriptor(_flight_index);
             let planet_mvp = *vk::WriteDescriptorSet::builder()
                 .dst_set(*descriptor)
                 .dst_binding(0)
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
                 .buffer_info(std::slice::from_ref(&planet_mvp_buffer));
-            let grass_buffer = grass.descriptor(flight_index);
+            let grass_buffer = grass.descriptor(_flight_index);
             let grass = *vk::WriteDescriptorSet::builder()
                 .dst_set(*descriptor)
                 .dst_binding(1)
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
                 .buffer_info(std::slice::from_ref(&grass_buffer));
-            let light_buffer = light.descriptor(flight_index);
+            let light_buffer = light.descriptor(_flight_index);
             let light = *vk::WriteDescriptorSet::builder()
                 .dst_set(*descriptor)
                 .dst_binding(2)
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
                 .buffer_info(std::slice::from_ref(&light_buffer));
-            let settings_buffer = settings.descriptor(flight_index);
+            let settings_buffer = settings.descriptor(_flight_index);
             let settings = *vk::WriteDescriptorSet::builder()
                 .dst_set(*descriptor)
                 .dst_binding(3)
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
                 .buffer_info(std::slice::from_ref(&settings_buffer));
-            let mut tlas_acceleration_structure = *vk::WriteDescriptorSetAccelerationStructureKHR::builder()
-                .acceleration_structures(std::slice::from_ref(&tlas.as_ref().unwrap().acceleration_structure));
-            let mut tlas = *vk::WriteDescriptorSet::builder()
+            let atmosphere_buffer = atmosphere.descriptor(_flight_index);
+            let atmosphere = *vk::WriteDescriptorSet::builder()
                 .dst_set(*descriptor)
                 .dst_binding(4)
+                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+                .buffer_info(std::slice::from_ref(&atmosphere_buffer));
+            let camera_buffer = camera.descriptor(_flight_index);
+            let camera = *vk::WriteDescriptorSet::builder()
+                .dst_set(*descriptor)
+                .dst_binding(5)
+                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+                .buffer_info(std::slice::from_ref(&camera_buffer));
+            let mut tlas_acceleration_structure = *vk::WriteDescriptorSetAccelerationStructureKHR::builder()
+                .acceleration_structures(tlas.as_ref().map(|as_| std::slice::from_ref(&as_.acceleration_structure)).unwrap_or_default());
+            let mut tlas = *vk::WriteDescriptorSet::builder()
+                .dst_set(*descriptor)
+                .dst_binding(6)
                 .descriptor_type(vk::DescriptorType::ACCELERATION_STRUCTURE_KHR)
                 .push_next(&mut tlas_acceleration_structure);
             tlas.descriptor_count = 1;
-            let writes = [planet_mvp, grass, light, settings, tlas];
+            let writes = [planet_mvp, grass, light, settings, atmosphere, camera, tlas];
             unsafe { dev.update_descriptor_sets(&writes, &[]) };
         }
     }
@@ -2005,6 +2299,8 @@ impl DescriptorPools {
     pub fn alloc_skybox(
         &self,
         mvp: &UniformBuffer<ModelViewProjection>,
+        atmosphere: &UniformBuffer<Atmosphere>,
+        camera: &UniformBuffer<Camera>,
         dev: &Dev,
     ) -> [vk::DescriptorSet; FRAMES_IN_FLIGHT] {
         let layouts = [self.skybox_layout; FRAMES_IN_FLIGHT];
@@ -2016,7 +2312,7 @@ impl DescriptorPools {
                 .unwrap()
                 .try_into()
                 .unwrap();
-        self.update_skybox(&descriptors, mvp, dev);
+        self.update_skybox(&descriptors, mvp, atmosphere, camera, dev);
         descriptors
     }
 
@@ -2024,51 +2320,63 @@ impl DescriptorPools {
         &self,
         descriptors: &[vk::DescriptorSet; FRAMES_IN_FLIGHT],
         mvp: &UniformBuffer<ModelViewProjection>,
+        atmosphere: &UniformBuffer<Atmosphere>,
+        camera: &UniformBuffer<Camera>,
         dev: &Dev,
     ) {
-        for (flight_index, descriptor) in descriptors.iter().enumerate() {
-            let mvp_buffer = mvp.descriptor(flight_index);
+        for (_flight_index, descriptor) in descriptors.iter().enumerate() {
+            let mvp_buffer = mvp.descriptor(_flight_index);
             let mvp = *vk::WriteDescriptorSet::builder()
                 .dst_set(*descriptor)
                 .dst_binding(0)
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
                 .buffer_info(std::slice::from_ref(&mvp_buffer));
-            let writes = [mvp];
+            let atmosphere_buffer = atmosphere.descriptor(_flight_index);
+            let atmosphere = *vk::WriteDescriptorSet::builder()
+                .dst_set(*descriptor)
+                .dst_binding(1)
+                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+                .buffer_info(std::slice::from_ref(&atmosphere_buffer));
+            let camera_buffer = camera.descriptor(_flight_index);
+            let camera = *vk::WriteDescriptorSet::builder()
+                .dst_set(*descriptor)
+                .dst_binding(2)
+                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+                .buffer_info(std::slice::from_ref(&camera_buffer));
+            let writes = [mvp, atmosphere, camera];
             unsafe { dev.update_descriptor_sets(&writes, &[]) };
         }
     }
 
-    pub fn alloc_atmosphere(
+    pub fn alloc_deferred(
         &self,
         render: vk::ImageView,
-        position: vk::ImageView,
-        atmosphere: &UniformBuffer<Atmosphere>,
-        camera: &UniformBuffer<Camera>,
+        bloom: vk::ImageView,
+        gaussian: &UniformBuffer<Gaussian>,
         dev: &Dev,
     ) -> [vk::DescriptorSet; FRAMES_IN_FLIGHT] {
-        let layouts = [self.atmosphere_layout; FRAMES_IN_FLIGHT];
+        let layouts = [self.deferred_layout; FRAMES_IN_FLIGHT];
         let descriptor_set_alloc_info = vk::DescriptorSetAllocateInfo::builder()
-            .descriptor_pool(self.atmosphere)
+            .descriptor_pool(self.deferred)
             .set_layouts(&layouts);
         let descriptors: [vk::DescriptorSet; FRAMES_IN_FLIGHT] =
             unsafe { dev.allocate_descriptor_sets(&descriptor_set_alloc_info) }
                 .unwrap()
                 .try_into()
                 .unwrap();
-        self.update_atmosphere(&descriptors, render, position, atmosphere, camera, dev);
+        self.update_deferred(&descriptors, render, bloom, gaussian, dev);
         descriptors
     }
 
-    pub fn update_atmosphere(
+    pub fn update_deferred(
         &self,
         descriptors: &[vk::DescriptorSet; FRAMES_IN_FLIGHT],
         render: vk::ImageView,
-        position: vk::ImageView,
-        atmosphere: &UniformBuffer<Atmosphere>,
-        camera: &UniformBuffer<Camera>,
+        bloom: vk::ImageView,
+        gaussian: &UniformBuffer<Gaussian>,
         dev: &Dev,
     ) {
-        for (flight_index, descriptor) in descriptors.iter().enumerate() {
+        for (_flight_index, descriptor) in descriptors.iter().enumerate() {
             let render_image = *vk::DescriptorImageInfo::builder()
                 .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
                 .image_view(render);
@@ -2077,58 +2385,98 @@ impl DescriptorPools {
                 .dst_binding(0)
                 .descriptor_type(vk::DescriptorType::INPUT_ATTACHMENT)
                 .image_info(std::slice::from_ref(&render_image));
-            let position_image = *vk::DescriptorImageInfo::builder()
-                .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-                .image_view(position);
-            let position = *vk::WriteDescriptorSet::builder()
+            let bloom_image = *vk::DescriptorImageInfo::builder()
+                .image_layout(vk::ImageLayout::GENERAL)
+                .image_view(bloom);
+            let bloom = *vk::WriteDescriptorSet::builder()
                 .dst_set(*descriptor)
                 .dst_binding(1)
-                .descriptor_type(vk::DescriptorType::INPUT_ATTACHMENT)
-                .image_info(std::slice::from_ref(&position_image));
-            let atmosphere_buffer = atmosphere.descriptor(flight_index);
-            let atmosphere = *vk::WriteDescriptorSet::builder()
+                .descriptor_type(vk::DescriptorType::STORAGE_IMAGE)
+                .image_info(std::slice::from_ref(&bloom_image));
+            let gaussian_buffer = gaussian.descriptor(_flight_index);
+            let gaussian = *vk::WriteDescriptorSet::builder()
                 .dst_set(*descriptor)
                 .dst_binding(2)
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-                .buffer_info(std::slice::from_ref(&atmosphere_buffer));
-            let camera_buffer = camera.descriptor(flight_index);
-            let camera = *vk::WriteDescriptorSet::builder()
-                .dst_set(*descriptor)
-                .dst_binding(3)
-                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-                .buffer_info(std::slice::from_ref(&camera_buffer));
-            let writes = [render, position, atmosphere, camera];
+                .buffer_info(std::slice::from_ref(&gaussian_buffer));
+            let writes = [render, bloom, gaussian];
             unsafe { dev.update_descriptor_sets(&writes, &[]) };
         }
     }
 
-    pub fn alloc_gaussian(
+    pub fn alloc_gaussian_horizontal(
         &self,
         render: vk::ImageView,
         gaussian: &UniformBuffer<Gaussian>,
         dev: &Dev,
     ) -> [vk::DescriptorSet; FRAMES_IN_FLIGHT] {
-        let layouts = [self.gaussian_layout; FRAMES_IN_FLIGHT];
+        let layouts = [self.gaussian_horizontal_layout; FRAMES_IN_FLIGHT];
         let descriptor_set_alloc_info = vk::DescriptorSetAllocateInfo::builder()
-            .descriptor_pool(self.gaussian)
+            .descriptor_pool(self.gaussian_horizontal)
             .set_layouts(&layouts);
         let descriptors: [vk::DescriptorSet; FRAMES_IN_FLIGHT] =
             unsafe { dev.allocate_descriptor_sets(&descriptor_set_alloc_info) }
                 .unwrap()
                 .try_into()
                 .unwrap();
-        self.update_gaussian(&descriptors, render, gaussian, dev);
+        self.update_gaussian_horizontal(&descriptors, render, gaussian, dev);
         descriptors
     }
 
-    pub fn update_gaussian(
+    pub fn update_gaussian_horizontal(
         &self,
         descriptors: &[vk::DescriptorSet; FRAMES_IN_FLIGHT],
         render: vk::ImageView,
         gaussian: &UniformBuffer<Gaussian>,
         dev: &Dev,
     ) {
-        for (flight_index, descriptor) in descriptors.iter().enumerate() {
+        for (_flight_index, descriptor) in descriptors.iter().enumerate() {
+            let render_image = *vk::DescriptorImageInfo::builder()
+                .image_layout(vk::ImageLayout::GENERAL)
+                .image_view(render);
+            let render = *vk::WriteDescriptorSet::builder()
+                .dst_set(*descriptor)
+                .dst_binding(0)
+                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                .image_info(std::slice::from_ref(&render_image));
+            let gaussian_buffer = gaussian.descriptor(_flight_index);
+            let gaussian = *vk::WriteDescriptorSet::builder()
+                .dst_set(*descriptor)
+                .dst_binding(1)
+                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+                .buffer_info(std::slice::from_ref(&gaussian_buffer));
+            let writes = [render, gaussian];
+            unsafe { dev.update_descriptor_sets(&writes, &[]) };
+        }
+    }
+
+    pub fn alloc_gaussian_vertical(
+        &self,
+        render: vk::ImageView,
+        gaussian: &UniformBuffer<Gaussian>,
+        dev: &Dev,
+    ) -> [vk::DescriptorSet; FRAMES_IN_FLIGHT] {
+        let layouts = [self.gaussian_vertical_layout; FRAMES_IN_FLIGHT];
+        let descriptor_set_alloc_info = vk::DescriptorSetAllocateInfo::builder()
+            .descriptor_pool(self.gaussian_vertical)
+            .set_layouts(&layouts);
+        let descriptors: [vk::DescriptorSet; FRAMES_IN_FLIGHT] =
+            unsafe { dev.allocate_descriptor_sets(&descriptor_set_alloc_info) }
+                .unwrap()
+                .try_into()
+                .unwrap();
+        self.update_gaussian_vertical(&descriptors, render, gaussian, dev);
+        descriptors
+    }
+
+    pub fn update_gaussian_vertical(
+        &self,
+        descriptors: &[vk::DescriptorSet; FRAMES_IN_FLIGHT],
+        render: vk::ImageView,
+        gaussian: &UniformBuffer<Gaussian>,
+        dev: &Dev,
+    ) {
+        for (_flight_index, descriptor) in descriptors.iter().enumerate() {
             let render_image = *vk::DescriptorImageInfo::builder()
                 .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
                 .image_view(render);
@@ -2137,7 +2485,7 @@ impl DescriptorPools {
                 .dst_binding(0)
                 .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
                 .image_info(std::slice::from_ref(&render_image));
-            let gaussian_buffer = gaussian.descriptor(flight_index);
+            let gaussian_buffer = gaussian.descriptor(_flight_index);
             let gaussian = *vk::WriteDescriptorSet::builder()
                 .dst_set(*descriptor)
                 .dst_binding(1)
@@ -2176,7 +2524,7 @@ impl DescriptorPools {
         postprocessing: &UniformBuffer<Postprocessing>,
         dev: &Dev,
     ) {
-        for (flight_index, descriptor) in descriptors.iter().enumerate() {
+        for (_flight_index, descriptor) in descriptors.iter().enumerate() {
             let render_image = *vk::DescriptorImageInfo::builder()
                 .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
                 .image_view(render);
@@ -2193,7 +2541,7 @@ impl DescriptorPools {
                 .dst_binding(1)
                 .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
                 .image_info(std::slice::from_ref(&bloom_image));
-            let postprocessing_buffer = postprocessing.descriptor(flight_index);
+            let postprocessing_buffer = postprocessing.descriptor(_flight_index);
             let postprocessing = *vk::WriteDescriptorSet::builder()
                 .dst_set(*descriptor)
                 .dst_binding(2)
@@ -2208,8 +2556,9 @@ impl DescriptorPools {
         unsafe { dev.destroy_descriptor_pool(self.object, None) };
         unsafe { dev.destroy_descriptor_pool(self.grass, None) };
         unsafe { dev.destroy_descriptor_pool(self.skybox, None) };
-        unsafe { dev.destroy_descriptor_pool(self.atmosphere, None) };
-        unsafe { dev.destroy_descriptor_pool(self.gaussian, None) };
+        unsafe { dev.destroy_descriptor_pool(self.deferred, None) };
+        unsafe { dev.destroy_descriptor_pool(self.gaussian_horizontal, None) };
+        unsafe { dev.destroy_descriptor_pool(self.gaussian_vertical, None) };
         unsafe { dev.destroy_descriptor_pool(self.postprocess, None) };
     }
 }
@@ -2219,8 +2568,9 @@ impl PipelineLayouts {
         unsafe { dev.destroy_pipeline_layout(self.object, None) };
         unsafe { dev.destroy_pipeline_layout(self.grass, None) };
         unsafe { dev.destroy_pipeline_layout(self.skybox, None) };
-        unsafe { dev.destroy_pipeline_layout(self.atmosphere, None) };
-        unsafe { dev.destroy_pipeline_layout(self.gaussian, None) };
+        unsafe { dev.destroy_pipeline_layout(self.deferred, None) };
+        unsafe { dev.destroy_pipeline_layout(self.gaussian_horizontal, None) };
+        unsafe { dev.destroy_pipeline_layout(self.gaussian_vertical, None) };
         unsafe { dev.destroy_pipeline_layout(self.postprocess, None) };
     }
 }
@@ -2233,10 +2583,12 @@ impl ShaderModules {
         unsafe { dev.destroy_shader_module(self.grass_fragment, None) };
         unsafe { dev.destroy_shader_module(self.skybox_vertex, None) };
         unsafe { dev.destroy_shader_module(self.skybox_fragment, None) };
-        unsafe { dev.destroy_shader_module(self.atmosphere_vertex, None) };
-        unsafe { dev.destroy_shader_module(self.atmosphere_fragment, None) };
-        unsafe { dev.destroy_shader_module(self.gaussian_vertex, None) };
-        unsafe { dev.destroy_shader_module(self.gaussian_fragment, None) };
+        unsafe { dev.destroy_shader_module(self.deferred_vertex, None) };
+        unsafe { dev.destroy_shader_module(self.deferred_fragment, None) };
+        unsafe { dev.destroy_shader_module(self.gaussian_horizontal_vertex, None) };
+        unsafe { dev.destroy_shader_module(self.gaussian_horizontal_fragment, None) };
+        unsafe { dev.destroy_shader_module(self.gaussian_vertical_vertex, None) };
+        unsafe { dev.destroy_shader_module(self.gaussian_vertical_fragment, None) };
         unsafe { dev.destroy_shader_module(self.postprocess_vertex, None) };
         unsafe { dev.destroy_shader_module(self.postprocess_fragment, None) };
     }
@@ -2245,7 +2597,8 @@ impl ShaderModules {
 impl Passes {
     pub fn cleanup(&self, dev: &Dev) {
         self.render.cleanup(dev);
-        self.gaussian.cleanup(dev);
+        self.gaussian_horizontal.cleanup(dev);
+        self.gaussian_vertical.cleanup(dev);
         self.postprocess.cleanup(dev);
     }
 }
@@ -2255,37 +2608,43 @@ impl Pipelines {
         unsafe { dev.destroy_pipeline(self.object, None) };
         unsafe { dev.destroy_pipeline(self.grass, None) };
         unsafe { dev.destroy_pipeline(self.skybox, None) };
-        unsafe { dev.destroy_pipeline(self.atmosphere, None) };
-        unsafe { dev.destroy_pipeline(self.gaussian, None) };
+        unsafe { dev.destroy_pipeline(self.deferred, None) };
+        unsafe { dev.destroy_pipeline(self.gaussian_horizontal, None) };
+        unsafe { dev.destroy_pipeline(self.gaussian_vertical, None) };
         unsafe { dev.destroy_pipeline(self.postprocess, None) };
     }
 }
 
 #[rustfmt::skip]
 pub fn create_samplers(dev: &Dev) -> Samplers {
-    let pixel = unsafe { dev.create_sampler(&SCRATCH.pixel_sampler, None).unwrap_unchecked() };
+    let nearest = unsafe { dev.create_sampler(&SCRATCH.nearest_sampler, None).unwrap_unchecked() };
+    let bilinear = unsafe { dev.create_sampler(&SCRATCH.bilinear_sampler, None).unwrap_unchecked() };
     Samplers {
-        pixel,
+        nearest,
+        bilinear,
     }
 }
 
 #[rustfmt::skip]
 pub fn create_descriptor_set_layouts(samplers: &Samplers, dev: &Dev) -> DescriptorSetLayouts {
-    unsafe { SCRATCH.gaussian_bindings[0].p_immutable_samplers = &samplers.pixel };
-    unsafe { SCRATCH.postprocess_bindings[0].p_immutable_samplers = &samplers.pixel };
-    unsafe { SCRATCH.postprocess_bindings[1].p_immutable_samplers = &samplers.pixel };
+    unsafe { SCRATCH.gaussian_horizontal_bindings[0].p_immutable_samplers = &samplers.nearest };
+    unsafe { SCRATCH.gaussian_vertical_bindings[0].p_immutable_samplers = &samplers.nearest };
+    unsafe { SCRATCH.postprocess_bindings[0].p_immutable_samplers = &samplers.nearest };
+    unsafe { SCRATCH.postprocess_bindings[1].p_immutable_samplers = &samplers.bilinear };
     let object = unsafe { dev.create_descriptor_set_layout(&SCRATCH.object_layout, None).unwrap_unchecked() };
     let grass = unsafe { dev.create_descriptor_set_layout(&SCRATCH.grass_layout, None).unwrap_unchecked() };
     let skybox = unsafe { dev.create_descriptor_set_layout(&SCRATCH.skybox_layout, None).unwrap_unchecked() };
-    let atmosphere = unsafe { dev.create_descriptor_set_layout(&SCRATCH.atmosphere_layout, None).unwrap_unchecked() };
-    let gaussian = unsafe { dev.create_descriptor_set_layout(&SCRATCH.gaussian_layout, None).unwrap_unchecked() };
+    let deferred = unsafe { dev.create_descriptor_set_layout(&SCRATCH.deferred_layout, None).unwrap_unchecked() };
+    let gaussian_horizontal = unsafe { dev.create_descriptor_set_layout(&SCRATCH.gaussian_horizontal_layout, None).unwrap_unchecked() };
+    let gaussian_vertical = unsafe { dev.create_descriptor_set_layout(&SCRATCH.gaussian_vertical_layout, None).unwrap_unchecked() };
     let postprocess = unsafe { dev.create_descriptor_set_layout(&SCRATCH.postprocess_layout, None).unwrap_unchecked() };
     DescriptorSetLayouts {
         object,
         grass,
         skybox,
-        atmosphere,
-        gaussian,
+        deferred,
+        gaussian_horizontal,
+        gaussian_vertical,
         postprocess,
     }
 }
@@ -2295,8 +2654,9 @@ pub fn create_descriptor_pools(layouts: &DescriptorSetLayouts, dev: &Dev) -> Des
     let object = unsafe { dev.create_descriptor_pool(&SCRATCH.object_pool, None).unwrap_unchecked() };
     let grass = unsafe { dev.create_descriptor_pool(&SCRATCH.grass_pool, None).unwrap_unchecked() };
     let skybox = unsafe { dev.create_descriptor_pool(&SCRATCH.skybox_pool, None).unwrap_unchecked() };
-    let atmosphere = unsafe { dev.create_descriptor_pool(&SCRATCH.atmosphere_pool, None).unwrap_unchecked() };
-    let gaussian = unsafe { dev.create_descriptor_pool(&SCRATCH.gaussian_pool, None).unwrap_unchecked() };
+    let deferred = unsafe { dev.create_descriptor_pool(&SCRATCH.deferred_pool, None).unwrap_unchecked() };
+    let gaussian_horizontal = unsafe { dev.create_descriptor_pool(&SCRATCH.gaussian_horizontal_pool, None).unwrap_unchecked() };
+    let gaussian_vertical = unsafe { dev.create_descriptor_pool(&SCRATCH.gaussian_vertical_pool, None).unwrap_unchecked() };
     let postprocess = unsafe { dev.create_descriptor_pool(&SCRATCH.postprocess_pool, None).unwrap_unchecked() };
     DescriptorPools {
         object,
@@ -2305,10 +2665,12 @@ pub fn create_descriptor_pools(layouts: &DescriptorSetLayouts, dev: &Dev) -> Des
         grass_layout: layouts.grass,
         skybox,
         skybox_layout: layouts.skybox,
-        atmosphere,
-        atmosphere_layout: layouts.atmosphere,
-        gaussian,
-        gaussian_layout: layouts.gaussian,
+        deferred,
+        deferred_layout: layouts.deferred,
+        gaussian_horizontal,
+        gaussian_horizontal_layout: layouts.gaussian_horizontal,
+        gaussian_vertical,
+        gaussian_vertical_layout: layouts.gaussian_vertical,
         postprocess,
         postprocess_layout: layouts.postprocess,
     }
@@ -2319,11 +2681,17 @@ pub fn create_descriptor_pools(layouts: &DescriptorSetLayouts, dev: &Dev) -> Des
 pub fn create_render_passes(
     swapchain: &Swapchain,
     dev: &Dev,
+    debug_ext: &DebugUtils,
 ) -> Passes {
     unsafe { SCRATCH.postprocess_attachments[0].format = swapchain.format.format };
     let render = unsafe { dev.create_render_pass(&SCRATCH.render_pass, None).unwrap_unchecked() };
-    let gaussian = unsafe { dev.create_render_pass(&SCRATCH.gaussian_pass, None).unwrap_unchecked() };
+    let gaussian_horizontal = unsafe { dev.create_render_pass(&SCRATCH.gaussian_horizontal_pass, None).unwrap_unchecked() };
+    let gaussian_vertical = unsafe { dev.create_render_pass(&SCRATCH.gaussian_vertical_pass, None).unwrap_unchecked() };
     let postprocess = unsafe { dev.create_render_pass(&SCRATCH.postprocess_pass, None).unwrap_unchecked() };
+    set_label(render, "RENDER-PASS-render", debug_ext, dev);
+    set_label(gaussian_horizontal, "RENDER-PASS-gaussian_horizontal", debug_ext, dev);
+    set_label(gaussian_vertical, "RENDER-PASS-gaussian_vertical", debug_ext, dev);
+    set_label(postprocess, "RENDER-PASS-postprocess", debug_ext, dev);
     let mut framebuffer_attachments = Vec::new();
     let mut framebuffers = Vec::new();
     let mut resources = Vec::new();
@@ -2331,19 +2699,7 @@ pub fn create_render_passes(
         COLOR_FORMAT,
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
         vk::ImageTiling::OPTIMAL,
-        vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::INPUT_ATTACHMENT | vk::ImageUsageFlags::TRANSIENT_ATTACHMENT,
-        vk::ImageAspectFlags::COLOR,
-        swapchain.extent,
-        vk::SampleCountFlags::TYPE_2,
-        dev,
-    );
-    framebuffer_attachments.push(resource.view);
-    resources.push(resource);
-    let resource = ImageResources::create(
-        vk::Format::R32G32B32A32_SFLOAT,
-        vk::MemoryPropertyFlags::DEVICE_LOCAL,
-        vk::ImageTiling::OPTIMAL,
-        vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::INPUT_ATTACHMENT | vk::ImageUsageFlags::TRANSIENT_ATTACHMENT,
+        vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::INPUT_ATTACHMENT | vk::ImageUsageFlags::SAMPLED,
         vk::ImageAspectFlags::COLOR,
         swapchain.extent,
         vk::SampleCountFlags::TYPE_2,
@@ -2357,18 +2713,6 @@ pub fn create_render_passes(
         vk::ImageTiling::OPTIMAL,
         vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT | vk::ImageUsageFlags::TRANSIENT_ATTACHMENT,
         vk::ImageAspectFlags::DEPTH,
-        swapchain.extent,
-        vk::SampleCountFlags::TYPE_2,
-        dev,
-    );
-    framebuffer_attachments.push(resource.view);
-    resources.push(resource);
-    let resource = ImageResources::create(
-        COLOR_FORMAT,
-        vk::MemoryPropertyFlags::DEVICE_LOCAL,
-        vk::ImageTiling::OPTIMAL,
-        vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::SAMPLED,
-        vk::ImageAspectFlags::COLOR,
         swapchain.extent,
         vk::SampleCountFlags::TYPE_2,
         dev,
@@ -2389,7 +2733,6 @@ pub fn create_render_passes(
         pass: render,
         extent: swapchain.extent,
         clears: vec![
-            vk::ClearValue { color: vk::ClearColorValue { float32: [0.0, 0.0, 0.0, 0.0] } },
             vk::ClearValue { color: vk::ClearColorValue { float32: [0.0, 0.0, 0.0, 0.0] } },
             vk::ClearValue { depth_stencil: vk::ClearDepthStencilValue { depth: 1.0, stencil: 0 } },
         ],
@@ -2413,17 +2756,51 @@ pub fn create_render_passes(
     framebuffer_attachments.push(resource.view);
     resources.push(resource);
     let info = *vk::FramebufferCreateInfo::builder()
-        .render_pass(gaussian)
+        .render_pass(gaussian_horizontal)
         .attachments(&framebuffer_attachments)
         .width(swapchain.extent.width)
         .height(swapchain.extent.height)
         .layers(1);
     let framebuffer = unsafe { dev.create_framebuffer(&info, None) }.unwrap();
     framebuffers.push(framebuffer);
-    let gaussian = Pass {
-        debug_name: "Gaussian pass",
+    let gaussian_horizontal = Pass {
+        debug_name: "Gaussian horizontal pass",
         debug_color: [244, 244, 247],
-        pass: gaussian,
+        pass: gaussian_horizontal,
+        extent: swapchain.extent,
+        clears: vec![
+        ],
+        resources,
+        framebuffers,
+        direct_to_swapchain: false,
+    };
+    let mut framebuffer_attachments = Vec::new();
+    let mut framebuffers = Vec::new();
+    let mut resources = Vec::new();
+    let resource = ImageResources::create(
+        COLOR_FORMAT,
+        vk::MemoryPropertyFlags::DEVICE_LOCAL,
+        vk::ImageTiling::OPTIMAL,
+        vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::SAMPLED,
+        vk::ImageAspectFlags::COLOR,
+        swapchain.extent,
+        vk::SampleCountFlags::TYPE_1,
+        dev,
+    );
+    framebuffer_attachments.push(resource.view);
+    resources.push(resource);
+    let info = *vk::FramebufferCreateInfo::builder()
+        .render_pass(gaussian_vertical)
+        .attachments(&framebuffer_attachments)
+        .width(swapchain.extent.width)
+        .height(swapchain.extent.height)
+        .layers(1);
+    let framebuffer = unsafe { dev.create_framebuffer(&info, None) }.unwrap();
+    framebuffers.push(framebuffer);
+    let gaussian_vertical = Pass {
+        debug_name: "Gaussian vertical pass",
+        debug_color: [244, 244, 247],
+        pass: gaussian_vertical,
         extent: swapchain.extent,
         clears: vec![
         ],
@@ -2459,7 +2836,8 @@ pub fn create_render_passes(
     };
     Passes {
         render,
-        gaussian,
+        gaussian_horizontal,
+        gaussian_vertical,
         postprocess,
     }
 }
@@ -2472,21 +2850,24 @@ pub fn create_pipeline_layouts(
     unsafe { SCRATCH.object_pipeline_layout.p_set_layouts = &descriptor_set_layouts.object };
     unsafe { SCRATCH.grass_pipeline_layout.p_set_layouts = &descriptor_set_layouts.grass };
     unsafe { SCRATCH.skybox_pipeline_layout.p_set_layouts = &descriptor_set_layouts.skybox };
-    unsafe { SCRATCH.atmosphere_pipeline_layout.p_set_layouts = &descriptor_set_layouts.atmosphere };
-    unsafe { SCRATCH.gaussian_pipeline_layout.p_set_layouts = &descriptor_set_layouts.gaussian };
+    unsafe { SCRATCH.deferred_pipeline_layout.p_set_layouts = &descriptor_set_layouts.deferred };
+    unsafe { SCRATCH.gaussian_horizontal_pipeline_layout.p_set_layouts = &descriptor_set_layouts.gaussian_horizontal };
+    unsafe { SCRATCH.gaussian_vertical_pipeline_layout.p_set_layouts = &descriptor_set_layouts.gaussian_vertical };
     unsafe { SCRATCH.postprocess_pipeline_layout.p_set_layouts = &descriptor_set_layouts.postprocess };
     let object = unsafe { dev.create_pipeline_layout(&SCRATCH.object_pipeline_layout, None).unwrap_unchecked() };
     let grass = unsafe { dev.create_pipeline_layout(&SCRATCH.grass_pipeline_layout, None).unwrap_unchecked() };
     let skybox = unsafe { dev.create_pipeline_layout(&SCRATCH.skybox_pipeline_layout, None).unwrap_unchecked() };
-    let atmosphere = unsafe { dev.create_pipeline_layout(&SCRATCH.atmosphere_pipeline_layout, None).unwrap_unchecked() };
-    let gaussian = unsafe { dev.create_pipeline_layout(&SCRATCH.gaussian_pipeline_layout, None).unwrap_unchecked() };
+    let deferred = unsafe { dev.create_pipeline_layout(&SCRATCH.deferred_pipeline_layout, None).unwrap_unchecked() };
+    let gaussian_horizontal = unsafe { dev.create_pipeline_layout(&SCRATCH.gaussian_horizontal_pipeline_layout, None).unwrap_unchecked() };
+    let gaussian_vertical = unsafe { dev.create_pipeline_layout(&SCRATCH.gaussian_vertical_pipeline_layout, None).unwrap_unchecked() };
     let postprocess = unsafe { dev.create_pipeline_layout(&SCRATCH.postprocess_pipeline_layout, None).unwrap_unchecked() };
     PipelineLayouts {
         object,
         grass,
         skybox,
-        atmosphere,
-        gaussian,
+        deferred,
+        gaussian_horizontal,
+        gaussian_vertical,
         postprocess,
     }
 }
@@ -2499,11 +2880,13 @@ pub fn create_shaders(supports_raytracing: bool) -> Shaders {
     let grass_fragment = compile_glsl("shaders/grass.frag", shaderc::ShaderKind::Fragment, supports_raytracing);
     let skybox_vertex = compile_glsl("shaders/skybox.vert", shaderc::ShaderKind::Vertex, supports_raytracing);
     let skybox_fragment = compile_glsl("shaders/skybox.frag", shaderc::ShaderKind::Fragment, supports_raytracing);
-    let atmosphere_vertex = compile_glsl("shaders/atmosphere.vert", shaderc::ShaderKind::Vertex, supports_raytracing);
-    let atmosphere_fragment = compile_glsl("shaders/atmosphere.frag", shaderc::ShaderKind::Fragment, supports_raytracing);
-    let gaussian_vertex = compile_glsl("shaders/gaussian.vert", shaderc::ShaderKind::Vertex, supports_raytracing);
-    let gaussian_fragment = compile_glsl("shaders/gaussian.frag", shaderc::ShaderKind::Fragment, supports_raytracing);
-    let postprocess_vertex = compile_glsl("shaders/postprocess.vert", shaderc::ShaderKind::Vertex, supports_raytracing);
+    let deferred_vertex = compile_glsl("shaders/util/quad.vert", shaderc::ShaderKind::Vertex, supports_raytracing);
+    let deferred_fragment = compile_glsl("shaders/deferred.frag", shaderc::ShaderKind::Fragment, supports_raytracing);
+    let gaussian_horizontal_vertex = compile_glsl("shaders/util/quad.vert", shaderc::ShaderKind::Vertex, supports_raytracing);
+    let gaussian_horizontal_fragment = compile_glsl("shaders/gaussian.frag", shaderc::ShaderKind::Fragment, supports_raytracing);
+    let gaussian_vertical_vertex = compile_glsl("shaders/util/quad.vert", shaderc::ShaderKind::Vertex, supports_raytracing);
+    let gaussian_vertical_fragment = compile_glsl("shaders/gaussian.frag", shaderc::ShaderKind::Fragment, supports_raytracing);
+    let postprocess_vertex = compile_glsl("shaders/util/quad.vert", shaderc::ShaderKind::Vertex, supports_raytracing);
     let postprocess_fragment = compile_glsl("shaders/postprocess.frag", shaderc::ShaderKind::Fragment, supports_raytracing);
     Shaders {
         object_vertex,
@@ -2512,10 +2895,12 @@ pub fn create_shaders(supports_raytracing: bool) -> Shaders {
         grass_fragment,
         skybox_vertex,
         skybox_fragment,
-        atmosphere_vertex,
-        atmosphere_fragment,
-        gaussian_vertex,
-        gaussian_fragment,
+        deferred_vertex,
+        deferred_fragment,
+        gaussian_horizontal_vertex,
+        gaussian_horizontal_fragment,
+        gaussian_vertical_vertex,
+        gaussian_vertical_fragment,
         postprocess_vertex,
         postprocess_fragment,
     }
@@ -2529,10 +2914,12 @@ pub fn create_shader_modules(shaders: &Shaders, dev: &Dev) -> ShaderModules {
     unsafe { SCRATCH.grass_shader_fragment.code_size = 4 * shaders.grass_fragment.len() };
     unsafe { SCRATCH.skybox_shader_vertex.code_size = 4 * shaders.skybox_vertex.len() };
     unsafe { SCRATCH.skybox_shader_fragment.code_size = 4 * shaders.skybox_fragment.len() };
-    unsafe { SCRATCH.atmosphere_shader_vertex.code_size = 4 * shaders.atmosphere_vertex.len() };
-    unsafe { SCRATCH.atmosphere_shader_fragment.code_size = 4 * shaders.atmosphere_fragment.len() };
-    unsafe { SCRATCH.gaussian_shader_vertex.code_size = 4 * shaders.gaussian_vertex.len() };
-    unsafe { SCRATCH.gaussian_shader_fragment.code_size = 4 * shaders.gaussian_fragment.len() };
+    unsafe { SCRATCH.deferred_shader_vertex.code_size = 4 * shaders.deferred_vertex.len() };
+    unsafe { SCRATCH.deferred_shader_fragment.code_size = 4 * shaders.deferred_fragment.len() };
+    unsafe { SCRATCH.gaussian_horizontal_shader_vertex.code_size = 4 * shaders.gaussian_horizontal_vertex.len() };
+    unsafe { SCRATCH.gaussian_horizontal_shader_fragment.code_size = 4 * shaders.gaussian_horizontal_fragment.len() };
+    unsafe { SCRATCH.gaussian_vertical_shader_vertex.code_size = 4 * shaders.gaussian_vertical_vertex.len() };
+    unsafe { SCRATCH.gaussian_vertical_shader_fragment.code_size = 4 * shaders.gaussian_vertical_fragment.len() };
     unsafe { SCRATCH.postprocess_shader_vertex.code_size = 4 * shaders.postprocess_vertex.len() };
     unsafe { SCRATCH.postprocess_shader_fragment.code_size = 4 * shaders.postprocess_fragment.len() };
     unsafe { SCRATCH.object_shader_vertex.p_code = shaders.object_vertex.as_ptr() };
@@ -2541,10 +2928,12 @@ pub fn create_shader_modules(shaders: &Shaders, dev: &Dev) -> ShaderModules {
     unsafe { SCRATCH.grass_shader_fragment.p_code = shaders.grass_fragment.as_ptr() };
     unsafe { SCRATCH.skybox_shader_vertex.p_code = shaders.skybox_vertex.as_ptr() };
     unsafe { SCRATCH.skybox_shader_fragment.p_code = shaders.skybox_fragment.as_ptr() };
-    unsafe { SCRATCH.atmosphere_shader_vertex.p_code = shaders.atmosphere_vertex.as_ptr() };
-    unsafe { SCRATCH.atmosphere_shader_fragment.p_code = shaders.atmosphere_fragment.as_ptr() };
-    unsafe { SCRATCH.gaussian_shader_vertex.p_code = shaders.gaussian_vertex.as_ptr() };
-    unsafe { SCRATCH.gaussian_shader_fragment.p_code = shaders.gaussian_fragment.as_ptr() };
+    unsafe { SCRATCH.deferred_shader_vertex.p_code = shaders.deferred_vertex.as_ptr() };
+    unsafe { SCRATCH.deferred_shader_fragment.p_code = shaders.deferred_fragment.as_ptr() };
+    unsafe { SCRATCH.gaussian_horizontal_shader_vertex.p_code = shaders.gaussian_horizontal_vertex.as_ptr() };
+    unsafe { SCRATCH.gaussian_horizontal_shader_fragment.p_code = shaders.gaussian_horizontal_fragment.as_ptr() };
+    unsafe { SCRATCH.gaussian_vertical_shader_vertex.p_code = shaders.gaussian_vertical_vertex.as_ptr() };
+    unsafe { SCRATCH.gaussian_vertical_shader_fragment.p_code = shaders.gaussian_vertical_fragment.as_ptr() };
     unsafe { SCRATCH.postprocess_shader_vertex.p_code = shaders.postprocess_vertex.as_ptr() };
     unsafe { SCRATCH.postprocess_shader_fragment.p_code = shaders.postprocess_fragment.as_ptr() };
     let object_vertex = unsafe { dev.create_shader_module(&SCRATCH.object_shader_vertex, None).unwrap_unchecked() };
@@ -2553,10 +2942,12 @@ pub fn create_shader_modules(shaders: &Shaders, dev: &Dev) -> ShaderModules {
     let grass_fragment = unsafe { dev.create_shader_module(&SCRATCH.grass_shader_fragment, None).unwrap_unchecked() };
     let skybox_vertex = unsafe { dev.create_shader_module(&SCRATCH.skybox_shader_vertex, None).unwrap_unchecked() };
     let skybox_fragment = unsafe { dev.create_shader_module(&SCRATCH.skybox_shader_fragment, None).unwrap_unchecked() };
-    let atmosphere_vertex = unsafe { dev.create_shader_module(&SCRATCH.atmosphere_shader_vertex, None).unwrap_unchecked() };
-    let atmosphere_fragment = unsafe { dev.create_shader_module(&SCRATCH.atmosphere_shader_fragment, None).unwrap_unchecked() };
-    let gaussian_vertex = unsafe { dev.create_shader_module(&SCRATCH.gaussian_shader_vertex, None).unwrap_unchecked() };
-    let gaussian_fragment = unsafe { dev.create_shader_module(&SCRATCH.gaussian_shader_fragment, None).unwrap_unchecked() };
+    let deferred_vertex = unsafe { dev.create_shader_module(&SCRATCH.deferred_shader_vertex, None).unwrap_unchecked() };
+    let deferred_fragment = unsafe { dev.create_shader_module(&SCRATCH.deferred_shader_fragment, None).unwrap_unchecked() };
+    let gaussian_horizontal_vertex = unsafe { dev.create_shader_module(&SCRATCH.gaussian_horizontal_shader_vertex, None).unwrap_unchecked() };
+    let gaussian_horizontal_fragment = unsafe { dev.create_shader_module(&SCRATCH.gaussian_horizontal_shader_fragment, None).unwrap_unchecked() };
+    let gaussian_vertical_vertex = unsafe { dev.create_shader_module(&SCRATCH.gaussian_vertical_shader_vertex, None).unwrap_unchecked() };
+    let gaussian_vertical_fragment = unsafe { dev.create_shader_module(&SCRATCH.gaussian_vertical_shader_fragment, None).unwrap_unchecked() };
     let postprocess_vertex = unsafe { dev.create_shader_module(&SCRATCH.postprocess_shader_vertex, None).unwrap_unchecked() };
     let postprocess_fragment = unsafe { dev.create_shader_module(&SCRATCH.postprocess_shader_fragment, None).unwrap_unchecked() };
     ShaderModules {
@@ -2566,10 +2957,12 @@ pub fn create_shader_modules(shaders: &Shaders, dev: &Dev) -> ShaderModules {
         grass_fragment,
         skybox_vertex,
         skybox_fragment,
-        atmosphere_vertex,
-        atmosphere_fragment,
-        gaussian_vertex,
-        gaussian_fragment,
+        deferred_vertex,
+        deferred_fragment,
+        gaussian_horizontal_vertex,
+        gaussian_horizontal_fragment,
+        gaussian_vertical_vertex,
+        gaussian_vertical_fragment,
         postprocess_vertex,
         postprocess_fragment,
     }
@@ -2578,7 +2971,8 @@ pub fn create_shader_modules(shaders: &Shaders, dev: &Dev) -> ShaderModules {
 #[rustfmt::skip]
 pub fn create_pipelines(
     render: &Pass,
-    gaussian: &Pass,
+    gaussian_horizontal: &Pass,
+    gaussian_vertical: &Pass,
     postprocess: &Pass,
     _msaa_samples: vk::SampleCountFlags,
     swapchain: &Swapchain,
@@ -2596,10 +2990,12 @@ pub fn create_pipelines(
     unsafe { SCRATCH.grass_shader_stages[1].module = shader_modules.grass_fragment };
     unsafe { SCRATCH.skybox_shader_stages[0].module = shader_modules.skybox_vertex };
     unsafe { SCRATCH.skybox_shader_stages[1].module = shader_modules.skybox_fragment };
-    unsafe { SCRATCH.atmosphere_shader_stages[0].module = shader_modules.atmosphere_vertex };
-    unsafe { SCRATCH.atmosphere_shader_stages[1].module = shader_modules.atmosphere_fragment };
-    unsafe { SCRATCH.gaussian_shader_stages[0].module = shader_modules.gaussian_vertex };
-    unsafe { SCRATCH.gaussian_shader_stages[1].module = shader_modules.gaussian_fragment };
+    unsafe { SCRATCH.deferred_shader_stages[0].module = shader_modules.deferred_vertex };
+    unsafe { SCRATCH.deferred_shader_stages[1].module = shader_modules.deferred_fragment };
+    unsafe { SCRATCH.gaussian_horizontal_shader_stages[0].module = shader_modules.gaussian_horizontal_vertex };
+    unsafe { SCRATCH.gaussian_horizontal_shader_stages[1].module = shader_modules.gaussian_horizontal_fragment };
+    unsafe { SCRATCH.gaussian_vertical_shader_stages[0].module = shader_modules.gaussian_vertical_vertex };
+    unsafe { SCRATCH.gaussian_vertical_shader_stages[1].module = shader_modules.gaussian_vertical_fragment };
     unsafe { SCRATCH.postprocess_shader_stages[0].module = shader_modules.postprocess_vertex };
     unsafe { SCRATCH.postprocess_shader_stages[1].module = shader_modules.postprocess_fragment };
     unsafe { SCRATCH.object_pipeline.layout = layouts.object };
@@ -2608,17 +3004,19 @@ pub fn create_pipelines(
     unsafe { SCRATCH.grass_pipeline.render_pass = render.pass };
     unsafe { SCRATCH.skybox_pipeline.layout = layouts.skybox };
     unsafe { SCRATCH.skybox_pipeline.render_pass = render.pass };
-    unsafe { SCRATCH.atmosphere_pipeline.layout = layouts.atmosphere };
-    unsafe { SCRATCH.atmosphere_pipeline.render_pass = render.pass };
-    unsafe { SCRATCH.gaussian_pipeline.layout = layouts.gaussian };
-    unsafe { SCRATCH.gaussian_pipeline.render_pass = gaussian.pass };
+    unsafe { SCRATCH.deferred_pipeline.layout = layouts.deferred };
+    unsafe { SCRATCH.deferred_pipeline.render_pass = render.pass };
+    unsafe { SCRATCH.gaussian_horizontal_pipeline.layout = layouts.gaussian_horizontal };
+    unsafe { SCRATCH.gaussian_horizontal_pipeline.render_pass = gaussian_horizontal.pass };
+    unsafe { SCRATCH.gaussian_vertical_pipeline.layout = layouts.gaussian_vertical };
+    unsafe { SCRATCH.gaussian_vertical_pipeline.render_pass = gaussian_vertical.pass };
     unsafe { SCRATCH.postprocess_pipeline.layout = layouts.postprocess };
     unsafe { SCRATCH.postprocess_pipeline.render_pass = postprocess.pass };
     let mut pipelines = MaybeUninit::uninit();
     let _ = unsafe { (dev.fp_v1_0().create_graphics_pipelines)(
         dev.handle(),
         vk::PipelineCache::null(),
-        6,
+        7,
         &SCRATCH.object_pipeline,
         std::ptr::null(),
         pipelines.as_mut_ptr() as *mut vk::Pipeline,
