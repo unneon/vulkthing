@@ -306,9 +306,6 @@ struct Scratch {{"#
     writeln!(
         file,
         r#"    assembly: vk::PipelineInputAssemblyStateCreateInfo,
-    viewport: vk::Viewport,
-    scissor: vk::Rect2D,
-    viewport_state: vk::PipelineViewportStateCreateInfo,
     dynamic_state: vk::PipelineDynamicStateCreateInfo,"#
     )
     .unwrap();
@@ -329,6 +326,9 @@ struct Scratch {{"#
     {pipeline}_vertex_bindings: [vk::VertexInputBindingDescription; {binding_count}],
     {pipeline}_vertex_attributes: [vk::VertexInputAttributeDescription; {attribute_count}],
     {pipeline}_vertex: vk::PipelineVertexInputStateCreateInfo,
+    {pipeline}_viewport: vk::Viewport,
+    {pipeline}_scissor: vk::Rect2D,
+    {pipeline}_viewport_state: vk::PipelineViewportStateCreateInfo,
     {pipeline}_rasterizer: vk::PipelineRasterizationStateCreateInfo,
     {pipeline}_multisampling: vk::PipelineMultisampleStateCreateInfo,
     {pipeline}_blend_attachments: [vk::PipelineColorBlendAttachmentState; {}],
@@ -645,27 +645,6 @@ static mut SCRATCH: Scratch = Scratch {{"#
         topology: vk::PrimitiveTopology::TRIANGLE_LIST,
         primitive_restart_enable: 0,
     }},
-    viewport: vk::Viewport {{
-        x: 0.,
-        y: 0.,
-        width: 0.,
-        height: 0.,
-        min_depth: 0.,
-        max_depth: 1.,
-    }},
-    scissor: vk::Rect2D {{
-        offset: vk::Offset2D {{ x: 0, y: 0 }},
-        extent: vk::Extent2D {{ width: 0, height: 0 }},
-    }},
-    viewport_state: vk::PipelineViewportStateCreateInfo {{
-        s_type: vk::StructureType::PIPELINE_VIEWPORT_STATE_CREATE_INFO,
-        p_next: std::ptr::null(),
-        flags: vk::PipelineViewportStateCreateFlags::empty(),
-        viewport_count: 1,
-        p_viewports: unsafe {{ &SCRATCH.viewport }},
-        scissor_count: 1,
-        p_scissors: unsafe {{ &SCRATCH.scissor }},
-    }},
     dynamic_state: vk::PipelineDynamicStateCreateInfo {{
         s_type: vk::StructureType::PIPELINE_DYNAMIC_STATE_CREATE_INFO,
         p_next: std::ptr::null(),
@@ -786,6 +765,27 @@ static mut SCRATCH: Scratch = Scratch {{"#
         vertex_attribute_description_count: {attribute_count},
         p_vertex_attribute_descriptions: unsafe {{ SCRATCH.{pipeline}_vertex_attributes.as_ptr() }},
     }},
+    {pipeline}_viewport: vk::Viewport {{
+        x: 0.,
+        y: 0.,
+        width: 0.,
+        height: 0.,
+        min_depth: 0.,
+        max_depth: 1.,
+    }},
+    {pipeline}_scissor: vk::Rect2D {{
+        offset: vk::Offset2D {{ x: 0, y: 0 }},
+        extent: vk::Extent2D {{ width: 0, height: 0 }},
+    }},
+    {pipeline}_viewport_state: vk::PipelineViewportStateCreateInfo {{
+        s_type: vk::StructureType::PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::PipelineViewportStateCreateFlags::empty(),
+        viewport_count: 1,
+        p_viewports: unsafe {{ &SCRATCH.{pipeline}_viewport }},
+        scissor_count: 1,
+        p_scissors: unsafe {{ &SCRATCH.{pipeline}_scissor }},
+    }},
     {pipeline}_rasterizer: vk::PipelineRasterizationStateCreateInfo {{
         s_type: vk::StructureType::PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
         p_next: std::ptr::null(),
@@ -889,7 +889,7 @@ static mut SCRATCH: Scratch = Scratch {{"#
         p_vertex_input_state: unsafe {{ &SCRATCH.{pipeline}_vertex }},
         p_input_assembly_state: unsafe {{ &SCRATCH.assembly }},
         p_tessellation_state: std::ptr::null(),
-        p_viewport_state: unsafe {{ &SCRATCH.viewport_state }},
+        p_viewport_state: unsafe {{ &SCRATCH.{pipeline}_viewport_state }},
         p_rasterization_state: unsafe {{ &SCRATCH.{pipeline}_rasterizer }},
         p_multisample_state: unsafe {{ &SCRATCH.{pipeline}_multisampling }},
         p_depth_stencil_state: unsafe {{ &SCRATCH.{pipeline}_depth }},
@@ -1236,6 +1236,7 @@ pub fn create_descriptor_pools(layouts: &DescriptorSetLayouts, dev: &Dev) -> Des
 }}
 
 #[allow(unused_mut)]
+#[allow(clippy::identity_op)]
 #[rustfmt::skip]
 pub fn create_render_passes(
     swapchain: &Swapchain,
@@ -1262,9 +1263,17 @@ pub fn create_render_passes(
         .unwrap();
     }
     for pass in &renderer.passes {
+        let downscale = pass
+            .resolution
+            .as_ref()
+            .map_or(1, |resolution| resolution.downscaled);
         writeln!(
             file,
-            r#"    let mut framebuffer_attachments = Vec::new();
+            r#"    let extent = vk::Extent2D {{
+        width: swapchain.extent.width / {downscale},
+        height: swapchain.extent.height / {downscale},
+    }};
+    let mut framebuffer_attachments = Vec::new();
     let mut framebuffers = Vec::new();
     let mut resources = Vec::new();"#
         )
@@ -1305,7 +1314,7 @@ pub fn create_render_passes(
         vk::ImageTiling::OPTIMAL,
         {flags},
         vk::ImageAspectFlags::{aspect},
-        swapchain.extent,
+        extent,
         vk::SampleCountFlags::{samples},
         dev,
     );
@@ -1326,8 +1335,8 @@ pub fn create_render_passes(
             r#"    let info = *vk::FramebufferCreateInfo::builder()
         .render_pass({pass})
         .attachments(&framebuffer_attachments)
-        .width(swapchain.extent.width)
-        .height(swapchain.extent.height)
+        .width(extent.width)
+        .height(extent.height)
         .layers(1);"#
         )
         .unwrap();
@@ -1361,7 +1370,7 @@ pub fn create_render_passes(
         debug_name: {debug_name:?},
         debug_color: [{debug_r}, {debug_g}, {debug_b}],
         pass: {pass},
-        extent: swapchain.extent,
+        extent,
         clears: vec!["#
         )
         .unwrap();
@@ -1490,6 +1499,7 @@ pub fn create_shader_modules(shaders: &Shaders, dev: &Dev) -> ShaderModules {{"#
 }}
 
 #[rustfmt::skip]
+#[allow(clippy::identity_op)]
 pub fn create_pipelines("#
     )
     .unwrap();
@@ -1503,18 +1513,22 @@ pub fn create_pipelines("#
     shader_modules: &ShaderModules,
     layouts: &PipelineLayouts,
     dev: &Dev,
-) -> Pipelines {{
-    unsafe {{ SCRATCH.viewport.width = swapchain.extent.width as f32 }};
-    unsafe {{ SCRATCH.viewport.height = swapchain.extent.height as f32 }};
-    unsafe {{ SCRATCH.scissor.extent.width = swapchain.extent.width }};
-    unsafe {{ SCRATCH.scissor.extent.height = swapchain.extent.height }};"#
+) -> Pipelines {{"#
     )
     .unwrap();
-    for_pipelines(renderer, |_, _, _, pipeline| {
+    for_pipelines(renderer, |pass, _, _, pipeline| {
+        let downscale = pass
+            .resolution
+            .as_ref()
+            .map_or(1, |resolution| resolution.downscaled);
         writeln!(
             file,
             r#"    unsafe {{ SCRATCH.{pipeline}_shader_stages[0].module = shader_modules.{pipeline}_vertex }};
-    unsafe {{ SCRATCH.{pipeline}_shader_stages[1].module = shader_modules.{pipeline}_fragment }};"#
+    unsafe {{ SCRATCH.{pipeline}_shader_stages[1].module = shader_modules.{pipeline}_fragment }};
+    unsafe {{ SCRATCH.{pipeline}_viewport.width = (swapchain.extent.width / {downscale}) as f32 }};
+    unsafe {{ SCRATCH.{pipeline}_viewport.height = (swapchain.extent.height / {downscale}) as f32 }};
+    unsafe {{ SCRATCH.{pipeline}_scissor.extent.width = swapchain.extent.width / {downscale} }};
+    unsafe {{ SCRATCH.{pipeline}_scissor.extent.height = swapchain.extent.height / {downscale} }};"#
         )
             .unwrap();
     });

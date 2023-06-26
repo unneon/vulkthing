@@ -122,6 +122,7 @@ pass "render" {
 pass "gaussian_horizontal" {
     debug-name "Gaussian horizontal pass"
     debug-color 244 244 247
+    resolution downscaled=2
     subpass "gaussian" {
         color-attachment "gaussian-after-horizontal" {
             layout "COLOR_ATTACHMENT_OPTIMAL"
@@ -138,6 +139,7 @@ pass "gaussian_horizontal" {
 pass "gaussian_vertical" {
     debug-name "Gaussian vertical pass"
     debug-color 244 244 247
+    resolution downscaled=2
     subpass "gaussian" {
         color-attachment "gaussian-after-both" {
             layout "COLOR_ATTACHMENT_OPTIMAL"

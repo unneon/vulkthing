@@ -162,9 +162,6 @@ struct Scratch {
     postprocess_pool_sizes: [vk::DescriptorPoolSize; 2],
     postprocess_pool: vk::DescriptorPoolCreateInfo,
     assembly: vk::PipelineInputAssemblyStateCreateInfo,
-    viewport: vk::Viewport,
-    scissor: vk::Rect2D,
-    viewport_state: vk::PipelineViewportStateCreateInfo,
     dynamic_state: vk::PipelineDynamicStateCreateInfo,
     object_pipeline_layout: vk::PipelineLayoutCreateInfo,
     object_shader_vertex: vk::ShaderModuleCreateInfo,
@@ -173,6 +170,9 @@ struct Scratch {
     object_vertex_bindings: [vk::VertexInputBindingDescription; 1],
     object_vertex_attributes: [vk::VertexInputAttributeDescription; 2],
     object_vertex: vk::PipelineVertexInputStateCreateInfo,
+    object_viewport: vk::Viewport,
+    object_scissor: vk::Rect2D,
+    object_viewport_state: vk::PipelineViewportStateCreateInfo,
     object_rasterizer: vk::PipelineRasterizationStateCreateInfo,
     object_multisampling: vk::PipelineMultisampleStateCreateInfo,
     object_blend_attachments: [vk::PipelineColorBlendAttachmentState; 1],
@@ -185,6 +185,9 @@ struct Scratch {
     grass_vertex_bindings: [vk::VertexInputBindingDescription; 2],
     grass_vertex_attributes: [vk::VertexInputAttributeDescription; 8],
     grass_vertex: vk::PipelineVertexInputStateCreateInfo,
+    grass_viewport: vk::Viewport,
+    grass_scissor: vk::Rect2D,
+    grass_viewport_state: vk::PipelineViewportStateCreateInfo,
     grass_rasterizer: vk::PipelineRasterizationStateCreateInfo,
     grass_multisampling: vk::PipelineMultisampleStateCreateInfo,
     grass_blend_attachments: [vk::PipelineColorBlendAttachmentState; 1],
@@ -197,6 +200,9 @@ struct Scratch {
     skybox_vertex_bindings: [vk::VertexInputBindingDescription; 1],
     skybox_vertex_attributes: [vk::VertexInputAttributeDescription; 1],
     skybox_vertex: vk::PipelineVertexInputStateCreateInfo,
+    skybox_viewport: vk::Viewport,
+    skybox_scissor: vk::Rect2D,
+    skybox_viewport_state: vk::PipelineViewportStateCreateInfo,
     skybox_rasterizer: vk::PipelineRasterizationStateCreateInfo,
     skybox_multisampling: vk::PipelineMultisampleStateCreateInfo,
     skybox_blend_attachments: [vk::PipelineColorBlendAttachmentState; 1],
@@ -209,6 +215,9 @@ struct Scratch {
     deferred_vertex_bindings: [vk::VertexInputBindingDescription; 0],
     deferred_vertex_attributes: [vk::VertexInputAttributeDescription; 0],
     deferred_vertex: vk::PipelineVertexInputStateCreateInfo,
+    deferred_viewport: vk::Viewport,
+    deferred_scissor: vk::Rect2D,
+    deferred_viewport_state: vk::PipelineViewportStateCreateInfo,
     deferred_rasterizer: vk::PipelineRasterizationStateCreateInfo,
     deferred_multisampling: vk::PipelineMultisampleStateCreateInfo,
     deferred_blend_attachments: [vk::PipelineColorBlendAttachmentState; 0],
@@ -221,6 +230,9 @@ struct Scratch {
     gaussian_horizontal_vertex_bindings: [vk::VertexInputBindingDescription; 0],
     gaussian_horizontal_vertex_attributes: [vk::VertexInputAttributeDescription; 0],
     gaussian_horizontal_vertex: vk::PipelineVertexInputStateCreateInfo,
+    gaussian_horizontal_viewport: vk::Viewport,
+    gaussian_horizontal_scissor: vk::Rect2D,
+    gaussian_horizontal_viewport_state: vk::PipelineViewportStateCreateInfo,
     gaussian_horizontal_rasterizer: vk::PipelineRasterizationStateCreateInfo,
     gaussian_horizontal_multisampling: vk::PipelineMultisampleStateCreateInfo,
     gaussian_horizontal_blend_attachments: [vk::PipelineColorBlendAttachmentState; 1],
@@ -233,6 +245,9 @@ struct Scratch {
     gaussian_vertical_vertex_bindings: [vk::VertexInputBindingDescription; 0],
     gaussian_vertical_vertex_attributes: [vk::VertexInputAttributeDescription; 0],
     gaussian_vertical_vertex: vk::PipelineVertexInputStateCreateInfo,
+    gaussian_vertical_viewport: vk::Viewport,
+    gaussian_vertical_scissor: vk::Rect2D,
+    gaussian_vertical_viewport_state: vk::PipelineViewportStateCreateInfo,
     gaussian_vertical_rasterizer: vk::PipelineRasterizationStateCreateInfo,
     gaussian_vertical_multisampling: vk::PipelineMultisampleStateCreateInfo,
     gaussian_vertical_blend_attachments: [vk::PipelineColorBlendAttachmentState; 1],
@@ -245,6 +260,9 @@ struct Scratch {
     postprocess_vertex_bindings: [vk::VertexInputBindingDescription; 0],
     postprocess_vertex_attributes: [vk::VertexInputAttributeDescription; 0],
     postprocess_vertex: vk::PipelineVertexInputStateCreateInfo,
+    postprocess_viewport: vk::Viewport,
+    postprocess_scissor: vk::Rect2D,
+    postprocess_viewport_state: vk::PipelineViewportStateCreateInfo,
     postprocess_rasterizer: vk::PipelineRasterizationStateCreateInfo,
     postprocess_multisampling: vk::PipelineMultisampleStateCreateInfo,
     postprocess_blend_attachments: [vk::PipelineColorBlendAttachmentState; 1],
@@ -912,27 +930,6 @@ static mut SCRATCH: Scratch = Scratch {
         topology: vk::PrimitiveTopology::TRIANGLE_LIST,
         primitive_restart_enable: 0,
     },
-    viewport: vk::Viewport {
-        x: 0.,
-        y: 0.,
-        width: 0.,
-        height: 0.,
-        min_depth: 0.,
-        max_depth: 1.,
-    },
-    scissor: vk::Rect2D {
-        offset: vk::Offset2D { x: 0, y: 0 },
-        extent: vk::Extent2D { width: 0, height: 0 },
-    },
-    viewport_state: vk::PipelineViewportStateCreateInfo {
-        s_type: vk::StructureType::PIPELINE_VIEWPORT_STATE_CREATE_INFO,
-        p_next: std::ptr::null(),
-        flags: vk::PipelineViewportStateCreateFlags::empty(),
-        viewport_count: 1,
-        p_viewports: unsafe { &SCRATCH.viewport },
-        scissor_count: 1,
-        p_scissors: unsafe { &SCRATCH.scissor },
-    },
     dynamic_state: vk::PipelineDynamicStateCreateInfo {
         s_type: vk::StructureType::PIPELINE_DYNAMIC_STATE_CREATE_INFO,
         p_next: std::ptr::null(),
@@ -1012,6 +1009,27 @@ static mut SCRATCH: Scratch = Scratch {
         p_vertex_binding_descriptions: unsafe { SCRATCH.object_vertex_bindings.as_ptr() },
         vertex_attribute_description_count: 2,
         p_vertex_attribute_descriptions: unsafe { SCRATCH.object_vertex_attributes.as_ptr() },
+    },
+    object_viewport: vk::Viewport {
+        x: 0.,
+        y: 0.,
+        width: 0.,
+        height: 0.,
+        min_depth: 0.,
+        max_depth: 1.,
+    },
+    object_scissor: vk::Rect2D {
+        offset: vk::Offset2D { x: 0, y: 0 },
+        extent: vk::Extent2D { width: 0, height: 0 },
+    },
+    object_viewport_state: vk::PipelineViewportStateCreateInfo {
+        s_type: vk::StructureType::PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::PipelineViewportStateCreateFlags::empty(),
+        viewport_count: 1,
+        p_viewports: unsafe { &SCRATCH.object_viewport },
+        scissor_count: 1,
+        p_scissors: unsafe { &SCRATCH.object_scissor },
     },
     object_rasterizer: vk::PipelineRasterizationStateCreateInfo {
         s_type: vk::StructureType::PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
@@ -1100,7 +1118,7 @@ static mut SCRATCH: Scratch = Scratch {
         p_vertex_input_state: unsafe { &SCRATCH.object_vertex },
         p_input_assembly_state: unsafe { &SCRATCH.assembly },
         p_tessellation_state: std::ptr::null(),
-        p_viewport_state: unsafe { &SCRATCH.viewport_state },
+        p_viewport_state: unsafe { &SCRATCH.object_viewport_state },
         p_rasterization_state: unsafe { &SCRATCH.object_rasterizer },
         p_multisample_state: unsafe { &SCRATCH.object_multisampling },
         p_depth_stencil_state: unsafe { &SCRATCH.object_depth },
@@ -1226,6 +1244,27 @@ static mut SCRATCH: Scratch = Scratch {
         vertex_attribute_description_count: 8,
         p_vertex_attribute_descriptions: unsafe { SCRATCH.grass_vertex_attributes.as_ptr() },
     },
+    grass_viewport: vk::Viewport {
+        x: 0.,
+        y: 0.,
+        width: 0.,
+        height: 0.,
+        min_depth: 0.,
+        max_depth: 1.,
+    },
+    grass_scissor: vk::Rect2D {
+        offset: vk::Offset2D { x: 0, y: 0 },
+        extent: vk::Extent2D { width: 0, height: 0 },
+    },
+    grass_viewport_state: vk::PipelineViewportStateCreateInfo {
+        s_type: vk::StructureType::PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::PipelineViewportStateCreateFlags::empty(),
+        viewport_count: 1,
+        p_viewports: unsafe { &SCRATCH.grass_viewport },
+        scissor_count: 1,
+        p_scissors: unsafe { &SCRATCH.grass_scissor },
+    },
     grass_rasterizer: vk::PipelineRasterizationStateCreateInfo {
         s_type: vk::StructureType::PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
         p_next: std::ptr::null(),
@@ -1313,7 +1352,7 @@ static mut SCRATCH: Scratch = Scratch {
         p_vertex_input_state: unsafe { &SCRATCH.grass_vertex },
         p_input_assembly_state: unsafe { &SCRATCH.assembly },
         p_tessellation_state: std::ptr::null(),
-        p_viewport_state: unsafe { &SCRATCH.viewport_state },
+        p_viewport_state: unsafe { &SCRATCH.grass_viewport_state },
         p_rasterization_state: unsafe { &SCRATCH.grass_rasterizer },
         p_multisample_state: unsafe { &SCRATCH.grass_multisampling },
         p_depth_stencil_state: unsafe { &SCRATCH.grass_depth },
@@ -1391,6 +1430,27 @@ static mut SCRATCH: Scratch = Scratch {
         p_vertex_binding_descriptions: unsafe { SCRATCH.skybox_vertex_bindings.as_ptr() },
         vertex_attribute_description_count: 1,
         p_vertex_attribute_descriptions: unsafe { SCRATCH.skybox_vertex_attributes.as_ptr() },
+    },
+    skybox_viewport: vk::Viewport {
+        x: 0.,
+        y: 0.,
+        width: 0.,
+        height: 0.,
+        min_depth: 0.,
+        max_depth: 1.,
+    },
+    skybox_scissor: vk::Rect2D {
+        offset: vk::Offset2D { x: 0, y: 0 },
+        extent: vk::Extent2D { width: 0, height: 0 },
+    },
+    skybox_viewport_state: vk::PipelineViewportStateCreateInfo {
+        s_type: vk::StructureType::PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::PipelineViewportStateCreateFlags::empty(),
+        viewport_count: 1,
+        p_viewports: unsafe { &SCRATCH.skybox_viewport },
+        scissor_count: 1,
+        p_scissors: unsafe { &SCRATCH.skybox_scissor },
     },
     skybox_rasterizer: vk::PipelineRasterizationStateCreateInfo {
         s_type: vk::StructureType::PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
@@ -1479,7 +1539,7 @@ static mut SCRATCH: Scratch = Scratch {
         p_vertex_input_state: unsafe { &SCRATCH.skybox_vertex },
         p_input_assembly_state: unsafe { &SCRATCH.assembly },
         p_tessellation_state: std::ptr::null(),
-        p_viewport_state: unsafe { &SCRATCH.viewport_state },
+        p_viewport_state: unsafe { &SCRATCH.skybox_viewport_state },
         p_rasterization_state: unsafe { &SCRATCH.skybox_rasterizer },
         p_multisample_state: unsafe { &SCRATCH.skybox_multisampling },
         p_depth_stencil_state: unsafe { &SCRATCH.skybox_depth },
@@ -1546,6 +1606,27 @@ static mut SCRATCH: Scratch = Scratch {
         p_vertex_binding_descriptions: unsafe { SCRATCH.deferred_vertex_bindings.as_ptr() },
         vertex_attribute_description_count: 0,
         p_vertex_attribute_descriptions: unsafe { SCRATCH.deferred_vertex_attributes.as_ptr() },
+    },
+    deferred_viewport: vk::Viewport {
+        x: 0.,
+        y: 0.,
+        width: 0.,
+        height: 0.,
+        min_depth: 0.,
+        max_depth: 1.,
+    },
+    deferred_scissor: vk::Rect2D {
+        offset: vk::Offset2D { x: 0, y: 0 },
+        extent: vk::Extent2D { width: 0, height: 0 },
+    },
+    deferred_viewport_state: vk::PipelineViewportStateCreateInfo {
+        s_type: vk::StructureType::PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::PipelineViewportStateCreateFlags::empty(),
+        viewport_count: 1,
+        p_viewports: unsafe { &SCRATCH.deferred_viewport },
+        scissor_count: 1,
+        p_scissors: unsafe { &SCRATCH.deferred_scissor },
     },
     deferred_rasterizer: vk::PipelineRasterizationStateCreateInfo {
         s_type: vk::StructureType::PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
@@ -1624,7 +1705,7 @@ static mut SCRATCH: Scratch = Scratch {
         p_vertex_input_state: unsafe { &SCRATCH.deferred_vertex },
         p_input_assembly_state: unsafe { &SCRATCH.assembly },
         p_tessellation_state: std::ptr::null(),
-        p_viewport_state: unsafe { &SCRATCH.viewport_state },
+        p_viewport_state: unsafe { &SCRATCH.deferred_viewport_state },
         p_rasterization_state: unsafe { &SCRATCH.deferred_rasterizer },
         p_multisample_state: unsafe { &SCRATCH.deferred_multisampling },
         p_depth_stencil_state: unsafe { &SCRATCH.deferred_depth },
@@ -1691,6 +1772,27 @@ static mut SCRATCH: Scratch = Scratch {
         p_vertex_binding_descriptions: unsafe { SCRATCH.gaussian_horizontal_vertex_bindings.as_ptr() },
         vertex_attribute_description_count: 0,
         p_vertex_attribute_descriptions: unsafe { SCRATCH.gaussian_horizontal_vertex_attributes.as_ptr() },
+    },
+    gaussian_horizontal_viewport: vk::Viewport {
+        x: 0.,
+        y: 0.,
+        width: 0.,
+        height: 0.,
+        min_depth: 0.,
+        max_depth: 1.,
+    },
+    gaussian_horizontal_scissor: vk::Rect2D {
+        offset: vk::Offset2D { x: 0, y: 0 },
+        extent: vk::Extent2D { width: 0, height: 0 },
+    },
+    gaussian_horizontal_viewport_state: vk::PipelineViewportStateCreateInfo {
+        s_type: vk::StructureType::PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::PipelineViewportStateCreateFlags::empty(),
+        viewport_count: 1,
+        p_viewports: unsafe { &SCRATCH.gaussian_horizontal_viewport },
+        scissor_count: 1,
+        p_scissors: unsafe { &SCRATCH.gaussian_horizontal_scissor },
     },
     gaussian_horizontal_rasterizer: vk::PipelineRasterizationStateCreateInfo {
         s_type: vk::StructureType::PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
@@ -1779,7 +1881,7 @@ static mut SCRATCH: Scratch = Scratch {
         p_vertex_input_state: unsafe { &SCRATCH.gaussian_horizontal_vertex },
         p_input_assembly_state: unsafe { &SCRATCH.assembly },
         p_tessellation_state: std::ptr::null(),
-        p_viewport_state: unsafe { &SCRATCH.viewport_state },
+        p_viewport_state: unsafe { &SCRATCH.gaussian_horizontal_viewport_state },
         p_rasterization_state: unsafe { &SCRATCH.gaussian_horizontal_rasterizer },
         p_multisample_state: unsafe { &SCRATCH.gaussian_horizontal_multisampling },
         p_depth_stencil_state: unsafe { &SCRATCH.gaussian_horizontal_depth },
@@ -1846,6 +1948,27 @@ static mut SCRATCH: Scratch = Scratch {
         p_vertex_binding_descriptions: unsafe { SCRATCH.gaussian_vertical_vertex_bindings.as_ptr() },
         vertex_attribute_description_count: 0,
         p_vertex_attribute_descriptions: unsafe { SCRATCH.gaussian_vertical_vertex_attributes.as_ptr() },
+    },
+    gaussian_vertical_viewport: vk::Viewport {
+        x: 0.,
+        y: 0.,
+        width: 0.,
+        height: 0.,
+        min_depth: 0.,
+        max_depth: 1.,
+    },
+    gaussian_vertical_scissor: vk::Rect2D {
+        offset: vk::Offset2D { x: 0, y: 0 },
+        extent: vk::Extent2D { width: 0, height: 0 },
+    },
+    gaussian_vertical_viewport_state: vk::PipelineViewportStateCreateInfo {
+        s_type: vk::StructureType::PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::PipelineViewportStateCreateFlags::empty(),
+        viewport_count: 1,
+        p_viewports: unsafe { &SCRATCH.gaussian_vertical_viewport },
+        scissor_count: 1,
+        p_scissors: unsafe { &SCRATCH.gaussian_vertical_scissor },
     },
     gaussian_vertical_rasterizer: vk::PipelineRasterizationStateCreateInfo {
         s_type: vk::StructureType::PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
@@ -1934,7 +2057,7 @@ static mut SCRATCH: Scratch = Scratch {
         p_vertex_input_state: unsafe { &SCRATCH.gaussian_vertical_vertex },
         p_input_assembly_state: unsafe { &SCRATCH.assembly },
         p_tessellation_state: std::ptr::null(),
-        p_viewport_state: unsafe { &SCRATCH.viewport_state },
+        p_viewport_state: unsafe { &SCRATCH.gaussian_vertical_viewport_state },
         p_rasterization_state: unsafe { &SCRATCH.gaussian_vertical_rasterizer },
         p_multisample_state: unsafe { &SCRATCH.gaussian_vertical_multisampling },
         p_depth_stencil_state: unsafe { &SCRATCH.gaussian_vertical_depth },
@@ -2001,6 +2124,27 @@ static mut SCRATCH: Scratch = Scratch {
         p_vertex_binding_descriptions: unsafe { SCRATCH.postprocess_vertex_bindings.as_ptr() },
         vertex_attribute_description_count: 0,
         p_vertex_attribute_descriptions: unsafe { SCRATCH.postprocess_vertex_attributes.as_ptr() },
+    },
+    postprocess_viewport: vk::Viewport {
+        x: 0.,
+        y: 0.,
+        width: 0.,
+        height: 0.,
+        min_depth: 0.,
+        max_depth: 1.,
+    },
+    postprocess_scissor: vk::Rect2D {
+        offset: vk::Offset2D { x: 0, y: 0 },
+        extent: vk::Extent2D { width: 0, height: 0 },
+    },
+    postprocess_viewport_state: vk::PipelineViewportStateCreateInfo {
+        s_type: vk::StructureType::PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::PipelineViewportStateCreateFlags::empty(),
+        viewport_count: 1,
+        p_viewports: unsafe { &SCRATCH.postprocess_viewport },
+        scissor_count: 1,
+        p_scissors: unsafe { &SCRATCH.postprocess_scissor },
     },
     postprocess_rasterizer: vk::PipelineRasterizationStateCreateInfo {
         s_type: vk::StructureType::PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
@@ -2089,7 +2233,7 @@ static mut SCRATCH: Scratch = Scratch {
         p_vertex_input_state: unsafe { &SCRATCH.postprocess_vertex },
         p_input_assembly_state: unsafe { &SCRATCH.assembly },
         p_tessellation_state: std::ptr::null(),
-        p_viewport_state: unsafe { &SCRATCH.viewport_state },
+        p_viewport_state: unsafe { &SCRATCH.postprocess_viewport_state },
         p_rasterization_state: unsafe { &SCRATCH.postprocess_rasterizer },
         p_multisample_state: unsafe { &SCRATCH.postprocess_multisampling },
         p_depth_stencil_state: unsafe { &SCRATCH.postprocess_depth },
@@ -2677,6 +2821,7 @@ pub fn create_descriptor_pools(layouts: &DescriptorSetLayouts, dev: &Dev) -> Des
 }
 
 #[allow(unused_mut)]
+#[allow(clippy::identity_op)]
 #[rustfmt::skip]
 pub fn create_render_passes(
     swapchain: &Swapchain,
@@ -2692,6 +2837,10 @@ pub fn create_render_passes(
     set_label(gaussian_horizontal, "RENDER-PASS-gaussian_horizontal", debug_ext, dev);
     set_label(gaussian_vertical, "RENDER-PASS-gaussian_vertical", debug_ext, dev);
     set_label(postprocess, "RENDER-PASS-postprocess", debug_ext, dev);
+    let extent = vk::Extent2D {
+        width: swapchain.extent.width / 1,
+        height: swapchain.extent.height / 1,
+    };
     let mut framebuffer_attachments = Vec::new();
     let mut framebuffers = Vec::new();
     let mut resources = Vec::new();
@@ -2701,7 +2850,7 @@ pub fn create_render_passes(
         vk::ImageTiling::OPTIMAL,
         vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::INPUT_ATTACHMENT | vk::ImageUsageFlags::SAMPLED,
         vk::ImageAspectFlags::COLOR,
-        swapchain.extent,
+        extent,
         vk::SampleCountFlags::TYPE_2,
         dev,
     );
@@ -2713,7 +2862,7 @@ pub fn create_render_passes(
         vk::ImageTiling::OPTIMAL,
         vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT | vk::ImageUsageFlags::TRANSIENT_ATTACHMENT,
         vk::ImageAspectFlags::DEPTH,
-        swapchain.extent,
+        extent,
         vk::SampleCountFlags::TYPE_2,
         dev,
     );
@@ -2722,8 +2871,8 @@ pub fn create_render_passes(
     let info = *vk::FramebufferCreateInfo::builder()
         .render_pass(render)
         .attachments(&framebuffer_attachments)
-        .width(swapchain.extent.width)
-        .height(swapchain.extent.height)
+        .width(extent.width)
+        .height(extent.height)
         .layers(1);
     let framebuffer = unsafe { dev.create_framebuffer(&info, None) }.unwrap();
     framebuffers.push(framebuffer);
@@ -2731,7 +2880,7 @@ pub fn create_render_passes(
         debug_name: "Forward rendering pass",
         debug_color: [160, 167, 161],
         pass: render,
-        extent: swapchain.extent,
+        extent,
         clears: vec![
             vk::ClearValue { color: vk::ClearColorValue { float32: [0.0, 0.0, 0.0, 0.0] } },
             vk::ClearValue { depth_stencil: vk::ClearDepthStencilValue { depth: 1.0, stencil: 0 } },
@@ -2740,6 +2889,10 @@ pub fn create_render_passes(
         framebuffers,
         direct_to_swapchain: false,
     };
+    let extent = vk::Extent2D {
+        width: swapchain.extent.width / 2,
+        height: swapchain.extent.height / 2,
+    };
     let mut framebuffer_attachments = Vec::new();
     let mut framebuffers = Vec::new();
     let mut resources = Vec::new();
@@ -2749,7 +2902,7 @@ pub fn create_render_passes(
         vk::ImageTiling::OPTIMAL,
         vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::SAMPLED,
         vk::ImageAspectFlags::COLOR,
-        swapchain.extent,
+        extent,
         vk::SampleCountFlags::TYPE_1,
         dev,
     );
@@ -2758,8 +2911,8 @@ pub fn create_render_passes(
     let info = *vk::FramebufferCreateInfo::builder()
         .render_pass(gaussian_horizontal)
         .attachments(&framebuffer_attachments)
-        .width(swapchain.extent.width)
-        .height(swapchain.extent.height)
+        .width(extent.width)
+        .height(extent.height)
         .layers(1);
     let framebuffer = unsafe { dev.create_framebuffer(&info, None) }.unwrap();
     framebuffers.push(framebuffer);
@@ -2767,12 +2920,16 @@ pub fn create_render_passes(
         debug_name: "Gaussian horizontal pass",
         debug_color: [244, 244, 247],
         pass: gaussian_horizontal,
-        extent: swapchain.extent,
+        extent,
         clears: vec![
         ],
         resources,
         framebuffers,
         direct_to_swapchain: false,
+    };
+    let extent = vk::Extent2D {
+        width: swapchain.extent.width / 2,
+        height: swapchain.extent.height / 2,
     };
     let mut framebuffer_attachments = Vec::new();
     let mut framebuffers = Vec::new();
@@ -2783,7 +2940,7 @@ pub fn create_render_passes(
         vk::ImageTiling::OPTIMAL,
         vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::SAMPLED,
         vk::ImageAspectFlags::COLOR,
-        swapchain.extent,
+        extent,
         vk::SampleCountFlags::TYPE_1,
         dev,
     );
@@ -2792,8 +2949,8 @@ pub fn create_render_passes(
     let info = *vk::FramebufferCreateInfo::builder()
         .render_pass(gaussian_vertical)
         .attachments(&framebuffer_attachments)
-        .width(swapchain.extent.width)
-        .height(swapchain.extent.height)
+        .width(extent.width)
+        .height(extent.height)
         .layers(1);
     let framebuffer = unsafe { dev.create_framebuffer(&info, None) }.unwrap();
     framebuffers.push(framebuffer);
@@ -2801,12 +2958,16 @@ pub fn create_render_passes(
         debug_name: "Gaussian vertical pass",
         debug_color: [244, 244, 247],
         pass: gaussian_vertical,
-        extent: swapchain.extent,
+        extent,
         clears: vec![
         ],
         resources,
         framebuffers,
         direct_to_swapchain: false,
+    };
+    let extent = vk::Extent2D {
+        width: swapchain.extent.width / 1,
+        height: swapchain.extent.height / 1,
     };
     let mut framebuffer_attachments = Vec::new();
     let mut framebuffers = Vec::new();
@@ -2815,8 +2976,8 @@ pub fn create_render_passes(
     let info = *vk::FramebufferCreateInfo::builder()
         .render_pass(postprocess)
         .attachments(&framebuffer_attachments)
-        .width(swapchain.extent.width)
-        .height(swapchain.extent.height)
+        .width(extent.width)
+        .height(extent.height)
         .layers(1);
     for image in &swapchain.image_views {
         unsafe { *(info.p_attachments.add(0) as *mut vk::ImageView) = *image };
@@ -2827,7 +2988,7 @@ pub fn create_render_passes(
         debug_name: "Postprocess pass",
         debug_color: [210, 206, 203],
         pass: postprocess,
-        extent: swapchain.extent,
+        extent,
         clears: vec![
         ],
         resources,
@@ -2969,6 +3130,7 @@ pub fn create_shader_modules(shaders: &Shaders, dev: &Dev) -> ShaderModules {
 }
 
 #[rustfmt::skip]
+#[allow(clippy::identity_op)]
 pub fn create_pipelines(
     render: &Pass,
     gaussian_horizontal: &Pass,
@@ -2980,24 +3142,48 @@ pub fn create_pipelines(
     layouts: &PipelineLayouts,
     dev: &Dev,
 ) -> Pipelines {
-    unsafe { SCRATCH.viewport.width = swapchain.extent.width as f32 };
-    unsafe { SCRATCH.viewport.height = swapchain.extent.height as f32 };
-    unsafe { SCRATCH.scissor.extent.width = swapchain.extent.width };
-    unsafe { SCRATCH.scissor.extent.height = swapchain.extent.height };
     unsafe { SCRATCH.object_shader_stages[0].module = shader_modules.object_vertex };
     unsafe { SCRATCH.object_shader_stages[1].module = shader_modules.object_fragment };
+    unsafe { SCRATCH.object_viewport.width = (swapchain.extent.width / 1) as f32 };
+    unsafe { SCRATCH.object_viewport.height = (swapchain.extent.height / 1) as f32 };
+    unsafe { SCRATCH.object_scissor.extent.width = swapchain.extent.width / 1 };
+    unsafe { SCRATCH.object_scissor.extent.height = swapchain.extent.height / 1 };
     unsafe { SCRATCH.grass_shader_stages[0].module = shader_modules.grass_vertex };
     unsafe { SCRATCH.grass_shader_stages[1].module = shader_modules.grass_fragment };
+    unsafe { SCRATCH.grass_viewport.width = (swapchain.extent.width / 1) as f32 };
+    unsafe { SCRATCH.grass_viewport.height = (swapchain.extent.height / 1) as f32 };
+    unsafe { SCRATCH.grass_scissor.extent.width = swapchain.extent.width / 1 };
+    unsafe { SCRATCH.grass_scissor.extent.height = swapchain.extent.height / 1 };
     unsafe { SCRATCH.skybox_shader_stages[0].module = shader_modules.skybox_vertex };
     unsafe { SCRATCH.skybox_shader_stages[1].module = shader_modules.skybox_fragment };
+    unsafe { SCRATCH.skybox_viewport.width = (swapchain.extent.width / 1) as f32 };
+    unsafe { SCRATCH.skybox_viewport.height = (swapchain.extent.height / 1) as f32 };
+    unsafe { SCRATCH.skybox_scissor.extent.width = swapchain.extent.width / 1 };
+    unsafe { SCRATCH.skybox_scissor.extent.height = swapchain.extent.height / 1 };
     unsafe { SCRATCH.deferred_shader_stages[0].module = shader_modules.deferred_vertex };
     unsafe { SCRATCH.deferred_shader_stages[1].module = shader_modules.deferred_fragment };
+    unsafe { SCRATCH.deferred_viewport.width = (swapchain.extent.width / 1) as f32 };
+    unsafe { SCRATCH.deferred_viewport.height = (swapchain.extent.height / 1) as f32 };
+    unsafe { SCRATCH.deferred_scissor.extent.width = swapchain.extent.width / 1 };
+    unsafe { SCRATCH.deferred_scissor.extent.height = swapchain.extent.height / 1 };
     unsafe { SCRATCH.gaussian_horizontal_shader_stages[0].module = shader_modules.gaussian_horizontal_vertex };
     unsafe { SCRATCH.gaussian_horizontal_shader_stages[1].module = shader_modules.gaussian_horizontal_fragment };
+    unsafe { SCRATCH.gaussian_horizontal_viewport.width = (swapchain.extent.width / 2) as f32 };
+    unsafe { SCRATCH.gaussian_horizontal_viewport.height = (swapchain.extent.height / 2) as f32 };
+    unsafe { SCRATCH.gaussian_horizontal_scissor.extent.width = swapchain.extent.width / 2 };
+    unsafe { SCRATCH.gaussian_horizontal_scissor.extent.height = swapchain.extent.height / 2 };
     unsafe { SCRATCH.gaussian_vertical_shader_stages[0].module = shader_modules.gaussian_vertical_vertex };
     unsafe { SCRATCH.gaussian_vertical_shader_stages[1].module = shader_modules.gaussian_vertical_fragment };
+    unsafe { SCRATCH.gaussian_vertical_viewport.width = (swapchain.extent.width / 2) as f32 };
+    unsafe { SCRATCH.gaussian_vertical_viewport.height = (swapchain.extent.height / 2) as f32 };
+    unsafe { SCRATCH.gaussian_vertical_scissor.extent.width = swapchain.extent.width / 2 };
+    unsafe { SCRATCH.gaussian_vertical_scissor.extent.height = swapchain.extent.height / 2 };
     unsafe { SCRATCH.postprocess_shader_stages[0].module = shader_modules.postprocess_vertex };
     unsafe { SCRATCH.postprocess_shader_stages[1].module = shader_modules.postprocess_fragment };
+    unsafe { SCRATCH.postprocess_viewport.width = (swapchain.extent.width / 1) as f32 };
+    unsafe { SCRATCH.postprocess_viewport.height = (swapchain.extent.height / 1) as f32 };
+    unsafe { SCRATCH.postprocess_scissor.extent.width = swapchain.extent.width / 1 };
+    unsafe { SCRATCH.postprocess_scissor.extent.height = swapchain.extent.height / 1 };
     unsafe { SCRATCH.object_pipeline.layout = layouts.object };
     unsafe { SCRATCH.object_pipeline.render_pass = render.pass };
     unsafe { SCRATCH.grass_pipeline.layout = layouts.grass };

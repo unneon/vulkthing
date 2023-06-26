@@ -109,6 +109,8 @@ pub struct Pass {
     pub debug_name: String,
     #[knuffel(child)]
     pub debug_color: SdrColor,
+    #[knuffel(child)]
+    pub resolution: Option<Resolution>,
     #[knuffel(children(name = "subpass"))]
     pub subpasses: Vec<Subpass>,
     #[knuffel(children(name = "dependency"))]
@@ -123,6 +125,12 @@ pub struct SdrColor {
     pub green: u8,
     #[knuffel(argument)]
     pub blue: u8,
+}
+
+#[derive(Debug, Decode)]
+pub struct Resolution {
+    #[knuffel(property)]
+    pub downscaled: i32,
 }
 
 #[derive(Debug, Decode)]
