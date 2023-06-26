@@ -86,6 +86,10 @@ vec3 calculate_light(vec3 ray_origin, vec3 ray_direction, float ray_length, vec3
 }
 
 vec3 compute_atmosphere(vec3 original_color, vec3 position) {
+    if (!atmosphere.enable) {
+        return original_color;
+    }
+
     float scene_depth = length(position - camera.position);
     vec3 ray_origin = camera.position;
     vec3 ray_direction = normalize(position - camera.position);
