@@ -33,6 +33,11 @@ descriptor-set "grass" 1 {
     uniform "camera" "FRAGMENT" "Camera"
     acceleration-structure "tlas" "FRAGMENT"
 }
+descriptor-set "star" 4096 {
+    uniform "star_mvp" "VERTEX" "ModelViewProjection"
+    uniform "atmosphere" "FRAGMENT" "Atmosphere"
+    uniform "camera" "FRAGMENT" "Camera"
+}
 descriptor-set "skybox" 1 {
     uniform "mvp" "VERTEX" "ModelViewProjection"
     uniform "atmosphere" "FRAGMENT" "Atmosphere"
@@ -94,6 +99,21 @@ pass "render" {
                 attribute "ground_normal" "R32G32B32_SFLOAT"
             }
             descriptor-sets "grass"
+            cull-mode "NONE"
+        }
+        pipeline "star" {
+            vertex-binding {
+                attribute "vertex_position" "R32G32B32_SFLOAT"
+                attribute "vertex_normal" "R32G32B32_SFLOAT" unused=true
+            }
+            vertex-binding rate="INSTANCE" {
+                attribute "model_c1" "R32G32B32A32_SFLOAT"
+                attribute "model_c2" "R32G32B32A32_SFLOAT"
+                attribute "model_c3" "R32G32B32A32_SFLOAT"
+                attribute "model_c4" "R32G32B32A32_SFLOAT"
+                attribute "emit" "R32G32B32_SFLOAT"
+            }
+            descriptor-sets "star"
             cull-mode "NONE"
         }
         pipeline "skybox" {

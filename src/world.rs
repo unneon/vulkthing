@@ -18,6 +18,7 @@ pub struct World {
     pub camera: Box<dyn Camera>,
     camera_rigid_body_handle: RigidBodyHandle,
     pub entities: Vec<Entity>,
+    pub stars: Vec<Star>,
     physics: Physics,
     pub time: f32,
     pub time_of_day: f32,
@@ -35,7 +36,7 @@ pub struct Entity {
     mesh_id: usize,
 }
 
-enum Transform {
+pub enum Transform {
     Static {
         translation: Vector3<f32>,
         rotation: UnitQuaternion<f32>,
@@ -46,6 +47,11 @@ enum Transform {
         rigid_body: RigidBodyHandle,
         scale: Vector3<f32>,
     },
+}
+
+pub struct Star {
+    pub transform: Transform,
+    pub emit: Vector3<f32>,
 }
 
 const AVERAGE_MALE_HEIGHT: f32 = 1.74;
@@ -94,10 +100,11 @@ impl World {
             emit: Vector3::from_element(1.),
             mesh_id: 4,
         };
-        let mut entities = vec![planet, sun];
+        let entities = vec![planet, sun];
+        let mut stars = Vec::new();
         let mut rng = rand::thread_rng();
         for _ in 0..DEFAULT_STAR_COUNT {
-            entities.push(Entity {
+            stars.push(Star {
                 transform: Transform::Static {
                     translation: DEFAULT_STAR_RADIUS * rng.sample(RandomDirection),
                     rotation: rng.sample(RandomRotation),
@@ -105,17 +112,16 @@ impl World {
                         rng.gen_range(DEFAULT_STAR_MIN_SCALE..DEFAULT_STAR_MAX_SCALE),
                     ),
                 },
-                diffuse: Vector3::zeros(),
                 emit: Vector3::from_element(
                     rng.gen_range(DEFAULT_STAR_MIN_EMIT..DEFAULT_STAR_MAX_EMIT),
                 ),
-                mesh_id: 2,
             });
         }
         World {
             camera,
             camera_rigid_body_handle,
             entities,
+            stars,
             physics,
             time: 0.,
             time_of_day: 0.,
@@ -239,5 +245,21 @@ impl Entity {
 
     pub fn mesh_id(&self) -> usize {
         self.mesh_id
+    }
+}
+
+impl Transform {
+    pub fn model_matrix(&self) -> Matrix4<f32> {
+        match self {
+            Transform::Static {
+                translation,
+                rotation,
+                scale,
+            } => {
+                Matrix4::new_translation(translation).prepend_nonuniform_scaling(scale)
+                    * rotation.to_homogeneous()
+            }
+            Transform::Dynamic { .. } => todo!(),
+        }
     }
 }

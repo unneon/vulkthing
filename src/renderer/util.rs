@@ -75,6 +75,19 @@ impl Buffer {
         });
     }
 
+    pub fn generate_host_visible<T: Copy>(
+        &self,
+        count: usize,
+        dev: &Dev,
+        mut f: impl FnMut(usize) -> T,
+    ) {
+        self.with_mapped(count, dev, |mapped| {
+            for (i, mapped) in mapped.iter_mut().enumerate() {
+                mapped.write(f(i));
+            }
+        });
+    }
+
     fn with_mapped<T, R>(
         &self,
         count: usize,

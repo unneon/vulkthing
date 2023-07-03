@@ -9,7 +9,7 @@ use crate::renderer::device::{select_device, DeviceInfo};
 use crate::renderer::raytracing::{create_blas, create_tlas};
 use crate::renderer::swapchain::{create_swapchain, Swapchain};
 use crate::renderer::util::{vulkan_str, Buffer, Ctx, Dev, ImageResources};
-use crate::renderer::vertex::{GrassBlade, Vertex};
+use crate::renderer::vertex::{GrassBlade, Star, Vertex};
 use crate::renderer::{
     AsyncLoader, GrassChunk, MeshObject, Object, Renderer, RendererSettings, Synchronization,
     UniformBuffer, VulkanExtensions, FRAMES_IN_FLIGHT,
@@ -190,6 +190,19 @@ impl Renderer {
             &tlas,
             &dev,
         );
+        let star_mvp = UniformBuffer::create(&dev);
+        let star_instances = Buffer::create(
+            UNIFIED_MEMORY,
+            vk::BufferUsageFlags::VERTEX_BUFFER,
+            world.stars.len() * std::mem::size_of::<Star>(),
+            &dev,
+        );
+        let star_descriptor_sets =
+            descriptor_pools.alloc_star(&star_mvp, &atmosphere_uniform, &camera, &dev);
+        star_instances.generate_host_visible(world.stars.len(), &dev, |i| Star {
+            model: world.stars[i].transform.model_matrix(),
+            emit: world.stars[i].emit,
+        });
         let skybox_mvp = UniformBuffer::create(&dev);
         let skybox_descriptor_sets =
             descriptor_pools.alloc_skybox(&skybox_mvp, &atmosphere_uniform, &camera, &dev);
@@ -232,6 +245,9 @@ impl Renderer {
             mesh_objects,
             entities,
             grass_descriptor_sets,
+            star_mvp,
+            star_instances,
+            star_descriptor_sets,
             skybox_mvp,
             skybox_descriptor_sets,
             grass_chunks: Arc::new(Mutex::new(Vec::new())),
@@ -452,6 +468,8 @@ impl Drop for Renderer {
             self.dev.device_wait_idle().unwrap();
 
             drop(self.interface_renderer.take());
+            self.star_mvp.cleanup(&self.dev);
+            self.star_instances.cleanup(&self.dev);
             for entity in &self.entities {
                 entity.cleanup(&self.dev);
             }

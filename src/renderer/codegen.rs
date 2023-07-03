@@ -20,6 +20,7 @@ pub struct Samplers {
 pub struct DescriptorSetLayouts {
     pub object: vk::DescriptorSetLayout,
     pub grass: vk::DescriptorSetLayout,
+    pub star: vk::DescriptorSetLayout,
     pub skybox: vk::DescriptorSetLayout,
     pub deferred: vk::DescriptorSetLayout,
     pub gaussian_horizontal: vk::DescriptorSetLayout,
@@ -32,6 +33,8 @@ pub struct DescriptorPools {
     pub object_layout: vk::DescriptorSetLayout,
     pub grass: vk::DescriptorPool,
     pub grass_layout: vk::DescriptorSetLayout,
+    pub star: vk::DescriptorPool,
+    pub star_layout: vk::DescriptorSetLayout,
     pub skybox: vk::DescriptorPool,
     pub skybox_layout: vk::DescriptorSetLayout,
     pub deferred: vk::DescriptorPool,
@@ -47,6 +50,7 @@ pub struct DescriptorPools {
 pub struct PipelineLayouts {
     pub object: vk::PipelineLayout,
     pub grass: vk::PipelineLayout,
+    pub star: vk::PipelineLayout,
     pub skybox: vk::PipelineLayout,
     pub deferred: vk::PipelineLayout,
     pub gaussian_horizontal: vk::PipelineLayout,
@@ -59,6 +63,8 @@ pub struct Shaders {
     pub object_fragment: Vec<u32>,
     pub grass_vertex: Vec<u32>,
     pub grass_fragment: Vec<u32>,
+    pub star_vertex: Vec<u32>,
+    pub star_fragment: Vec<u32>,
     pub skybox_vertex: Vec<u32>,
     pub skybox_fragment: Vec<u32>,
     pub deferred_vertex: Vec<u32>,
@@ -76,6 +82,8 @@ pub struct ShaderModules {
     pub object_fragment: vk::ShaderModule,
     pub grass_vertex: vk::ShaderModule,
     pub grass_fragment: vk::ShaderModule,
+    pub star_vertex: vk::ShaderModule,
+    pub star_fragment: vk::ShaderModule,
     pub skybox_vertex: vk::ShaderModule,
     pub skybox_fragment: vk::ShaderModule,
     pub deferred_vertex: vk::ShaderModule,
@@ -100,6 +108,7 @@ pub struct Passes {
 pub struct Pipelines {
     pub object: vk::Pipeline,
     pub grass: vk::Pipeline,
+    pub star: vk::Pipeline,
     pub skybox: vk::Pipeline,
     pub deferred: vk::Pipeline,
     pub gaussian_horizontal: vk::Pipeline,
@@ -141,6 +150,10 @@ struct Scratch {
     grass_layout: vk::DescriptorSetLayoutCreateInfo,
     grass_pool_sizes: [vk::DescriptorPoolSize; 2],
     grass_pool: vk::DescriptorPoolCreateInfo,
+    star_bindings: [vk::DescriptorSetLayoutBinding; 3],
+    star_layout: vk::DescriptorSetLayoutCreateInfo,
+    star_pool_sizes: [vk::DescriptorPoolSize; 1],
+    star_pool: vk::DescriptorPoolCreateInfo,
     skybox_bindings: [vk::DescriptorSetLayoutBinding; 3],
     skybox_layout: vk::DescriptorSetLayoutCreateInfo,
     skybox_pool_sizes: [vk::DescriptorPoolSize; 1],
@@ -193,6 +206,21 @@ struct Scratch {
     grass_blend_attachments: [vk::PipelineColorBlendAttachmentState; 1],
     grass_blend: vk::PipelineColorBlendStateCreateInfo,
     grass_depth: vk::PipelineDepthStencilStateCreateInfo,
+    star_pipeline_layout: vk::PipelineLayoutCreateInfo,
+    star_shader_vertex: vk::ShaderModuleCreateInfo,
+    star_shader_fragment: vk::ShaderModuleCreateInfo,
+    star_shader_stages: [vk::PipelineShaderStageCreateInfo; 2],
+    star_vertex_bindings: [vk::VertexInputBindingDescription; 2],
+    star_vertex_attributes: [vk::VertexInputAttributeDescription; 6],
+    star_vertex: vk::PipelineVertexInputStateCreateInfo,
+    star_viewport: vk::Viewport,
+    star_scissor: vk::Rect2D,
+    star_viewport_state: vk::PipelineViewportStateCreateInfo,
+    star_rasterizer: vk::PipelineRasterizationStateCreateInfo,
+    star_multisampling: vk::PipelineMultisampleStateCreateInfo,
+    star_blend_attachments: [vk::PipelineColorBlendAttachmentState; 1],
+    star_blend: vk::PipelineColorBlendStateCreateInfo,
+    star_depth: vk::PipelineDepthStencilStateCreateInfo,
     skybox_pipeline_layout: vk::PipelineLayoutCreateInfo,
     skybox_shader_vertex: vk::ShaderModuleCreateInfo,
     skybox_shader_fragment: vk::ShaderModuleCreateInfo,
@@ -270,6 +298,7 @@ struct Scratch {
     postprocess_depth: vk::PipelineDepthStencilStateCreateInfo,
     object_pipeline: vk::GraphicsPipelineCreateInfo,
     grass_pipeline: vk::GraphicsPipelineCreateInfo,
+    star_pipeline: vk::GraphicsPipelineCreateInfo,
     skybox_pipeline: vk::GraphicsPipelineCreateInfo,
     deferred_pipeline: vk::GraphicsPipelineCreateInfo,
     gaussian_horizontal_pipeline: vk::GraphicsPipelineCreateInfo,
@@ -696,6 +725,50 @@ static mut SCRATCH: Scratch = Scratch {
         max_sets: 2,
         pool_size_count: 2,
         p_pool_sizes: unsafe { SCRATCH.grass_pool_sizes.as_ptr() },
+    },
+    star_bindings: [
+        vk::DescriptorSetLayoutBinding {
+            binding: 0,
+            descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
+            descriptor_count: 1,
+            stage_flags: vk::ShaderStageFlags::VERTEX,
+            p_immutable_samplers: std::ptr::null(),
+        },
+        vk::DescriptorSetLayoutBinding {
+            binding: 1,
+            descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
+            descriptor_count: 1,
+            stage_flags: vk::ShaderStageFlags::FRAGMENT,
+            p_immutable_samplers: std::ptr::null(),
+        },
+        vk::DescriptorSetLayoutBinding {
+            binding: 2,
+            descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
+            descriptor_count: 1,
+            stage_flags: vk::ShaderStageFlags::FRAGMENT,
+            p_immutable_samplers: std::ptr::null(),
+        },
+    ],
+    star_layout: vk::DescriptorSetLayoutCreateInfo {
+        s_type: vk::StructureType::DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::DescriptorSetLayoutCreateFlags::empty(),
+        binding_count: 3,
+        p_bindings: unsafe { SCRATCH.star_bindings.as_ptr() },
+    },
+    star_pool_sizes: [
+        vk::DescriptorPoolSize {
+            ty: vk::DescriptorType::UNIFORM_BUFFER,
+            descriptor_count: 24576,
+        },
+    ],
+    star_pool: vk::DescriptorPoolCreateInfo {
+        s_type: vk::StructureType::DESCRIPTOR_POOL_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::DescriptorPoolCreateFlags::empty(),
+        max_sets: 8192,
+        pool_size_count: 1,
+        p_pool_sizes: unsafe { SCRATCH.star_pool_sizes.as_ptr() },
     },
     skybox_bindings: [
         vk::DescriptorSetLayoutBinding {
@@ -1357,6 +1430,228 @@ static mut SCRATCH: Scratch = Scratch {
         p_multisample_state: unsafe { &SCRATCH.grass_multisampling },
         p_depth_stencil_state: unsafe { &SCRATCH.grass_depth },
         p_color_blend_state: unsafe { &SCRATCH.grass_blend },
+        p_dynamic_state: unsafe { &SCRATCH.dynamic_state },
+        layout: vk::PipelineLayout::null(),
+        render_pass: vk::RenderPass::null(),
+        subpass: 0,
+        base_pipeline_handle: vk::Pipeline::null(),
+        base_pipeline_index: 0,
+    },
+    star_pipeline_layout: vk::PipelineLayoutCreateInfo {
+        s_type: vk::StructureType::PIPELINE_LAYOUT_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::PipelineLayoutCreateFlags::empty(),
+        set_layout_count: 1,
+        p_set_layouts: std::ptr::null(),
+        push_constant_range_count: 0,
+        p_push_constant_ranges: std::ptr::null(),
+    },
+    star_shader_vertex: vk::ShaderModuleCreateInfo {
+        s_type: vk::StructureType::SHADER_MODULE_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::ShaderModuleCreateFlags::empty(),
+        code_size: 0,
+        p_code: std::ptr::null(),
+    },
+    star_shader_fragment: vk::ShaderModuleCreateInfo {
+        s_type: vk::StructureType::SHADER_MODULE_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::ShaderModuleCreateFlags::empty(),
+        code_size: 0,
+        p_code: std::ptr::null(),
+    },
+    star_shader_stages: [
+        vk::PipelineShaderStageCreateInfo {
+            s_type: vk::StructureType::PIPELINE_SHADER_STAGE_CREATE_INFO,
+            p_next: std::ptr::null(),
+            flags: vk::PipelineShaderStageCreateFlags::empty(),
+            stage: vk::ShaderStageFlags::VERTEX,
+            module: vk::ShaderModule::null(),
+            p_name: unsafe { CStr::from_bytes_with_nul_unchecked(b"main\0") }.as_ptr(),
+            p_specialization_info: std::ptr::null(),
+        },
+        vk::PipelineShaderStageCreateInfo {
+            s_type: vk::StructureType::PIPELINE_SHADER_STAGE_CREATE_INFO,
+            p_next: std::ptr::null(),
+            flags: vk::PipelineShaderStageCreateFlags::empty(),
+            stage: vk::ShaderStageFlags::FRAGMENT,
+            module: vk::ShaderModule::null(),
+            p_name: unsafe { CStr::from_bytes_with_nul_unchecked(b"main\0") }.as_ptr(),
+            p_specialization_info: std::ptr::null(),
+        },
+    ],
+    star_vertex_bindings: [
+        vk::VertexInputBindingDescription {
+            binding: 0,
+            stride: 24,
+            input_rate: vk::VertexInputRate::VERTEX,
+        },
+        vk::VertexInputBindingDescription {
+            binding: 1,
+            stride: 76,
+            input_rate: vk::VertexInputRate::INSTANCE,
+        },
+    ],
+    star_vertex_attributes: [
+        vk::VertexInputAttributeDescription {
+            binding: 0,
+            location: 0,
+            format: vk::Format::R32G32B32_SFLOAT,
+            offset: 0,
+        },
+        vk::VertexInputAttributeDescription {
+            binding: 1,
+            location: 1,
+            format: vk::Format::R32G32B32A32_SFLOAT,
+            offset: 0,
+        },
+        vk::VertexInputAttributeDescription {
+            binding: 1,
+            location: 2,
+            format: vk::Format::R32G32B32A32_SFLOAT,
+            offset: 16,
+        },
+        vk::VertexInputAttributeDescription {
+            binding: 1,
+            location: 3,
+            format: vk::Format::R32G32B32A32_SFLOAT,
+            offset: 32,
+        },
+        vk::VertexInputAttributeDescription {
+            binding: 1,
+            location: 4,
+            format: vk::Format::R32G32B32A32_SFLOAT,
+            offset: 48,
+        },
+        vk::VertexInputAttributeDescription {
+            binding: 1,
+            location: 5,
+            format: vk::Format::R32G32B32_SFLOAT,
+            offset: 64,
+        },
+    ],
+    star_vertex: vk::PipelineVertexInputStateCreateInfo {
+        s_type: vk::StructureType::PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::PipelineVertexInputStateCreateFlags::empty(),
+        vertex_binding_description_count: 2,
+        p_vertex_binding_descriptions: unsafe { SCRATCH.star_vertex_bindings.as_ptr() },
+        vertex_attribute_description_count: 6,
+        p_vertex_attribute_descriptions: unsafe { SCRATCH.star_vertex_attributes.as_ptr() },
+    },
+    star_viewport: vk::Viewport {
+        x: 0.,
+        y: 0.,
+        width: 0.,
+        height: 0.,
+        min_depth: 0.,
+        max_depth: 1.,
+    },
+    star_scissor: vk::Rect2D {
+        offset: vk::Offset2D { x: 0, y: 0 },
+        extent: vk::Extent2D { width: 0, height: 0 },
+    },
+    star_viewport_state: vk::PipelineViewportStateCreateInfo {
+        s_type: vk::StructureType::PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::PipelineViewportStateCreateFlags::empty(),
+        viewport_count: 1,
+        p_viewports: unsafe { &SCRATCH.star_viewport },
+        scissor_count: 1,
+        p_scissors: unsafe { &SCRATCH.star_scissor },
+    },
+    star_rasterizer: vk::PipelineRasterizationStateCreateInfo {
+        s_type: vk::StructureType::PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::PipelineRasterizationStateCreateFlags::empty(),
+        depth_clamp_enable: 0,
+        rasterizer_discard_enable: 0,
+        polygon_mode: vk::PolygonMode::FILL,
+        cull_mode: vk::CullModeFlags::NONE,
+        front_face: vk::FrontFace::COUNTER_CLOCKWISE,
+        depth_bias_enable: 0,
+        depth_bias_constant_factor: 0.,
+        depth_bias_clamp: 0.,
+        depth_bias_slope_factor: 0.,
+        line_width: 1.,
+    },
+    star_multisampling: vk::PipelineMultisampleStateCreateInfo {
+        s_type: vk::StructureType::PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::PipelineMultisampleStateCreateFlags::empty(),
+        rasterization_samples: vk::SampleCountFlags::TYPE_2,
+        sample_shading_enable: 0,
+        min_sample_shading: 0.,
+        p_sample_mask: std::ptr::null(),
+        alpha_to_coverage_enable: 0,
+        alpha_to_one_enable: 0,
+    },
+    star_blend_attachments: [
+        vk::PipelineColorBlendAttachmentState {
+            blend_enable: 0,
+            src_color_blend_factor: vk::BlendFactor::ZERO,
+            dst_color_blend_factor: vk::BlendFactor::ZERO,
+            color_blend_op: vk::BlendOp::ADD,
+            src_alpha_blend_factor: vk::BlendFactor::ZERO,
+            dst_alpha_blend_factor: vk::BlendFactor::ZERO,
+            alpha_blend_op: vk::BlendOp::ADD,
+            color_write_mask: vk::ColorComponentFlags::RGBA,
+        },
+    ],
+    star_blend: vk::PipelineColorBlendStateCreateInfo {
+        s_type: vk::StructureType::PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::PipelineColorBlendStateCreateFlags::empty(),
+        logic_op_enable: 0,
+        logic_op: vk::LogicOp::CLEAR,
+        attachment_count: 1,
+        p_attachments: unsafe { SCRATCH.star_blend_attachments.as_ptr() },
+        blend_constants: [0., 0., 0., 0.],
+    },
+    star_depth: vk::PipelineDepthStencilStateCreateInfo {
+        s_type: vk::StructureType::PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::PipelineDepthStencilStateCreateFlags::empty(),
+        depth_test_enable: 1,
+        depth_write_enable: 1,
+        depth_compare_op: vk::CompareOp::LESS,
+        depth_bounds_test_enable: 0,
+        stencil_test_enable: 0,
+        front: vk::StencilOpState {
+            fail_op: vk::StencilOp::KEEP,
+            pass_op: vk::StencilOp::KEEP,
+            depth_fail_op: vk::StencilOp::KEEP,
+            compare_op: vk::CompareOp::NEVER,
+            compare_mask: 0,
+            write_mask: 0,
+            reference: 0,
+        },
+        back: vk::StencilOpState {
+            fail_op: vk::StencilOp::KEEP,
+            pass_op: vk::StencilOp::KEEP,
+            depth_fail_op: vk::StencilOp::KEEP,
+            compare_op: vk::CompareOp::NEVER,
+            compare_mask: 0,
+            write_mask: 0,
+            reference: 0,
+        },
+        min_depth_bounds: 0.,
+        max_depth_bounds: 1.,
+    },
+    star_pipeline: vk::GraphicsPipelineCreateInfo {
+        s_type: vk::StructureType::GRAPHICS_PIPELINE_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::PipelineCreateFlags::empty(),
+        stage_count: 2,
+        p_stages: unsafe { SCRATCH.star_shader_stages.as_ptr() },
+        p_vertex_input_state: unsafe { &SCRATCH.star_vertex },
+        p_input_assembly_state: unsafe { &SCRATCH.assembly },
+        p_tessellation_state: std::ptr::null(),
+        p_viewport_state: unsafe { &SCRATCH.star_viewport_state },
+        p_rasterization_state: unsafe { &SCRATCH.star_rasterizer },
+        p_multisample_state: unsafe { &SCRATCH.star_multisampling },
+        p_depth_stencil_state: unsafe { &SCRATCH.star_depth },
+        p_color_blend_state: unsafe { &SCRATCH.star_blend },
         p_dynamic_state: unsafe { &SCRATCH.dynamic_state },
         layout: vk::PipelineLayout::null(),
         render_pass: vk::RenderPass::null(),
@@ -2258,6 +2553,7 @@ impl DescriptorSetLayouts {
     pub fn cleanup(&self, dev: &Dev) {
         unsafe { dev.destroy_descriptor_set_layout(self.object, None) };
         unsafe { dev.destroy_descriptor_set_layout(self.grass, None) };
+        unsafe { dev.destroy_descriptor_set_layout(self.star, None) };
         unsafe { dev.destroy_descriptor_set_layout(self.skybox, None) };
         unsafe { dev.destroy_descriptor_set_layout(self.deferred, None) };
         unsafe { dev.destroy_descriptor_set_layout(self.gaussian_horizontal, None) };
@@ -2436,6 +2732,58 @@ impl DescriptorPools {
                 .push_next(&mut tlas_acceleration_structure);
             tlas.descriptor_count = 1;
             let writes = [planet_mvp, grass, light, settings, atmosphere, camera, tlas];
+            unsafe { dev.update_descriptor_sets(&writes, &[]) };
+        }
+    }
+
+    pub fn alloc_star(
+        &self,
+        star_mvp: &UniformBuffer<ModelViewProjection>,
+        atmosphere: &UniformBuffer<Atmosphere>,
+        camera: &UniformBuffer<Camera>,
+        dev: &Dev,
+    ) -> [vk::DescriptorSet; FRAMES_IN_FLIGHT] {
+        let layouts = [self.star_layout; FRAMES_IN_FLIGHT];
+        let descriptor_set_alloc_info = vk::DescriptorSetAllocateInfo::builder()
+            .descriptor_pool(self.star)
+            .set_layouts(&layouts);
+        let descriptors: [vk::DescriptorSet; FRAMES_IN_FLIGHT] =
+            unsafe { dev.allocate_descriptor_sets(&descriptor_set_alloc_info) }
+                .unwrap()
+                .try_into()
+                .unwrap();
+        self.update_star(&descriptors, star_mvp, atmosphere, camera, dev);
+        descriptors
+    }
+
+    pub fn update_star(
+        &self,
+        descriptors: &[vk::DescriptorSet; FRAMES_IN_FLIGHT],
+        star_mvp: &UniformBuffer<ModelViewProjection>,
+        atmosphere: &UniformBuffer<Atmosphere>,
+        camera: &UniformBuffer<Camera>,
+        dev: &Dev,
+    ) {
+        for (_flight_index, descriptor) in descriptors.iter().enumerate() {
+            let star_mvp_buffer = star_mvp.descriptor(_flight_index);
+            let star_mvp = *vk::WriteDescriptorSet::builder()
+                .dst_set(*descriptor)
+                .dst_binding(0)
+                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+                .buffer_info(std::slice::from_ref(&star_mvp_buffer));
+            let atmosphere_buffer = atmosphere.descriptor(_flight_index);
+            let atmosphere = *vk::WriteDescriptorSet::builder()
+                .dst_set(*descriptor)
+                .dst_binding(1)
+                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+                .buffer_info(std::slice::from_ref(&atmosphere_buffer));
+            let camera_buffer = camera.descriptor(_flight_index);
+            let camera = *vk::WriteDescriptorSet::builder()
+                .dst_set(*descriptor)
+                .dst_binding(2)
+                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+                .buffer_info(std::slice::from_ref(&camera_buffer));
+            let writes = [star_mvp, atmosphere, camera];
             unsafe { dev.update_descriptor_sets(&writes, &[]) };
         }
     }
@@ -2699,6 +3047,7 @@ impl DescriptorPools {
     pub fn cleanup(&self, dev: &Dev) {
         unsafe { dev.destroy_descriptor_pool(self.object, None) };
         unsafe { dev.destroy_descriptor_pool(self.grass, None) };
+        unsafe { dev.destroy_descriptor_pool(self.star, None) };
         unsafe { dev.destroy_descriptor_pool(self.skybox, None) };
         unsafe { dev.destroy_descriptor_pool(self.deferred, None) };
         unsafe { dev.destroy_descriptor_pool(self.gaussian_horizontal, None) };
@@ -2711,6 +3060,7 @@ impl PipelineLayouts {
     pub fn cleanup(&self, dev: &Dev) {
         unsafe { dev.destroy_pipeline_layout(self.object, None) };
         unsafe { dev.destroy_pipeline_layout(self.grass, None) };
+        unsafe { dev.destroy_pipeline_layout(self.star, None) };
         unsafe { dev.destroy_pipeline_layout(self.skybox, None) };
         unsafe { dev.destroy_pipeline_layout(self.deferred, None) };
         unsafe { dev.destroy_pipeline_layout(self.gaussian_horizontal, None) };
@@ -2725,6 +3075,8 @@ impl ShaderModules {
         unsafe { dev.destroy_shader_module(self.object_fragment, None) };
         unsafe { dev.destroy_shader_module(self.grass_vertex, None) };
         unsafe { dev.destroy_shader_module(self.grass_fragment, None) };
+        unsafe { dev.destroy_shader_module(self.star_vertex, None) };
+        unsafe { dev.destroy_shader_module(self.star_fragment, None) };
         unsafe { dev.destroy_shader_module(self.skybox_vertex, None) };
         unsafe { dev.destroy_shader_module(self.skybox_fragment, None) };
         unsafe { dev.destroy_shader_module(self.deferred_vertex, None) };
@@ -2751,6 +3103,7 @@ impl Pipelines {
     pub fn cleanup(&self, dev: &Dev) {
         unsafe { dev.destroy_pipeline(self.object, None) };
         unsafe { dev.destroy_pipeline(self.grass, None) };
+        unsafe { dev.destroy_pipeline(self.star, None) };
         unsafe { dev.destroy_pipeline(self.skybox, None) };
         unsafe { dev.destroy_pipeline(self.deferred, None) };
         unsafe { dev.destroy_pipeline(self.gaussian_horizontal, None) };
@@ -2777,6 +3130,7 @@ pub fn create_descriptor_set_layouts(samplers: &Samplers, dev: &Dev) -> Descript
     unsafe { SCRATCH.postprocess_bindings[1].p_immutable_samplers = &samplers.bilinear };
     let object = unsafe { dev.create_descriptor_set_layout(&SCRATCH.object_layout, None).unwrap_unchecked() };
     let grass = unsafe { dev.create_descriptor_set_layout(&SCRATCH.grass_layout, None).unwrap_unchecked() };
+    let star = unsafe { dev.create_descriptor_set_layout(&SCRATCH.star_layout, None).unwrap_unchecked() };
     let skybox = unsafe { dev.create_descriptor_set_layout(&SCRATCH.skybox_layout, None).unwrap_unchecked() };
     let deferred = unsafe { dev.create_descriptor_set_layout(&SCRATCH.deferred_layout, None).unwrap_unchecked() };
     let gaussian_horizontal = unsafe { dev.create_descriptor_set_layout(&SCRATCH.gaussian_horizontal_layout, None).unwrap_unchecked() };
@@ -2785,6 +3139,7 @@ pub fn create_descriptor_set_layouts(samplers: &Samplers, dev: &Dev) -> Descript
     DescriptorSetLayouts {
         object,
         grass,
+        star,
         skybox,
         deferred,
         gaussian_horizontal,
@@ -2797,6 +3152,7 @@ pub fn create_descriptor_set_layouts(samplers: &Samplers, dev: &Dev) -> Descript
 pub fn create_descriptor_pools(layouts: &DescriptorSetLayouts, dev: &Dev) -> DescriptorPools {
     let object = unsafe { dev.create_descriptor_pool(&SCRATCH.object_pool, None).unwrap_unchecked() };
     let grass = unsafe { dev.create_descriptor_pool(&SCRATCH.grass_pool, None).unwrap_unchecked() };
+    let star = unsafe { dev.create_descriptor_pool(&SCRATCH.star_pool, None).unwrap_unchecked() };
     let skybox = unsafe { dev.create_descriptor_pool(&SCRATCH.skybox_pool, None).unwrap_unchecked() };
     let deferred = unsafe { dev.create_descriptor_pool(&SCRATCH.deferred_pool, None).unwrap_unchecked() };
     let gaussian_horizontal = unsafe { dev.create_descriptor_pool(&SCRATCH.gaussian_horizontal_pool, None).unwrap_unchecked() };
@@ -2807,6 +3163,8 @@ pub fn create_descriptor_pools(layouts: &DescriptorSetLayouts, dev: &Dev) -> Des
         object_layout: layouts.object,
         grass,
         grass_layout: layouts.grass,
+        star,
+        star_layout: layouts.star,
         skybox,
         skybox_layout: layouts.skybox,
         deferred,
@@ -3010,6 +3368,7 @@ pub fn create_pipeline_layouts(
 ) -> PipelineLayouts {
     unsafe { SCRATCH.object_pipeline_layout.p_set_layouts = &descriptor_set_layouts.object };
     unsafe { SCRATCH.grass_pipeline_layout.p_set_layouts = &descriptor_set_layouts.grass };
+    unsafe { SCRATCH.star_pipeline_layout.p_set_layouts = &descriptor_set_layouts.star };
     unsafe { SCRATCH.skybox_pipeline_layout.p_set_layouts = &descriptor_set_layouts.skybox };
     unsafe { SCRATCH.deferred_pipeline_layout.p_set_layouts = &descriptor_set_layouts.deferred };
     unsafe { SCRATCH.gaussian_horizontal_pipeline_layout.p_set_layouts = &descriptor_set_layouts.gaussian_horizontal };
@@ -3017,6 +3376,7 @@ pub fn create_pipeline_layouts(
     unsafe { SCRATCH.postprocess_pipeline_layout.p_set_layouts = &descriptor_set_layouts.postprocess };
     let object = unsafe { dev.create_pipeline_layout(&SCRATCH.object_pipeline_layout, None).unwrap_unchecked() };
     let grass = unsafe { dev.create_pipeline_layout(&SCRATCH.grass_pipeline_layout, None).unwrap_unchecked() };
+    let star = unsafe { dev.create_pipeline_layout(&SCRATCH.star_pipeline_layout, None).unwrap_unchecked() };
     let skybox = unsafe { dev.create_pipeline_layout(&SCRATCH.skybox_pipeline_layout, None).unwrap_unchecked() };
     let deferred = unsafe { dev.create_pipeline_layout(&SCRATCH.deferred_pipeline_layout, None).unwrap_unchecked() };
     let gaussian_horizontal = unsafe { dev.create_pipeline_layout(&SCRATCH.gaussian_horizontal_pipeline_layout, None).unwrap_unchecked() };
@@ -3025,6 +3385,7 @@ pub fn create_pipeline_layouts(
     PipelineLayouts {
         object,
         grass,
+        star,
         skybox,
         deferred,
         gaussian_horizontal,
@@ -3039,6 +3400,8 @@ pub fn create_shaders(supports_raytracing: bool) -> Shaders {
     let object_fragment = compile_glsl("shaders/object.frag", shaderc::ShaderKind::Fragment, supports_raytracing);
     let grass_vertex = compile_glsl("shaders/grass.vert", shaderc::ShaderKind::Vertex, supports_raytracing);
     let grass_fragment = compile_glsl("shaders/grass.frag", shaderc::ShaderKind::Fragment, supports_raytracing);
+    let star_vertex = compile_glsl("shaders/star.vert", shaderc::ShaderKind::Vertex, supports_raytracing);
+    let star_fragment = compile_glsl("shaders/star.frag", shaderc::ShaderKind::Fragment, supports_raytracing);
     let skybox_vertex = compile_glsl("shaders/skybox.vert", shaderc::ShaderKind::Vertex, supports_raytracing);
     let skybox_fragment = compile_glsl("shaders/skybox.frag", shaderc::ShaderKind::Fragment, supports_raytracing);
     let deferred_vertex = compile_glsl("shaders/util/quad.vert", shaderc::ShaderKind::Vertex, supports_raytracing);
@@ -3054,6 +3417,8 @@ pub fn create_shaders(supports_raytracing: bool) -> Shaders {
         object_fragment,
         grass_vertex,
         grass_fragment,
+        star_vertex,
+        star_fragment,
         skybox_vertex,
         skybox_fragment,
         deferred_vertex,
@@ -3073,6 +3438,8 @@ pub fn create_shader_modules(shaders: &Shaders, dev: &Dev) -> ShaderModules {
     unsafe { SCRATCH.object_shader_fragment.code_size = 4 * shaders.object_fragment.len() };
     unsafe { SCRATCH.grass_shader_vertex.code_size = 4 * shaders.grass_vertex.len() };
     unsafe { SCRATCH.grass_shader_fragment.code_size = 4 * shaders.grass_fragment.len() };
+    unsafe { SCRATCH.star_shader_vertex.code_size = 4 * shaders.star_vertex.len() };
+    unsafe { SCRATCH.star_shader_fragment.code_size = 4 * shaders.star_fragment.len() };
     unsafe { SCRATCH.skybox_shader_vertex.code_size = 4 * shaders.skybox_vertex.len() };
     unsafe { SCRATCH.skybox_shader_fragment.code_size = 4 * shaders.skybox_fragment.len() };
     unsafe { SCRATCH.deferred_shader_vertex.code_size = 4 * shaders.deferred_vertex.len() };
@@ -3087,6 +3454,8 @@ pub fn create_shader_modules(shaders: &Shaders, dev: &Dev) -> ShaderModules {
     unsafe { SCRATCH.object_shader_fragment.p_code = shaders.object_fragment.as_ptr() };
     unsafe { SCRATCH.grass_shader_vertex.p_code = shaders.grass_vertex.as_ptr() };
     unsafe { SCRATCH.grass_shader_fragment.p_code = shaders.grass_fragment.as_ptr() };
+    unsafe { SCRATCH.star_shader_vertex.p_code = shaders.star_vertex.as_ptr() };
+    unsafe { SCRATCH.star_shader_fragment.p_code = shaders.star_fragment.as_ptr() };
     unsafe { SCRATCH.skybox_shader_vertex.p_code = shaders.skybox_vertex.as_ptr() };
     unsafe { SCRATCH.skybox_shader_fragment.p_code = shaders.skybox_fragment.as_ptr() };
     unsafe { SCRATCH.deferred_shader_vertex.p_code = shaders.deferred_vertex.as_ptr() };
@@ -3101,6 +3470,8 @@ pub fn create_shader_modules(shaders: &Shaders, dev: &Dev) -> ShaderModules {
     let object_fragment = unsafe { dev.create_shader_module(&SCRATCH.object_shader_fragment, None).unwrap_unchecked() };
     let grass_vertex = unsafe { dev.create_shader_module(&SCRATCH.grass_shader_vertex, None).unwrap_unchecked() };
     let grass_fragment = unsafe { dev.create_shader_module(&SCRATCH.grass_shader_fragment, None).unwrap_unchecked() };
+    let star_vertex = unsafe { dev.create_shader_module(&SCRATCH.star_shader_vertex, None).unwrap_unchecked() };
+    let star_fragment = unsafe { dev.create_shader_module(&SCRATCH.star_shader_fragment, None).unwrap_unchecked() };
     let skybox_vertex = unsafe { dev.create_shader_module(&SCRATCH.skybox_shader_vertex, None).unwrap_unchecked() };
     let skybox_fragment = unsafe { dev.create_shader_module(&SCRATCH.skybox_shader_fragment, None).unwrap_unchecked() };
     let deferred_vertex = unsafe { dev.create_shader_module(&SCRATCH.deferred_shader_vertex, None).unwrap_unchecked() };
@@ -3116,6 +3487,8 @@ pub fn create_shader_modules(shaders: &Shaders, dev: &Dev) -> ShaderModules {
         object_fragment,
         grass_vertex,
         grass_fragment,
+        star_vertex,
+        star_fragment,
         skybox_vertex,
         skybox_fragment,
         deferred_vertex,
@@ -3154,6 +3527,12 @@ pub fn create_pipelines(
     unsafe { SCRATCH.grass_viewport.height = (swapchain.extent.height / 1) as f32 };
     unsafe { SCRATCH.grass_scissor.extent.width = swapchain.extent.width / 1 };
     unsafe { SCRATCH.grass_scissor.extent.height = swapchain.extent.height / 1 };
+    unsafe { SCRATCH.star_shader_stages[0].module = shader_modules.star_vertex };
+    unsafe { SCRATCH.star_shader_stages[1].module = shader_modules.star_fragment };
+    unsafe { SCRATCH.star_viewport.width = (swapchain.extent.width / 1) as f32 };
+    unsafe { SCRATCH.star_viewport.height = (swapchain.extent.height / 1) as f32 };
+    unsafe { SCRATCH.star_scissor.extent.width = swapchain.extent.width / 1 };
+    unsafe { SCRATCH.star_scissor.extent.height = swapchain.extent.height / 1 };
     unsafe { SCRATCH.skybox_shader_stages[0].module = shader_modules.skybox_vertex };
     unsafe { SCRATCH.skybox_shader_stages[1].module = shader_modules.skybox_fragment };
     unsafe { SCRATCH.skybox_viewport.width = (swapchain.extent.width / 1) as f32 };
@@ -3188,6 +3567,8 @@ pub fn create_pipelines(
     unsafe { SCRATCH.object_pipeline.render_pass = render.pass };
     unsafe { SCRATCH.grass_pipeline.layout = layouts.grass };
     unsafe { SCRATCH.grass_pipeline.render_pass = render.pass };
+    unsafe { SCRATCH.star_pipeline.layout = layouts.star };
+    unsafe { SCRATCH.star_pipeline.render_pass = render.pass };
     unsafe { SCRATCH.skybox_pipeline.layout = layouts.skybox };
     unsafe { SCRATCH.skybox_pipeline.render_pass = render.pass };
     unsafe { SCRATCH.deferred_pipeline.layout = layouts.deferred };
@@ -3202,7 +3583,7 @@ pub fn create_pipelines(
     let _ = unsafe { (dev.fp_v1_0().create_graphics_pipelines)(
         dev.handle(),
         vk::PipelineCache::null(),
-        7,
+        8,
         &SCRATCH.object_pipeline,
         std::ptr::null(),
         pipelines.as_mut_ptr() as *mut vk::Pipeline,

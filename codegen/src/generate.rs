@@ -1584,6 +1584,7 @@ fn attribute_size(attribute: &VertexAttribute) -> usize {
     match attribute.format.as_str() {
         "R32_SFLOAT" => 4,
         "R32G32B32_SFLOAT" => 12,
+        "R32G32B32A32_SFLOAT" => 16,
         _ => todo!("attribute_size({:?})", attribute.format),
     }
 }

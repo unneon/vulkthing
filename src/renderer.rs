@@ -92,6 +92,9 @@ pub struct Renderer {
     grass_chunks: Arc<Mutex<Vec<GrassChunk>>>,
     pub grass_blades_total: Arc<AtomicUsize>,
     grass_descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
+    star_mvp: UniformBuffer<ModelViewProjection>,
+    star_instances: Buffer,
+    star_descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
     skybox_mvp: UniformBuffer<ModelViewProjection>,
     skybox_descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
 
@@ -172,6 +175,7 @@ impl Renderer {
             self.update_object_uniforms(world, entity_id, settings);
         }
         self.update_grass_uniform(grass, world, settings);
+        self.update_star_uniform(world, settings);
         self.update_skybox_uniform(world, settings);
         self.light.write(self.flight_index, &world.light());
         self.frag_settings.write(self.flight_index, frag_settings);
@@ -275,6 +279,21 @@ impl Renderer {
                 0,
             );
         }
+        end_label(buf, &self.extensions.debug);
+
+        begin_label(buf, "Star draws", [213, 204, 184], &self.extensions.debug);
+        self.bind_pipeline(buf, self.pipelines.star);
+        self.bind_descriptor_sets(buf, self.pipeline_layouts.star, &self.star_descriptor_sets);
+        self.dev.cmd_bind_vertex_buffers(
+            buf,
+            0,
+            &[
+                self.mesh_objects[2].vertex.buffer,
+                self.star_instances.buffer,
+            ],
+            &[0, 0],
+        );
+        self.dev.cmd_draw(buf, 3, world.stars.len() as u32, 0, 0);
         end_label(buf, &self.extensions.debug);
 
         begin_label(buf, "Skybox draw", [129, 147, 164], &self.extensions.debug);
@@ -423,6 +442,15 @@ impl Renderer {
         };
         self.grass_mvp.write(self.flight_index, &mvp);
         self.grass_uniform.write(self.flight_index, &grass);
+    }
+
+    fn update_star_uniform(&self, world: &World, settings: &RendererSettings) {
+        let mvp = ModelViewProjection {
+            model: Matrix4::identity(),
+            view: world.view_matrix(),
+            proj: self.projection_matrix(settings),
+        };
+        self.star_mvp.write(self.flight_index, &mvp);
     }
 
     fn update_skybox_uniform(&self, world: &World, settings: &RendererSettings) {
