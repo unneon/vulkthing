@@ -2,25 +2,22 @@
 
 #extension GL_KHR_shader_subgroup_quad : enable
 
+#include "types/uniform.glsl"
+
 layout(constant_id = 0) const int msaa_samples = 2;
 
 layout(binding = 0, input_attachment_index = 0) uniform subpassInputMS render;
 
 layout(binding = 1, rgba16) uniform writeonly image2D bloom;
 
-layout(binding = 2) uniform Gaussian {
-    ivec2 step;
-    float threshold;
-    int radius;
-    float exponent_coefficient;
-} gaussian;
+layout(binding = 0, set = 1) uniform GLOBAL_UNIFORM_TYPE global;
 
 void main() {
     vec3 pixel_bloom = vec3(0);
     for (int i = 0; i < msaa_samples; ++i) {
         vec3 sample_color = subpassLoad(render, i).rgb;
         float sample_greyscale = dot(sample_color, vec3(0.299, 0.587, 0.114));
-        if (sample_greyscale > gaussian.threshold) {
+        if (sample_greyscale > global.gaussian.threshold) {
             pixel_bloom += sample_color;
         }
     }

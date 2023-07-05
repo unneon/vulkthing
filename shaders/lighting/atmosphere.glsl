@@ -16,9 +16,9 @@ vec2 ray_sphere(vec3 sphere_centre, float sphere_radius, vec3 ray_origin, vec3 r
 }
 
 float density_at_point(vec3 point) {
-    float height_above_surface = length(point - atmosphere.planet_position) - atmosphere.planet_radius;
-    float height_01 = height_above_surface / (atmosphere.scale * atmosphere.planet_radius - atmosphere.planet_radius);
-    float local_density = exp(-height_01 * atmosphere.density_falloff);
+    float height_above_surface = length(point - global.atmosphere.planet_position) - global.atmosphere.planet_radius;
+    float height_01 = height_above_surface / (global.atmosphere.scale * global.atmosphere.planet_radius - global.atmosphere.planet_radius);
+    float local_density = exp(-height_01 * global.atmosphere.density_falloff);
     return local_density;
 }
 
@@ -27,10 +27,10 @@ float density_at_point(vec3 point) {
 // these values later.
 
 float optical_depth(vec3 ray_origin, vec3 ray_direction, float ray_length) {
-    float step_length = ray_length / atmosphere.optical_depth_point_count;
+    float step_length = ray_length / global.atmosphere.optical_depth_point_count;
     vec3 sample_point = ray_origin + ray_direction * step_length / 2;
     float optical_depth = 0;
-    for (uint i = 0; i < atmosphere.optical_depth_point_count; ++i) {
+    for (uint i = 0; i < global.atmosphere.optical_depth_point_count; ++i) {
         float local_density = density_at_point(sample_point);
         optical_depth += local_density * step_length;
         sample_point += ray_direction * step_length;
@@ -44,7 +44,7 @@ float phase_function(float cos_theta) {
     // The formula is claimed to be "adaptation" of the Henyey-Greenstein function, but it's not clear what was changed
     // and why. Probably a good idea to read the original paper later.
     // https://developer.nvidia.com/gpugems/gpugems2/part-ii-shading-lighting-and-shadows/chapter-16-accurate-atmospheric-scattering
-    float g = atmosphere.henyey_greenstein_g;
+    float g = global.atmosphere.henyey_greenstein_g;
     float c = cos_theta;
     return (3 * (1 - g * g)) / (2 * (2 + g * g))
         * (1 + c * c) / pow(1 + g * g - 2 * g * c, 1.5);
@@ -54,23 +54,23 @@ vec3 calculate_light(vec3 ray_origin, vec3 ray_direction, float ray_length, vec3
     // This entire function approach with assigning wavelengths to color channels is completely broken, given the output
     // is in sRGB color space. Fixing will come later, as I need to figure out how this should interact with the rest of
     // the rendering pipeline, especially the ACES tone mapping later. There might be resources on this somewhere?
-    vec3 scatter_coefficients = atmosphere.scattering_strength * vec3(
-        pow(400 / atmosphere.wavelengths.r, 4),
-        pow(400 / atmosphere.wavelengths.g, 4),
-        pow(400 / atmosphere.wavelengths.b, 4)
+    vec3 scatter_coefficients = global.atmosphere.scattering_strength * vec3(
+        pow(400 / global.atmosphere.wavelengths.r, 4),
+        pow(400 / global.atmosphere.wavelengths.g, 4),
+        pow(400 / global.atmosphere.wavelengths.b, 4)
     );
-    float step_length = ray_length / atmosphere.scatter_point_count;
+    float step_length = ray_length / global.atmosphere.scatter_point_count;
     vec3 in_scatter_point = ray_origin + ray_direction * step_length / 2;
     vec3 in_scattered_light = vec3(0);
-    for (uint i = 0; i < atmosphere.scatter_point_count; ++i) {
+    for (uint i = 0; i < global.atmosphere.scatter_point_count; ++i) {
         // This is kind of wrong because the sun ray ignores the planet, which results in sunsets being red regardless
         // of the direction you look in (rather than black color when looking away from the sun). Naive approach with
         // ray_sphere results in color banding for some reason? Probably I should be smarter when integrating over
         // in_scatter_point, so that I don't waste precision on scattering points where light is obstructed by the
         // planet.
         // TODO: Account for planet obstructing sun rays.
-        vec3 sun_direction = normalize(atmosphere.sun_position - in_scatter_point);
-        float sun_ray_length = ray_sphere(atmosphere.planet_position, atmosphere.scale * atmosphere.planet_radius, in_scatter_point, sun_direction).y;
+        vec3 sun_direction = normalize(global.atmosphere.sun_position - in_scatter_point);
+        float sun_ray_length = ray_sphere(global.atmosphere.planet_position, global.atmosphere.scale * global.atmosphere.planet_radius, in_scatter_point, sun_direction).y;
         float sun_ray_optical_depth = optical_depth(in_scatter_point, sun_direction, sun_ray_length);
         float view_ray_optical_depth = optical_depth(in_scatter_point, -ray_direction, step_length * i);
         vec3 transmittance = exp(-scatter_coefficients * (sun_ray_optical_depth + view_ray_optical_depth));
@@ -86,15 +86,15 @@ vec3 calculate_light(vec3 ray_origin, vec3 ray_direction, float ray_length, vec3
 }
 
 vec3 compute_atmosphere(vec3 original_color, vec3 position) {
-    if (!atmosphere.enable) {
+    if (!global.atmosphere.enable) {
         return original_color;
     }
 
-    float scene_depth = length(position - camera.position);
-    vec3 ray_origin = camera.position;
-    vec3 ray_direction = normalize(position - camera.position);
+    float scene_depth = length(position - global.camera.position);
+    vec3 ray_origin = global.camera.position;
+    vec3 ray_direction = normalize(position - global.camera.position);
 
-    vec2 hit_info = ray_sphere(atmosphere.planet_position, atmosphere.scale * atmosphere.planet_radius, ray_origin, ray_direction);
+    vec2 hit_info = ray_sphere(global.atmosphere.planet_position, global.atmosphere.scale * global.atmosphere.planet_radius, ray_origin, ray_direction);
     float distance_to_atmosphere = hit_info.x;
     float distance_through_atmosphere = min(hit_info.y, scene_depth - distance_to_atmosphere);
 

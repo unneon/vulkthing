@@ -20,8 +20,8 @@ use crate::renderer::graph::Pass;
 use crate::renderer::raytracing::RaytraceResources;
 use crate::renderer::swapchain::Swapchain;
 use crate::renderer::uniform::{
-    Atmosphere, Camera, FragSettings, GrassUniform, Light, Material, ModelViewProjection,
-    Postprocessing,
+    Atmosphere, Camera, FragSettings, Gaussian, Global, GrassUniform, Material,
+    ModelViewProjection, Postprocessing,
 };
 use crate::renderer::util::{Buffer, Dev, ImageResources, UniformBuffer};
 use crate::world::World;
@@ -29,7 +29,7 @@ use ash::extensions::ext::DebugUtils;
 use ash::extensions::khr::{Surface, Swapchain as SwapchainKhr};
 use ash::{vk, Entry};
 use imgui::DrawData;
-use nalgebra::{Matrix4, Vector2, Vector3};
+use nalgebra::{Matrix4, Vector3};
 use std::f32::consts::FRAC_PI_4;
 use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex};
@@ -50,11 +50,6 @@ pub struct Renderer {
     // Parameters of the renderer that are required early for creating more important objects.
     pub msaa_samples: vk::SampleCountFlags,
     samplers: Samplers,
-    atmosphere_uniform: UniformBuffer<Atmosphere>,
-    gaussian_horizontal_uniform: UniformBuffer<uniform::Gaussian>,
-    gaussian_vertical_uniform: UniformBuffer<uniform::Gaussian>,
-    postprocessing: UniformBuffer<Postprocessing>,
-    camera: UniformBuffer<Camera>,
 
     // Description of the main render pass. Doesn't contain any information about the objects yet,
     // only low-level data format descriptions.
@@ -84,19 +79,21 @@ pub struct Renderer {
     // And finally resources specific to this renderer. So various buffers related to objects we
     // actually render, their descriptor sets and the like.
     grass_mvp: UniformBuffer<ModelViewProjection>,
-    grass_uniform: UniformBuffer<GrassUniform>,
-    light: UniformBuffer<Light>,
-    frag_settings: UniformBuffer<FragSettings>,
+    grass_material: UniformBuffer<Material>,
     mesh_objects: Vec<MeshObject>,
     entities: Vec<Object>,
     grass_chunks: Arc<Mutex<Vec<GrassChunk>>>,
     pub grass_blades_total: Arc<AtomicUsize>,
     grass_descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
     star_mvp: UniformBuffer<ModelViewProjection>,
+    star_material: UniformBuffer<Material>,
     star_instances: Buffer,
     star_descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
     skybox_mvp: UniformBuffer<ModelViewProjection>,
+    skybox_material: UniformBuffer<Material>,
     skybox_descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
+    global: UniformBuffer<Global>,
+    global_descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
 
     tlas: Option<RaytraceResources>,
     blas: Option<RaytraceResources>,
@@ -174,15 +171,17 @@ impl Renderer {
         for entity_id in 0..world.entities().len() {
             self.update_object_uniforms(world, entity_id, settings);
         }
-        self.update_grass_uniform(grass, world, settings);
+        self.update_grass_uniform(world, settings);
         self.update_star_uniform(world, settings);
         self.update_skybox_uniform(world, settings);
-        self.light.write(self.flight_index, &world.light());
-        self.frag_settings.write(self.flight_index, frag_settings);
-        self.atmosphere_uniform.write(self.flight_index, atmosphere);
-        self.update_gaussian_uniforms(gaussian);
-        self.postprocessing.write(self.flight_index, postprocessing);
-        self.update_camera_uniform(world);
+        self.update_global_uniform(
+            world,
+            grass,
+            frag_settings,
+            atmosphere,
+            gaussian,
+            postprocessing,
+        );
         self.submit_graphics();
         self.submit_present(image_index);
 
@@ -425,23 +424,13 @@ impl Renderer {
             .write(self.flight_index, &material);
     }
 
-    fn update_grass_uniform(&self, grass: &Grass, world: &World, settings: &RendererSettings) {
+    fn update_grass_uniform(&self, world: &World, settings: &RendererSettings) {
         let mvp = ModelViewProjection {
             model: world.planet().model_matrix(world),
             view: world.view_matrix(),
             proj: self.projection_matrix(settings),
         };
-        let grass = GrassUniform {
-            height_average: grass.height_average,
-            height_max_variance: grass.height_max_variance,
-            width: grass.width,
-            time: world.time,
-            sway_direction: Vector3::new(0., 1., 0.),
-            sway_frequency: grass.sway_frequency,
-            sway_amplitude: grass.sway_amplitude,
-        };
         self.grass_mvp.write(self.flight_index, &mvp);
-        self.grass_uniform.write(self.flight_index, &grass);
     }
 
     fn update_star_uniform(&self, world: &World, settings: &RendererSettings) {
@@ -462,30 +451,41 @@ impl Renderer {
         self.skybox_mvp.write(self.flight_index, &mvp);
     }
 
-    fn update_gaussian_uniforms(&self, gaussian: &config::Gaussian) {
-        self.gaussian_horizontal_uniform.write(
+    fn update_global_uniform(
+        &self,
+        world: &World,
+        grass: &Grass,
+        settings: &FragSettings,
+        atmosphere: &Atmosphere,
+        gaussian: &config::Gaussian,
+        postprocessing: &Postprocessing,
+    ) {
+        self.global.write(
             self.flight_index,
-            &uniform::Gaussian {
-                step: Vector2::new(1, 0),
-                threshold: gaussian.threshold,
-                radius: gaussian.radius as i32,
-                exponent_coefficient: gaussian.exponent_coefficient,
+            &Global {
+                grass: GrassUniform {
+                    height_average: grass.height_average,
+                    height_max_variance: grass.height_max_variance,
+                    width: grass.width,
+                    time: world.time,
+                    sway_direction: Vector3::new(0., 1., 0.),
+                    sway_frequency: grass.sway_frequency,
+                    sway_amplitude: grass.sway_amplitude,
+                },
+                light: world.light(),
+                settings: *settings,
+                atmosphere: *atmosphere,
+                gaussian: Gaussian {
+                    threshold: gaussian.threshold,
+                    radius: gaussian.radius as i32,
+                    exponent_coefficient: gaussian.exponent_coefficient,
+                },
+                postprocessing: *postprocessing,
+                camera: Camera {
+                    position: world.camera.position(),
+                },
             },
         );
-        self.gaussian_vertical_uniform.write(
-            self.flight_index,
-            &uniform::Gaussian {
-                step: Vector2::new(0, 1),
-                threshold: gaussian.threshold,
-                radius: gaussian.radius as i32,
-                exponent_coefficient: gaussian.exponent_coefficient,
-            },
-        );
-    }
-
-    fn update_camera_uniform(&self, world: &World) {
-        let position = world.camera.position();
-        self.camera.write(self.flight_index, &Camera { position });
     }
 
     fn submit_graphics(&self) {
@@ -555,7 +555,10 @@ impl Renderer {
                 vk::PipelineBindPoint::GRAPHICS,
                 layout,
                 0,
-                &[sets[self.flight_index]],
+                &[
+                    sets[self.flight_index],
+                    self.global_descriptor_sets[self.flight_index],
+                ],
                 &[],
             )
         };

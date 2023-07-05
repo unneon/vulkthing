@@ -310,6 +310,7 @@ struct Scratch {{"#
     )
     .unwrap();
     for_pipelines(renderer, |_, _, subpass, pipeline| {
+        let layout_count = pipeline.descriptor_sets.len();
         let binding_count = pipeline.vertex_bindings.len();
         let attribute_count = pipeline
             .vertex_bindings
@@ -317,6 +318,13 @@ struct Scratch {{"#
             .flat_map(|binding| binding.attributes.iter())
             .filter(|attribute| !attribute.unused)
             .count();
+        if layout_count > 1 {
+            writeln!(
+                file,
+                "    pub {pipeline}_layouts: [vk::DescriptorSetLayout; {layout_count}],"
+            )
+            .unwrap();
+        }
         writeln!(
             file,
             r#"    {pipeline}_pipeline_layout: vk::PipelineLayoutCreateInfo,
@@ -662,6 +670,18 @@ static mut SCRATCH: Scratch = Scratch {{"#
             .flat_map(|binding| binding.attributes.iter())
             .filter(|attribute| !attribute.unused)
             .count();
+        let set_layouts_ptr = if descriptor_count > 1 {
+            format!("unsafe {{ SCRATCH.{pipeline}_layouts.as_ptr() }}")
+        } else {
+            "std::ptr::null()".to_owned()
+        };
+        if descriptor_count > 1 {
+            writeln!(
+                file,
+                r"    {pipeline}_layouts: [vk::DescriptorSetLayout::null(); {descriptor_count}],"
+            )
+            .unwrap();
+        }
         writeln!(
             file,
             r#"    {pipeline}_pipeline_layout: vk::PipelineLayoutCreateInfo {{
@@ -669,7 +689,7 @@ static mut SCRATCH: Scratch = Scratch {{"#
         p_next: std::ptr::null(),
         flags: vk::PipelineLayoutCreateFlags::empty(),
         set_layout_count: {descriptor_count},
-        p_set_layouts: std::ptr::null(),
+        p_set_layouts: {set_layouts_ptr},
         push_constant_range_count: 0,
         p_push_constant_ranges: std::ptr::null(),
     }},
@@ -1415,8 +1435,16 @@ pub fn create_pipeline_layouts(
     )
     .unwrap();
     for_pipelines(renderer, |_, _, _, pipeline| {
-        let descriptor_set = &pipeline.descriptor_sets[0];
-        writeln!(file, r#"    unsafe {{ SCRATCH.{pipeline}_pipeline_layout.p_set_layouts = &descriptor_set_layouts.{descriptor_set} }};"#).unwrap();
+        if pipeline.descriptor_sets.len() > 1 {
+            for (descriptor_set_index, descriptor_set) in
+                pipeline.descriptor_sets.iter().enumerate()
+            {
+                writeln!(file, "    unsafe {{ SCRATCH.{pipeline}_layouts[{descriptor_set_index}] = descriptor_set_layouts.{descriptor_set} }};").unwrap();
+            }
+        } else {
+            let descriptor_set = &pipeline.descriptor_sets[0];
+            writeln!(file, "    unsafe {{ SCRATCH.{pipeline}_pipeline_layout.p_set_layouts = &descriptor_set_layouts.{descriptor_set} }};").unwrap();
+        }
     });
     for_pipelines(renderer, |_, _, _, pipeline| {
         writeln!(file, r#"    let {pipeline} = unsafe {{ dev.create_pipeline_layout(&SCRATCH.{pipeline}_pipeline_layout, None).unwrap_unchecked() }};"#).unwrap();

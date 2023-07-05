@@ -82,11 +82,6 @@ impl Renderer {
 
         let msaa_samples = settings.msaa_samples;
         let samplers = create_samplers(&dev);
-        let atmosphere_uniform = UniformBuffer::create(&dev);
-        let gaussian_horizontal_uniform = UniformBuffer::create(&dev);
-        let gaussian_vertical_uniform = UniformBuffer::create(&dev);
-        let postprocessing = UniformBuffer::create(&dev);
-        let camera = UniformBuffer::create(&dev);
 
         let descriptor_set_layouts = create_descriptor_set_layouts(&samplers, &dev);
         let descriptor_pools = create_descriptor_pools(&descriptor_set_layouts, &dev);
@@ -103,23 +98,15 @@ impl Renderer {
         let atmosphere_descriptor_sets = descriptor_pools.alloc_deferred(
             passes.render.resources[0].view,
             lowres_bloom.view,
-            &gaussian_horizontal_uniform,
             &dev,
         );
-        let gaussian_horizontal_descriptors = descriptor_pools.alloc_gaussian_horizontal(
-            lowres_bloom.view,
-            &gaussian_horizontal_uniform,
-            &dev,
-        );
-        let gaussian_vertical_descriptors = descriptor_pools.alloc_gaussian_vertical(
-            passes.gaussian_horizontal.resources[0].view,
-            &gaussian_vertical_uniform,
-            &dev,
-        );
+        let gaussian_horizontal_descriptors =
+            descriptor_pools.alloc_gaussian_horizontal(lowres_bloom.view, &dev);
+        let gaussian_vertical_descriptors = descriptor_pools
+            .alloc_gaussian_vertical(passes.gaussian_horizontal.resources[0].view, &dev);
         let postprocess_descriptor_sets = descriptor_pools.alloc_postprocess(
             passes.render.resources[0].view,
             passes.gaussian_vertical.resources[0].view,
-            &postprocessing,
             &dev,
         );
         let pipeline_layouts = create_pipeline_layouts(&descriptor_set_layouts, &dev);
@@ -137,9 +124,6 @@ impl Renderer {
             &dev,
         );
         shader_modules.cleanup(&dev);
-
-        let light = UniformBuffer::create(&dev);
-        let frag_settings = UniformBuffer::create(&dev);
 
         let mut mesh_objects = Vec::new();
         for mesh in meshes {
@@ -162,16 +146,7 @@ impl Renderer {
         for _ in world.entities() {
             let mvp = UniformBuffer::create(&dev);
             let material = UniformBuffer::create(&dev);
-            let descriptors = descriptor_pools.alloc_object(
-                &mvp,
-                &material,
-                &light,
-                &frag_settings,
-                &atmosphere_uniform,
-                &camera,
-                &tlas,
-                &dev,
-            );
+            let descriptors = descriptor_pools.alloc_object(&mvp, &material, &dev);
             entities.push(Object {
                 mvp,
                 material,
@@ -179,33 +154,28 @@ impl Renderer {
             });
         }
         let grass_mvp = UniformBuffer::create(&dev);
-        let grass_uniform = UniformBuffer::create(&dev);
-        let grass_descriptor_sets = descriptor_pools.alloc_grass(
-            &grass_mvp,
-            &grass_uniform,
-            &light,
-            &frag_settings,
-            &atmosphere_uniform,
-            &camera,
-            &tlas,
-            &dev,
-        );
+        let grass_material = UniformBuffer::create(&dev);
+        let grass_descriptor_sets =
+            descriptor_pools.alloc_object(&grass_mvp, &grass_material, &dev);
         let star_mvp = UniformBuffer::create(&dev);
+        let star_material = UniformBuffer::create(&dev);
         let star_instances = Buffer::create(
             UNIFIED_MEMORY,
             vk::BufferUsageFlags::VERTEX_BUFFER,
             world.stars.len() * std::mem::size_of::<Star>(),
             &dev,
         );
-        let star_descriptor_sets =
-            descriptor_pools.alloc_star(&star_mvp, &atmosphere_uniform, &camera, &dev);
+        let star_descriptor_sets = descriptor_pools.alloc_object(&star_mvp, &star_material, &dev);
         star_instances.generate_host_visible(world.stars.len(), &dev, |i| Star {
             model: world.stars[i].transform.model_matrix(),
             emit: world.stars[i].emit,
         });
         let skybox_mvp = UniformBuffer::create(&dev);
+        let skybox_material = UniformBuffer::create(&dev);
         let skybox_descriptor_sets =
-            descriptor_pools.alloc_skybox(&skybox_mvp, &atmosphere_uniform, &camera, &dev);
+            descriptor_pools.alloc_object(&skybox_mvp, &skybox_material, &dev);
+        let global = UniformBuffer::create(&dev);
+        let global_descriptor_sets = descriptor_pools.alloc_global(&global, &tlas, &dev);
 
         Renderer {
             _entry: entry,
@@ -218,11 +188,6 @@ impl Renderer {
             supports_raytracing,
             msaa_samples,
             samplers,
-            atmosphere_uniform,
-            gaussian_horizontal_uniform,
-            gaussian_vertical_uniform,
-            postprocessing,
-            camera,
             descriptor_set_layouts,
             descriptor_pools,
             pipeline_layouts,
@@ -239,19 +204,21 @@ impl Renderer {
             sync,
             flight_index: 0,
             grass_mvp,
-            grass_uniform,
-            light,
-            frag_settings,
+            grass_material,
             mesh_objects,
             entities,
             grass_descriptor_sets,
             star_mvp,
+            star_material,
             star_instances,
             star_descriptor_sets,
             skybox_mvp,
+            skybox_material,
             skybox_descriptor_sets,
             grass_chunks: Arc::new(Mutex::new(Vec::new())),
             grass_blades_total: Arc::new(AtomicUsize::new(0)),
+            global,
+            global_descriptor_sets,
             blas,
             tlas,
             interface_renderer: None,
@@ -339,26 +306,22 @@ impl Renderer {
             &self.atmosphere_descriptor_sets,
             self.passes.render.resources[0].view,
             self.lowres_bloom.view,
-            &self.gaussian_horizontal_uniform,
             &self.dev,
         );
         self.descriptor_pools.update_gaussian_horizontal(
             &self.gaussian_horizontal_descriptors,
             self.lowres_bloom.view,
-            &self.gaussian_horizontal_uniform,
             &self.dev,
         );
         self.descriptor_pools.update_gaussian_vertical(
             &self.gaussian_vertical_descriptors,
             self.passes.gaussian_horizontal.resources[0].view,
-            &self.gaussian_vertical_uniform,
             &self.dev,
         );
         self.descriptor_pools.update_postprocess(
             &self.postprocess_descriptor_sets,
             self.passes.render.resources[0].view,
             self.passes.gaussian_vertical.resources[0].view,
-            &self.postprocessing,
             &self.dev,
         );
     }
@@ -469,6 +432,7 @@ impl Drop for Renderer {
 
             drop(self.interface_renderer.take());
             self.star_mvp.cleanup(&self.dev);
+            self.star_material.cleanup(&self.dev);
             self.star_instances.cleanup(&self.dev);
             for entity in &self.entities {
                 entity.cleanup(&self.dev);
@@ -480,10 +444,10 @@ impl Drop for Renderer {
                 grass_chunk.cleanup(&self.dev);
             }
             self.grass_mvp.cleanup(&self.dev);
-            self.grass_uniform.cleanup(&self.dev);
+            self.grass_material.cleanup(&self.dev);
             self.skybox_mvp.cleanup(&self.dev);
-            self.light.cleanup(&self.dev);
-            self.frag_settings.cleanup(&self.dev);
+            self.skybox_material.cleanup(&self.dev);
+            self.global.cleanup(&self.dev);
             let as_ext = AccelerationStructure::new(&self.dev.instance, &self.dev);
             if let Some(tlas) = self.tlas.as_ref() {
                 tlas.cleanup(&self.dev, &as_ext);
@@ -500,11 +464,6 @@ impl Drop for Renderer {
             self.pipeline_layouts.cleanup(&self.dev);
             self.descriptor_pools.cleanup(&self.dev);
             self.descriptor_set_layouts.cleanup(&self.dev);
-            self.atmosphere_uniform.cleanup(&self.dev);
-            self.gaussian_horizontal_uniform.cleanup(&self.dev);
-            self.gaussian_vertical_uniform.cleanup(&self.dev);
-            self.postprocessing.cleanup(&self.dev);
-            self.camera.cleanup(&self.dev);
             self.samplers.cleanup(&self.dev);
             self.dev.destroy_device(None);
             self.extensions.surface.destroy_surface(self.surface, None);

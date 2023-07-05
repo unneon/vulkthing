@@ -15,51 +15,27 @@ sampler "bilinear" {
     unnormalized-coordinates
 }
 
-descriptor-set "object" 4096 {
+descriptor-set "object" 5 {
     uniform "mvp" "VERTEX" "ModelViewProjection"
     uniform "material" "FRAGMENT" "Material"
-    uniform "light" "FRAGMENT" "Light"
-    uniform "settings" "FRAGMENT" "FragSettings"
-    uniform "atmosphere" "FRAGMENT" "Atmosphere"
-    uniform "camera" "FRAGMENT" "Camera"
-    acceleration-structure "tlas" "FRAGMENT"
-}
-descriptor-set "grass" 1 {
-    uniform "planet_mvp" "VERTEX" "ModelViewProjection"
-    uniform "grass" "VERTEX" "GrassUniform"
-    uniform "light" "FRAGMENT" "Light"
-    uniform "settings" "FRAGMENT" "FragSettings"
-    uniform "atmosphere" "FRAGMENT" "Atmosphere"
-    uniform "camera" "FRAGMENT" "Camera"
-    acceleration-structure "tlas" "FRAGMENT"
-}
-descriptor-set "star" 4096 {
-    uniform "star_mvp" "VERTEX" "ModelViewProjection"
-    uniform "atmosphere" "FRAGMENT" "Atmosphere"
-    uniform "camera" "FRAGMENT" "Camera"
-}
-descriptor-set "skybox" 1 {
-    uniform "mvp" "VERTEX" "ModelViewProjection"
-    uniform "atmosphere" "FRAGMENT" "Atmosphere"
-    uniform "camera" "FRAGMENT" "Camera"
 }
 descriptor-set "deferred" 1 {
     input-attachment "render" "FRAGMENT" msaa=true
     storage-image "bloom" "FRAGMENT"
-    uniform "gaussian" "FRAGMENT" "Gaussian"
 }
 descriptor-set "gaussian_horizontal" 1 {
     image "render" "FRAGMENT" "nearest" layout="GENERAL"
-    uniform "gaussian" "FRAGMENT" "Gaussian"
 }
 descriptor-set "gaussian_vertical" 1 {
     image "render" "FRAGMENT" "nearest"
-    uniform "gaussian" "FRAGMENT" "Gaussian"
 }
 descriptor-set "postprocess" 1 {
     image "render" "FRAGMENT" "nearest" msaa=true
     image "bloom" "FRAGMENT" "bilinear"
-    uniform "postprocessing" "FRAGMENT" "Postprocessing"
+}
+descriptor-set "global" 1 {
+    uniform "global" "ALL" "Global"
+    acceleration-structure "tlas" "FRAGMENT"
 }
 
 pass "render" {
@@ -83,7 +59,7 @@ pass "render" {
                 attribute "vertex_position" "R32G32B32_SFLOAT"
                 attribute "vertex_normal" "R32G32B32_SFLOAT"
             }
-            descriptor-sets "object"
+            descriptor-sets "object" "global"
         }
         pipeline "grass" {
             vertex-binding {
@@ -98,7 +74,7 @@ pass "render" {
                 attribute "blade_height_noise" "R32_SFLOAT"
                 attribute "ground_normal" "R32G32B32_SFLOAT"
             }
-            descriptor-sets "grass"
+            descriptor-sets "object" "global"
             cull-mode "NONE"
         }
         pipeline "star" {
@@ -113,7 +89,7 @@ pass "render" {
                 attribute "model_c4" "R32G32B32A32_SFLOAT"
                 attribute "emit" "R32G32B32_SFLOAT"
             }
-            descriptor-sets "star"
+            descriptor-sets "object" "global"
             cull-mode "NONE"
         }
         pipeline "skybox" {
@@ -121,7 +97,7 @@ pass "render" {
                 attribute "vertex_position" "R32G32B32_SFLOAT"
                 attribute "vertex_normal" "R32G32B32_SFLOAT" unused=true
             }
-            descriptor-sets "skybox"
+            descriptor-sets "object" "global"
             cull-mode "FRONT"
         }
     }
@@ -130,7 +106,7 @@ pass "render" {
         pipeline "deferred" {
             vertex-shader "util/quad.vert"
             specialization "msaa_samples" "FRAGMENT"
-            descriptor-sets "deferred"
+            descriptor-sets "deferred" "global"
         }
     }
     dependency {
@@ -152,7 +128,7 @@ pass "gaussian_horizontal" {
         pipeline "gaussian_horizontal" {
             vertex-shader "util/quad.vert"
             fragment-shader "gaussian.frag"
-            descriptor-sets "gaussian_horizontal"
+            descriptor-sets "gaussian_horizontal" "global"
         }
     }
 }
@@ -169,7 +145,7 @@ pass "gaussian_vertical" {
         pipeline "gaussian_vertical" {
             vertex-shader "util/quad.vert"
             fragment-shader "gaussian.frag"
-            descriptor-sets "gaussian_vertical"
+            descriptor-sets "gaussian_vertical" "global"
         }
     }
 }
@@ -185,7 +161,7 @@ pass "postprocess" {
         pipeline "postprocess" {
             vertex-shader "util/quad.vert"
             specialization "msaa_samples" "FRAGMENT"
-            descriptor-sets "postprocess"
+            descriptor-sets "postprocess" "global"
         }
     }
 }

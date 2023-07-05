@@ -4,37 +4,11 @@
     #extension GL_EXT_ray_query : enable
 #endif
 
-layout(binding = 2) uniform Light {
-    vec3 color;
-    float ambient_strength;
-    vec3 position;
-    float diffuse_strength;
-} light;
+#include "types/uniform.glsl"
 
-layout(binding = 3) uniform FragSettings {
-    bool ray_traced_shadows;
-} settings;
-
-layout(binding = 4) uniform Atmosphere {
-    bool enable;
-    uint scatter_point_count;
-    uint optical_depth_point_count;
-    float density_falloff;
-    vec3 planet_position;
-    float planet_radius;
-    vec3 sun_position;
-    float scale;
-    vec3 wavelengths;
-    float scattering_strength;
-    float henyey_greenstein_g;
-} atmosphere;
-
-layout(binding = 5) uniform Camera {
-    vec3 position;
-} camera;
-
+layout(binding = 0, set = 1) uniform GLOBAL_UNIFORM_TYPE global;
 #ifdef SUPPORTS_RAYTRACING
-layout(binding = 6) uniform accelerationStructureEXT tlas;
+layout(binding = 1, set = 1) uniform accelerationStructureEXT tlas;
 #endif
 
 layout(location = 0) in vec3 frag_position;
@@ -52,8 +26,8 @@ void main() {
     vec3 grass_color = vec3(0.2, 0.8, 0.03) * height_factor;
     float diffuse_factor = 1;
 
-    vec3 ambient = light.ambient_strength * light.color * grass_color;
-    vec3 diffuse = light.diffuse_strength * light.color * grass_color * diffuse_factor;
+    vec3 ambient = global.light.ambient_strength * global.light.color * grass_color;
+    vec3 diffuse = global.light.diffuse_strength * global.light.color * grass_color * diffuse_factor;
     if (in_shadow()) {
         diffuse = vec3(0);
     }

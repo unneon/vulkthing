@@ -1,20 +1,14 @@
 #version 450
 
+#include "types/uniform.glsl"
+
 layout(binding = 0) uniform ModelViewProjection {
     mat4 model;
     mat4 view;
     mat4 proj;
 } planet_mvp;
 
-layout(binding = 1) uniform GrassUniform {
-    float height_average;
-    float height_max_variance;
-    float width;
-    float time;
-    vec3 sway_direction;
-    float sway_frequency;
-    float sway_amplitude;
-} grass;
+layout(binding = 0, set = 1) uniform GLOBAL_UNIFORM_TYPE global;
 
 layout(location = 0) in vec3 vertex_position;
 layout(location = 1) in vec3 vertex_normal;
@@ -33,10 +27,10 @@ layout(location = 3) out float frag_naive_height;
 void main() {
     float naive_x = vertex_position.y;
     float naive_y = vertex_position.z;
-    float blade_height = grass.height_average + blade_height_noise * grass.height_max_variance;
-    float sway_arg = grass.sway_frequency * grass.time;
-    vec3 blade_swayed_up = blade_up + sin(sway_arg) * grass.sway_amplitude * grass.sway_direction;
-    vec3 position = (planet_mvp.model * vec4(blade_position, 1)).xyz + naive_x * blade_right * grass.width + naive_y * blade_swayed_up * blade_height;
+    float blade_height = global.grass.height_average + blade_height_noise * global.grass.height_max_variance;
+    float sway_arg = global.grass.sway_frequency * global.grass.time;
+    vec3 blade_swayed_up = blade_up + sin(sway_arg) * global.grass.sway_amplitude * global.grass.sway_direction;
+    vec3 position = (planet_mvp.model * vec4(blade_position, 1)).xyz + naive_x * blade_right * global.grass.width + naive_y * blade_swayed_up * blade_height;
     gl_Position = planet_mvp.proj * planet_mvp.view * vec4(position, 1);
     frag_position = position;
     frag_normal = blade_front;

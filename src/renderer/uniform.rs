@@ -1,5 +1,5 @@
 use crate::interface::EnumInterface;
-use nalgebra::{Matrix4, Vector2, Vector3};
+use nalgebra::{Matrix4, Vector3};
 use std::borrow::Cow;
 
 #[repr(C)]
@@ -12,6 +12,26 @@ pub struct ModelViewProjection {
 
 #[repr(C)]
 #[derive(Clone, Copy)]
+pub struct Material {
+    pub diffuse: Vector3<f32>,
+    pub _pad0: f32,
+    pub emit: Vector3<f32>,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct Global {
+    pub grass: GrassUniform,
+    pub light: Light,
+    pub settings: FragSettings,
+    pub atmosphere: Atmosphere,
+    pub gaussian: Gaussian,
+    pub postprocessing: Postprocessing,
+    pub camera: Camera,
+}
+
+#[repr(C, align(16))]
+#[derive(Clone, Copy)]
 pub struct GrassUniform {
     pub height_average: f32,
     pub height_max_variance: f32,
@@ -22,15 +42,7 @@ pub struct GrassUniform {
     pub sway_amplitude: f32,
 }
 
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub struct Material {
-    pub diffuse: Vector3<f32>,
-    pub _pad0: f32,
-    pub emit: Vector3<f32>,
-}
-
-#[repr(C)]
+#[repr(C, align(16))]
 #[derive(Clone, Copy)]
 pub struct Light {
     pub color: Vector3<f32>,
@@ -39,14 +51,14 @@ pub struct Light {
     pub diffuse_strength: f32,
 }
 
-#[repr(C)]
+#[repr(C, align(4))]
 #[derive(Clone, Copy)]
 pub struct FragSettings {
     pub use_ray_tracing: bool,
     pub _pad0: [u8; 3],
 }
 
-#[repr(C)]
+#[repr(C, align(16))]
 #[derive(Clone, Copy)]
 pub struct Atmosphere {
     pub enable: bool,
@@ -63,16 +75,15 @@ pub struct Atmosphere {
     pub henyey_greenstein_g: f32,
 }
 
-#[repr(C)]
+#[repr(C, align(4))]
 #[derive(Clone, Copy)]
 pub struct Gaussian {
-    pub step: Vector2<i32>,
     pub threshold: f32,
     pub radius: i32,
     pub exponent_coefficient: f32,
 }
 
-#[repr(C)]
+#[repr(C, align(16))]
 #[derive(Clone, Copy)]
 pub struct Postprocessing {
     pub color_filter: Vector3<f32>,
@@ -87,7 +98,7 @@ pub struct Postprocessing {
     pub gamma: f32,
 }
 
-#[repr(C)]
+#[repr(C, align(16))]
 #[derive(Clone, Copy)]
 pub struct Camera {
     pub position: Vector3<f32>,

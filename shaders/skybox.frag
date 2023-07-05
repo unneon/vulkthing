@@ -1,22 +1,8 @@
 #version 460
 
-layout(binding = 1) uniform Atmosphere {
-    bool enable;
-    uint scatter_point_count;
-    uint optical_depth_point_count;
-    float density_falloff;
-    vec3 planet_position;
-    float planet_radius;
-    vec3 sun_position;
-    float scale;
-    vec3 wavelengths;
-    float scattering_strength;
-    float henyey_greenstein_g;
-} atmosphere;
+#include "types/uniform.glsl"
 
-layout(binding = 2) uniform Camera {
-    vec3 position;
-} camera;
+layout(binding = 0, set = 1) uniform GLOBAL_UNIFORM_TYPE global;
 
 layout(location = 0) in vec3 frag_position;
 
