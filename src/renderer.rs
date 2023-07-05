@@ -20,8 +20,8 @@ use crate::renderer::graph::Pass;
 use crate::renderer::raytracing::RaytraceResources;
 use crate::renderer::swapchain::Swapchain;
 use crate::renderer::uniform::{
-    Atmosphere, Camera, FragSettings, Gaussian, Global, GrassUniform, Material,
-    ModelViewProjection, Postprocessing,
+    Atmosphere, Camera, Gaussian, Global, GrassUniform, Material, ModelViewProjection,
+    Postprocessing,
 };
 use crate::renderer::util::{Buffer, Dev, ImageResources, UniformBuffer};
 use crate::world::World;
@@ -139,6 +139,7 @@ pub struct AsyncLoader {
 pub struct RendererSettings {
     pub depth_near: f32,
     pub depth_far: f32,
+    pub enable_ray_tracing: bool,
     pub msaa_samples: vk::SampleCountFlags,
 }
 
@@ -157,7 +158,6 @@ impl Renderer {
         world: &World,
         grass: &Grass,
         settings: &RendererSettings,
-        frag_settings: &FragSettings,
         atmosphere: &Atmosphere,
         gaussian: &config::Gaussian,
         postprocessing: &Postprocessing,
@@ -174,14 +174,7 @@ impl Renderer {
         self.update_grass_uniform(world, settings);
         self.update_star_uniform(world, settings);
         self.update_skybox_uniform(world, settings);
-        self.update_global_uniform(
-            world,
-            grass,
-            frag_settings,
-            atmosphere,
-            gaussian,
-            postprocessing,
-        );
+        self.update_global_uniform(world, grass, settings, atmosphere, gaussian, postprocessing);
         self.submit_graphics();
         self.submit_present(image_index);
 
@@ -455,7 +448,7 @@ impl Renderer {
         &self,
         world: &World,
         grass: &Grass,
-        settings: &FragSettings,
+        settings: &RendererSettings,
         atmosphere: &Atmosphere,
         gaussian: &config::Gaussian,
         postprocessing: &Postprocessing,
@@ -473,7 +466,10 @@ impl Renderer {
                     sway_amplitude: grass.sway_amplitude,
                 },
                 light: world.light(),
-                settings: *settings,
+                settings: uniform::Settings {
+                    use_ray_tracing: settings.enable_ray_tracing,
+                    _pad0: [0; 3],
+                },
                 atmosphere: *atmosphere,
                 gaussian: Gaussian {
                     threshold: gaussian.threshold,

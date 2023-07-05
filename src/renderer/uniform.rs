@@ -23,7 +23,7 @@ pub struct Material {
 pub struct Global {
     pub grass: GrassUniform,
     pub light: Light,
-    pub settings: FragSettings,
+    pub settings: Settings,
     pub atmosphere: Atmosphere,
     pub gaussian: Gaussian,
     pub postprocessing: Postprocessing,
@@ -53,7 +53,7 @@ pub struct Light {
 
 #[repr(C, align(4))]
 #[derive(Clone, Copy)]
-pub struct FragSettings {
+pub struct Settings {
     pub use_ray_tracing: bool,
     pub _pad0: [u8; 3],
 }

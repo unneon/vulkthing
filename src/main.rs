@@ -30,8 +30,8 @@ mod world;
 
 use crate::cli::Args;
 use crate::config::{
-    DEFAULT_ATMOSPHERE, DEFAULT_FRAG_SETTINGS, DEFAULT_GAUSSIAN, DEFAULT_GRASS, DEFAULT_PLANET,
-    DEFAULT_PLANET_SCALE, DEFAULT_POSTPROCESSING, DEFAULT_RENDERER_SETTINGS,
+    DEFAULT_ATMOSPHERE, DEFAULT_GAUSSIAN, DEFAULT_GRASS, DEFAULT_PLANET, DEFAULT_PLANET_SCALE,
+    DEFAULT_POSTPROCESSING, DEFAULT_RENDERER_SETTINGS,
 };
 use crate::grass::generate_grass_blades;
 use crate::input::InputState;
@@ -92,7 +92,6 @@ fn main() {
     );
     let mut input_state = InputState::new();
     let mut last_update = Instant::now();
-    let mut frag_settings = DEFAULT_FRAG_SETTINGS;
     let mut atmosphere = DEFAULT_ATMOSPHERE;
     let mut gaussian = DEFAULT_GAUSSIAN;
     let mut postprocessing = DEFAULT_POSTPROCESSING;
@@ -167,7 +166,6 @@ fn main() {
                     &mut planet,
                     &mut grass.lock().unwrap(),
                     &mut renderer_settings,
-                    &mut frag_settings,
                     &mut atmosphere,
                     &mut gaussian,
                     &mut postprocessing,
@@ -212,7 +210,6 @@ fn main() {
                     &world,
                     &grass,
                     &renderer_settings,
-                    &frag_settings,
                     &atmosphere,
                     &gaussian,
                     &postprocessing,

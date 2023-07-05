@@ -2,7 +2,7 @@ use crate::config;
 use crate::config::DEFAULT_PLANET_SCALE;
 use crate::grass::Grass;
 use crate::planet::Planet;
-use crate::renderer::uniform::{Atmosphere, FragSettings, Postprocessing};
+use crate::renderer::uniform::{Atmosphere, Postprocessing};
 use crate::renderer::{Renderer, RendererSettings};
 use crate::world::World;
 use ash::vk;
@@ -39,7 +39,6 @@ impl Interface {
         planet: &mut Planet,
         grass: &mut Grass,
         renderer_settings: &mut RendererSettings,
-        frag_settings: &mut FragSettings,
         atmosphere: &mut Atmosphere,
         gaussian: &mut config::Gaussian,
         postprocessing: &mut Postprocessing,
@@ -137,7 +136,10 @@ impl Interface {
                     ui.slider_config("Depth far plane", 16., 1048576.)
                         .flags(SliderFlags::LOGARITHMIC)
                         .build(&mut renderer_settings.depth_far);
-                    ui.checkbox("Ray-traced shadows", &mut frag_settings.use_ray_tracing);
+                    ui.checkbox(
+                        "Ray-traced shadows",
+                        &mut renderer_settings.enable_ray_tracing,
+                    );
                     events.rebuild_swapchain |=
                         enum_slider(ui, "MSAA", &mut renderer_settings.msaa_samples);
                 }

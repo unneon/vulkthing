@@ -1,7 +1,7 @@
 use crate::camera::first_person::FirstPersonCamera;
 use crate::grass::Grass;
 use crate::planet::{NoiseType, Planet};
-use crate::renderer::uniform::{Atmosphere, FragSettings, Postprocessing, Tonemapper};
+use crate::renderer::uniform::{Atmosphere, Postprocessing, Tonemapper};
 use crate::renderer::RendererSettings;
 use ash::vk;
 use nalgebra::Vector3;
@@ -64,12 +64,8 @@ pub const DEFAULT_CAMERA: FirstPersonCamera = FirstPersonCamera {
 pub const DEFAULT_RENDERER_SETTINGS: RendererSettings = RendererSettings {
     depth_near: 0.2,
     depth_far: 65536.,
+    enable_ray_tracing: true,
     msaa_samples: vk::SampleCountFlags::TYPE_2,
-};
-
-pub const DEFAULT_FRAG_SETTINGS: FragSettings = FragSettings {
-    use_ray_tracing: true,
-    _pad0: [0; 3],
 };
 
 pub const DEFAULT_ATMOSPHERE: Atmosphere = Atmosphere {
