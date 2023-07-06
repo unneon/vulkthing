@@ -244,10 +244,8 @@ impl Renderer {
         for (entity, gpu_entity) in world.entities().iter().zip(&self.entities) {
             let mesh = &self.mesh_objects[entity.mesh_id()];
             self.bind_descriptor_sets(buf, self.pipeline_layouts.object, &gpu_entity.descriptors);
-            self.dev
-                .cmd_bind_vertex_buffers(buf, 0, &[mesh.vertex.buffer], &[0]);
-            self.dev
-                .cmd_draw(buf, 3 * mesh.triangle_count as u32, 1, 0, 0);
+            mesh.bind_vertex(buf, &self.dev);
+            mesh.draw(1, buf, &self.dev);
         }
         end_label(buf, &self.dev);
 
@@ -259,38 +257,16 @@ impl Renderer {
             &self.grass_descriptor_sets,
         );
         for grass_chunk in self.grass_chunks.lock().unwrap().iter() {
-            self.dev.cmd_bind_vertex_buffers(
-                buf,
-                0,
-                &[
-                    self.mesh_objects[3].vertex.buffer,
-                    grass_chunk.blades.buffer,
-                ],
-                &[0, 0],
-            );
-            self.dev.cmd_draw(
-                buf,
-                3 * self.mesh_objects[3].triangle_count as u32,
-                grass_chunk.blade_count as u32,
-                0,
-                0,
-            );
+            self.mesh_objects[3].bind_vertex_instanced(&grass_chunk.blades, buf, &self.dev);
+            self.mesh_objects[3].draw(grass_chunk.blade_count, buf, &self.dev);
         }
         end_label(buf, &self.dev);
 
         begin_label(buf, "Star draws", [213, 204, 184], &self.dev);
         self.bind_pipeline(buf, self.pipelines.star);
         self.bind_descriptor_sets(buf, self.pipeline_layouts.star, &self.star_descriptor_sets);
-        self.dev.cmd_bind_vertex_buffers(
-            buf,
-            0,
-            &[
-                self.mesh_objects[2].vertex.buffer,
-                self.star_instances.buffer,
-            ],
-            &[0, 0],
-        );
-        self.dev.cmd_draw(buf, 3, world.stars.len() as u32, 0, 0);
+        self.mesh_objects[2].bind_vertex_instanced(&self.star_instances, buf, &self.dev);
+        self.mesh_objects[2].draw(world.stars.len(), buf, &self.dev);
         end_label(buf, &self.dev);
 
         begin_label(buf, "Skybox draw", [129, 147, 164], &self.dev);
@@ -300,10 +276,8 @@ impl Renderer {
             self.pipeline_layouts.skybox,
             &self.skybox_descriptor_sets,
         );
-        self.dev
-            .cmd_bind_vertex_buffers(buf, 0, &[self.mesh_objects[1].vertex.buffer], &[0]);
-        self.dev
-            .cmd_draw(buf, 3 * self.mesh_objects[1].triangle_count as u32, 1, 0, 0);
+        self.mesh_objects[1].bind_vertex(buf, &self.dev);
+        self.mesh_objects[1].draw(1, buf, &self.dev);
         end_label(buf, &self.dev);
 
         self.dev.cmd_next_subpass(buf, vk::SubpassContents::INLINE);
@@ -560,6 +534,30 @@ impl Renderer {
                     self.global_descriptor_sets[self.flight_index],
                 ],
                 &[],
+            )
+        };
+    }
+}
+
+impl MeshObject {
+    fn bind_vertex(&self, buf: vk::CommandBuffer, dev: &Dev) {
+        unsafe { dev.cmd_bind_vertex_buffers(buf, 0, &[self.vertex.buffer], &[0]) };
+    }
+
+    fn bind_vertex_instanced(&self, instances: &Buffer, buf: vk::CommandBuffer, dev: &Dev) {
+        unsafe {
+            dev.cmd_bind_vertex_buffers(buf, 0, &[self.vertex.buffer, instances.buffer], &[0, 0])
+        };
+    }
+
+    fn draw(&self, instance_count: usize, buf: vk::CommandBuffer, dev: &Dev) {
+        unsafe {
+            dev.cmd_draw(
+                buf,
+                3 * self.triangle_count as u32,
+                instance_count as u32,
+                0,
+                0,
             )
         };
     }
