@@ -350,7 +350,7 @@ impl Renderer {
             .grass_chunks
             .lock()
             .unwrap()
-            .drain_filter(|chunk| predicate(chunk.id))
+            .extract_if(|chunk| predicate(chunk.id))
         {
             trace!("unloading grass chunk, \x1B[1mid\x1B[0m: {}", chunk.id);
             self.grass_blades_total
@@ -630,7 +630,7 @@ fn create_command_buffers(
 }
 
 fn create_vertex_buffer(vertex_data: &[Vertex], supports_raytracing: bool, dev: &Dev) -> Buffer {
-    let size = std::mem::size_of::<Vertex>() * vertex_data.len();
+    let size = std::mem::size_of_val(vertex_data);
     let vertex = Buffer::create(
         UNIFIED_MEMORY,
         vk::BufferUsageFlags::VERTEX_BUFFER
@@ -648,7 +648,7 @@ fn create_vertex_buffer(vertex_data: &[Vertex], supports_raytracing: bool, dev: 
 }
 
 fn create_blade_buffer(blades_data: &[GrassBlade], dev: &Dev) -> Buffer {
-    let size = std::mem::size_of::<GrassBlade>() * blades_data.len();
+    let size = std::mem::size_of_val(blades_data);
     let blades = Buffer::create(
         UNIFIED_MEMORY,
         vk::BufferUsageFlags::VERTEX_BUFFER,

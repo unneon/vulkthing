@@ -1,6 +1,5 @@
 #![feature(array_chunks)]
-#![feature(const_cstr_methods)]
-#![feature(drain_filter)]
+#![feature(extract_if)]
 #![feature(int_roundings)]
 #![feature(maybe_uninit_write_slice)]
 #![feature(option_as_slice)]

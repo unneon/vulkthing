@@ -180,7 +180,9 @@ impl World {
     }
 
     pub fn update_sun(&mut self) {
-        let Transform::Static { translation, .. } = &mut self.entities[1].transform else { unreachable!() };
+        let Transform::Static { translation, .. } = &mut self.entities[1].transform else {
+            unreachable!()
+        };
         translation.x = self.sun_radius * self.time_of_day.sin();
         translation.z = self.sun_radius * self.time_of_day.cos();
     }

@@ -28,7 +28,8 @@ pub fn select_device(
 
         // The GPU has to have a graphics queue. Otherwise there's no way to do any rendering
         // operations, so this must be some weird compute-only accelerator or something.
-        let Some(queue_family) = find_graphics_queue(&queue_families, surface_ext, device, surface) else {
+        let Some(queue_family) = find_graphics_queue(&queue_families, surface_ext, device, surface)
+        else {
             warn!("physical device rejected, no graphics queue, \x1B[1mname\x1B[0m: {name}");
             continue;
         };

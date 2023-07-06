@@ -157,7 +157,6 @@ impl Interface {
                         &mut world.atmosphere.henyey_greenstein_g,
                     );
                 }
-                if ui.collapsing_header("Bloom", TreeNodeFlags::DEFAULT_OPEN) {}
                 if ui.collapsing_header("Post-processing", TreeNodeFlags::empty()) {
                     build_postprocess(ui, &mut renderer.postprocess);
                 }
