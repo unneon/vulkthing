@@ -105,7 +105,7 @@ pass "render" {
         input-attachment "color-1-rasterization"
         pipeline "deferred" {
             vertex-shader "util/quad.vert"
-            fragment-specialization "msaa_samples"
+            fragment-specialization "msaa_sample_count"
             descriptor-sets "deferred" "global"
         }
     }
@@ -162,12 +162,12 @@ pass "postprocess" {
         }
         pipeline "postprocess" {
             vertex-shader "util/quad.vert"
-            fragment-specialization "msaa_samples"
+            fragment-specialization "msaa_sample_count"
             descriptor-sets "postprocess" "global"
         }
     }
 }
 
-specialization "msaa_samples" "i32"
+specialization "msaa_sample_count" "i32"
 specialization "gaussian_dx" "i32" shared=false
 specialization "gaussian_dy" "i32" shared=false

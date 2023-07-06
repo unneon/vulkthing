@@ -97,7 +97,7 @@ impl Renderer {
         let descriptor_pools = create_descriptor_pools(&descriptor_set_layouts, &dev);
 
         let swapchain = create_swapchain(surface, window.window.inner_size(), &dev);
-        let passes = create_render_passes(&swapchain, &dev);
+        let passes = create_render_passes(&swapchain, msaa_samples, &dev);
         let lowres_bloom = create_lowres_bloom(&swapchain, &ctx);
         let atmosphere_descriptor_sets = descriptor_pools.alloc_deferred(
             passes.render.resources[0].view,
@@ -117,6 +117,7 @@ impl Renderer {
         let shaders = create_shaders(supports_raytracing);
         let shader_modules = create_shader_modules(&shaders, &dev);
         let pipelines = create_pipelines(
+            msaa_samples,
             &passes.render,
             &passes.gaussian_horizontal,
             &passes.gaussian_vertical,
@@ -263,7 +264,7 @@ impl Renderer {
         self.cleanup_swapchain();
 
         self.swapchain = create_swapchain(self.surface, window_size, &self.dev);
-        self.passes = create_render_passes(&self.swapchain, &self.dev);
+        self.passes = create_render_passes(&self.swapchain, self.msaa_samples, &self.dev);
         self.lowres_bloom = create_lowres_bloom(
             &self.swapchain,
             &Ctx {
@@ -283,6 +284,7 @@ impl Renderer {
         let shaders = create_shaders(self.supports_raytracing);
         let shader_modules = create_shader_modules(&shaders, &self.dev);
         self.pipelines = create_pipelines(
+            self.msaa_samples,
             &self.passes.render,
             &self.passes.gaussian_vertical,
             &self.passes.gaussian_vertical,

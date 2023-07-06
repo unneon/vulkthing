@@ -166,8 +166,8 @@ fn main() {
                     renderer.grass_blades_total.load(Ordering::Relaxed),
                 );
                 assert!(!interface_events.planet_changed);
-                renderer.msaa_samples = renderer_settings.msaa_samples;
                 if interface_events.rebuild_swapchain {
+                    renderer.msaa_samples = renderer_settings.msaa_samples;
                     renderer.recreate_swapchain(window.window.inner_size());
                 } else if interface_events.rebuild_pipelines {
                     renderer.recreate_pipelines();

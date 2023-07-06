@@ -63,7 +63,7 @@ pub const DEFAULT_RENDERER_SETTINGS: RendererSettings = RendererSettings {
     depth_far: 65536.,
     enable_atmosphere: true,
     enable_ray_tracing: true,
-    msaa_samples: vk::SampleCountFlags::TYPE_2,
+    msaa_samples: vk::SampleCountFlags::TYPE_8,
     postprocess: PostprocessSettings {
         exposure: 1.,
         bloom_exponent_coefficient: 1.5,

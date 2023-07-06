@@ -492,7 +492,7 @@ static mut SCRATCH: Scratch = Scratch {{"#
                 } else {
                     "DEPTH_FORMAT".to_owned()
                 };
-                let attachment_samples = if subpass.msaa { "TYPE_2" } else { "TYPE_1" };
+                let attachment_samples = if subpass.msaa { "empty()" } else { "TYPE_1" };
                 let attachment_load = if attachment.clear.is_some() {
                     "CLEAR"
                 } else {
@@ -840,7 +840,7 @@ static mut SCRATCH: Scratch = Scratch {{"#
         }
         let vertex_binding_count = pipeline.vertex_bindings.len();
         let cull_mode = &pipeline.cull_mode;
-        let rasterization_samples = if subpass.msaa { "TYPE_2" } else { "TYPE_1" };
+        let rasterization_samples = if subpass.msaa { "empty()" } else { "TYPE_1" };
         writeln!(
             file,
             r#"    ],
@@ -1328,14 +1328,18 @@ pub fn create_descriptor_pools(layouts: &DescriptorSetLayouts, dev: &Dev) -> Des
 #[rustfmt::skip]
 pub fn create_render_passes(
     swapchain: &Swapchain,
+    msaa_samples: vk::SampleCountFlags,
     dev: &Dev,
 ) -> Passes {{"#
     )
     .unwrap();
     for pass in &renderer.passes {
-        for (_, attachment_index, _, attachment) in pass.attachments() {
+        for (subpass, attachment_index, _, attachment) in pass.attachments() {
             if attachment.swapchain {
                 writeln!(file, "    unsafe {{ SCRATCH.{pass}_attachments[{attachment_index}].format = swapchain.format.format }};").unwrap();
+            }
+            if subpass.msaa {
+                writeln!(file, "    unsafe {{ SCRATCH.{pass}_attachments[{attachment_index}].samples = msaa_samples }};").unwrap();
             }
         }
     }
@@ -1388,7 +1392,11 @@ pub fn create_render_passes(
                     AttachmentType::Color => "COLOR",
                     AttachmentType::Depth => "DEPTH",
                 };
-                let samples = if subpass.msaa { "TYPE_2" } else { "TYPE_1" };
+                let samples = if subpass.msaa {
+                    "msaa_samples"
+                } else {
+                    "vk::SampleCountFlags::TYPE_1"
+                };
                 writeln!(
                     file,
                     r#"    let resource = ImageResources::create(
@@ -1398,7 +1406,7 @@ pub fn create_render_passes(
         {flags},
         vk::ImageAspectFlags::{aspect},
         extent,
-        vk::SampleCountFlags::{samples},
+        {samples},
         dev,
     );
     framebuffer_attachments.push(resource.view);
@@ -1591,7 +1599,8 @@ pub fn create_shader_modules(shaders: &Shaders, dev: &Dev) -> ShaderModules {{"#
 
 #[rustfmt::skip]
 #[allow(clippy::identity_op)]
-pub fn create_pipelines("#
+pub fn create_pipelines(
+    msaa_samples: vk::SampleCountFlags,"#
     )
     .unwrap();
     for pass in &renderer.passes {
@@ -1624,7 +1633,7 @@ pub fn create_pipelines("#
 ) -> Pipelines {{"#
     )
     .unwrap();
-    for_pipelines(renderer, |pass, _, _, pipeline| {
+    for_pipelines(renderer, |pass, _, subpass, pipeline| {
         let downscale = pass
             .resolution
             .as_ref()
@@ -1650,6 +1659,9 @@ pub fn create_pipelines("#
     unsafe {{ SCRATCH.{pipeline}_scissor.extent.height = swapchain.extent.height / {downscale} }};"#
         )
             .unwrap();
+        if subpass.msaa {
+            writeln!(file, "    unsafe {{ SCRATCH.{pipeline}_multisampling.rasterization_samples = msaa_samples }};").unwrap();
+        }
     });
     for_pipelines(renderer, |pass, _, _, pipeline| {
         let pass = &pass.name;
