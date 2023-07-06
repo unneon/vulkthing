@@ -10,6 +10,8 @@ pub struct Renderer {
     pub descriptor_sets: Vec<DescriptorSet>,
     #[knuffel(children(name = "pass"))]
     pub passes: Vec<Pass>,
+    #[knuffel(children(name = "specialization"))]
+    pub specializations: Vec<Specialization>,
 }
 
 #[derive(Debug, Decode)]
@@ -183,8 +185,8 @@ pub struct Pipeline {
     pub vertex_bindings: Vec<VertexBinding>,
     #[knuffel(child, unwrap(argument))]
     pub fragment_shader: Option<String>,
-    #[knuffel(children(name = "specialization"))]
-    pub specializations: Vec<Specialization>,
+    #[knuffel(child, unwrap(arguments))]
+    pub fragment_specialization: Option<Vec<String>>,
     #[knuffel(child, unwrap(arguments))]
     pub descriptor_sets: Vec<String>,
     #[knuffel(child, unwrap(argument), default = "BACK".into())]
@@ -210,14 +212,6 @@ pub struct VertexAttribute {
 }
 
 #[derive(Debug, Decode)]
-pub struct Specialization {
-    #[knuffel(argument)]
-    pub name: String,
-    #[knuffel(argument)]
-    pub stage: String,
-}
-
-#[derive(Debug, Decode)]
 pub struct Dependency {
     #[knuffel(child)]
     pub src: DependencyTarget,
@@ -235,4 +229,14 @@ pub struct DependencyTarget {
     pub stage_mask: String,
     #[knuffel(argument)]
     pub access_mask: String,
+}
+
+#[derive(Debug, Decode)]
+pub struct Specialization {
+    #[knuffel(argument)]
+    pub name: String,
+    #[knuffel(argument)]
+    pub ty: String,
+    #[knuffel(property, default = true)]
+    pub shared: bool,
 }

@@ -4,7 +4,7 @@
 
 #include "types/uniform.glsl"
 
-layout(constant_id = 0) const int msaa_samples = 2;
+layout(constant_id = 0) const int msaa_samples = 0;
 
 layout(binding = 0, input_attachment_index = 0) uniform subpassInputMS render;
 

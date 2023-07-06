@@ -105,7 +105,7 @@ pass "render" {
         input-attachment "color-1-rasterization"
         pipeline "deferred" {
             vertex-shader "util/quad.vert"
-            specialization "msaa_samples" "FRAGMENT"
+            fragment-specialization "msaa_samples"
             descriptor-sets "deferred" "global"
         }
     }
@@ -128,6 +128,7 @@ pass "gaussian_horizontal" {
         pipeline "gaussian_horizontal" {
             vertex-shader "util/quad.vert"
             fragment-shader "gaussian.frag"
+            fragment-specialization "gaussian_dx" "gaussian_dy"
             descriptor-sets "gaussian_horizontal" "global"
         }
     }
@@ -145,6 +146,7 @@ pass "gaussian_vertical" {
         pipeline "gaussian_vertical" {
             vertex-shader "util/quad.vert"
             fragment-shader "gaussian.frag"
+            fragment-specialization "gaussian_dx" "gaussian_dy"
             descriptor-sets "gaussian_vertical" "global"
         }
     }
@@ -160,8 +162,12 @@ pass "postprocess" {
         }
         pipeline "postprocess" {
             vertex-shader "util/quad.vert"
-            specialization "msaa_samples" "FRAGMENT"
+            fragment-specialization "msaa_samples"
             descriptor-sets "postprocess" "global"
         }
     }
 }
+
+specialization "msaa_samples" "i32"
+specialization "gaussian_dx" "i32" shared=false
+specialization "gaussian_dy" "i32" shared=false

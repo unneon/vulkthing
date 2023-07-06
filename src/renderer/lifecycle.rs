@@ -8,7 +8,7 @@ use crate::renderer::debug::{create_debug_messenger, set_label};
 use crate::renderer::device::{select_device, DeviceInfo};
 use crate::renderer::raytracing::{create_blas, create_tlas};
 use crate::renderer::swapchain::{create_swapchain, Swapchain};
-use crate::renderer::util::{vulkan_str, Buffer, Ctx, Dev, ImageResources};
+use crate::renderer::util::{sample_count, vulkan_str, Buffer, Ctx, Dev, ImageResources};
 use crate::renderer::vertex::{GrassBlade, Star, Vertex};
 use crate::renderer::{
     AsyncLoader, GrassChunk, MeshObject, Object, Renderer, RendererSettings, Synchronization,
@@ -121,7 +121,11 @@ impl Renderer {
             &passes.gaussian_horizontal,
             &passes.gaussian_vertical,
             &passes.postprocess,
-            msaa_samples,
+            sample_count(msaa_samples) as i32,
+            1,
+            0,
+            0,
+            1,
             &swapchain,
             &shader_modules,
             &pipeline_layouts,
@@ -283,7 +287,11 @@ impl Renderer {
             &self.passes.gaussian_vertical,
             &self.passes.gaussian_vertical,
             &self.passes.postprocess,
-            self.msaa_samples,
+            sample_count(self.msaa_samples) as i32,
+            1,
+            0,
+            0,
+            1,
             &self.swapchain,
             &shader_modules,
             &self.pipeline_layouts,

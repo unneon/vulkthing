@@ -7,7 +7,7 @@
 #include "tonemapper/rgb-clamping.glsl"
 #include "types/uniform.glsl"
 
-layout(constant_id = 0) const int msaa_samples = 2;
+layout(constant_id = 0) const int msaa_samples = 0;
 
 layout(binding = 0) uniform sampler2DMS render;
 layout(binding = 1) uniform sampler2D bloom;

@@ -1,7 +1,7 @@
 use crate::config::{
     DescriptorBinding, DescriptorSet, Pass, Pipeline, Renderer, Sampler, Subpass, VertexAttribute,
 };
-use crate::helper::AttachmentType;
+use crate::helper::{to_camelcase, AttachmentType};
 use std::borrow::Cow;
 use std::collections::{BTreeSet, HashMap};
 use std::fmt::{Display, Formatter};
@@ -233,6 +233,23 @@ pub struct Pipelines {{"#
         file,
         r#"}}
 
+"#
+    )
+    .unwrap();
+    for_pipelines(renderer, |_, _, _, pipeline| {
+        if let Some(specs) = &pipeline.fragment_specialization {
+            let pipeline_camelcase = to_camelcase(&pipeline.to_string());
+            writeln!(file, "struct {pipeline_camelcase}Specialization {{").unwrap();
+            for spec in specs {
+                let ty = &renderer.find_specialization(spec).ty;
+                writeln!(file, "    {spec}: {ty},").unwrap();
+            }
+            writeln!(file, "}}").unwrap();
+        }
+    });
+    writeln!(
+        file,
+        r#"
 #[repr(C)]
 struct Scratch {{"#
     )
@@ -320,7 +337,18 @@ struct Scratch {{"#
         if layout_count > 1 {
             writeln!(
                 file,
-                "    pub {pipeline}_layouts: [vk::DescriptorSetLayout; {layout_count}],"
+                "    {pipeline}_layouts: [vk::DescriptorSetLayout; {layout_count}],"
+            )
+            .unwrap();
+        }
+        if let Some(fragment_specialization) = &pipeline.fragment_specialization {
+            let specialization_count = fragment_specialization.len();
+            let pipeline_camelcase = to_camelcase(&pipeline.to_string());
+            writeln!(
+                file,
+                r#"    {pipeline}_fragment_specialization_entries: [vk::SpecializationMapEntry; {specialization_count}],
+    {pipeline}_fragment_specialization_info: vk::SpecializationInfo,
+    {pipeline}_fragment_specialization_scratch: {pipeline_camelcase}Specialization,"#
             )
             .unwrap();
         }
@@ -681,6 +709,47 @@ static mut SCRATCH: Scratch = Scratch {{"#
             )
             .unwrap();
         }
+        let fragment_specialization_info = if let Some(fragment_specialization) =
+            &pipeline.fragment_specialization
+        {
+            let pipeline_camelcase = to_camelcase(&pipeline.to_string());
+            let specialization_count = fragment_specialization.len();
+            writeln!(file, r#"    {pipeline}_fragment_specialization_entries: ["#).unwrap();
+            let mut offset = 0;
+            for (constant_id, spec) in fragment_specialization.iter().enumerate() {
+                let size = renderer.find_specialization(spec).type_size();
+                writeln!(
+                    file,
+                    r#"        vk::SpecializationMapEntry {{
+            constant_id: {constant_id},
+            offset: {offset},
+            size: {size},
+        }},"#
+                )
+                .unwrap();
+                offset += size;
+            }
+            writeln!(
+                file,
+                r#"    ],
+    {pipeline}_fragment_specialization_info: vk::SpecializationInfo {{
+        map_entry_count: {specialization_count},
+        p_map_entries: unsafe {{ SCRATCH.{pipeline}_fragment_specialization_entries.as_ptr() }},
+        data_size: {offset},
+        p_data: unsafe {{ (&SCRATCH.{pipeline}_fragment_specialization_scratch) as *const _ as *const std::ffi::c_void }},
+    }},
+    {pipeline}_fragment_specialization_scratch: {pipeline_camelcase}Specialization {{"#
+            )
+            .unwrap();
+            for spec in fragment_specialization {
+                let default = renderer.find_specialization(spec).type_default();
+                writeln!(file, "        {spec}: {default},").unwrap();
+            }
+            writeln!(file, "    }},").unwrap();
+            format!("unsafe {{ &SCRATCH.{pipeline}_fragment_specialization_info }}")
+        } else {
+            "std::ptr::null()".to_owned()
+        };
         writeln!(
             file,
             r#"    {pipeline}_pipeline_layout: vk::PipelineLayoutCreateInfo {{
@@ -723,7 +792,7 @@ static mut SCRATCH: Scratch = Scratch {{"#
             stage: vk::ShaderStageFlags::FRAGMENT,
             module: vk::ShaderModule::null(),
             p_name: unsafe {{ CStr::from_bytes_with_nul_unchecked(b"main\0") }}.as_ptr(),
-            p_specialization_info: std::ptr::null(),
+            p_specialization_info: {fragment_specialization_info},
         }},
     ],
     {pipeline}_vertex_bindings: ["#
@@ -1528,10 +1597,27 @@ pub fn create_pipelines("#
     for pass in &renderer.passes {
         writeln!(file, "    {}: &Pass,", pass.name).unwrap();
     }
+    for spec in &renderer.specializations {
+        let name = &spec.name;
+        let ty = &spec.ty;
+        if spec.shared {
+            writeln!(file, "    {name}: {ty},").unwrap();
+        }
+    }
+    for_pipelines(renderer, |_, _, _, pipeline| {
+        if let Some(specs) = &pipeline.fragment_specialization {
+            for spec in specs {
+                let metadata = renderer.find_specialization(spec);
+                if !metadata.shared {
+                    let ty = &metadata.ty;
+                    writeln!(file, "    {pipeline}_{spec}: {ty},").unwrap();
+                }
+            }
+        }
+    });
     writeln!(
         file,
-        r#"    _msaa_samples: vk::SampleCountFlags,
-    swapchain: &Swapchain,
+        r#"    swapchain: &Swapchain,
     shader_modules: &ShaderModules,
     layouts: &PipelineLayouts,
     dev: &Dev,
@@ -1543,6 +1629,17 @@ pub fn create_pipelines("#
             .resolution
             .as_ref()
             .map_or(1, |resolution| resolution.downscaled);
+        if let Some(specs) = &pipeline.fragment_specialization {
+            for spec in specs {
+                let metadata = renderer.find_specialization(spec);
+                let value = if metadata.shared {
+                    spec.clone()
+                } else {
+                    format!("{pipeline}_{spec}")
+                };
+                writeln!(file, "    unsafe {{ SCRATCH.{pipeline}_fragment_specialization_scratch.{spec} = {value} }};").unwrap();
+            }
+        }
         writeln!(
             file,
             r#"    unsafe {{ SCRATCH.{pipeline}_shader_stages[0].module = shader_modules.{pipeline}_vertex }};
