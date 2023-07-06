@@ -202,7 +202,7 @@ fn build_postprocess(ui: &Ui, postprocess: &mut PostprocessSettings) {
         .flags(SliderFlags::LOGARITHMIC)
         .build(&mut postprocess.bloom_exponent_coefficient);
     ui.slider("Bloom radius", 0, 64, &mut postprocess.bloom_radius);
-    ui.slider_config("Bloom strength", 0.01, 10.)
+    ui.slider_config("Bloom strength", 0.001, 10.)
         .flags(SliderFlags::LOGARITHMIC)
         .build(&mut postprocess.bloom_strength);
     ui.slider_config("Bloom threshold", 0.001, 12.)

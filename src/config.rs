@@ -28,8 +28,6 @@ pub const DEFAULT_STAR_COUNT: usize = 2048;
 pub const DEFAULT_STAR_RADIUS: f32 = 30. * DEFAULT_PLANET_SCALE;
 pub const DEFAULT_STAR_MIN_SCALE: f32 = 10.;
 pub const DEFAULT_STAR_MAX_SCALE: f32 = 100.;
-pub const DEFAULT_STAR_MIN_EMIT: f32 = 0.1;
-pub const DEFAULT_STAR_MAX_EMIT: f32 = 10.;
 
 pub const DEFAULT_GRASS: Grass = Grass {
     blades_per_triangle: 128,
@@ -66,9 +64,9 @@ pub const DEFAULT_RENDERER_SETTINGS: RendererSettings = RendererSettings {
     msaa_samples: vk::SampleCountFlags::TYPE_8,
     postprocess: PostprocessSettings {
         exposure: 1.,
-        bloom_exponent_coefficient: 1.5,
-        bloom_radius: 8,
-        bloom_strength: 1.,
+        bloom_exponent_coefficient: 0.25,
+        bloom_radius: 3,
+        bloom_strength: 0.01,
         bloom_threshold: 1.,
         temperature: 0.,
         tint: 0.,

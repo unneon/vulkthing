@@ -1,8 +1,8 @@
 use crate::camera::Camera;
 use crate::config::{
     DEFAULT_CAMERA, DEFAULT_PLANET_POSITION, DEFAULT_PLANET_SCALE, DEFAULT_STAR_COUNT,
-    DEFAULT_STAR_MAX_EMIT, DEFAULT_STAR_MAX_SCALE, DEFAULT_STAR_MIN_EMIT, DEFAULT_STAR_MIN_SCALE,
-    DEFAULT_STAR_RADIUS, DEFAULT_SUN_POSITION, DEFAULT_SUN_RADIUS, DEFAULT_SUN_SPEED,
+    DEFAULT_STAR_MAX_SCALE, DEFAULT_STAR_MIN_SCALE, DEFAULT_STAR_RADIUS, DEFAULT_SUN_POSITION,
+    DEFAULT_SUN_RADIUS, DEFAULT_SUN_SPEED,
 };
 use crate::input::InputState;
 use crate::mesh::MeshData;
@@ -105,7 +105,7 @@ impl World {
                 scale: Vector3::from_element(50.),
             },
             diffuse: Vector3::zeros(),
-            emit: Vector3::from_element(1.),
+            emit: Vector3::from_element(100.),
             mesh_id: 4,
         };
         let entities = vec![planet, sun];
@@ -120,9 +120,7 @@ impl World {
                         rng.gen_range(DEFAULT_STAR_MIN_SCALE..DEFAULT_STAR_MAX_SCALE),
                     ),
                 },
-                emit: Vector3::from_element(
-                    rng.gen_range(DEFAULT_STAR_MIN_EMIT..DEFAULT_STAR_MAX_EMIT),
-                ),
+                emit: Vector3::from_element(10.),
             });
         }
         World {
@@ -190,7 +188,7 @@ impl World {
     pub fn light(&self) -> Light {
         Light {
             position: self.sun().translation(self),
-            color: self.sun().emit,
+            color: Vector3::new(1., 1., 1.),
             ambient_strength: self.ambient_strength,
             diffuse_strength: self.diffuse_strength,
         }
