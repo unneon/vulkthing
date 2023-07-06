@@ -1,16 +1,10 @@
 use crate::camera::first_person::FirstPersonCamera;
 use crate::grass::Grass;
 use crate::planet::{NoiseType, Planet};
-use crate::renderer::uniform::{Atmosphere, Postprocessing, Tonemapper};
-use crate::renderer::RendererSettings;
+use crate::renderer::uniform::Tonemapper;
+use crate::renderer::{PostprocessSettings, RendererSettings};
 use ash::vk;
 use nalgebra::Vector3;
-
-pub struct Gaussian {
-    pub threshold: f32,
-    pub radius: usize,
-    pub exponent_coefficient: f32,
-}
 
 pub const DEFAULT_PLANET: Planet = Planet {
     resolution: 400,
@@ -62,42 +56,27 @@ pub const DEFAULT_CAMERA: FirstPersonCamera = FirstPersonCamera {
 };
 
 pub const DEFAULT_RENDERER_SETTINGS: RendererSettings = RendererSettings {
+    atmosphere_in_scattering_samples: 10,
+    atmosphere_optical_depth_samples: 3,
+    atmosphere_wavelengths: Vector3::new(700., 530., 440.),
     depth_near: 0.2,
     depth_far: 65536.,
+    enable_atmosphere: true,
     enable_ray_tracing: true,
     msaa_samples: vk::SampleCountFlags::TYPE_2,
-};
-
-pub const DEFAULT_ATMOSPHERE: Atmosphere = Atmosphere {
-    enable: true,
-    _pad0: [0; 3],
-    scatter_point_count: 10,
-    optical_depth_point_count: 3,
-    density_falloff: 6.,
-    scale: 1.3,
-    planet_radius: DEFAULT_PLANET_SCALE,
-    planet_position: DEFAULT_PLANET_POSITION,
-    sun_position: DEFAULT_SUN_POSITION,
-    wavelengths: Vector3::new(700., 530., 440.),
-    scattering_strength: 0.01,
-    henyey_greenstein_g: 0.,
-};
-
-pub const DEFAULT_GAUSSIAN: Gaussian = Gaussian {
-    threshold: 1.,
-    radius: 8,
-    exponent_coefficient: 1.5,
-};
-
-pub const DEFAULT_POSTPROCESSING: Postprocessing = Postprocessing {
-    exposure: 1.,
-    bloom: 1.,
-    temperature: 0.,
-    tint: 0.,
-    contrast: 1.,
-    brightness: 0.,
-    color_filter: Vector3::new(1., 1., 1.),
-    saturation: 1.,
-    tonemapper: Tonemapper::HillAces,
-    gamma: 1.,
+    postprocess: PostprocessSettings {
+        exposure: 1.,
+        bloom_exponent_coefficient: 1.5,
+        bloom_radius: 8,
+        bloom_strength: 1.,
+        bloom_threshold: 1.,
+        temperature: 0.,
+        tint: 0.,
+        contrast: 1.,
+        brightness: 0.,
+        color_filter: Vector3::new(1., 1., 1.),
+        saturation: 1.,
+        tonemapper: Tonemapper::HillAces,
+        gamma: 1.,
+    },
 };

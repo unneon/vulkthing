@@ -26,7 +26,7 @@ pub struct Global {
     pub settings: Settings,
     pub atmosphere: Atmosphere,
     pub gaussian: Gaussian,
-    pub postprocessing: Postprocessing,
+    pub postprocessing: PostprocessUniform,
     pub camera: Camera,
 }
 
@@ -85,9 +85,9 @@ pub struct Gaussian {
 
 #[repr(C, align(16))]
 #[derive(Clone, Copy)]
-pub struct Postprocessing {
+pub struct PostprocessUniform {
     pub color_filter: Vector3<f32>,
-    pub bloom: f32,
+    pub bloom_constant: f32,
     pub exposure: f32,
     pub temperature: f32,
     pub tint: f32,

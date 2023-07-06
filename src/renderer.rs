@@ -10,7 +10,6 @@ pub mod uniform;
 mod util;
 pub mod vertex;
 
-use crate::config;
 use crate::grass::Grass;
 use crate::renderer::codegen::{
     DescriptorPools, DescriptorSetLayouts, Passes, PipelineLayouts, Pipelines, Samplers,
@@ -21,7 +20,7 @@ use crate::renderer::raytracing::RaytraceResources;
 use crate::renderer::swapchain::Swapchain;
 use crate::renderer::uniform::{
     Atmosphere, Camera, Gaussian, Global, GrassUniform, Material, ModelViewProjection,
-    Postprocessing,
+    PostprocessUniform, Tonemapper,
 };
 use crate::renderer::util::{Buffer, Dev, ImageResources, UniformBuffer};
 use crate::world::World;
@@ -137,10 +136,31 @@ pub struct AsyncLoader {
 }
 
 pub struct RendererSettings {
+    pub atmosphere_in_scattering_samples: usize,
+    pub atmosphere_optical_depth_samples: usize,
+    pub atmosphere_wavelengths: Vector3<f32>,
     pub depth_near: f32,
     pub depth_far: f32,
+    pub enable_atmosphere: bool,
     pub enable_ray_tracing: bool,
     pub msaa_samples: vk::SampleCountFlags,
+    pub postprocess: PostprocessSettings,
+}
+
+pub struct PostprocessSettings {
+    pub color_filter: Vector3<f32>,
+    pub bloom_exponent_coefficient: f32,
+    pub bloom_radius: usize,
+    pub bloom_strength: f32,
+    pub bloom_threshold: f32,
+    pub exposure: f32,
+    pub temperature: f32,
+    pub tint: f32,
+    pub contrast: f32,
+    pub brightness: f32,
+    pub saturation: f32,
+    pub tonemapper: Tonemapper,
+    pub gamma: f32,
 }
 
 const FRAMES_IN_FLIGHT: usize = 2;
@@ -158,9 +178,6 @@ impl Renderer {
         world: &World,
         grass: &Grass,
         settings: &RendererSettings,
-        atmosphere: &Atmosphere,
-        gaussian: &config::Gaussian,
-        postprocessing: &Postprocessing,
         window_size: PhysicalSize<u32>,
         ui_draw: &DrawData,
     ) {
@@ -174,7 +191,7 @@ impl Renderer {
         self.update_grass_uniform(world, settings);
         self.update_star_uniform(world, settings);
         self.update_skybox_uniform(world, settings);
-        self.update_global_uniform(world, grass, settings, atmosphere, gaussian, postprocessing);
+        self.update_global_uniform(world, grass, settings);
         self.submit_graphics();
         self.submit_present(image_index);
 
@@ -444,15 +461,7 @@ impl Renderer {
         self.skybox_mvp.write(self.flight_index, &mvp);
     }
 
-    fn update_global_uniform(
-        &self,
-        world: &World,
-        grass: &Grass,
-        settings: &RendererSettings,
-        atmosphere: &Atmosphere,
-        gaussian: &config::Gaussian,
-        postprocessing: &Postprocessing,
-    ) {
+    fn update_global_uniform(&self, world: &World, grass: &Grass, settings: &RendererSettings) {
         self.global.write(
             self.flight_index,
             &Global {
@@ -470,13 +479,37 @@ impl Renderer {
                     use_ray_tracing: settings.enable_ray_tracing,
                     _pad0: [0; 3],
                 },
-                atmosphere: *atmosphere,
-                gaussian: Gaussian {
-                    threshold: gaussian.threshold,
-                    radius: gaussian.radius as i32,
-                    exponent_coefficient: gaussian.exponent_coefficient,
+                atmosphere: Atmosphere {
+                    enable: settings.enable_atmosphere,
+                    _pad0: [0; 3],
+                    scatter_point_count: settings.atmosphere_in_scattering_samples as u32,
+                    optical_depth_point_count: settings.atmosphere_optical_depth_samples as u32,
+                    density_falloff: world.atmosphere.density_falloff,
+                    planet_position: world.planet().translation(world),
+                    planet_radius: world.planet().scale().x,
+                    sun_position: world.sun().translation(world),
+                    scale: world.atmosphere.scale,
+                    wavelengths: settings.atmosphere_wavelengths,
+                    scattering_strength: world.atmosphere.scattering_strength,
+                    henyey_greenstein_g: world.atmosphere.henyey_greenstein_g,
                 },
-                postprocessing: *postprocessing,
+                gaussian: Gaussian {
+                    threshold: settings.postprocess.bloom_threshold,
+                    radius: settings.postprocess.bloom_radius as i32,
+                    exponent_coefficient: settings.postprocess.bloom_exponent_coefficient,
+                },
+                postprocessing: PostprocessUniform {
+                    color_filter: settings.postprocess.color_filter,
+                    bloom_constant: settings.postprocess.bloom_strength,
+                    exposure: settings.postprocess.exposure,
+                    temperature: settings.postprocess.temperature,
+                    tint: settings.postprocess.tint,
+                    contrast: settings.postprocess.contrast,
+                    brightness: settings.postprocess.brightness,
+                    saturation: settings.postprocess.saturation,
+                    tonemapper: settings.postprocess.tonemapper,
+                    gamma: settings.postprocess.gamma,
+                },
                 camera: Camera {
                     position: world.camera.position(),
                 },

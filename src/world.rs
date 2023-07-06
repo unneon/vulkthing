@@ -27,6 +27,7 @@ pub struct World {
     pub sun_pause: bool,
     pub sun_radius: f32,
     pub sun_speed: f32,
+    pub atmosphere: Atmosphere,
 }
 
 pub struct Entity {
@@ -52,6 +53,13 @@ pub enum Transform {
 pub struct Star {
     pub transform: Transform,
     pub emit: Vector3<f32>,
+}
+
+pub struct Atmosphere {
+    pub density_falloff: f32,
+    pub scale: f32,
+    pub scattering_strength: f32,
+    pub henyey_greenstein_g: f32,
 }
 
 const AVERAGE_MALE_HEIGHT: f32 = 1.74;
@@ -130,6 +138,12 @@ impl World {
             sun_pause: false,
             sun_radius: DEFAULT_SUN_RADIUS,
             sun_speed: DEFAULT_SUN_SPEED,
+            atmosphere: Atmosphere {
+                density_falloff: 6.,
+                scale: 1.3,
+                scattering_strength: 0.01,
+                henyey_greenstein_g: 0.,
+            },
         }
     }
 

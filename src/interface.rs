@@ -1,16 +1,13 @@
-use crate::config;
 use crate::config::DEFAULT_PLANET_SCALE;
 use crate::grass::Grass;
 use crate::planet::Planet;
-use crate::renderer::uniform::{Atmosphere, Postprocessing};
-use crate::renderer::{Renderer, RendererSettings};
+use crate::renderer::{PostprocessSettings, RendererSettings};
 use crate::world::World;
 use ash::vk;
 use imgui::{Condition, Context, Drag, SliderFlags, TreeNodeFlags, Ui};
 use nalgebra::Vector3;
 use std::borrow::Cow;
 use std::f32::consts::PI;
-use std::sync::atomic::Ordering;
 
 pub mod integration;
 
@@ -38,11 +35,8 @@ impl Interface {
         world: &mut World,
         planet: &mut Planet,
         grass: &mut Grass,
-        renderer_settings: &mut RendererSettings,
-        atmosphere: &mut Atmosphere,
-        gaussian: &mut config::Gaussian,
-        postprocessing: &mut Postprocessing,
-        renderer: &Renderer,
+        renderer: &mut RendererSettings,
+        total_grass_blades: usize,
     ) -> InterfaceEvents {
         let ui = self.ctx.frame();
         let mut events = InterfaceEvents {
@@ -84,13 +78,7 @@ impl Interface {
                 }
                 if ui.collapsing_header("Grass", TreeNodeFlags::empty()) {
                     let mut changed = false;
-                    ui.label_text(
-                        "Total blades",
-                        renderer
-                            .grass_blades_total
-                            .load(Ordering::Relaxed)
-                            .to_string(),
-                    );
+                    ui.label_text("Total blades", total_grass_blades.to_string());
                     changed |= ui.slider(
                         "Blades per planet triangle",
                         1,
@@ -132,53 +120,46 @@ impl Interface {
                 if ui.collapsing_header("Renderer", TreeNodeFlags::empty()) {
                     ui.slider_config("Depth near plane", 0.001, 16.)
                         .flags(SliderFlags::LOGARITHMIC)
-                        .build(&mut renderer_settings.depth_near);
+                        .build(&mut renderer.depth_near);
                     ui.slider_config("Depth far plane", 16., 1048576.)
                         .flags(SliderFlags::LOGARITHMIC)
-                        .build(&mut renderer_settings.depth_far);
-                    ui.checkbox(
-                        "Ray-traced shadows",
-                        &mut renderer_settings.enable_ray_tracing,
-                    );
-                    events.rebuild_swapchain |=
-                        enum_slider(ui, "MSAA", &mut renderer_settings.msaa_samples);
+                        .build(&mut renderer.depth_far);
+                    ui.checkbox("Ray-traced shadows", &mut renderer.enable_ray_tracing);
+                    events.rebuild_swapchain |= enum_slider(ui, "MSAA", &mut renderer.msaa_samples);
                 }
                 if ui.collapsing_header("Atmosphere", TreeNodeFlags::empty()) {
-                    ui.checkbox("Enable", &mut atmosphere.enable);
-                    ui.slider("Scatter points", 1, 32, &mut atmosphere.scatter_point_count);
+                    ui.checkbox("Enable", &mut renderer.enable_atmosphere);
                     ui.slider(
-                        "Optical depth points",
+                        "In scattering samples",
                         1,
                         32,
-                        &mut atmosphere.optical_depth_point_count,
+                        &mut renderer.atmosphere_in_scattering_samples,
+                    );
+                    ui.slider(
+                        "Optical depth samples",
+                        1,
+                        32,
+                        &mut renderer.atmosphere_optical_depth_samples,
                     );
                     ui.slider_config("Density falloff", 0.001, 100.)
                         .flags(SliderFlags::LOGARITHMIC)
-                        .build(&mut atmosphere.density_falloff);
-                    ui.slider("Scale", 1., 3., &mut atmosphere.scale);
-                    Drag::new("Wavelengths").build_array(ui, atmosphere.wavelengths.as_mut_slice());
+                        .build(&mut world.atmosphere.density_falloff);
+                    ui.slider("Scale", 1., 3., &mut world.atmosphere.scale);
+                    Drag::new("Wavelengths")
+                        .build_array(ui, renderer.atmosphere_wavelengths.as_mut_slice());
                     ui.slider_config("Scattering strength", 0.001, 100.)
                         .flags(SliderFlags::LOGARITHMIC)
-                        .build(&mut atmosphere.scattering_strength);
+                        .build(&mut world.atmosphere.scattering_strength);
                     ui.slider(
                         "Henyey-Greenstein g",
                         -1.,
                         0.,
-                        &mut atmosphere.henyey_greenstein_g,
+                        &mut world.atmosphere.henyey_greenstein_g,
                     );
-                    ui.slider("Planet radius", 0., 2000., &mut atmosphere.planet_radius);
                 }
-                if ui.collapsing_header("Bloom", TreeNodeFlags::DEFAULT_OPEN) {
-                    ui.slider_config("Threshold", 0.001, 12.)
-                        .flags(SliderFlags::LOGARITHMIC)
-                        .build(&mut gaussian.threshold);
-                    ui.slider("Radius", 0, 64, &mut gaussian.radius);
-                    ui.slider_config("Exponent coefficient", 0.001, 100.)
-                        .flags(SliderFlags::LOGARITHMIC)
-                        .build(&mut gaussian.exponent_coefficient);
-                }
-                if ui.collapsing_header("Postprocessing", TreeNodeFlags::empty()) {
-                    build_postprocessing(ui, postprocessing);
+                if ui.collapsing_header("Bloom", TreeNodeFlags::DEFAULT_OPEN) {}
+                if ui.collapsing_header("Post-processing", TreeNodeFlags::empty()) {
+                    build_postprocess(ui, &mut renderer.postprocess);
                 }
             });
         events
@@ -214,33 +195,40 @@ fn entity(ui: &Ui, world: &mut World, entity: usize) {
     );
 }
 
-fn build_postprocessing(ui: &Ui, postprocessing: &mut Postprocessing) {
+fn build_postprocess(ui: &Ui, postprocess: &mut PostprocessSettings) {
     ui.slider_config("Exposure", 0.001, 100.)
         .flags(SliderFlags::LOGARITHMIC)
-        .build(&mut postprocessing.exposure);
+        .build(&mut postprocess.exposure);
+    ui.slider_config("Bloom exponent coefficient", 0.001, 100.)
+        .flags(SliderFlags::LOGARITHMIC)
+        .build(&mut postprocess.bloom_exponent_coefficient);
+    ui.slider("Bloom radius", 0, 64, &mut postprocess.bloom_radius);
     ui.slider_config("Bloom strength", 0.01, 10.)
         .flags(SliderFlags::LOGARITHMIC)
-        .build(&mut postprocessing.bloom);
-    ui.slider("Temperature", -1.67, 1.67, &mut postprocessing.temperature);
-    ui.slider("Tint", -1.67, 1.67, &mut postprocessing.tint);
+        .build(&mut postprocess.bloom_strength);
+    ui.slider_config("Bloom threshold", 0.001, 12.)
+        .flags(SliderFlags::LOGARITHMIC)
+        .build(&mut postprocess.bloom_threshold);
+    ui.slider("Temperature", -1.67, 1.67, &mut postprocess.temperature);
+    ui.slider("Tint", -1.67, 1.67, &mut postprocess.tint);
     Drag::new("Contrast")
         .range(0., f32::INFINITY)
         .speed(0.01)
-        .build(ui, &mut postprocessing.contrast);
+        .build(ui, &mut postprocess.contrast);
     Drag::new("Brightness")
         .range(0., f32::INFINITY)
         .speed(0.01)
-        .build(ui, &mut postprocessing.brightness);
-    enum_color(ui, "Color filter", &mut postprocessing.color_filter);
+        .build(ui, &mut postprocess.brightness);
+    enum_color(ui, "Color filter", &mut postprocess.color_filter);
     Drag::new("Saturation")
         .range(0., f32::INFINITY)
         .speed(0.01)
-        .build(ui, &mut postprocessing.saturation);
-    enum_combo(ui, "Tonemapper", &mut postprocessing.tonemapper);
+        .build(ui, &mut postprocess.saturation);
+    enum_combo(ui, "Tonemapper", &mut postprocess.tonemapper);
     Drag::new("Gamma")
         .range(0., f32::INFINITY)
         .speed(0.01)
-        .build(ui, &mut postprocessing.gamma);
+        .build(ui, &mut postprocess.gamma);
 }
 
 fn enum_color(ui: &Ui, label: &str, value: &mut Vector3<f32>) {
