@@ -24,8 +24,6 @@ use crate::renderer::uniform::{
 };
 use crate::renderer::util::{Buffer, Dev, ImageResources, UniformBuffer};
 use crate::world::World;
-use ash::extensions::ext::DebugUtils;
-use ash::extensions::khr::{Surface, Swapchain as SwapchainKhr};
 use ash::{vk, Entry};
 use imgui::DrawData;
 use nalgebra::{Matrix4, Vector3};
@@ -38,12 +36,10 @@ pub struct Renderer {
     // Immutable parts of the renderer. These can't change in the current design, but recovering
     // from GPU crashes might require doing something with these later?
     _entry: Entry,
-    extensions: VulkanExtensions,
     debug_messenger: vk::DebugUtilsMessengerEXT,
     surface: vk::SurfaceKHR,
     dev: Dev,
     queue: vk::Queue,
-    swapchain_ext: SwapchainKhr,
     supports_raytracing: bool,
 
     // Parameters of the renderer that are required early for creating more important objects.
@@ -100,11 +96,6 @@ pub struct Renderer {
     interface_renderer: Option<imgui_rs_vulkan_renderer::Renderer>,
 }
 
-struct VulkanExtensions {
-    debug: DebugUtils,
-    surface: Surface,
-}
-
 struct Synchronization {
     image_available: [vk::Semaphore; FRAMES_IN_FLIGHT],
     render_finished: [vk::Semaphore; FRAMES_IN_FLIGHT],
@@ -130,7 +121,6 @@ pub struct GrassChunk {
 
 pub struct AsyncLoader {
     dev: Dev,
-    debug_ext: DebugUtils,
     grass_chunks: Arc<Mutex<Vec<GrassChunk>>>,
     grass_blades_total: Arc<AtomicUsize>,
 }
@@ -206,7 +196,7 @@ impl Renderer {
             .wait_for_fences(&[in_flight], true, u64::MAX)
             .unwrap();
 
-        let acquire_result = self.swapchain_ext.acquire_next_image(
+        let acquire_result = self.dev.swapchain_ext.acquire_next_image(
             self.swapchain.handle,
             u64::MAX,
             image_available,
@@ -247,11 +237,9 @@ impl Renderer {
     }
 
     unsafe fn record_render_pass(&self, buf: vk::CommandBuffer, world: &World) {
-        self.passes
-            .render
-            .begin(buf, &self.dev, &self.extensions.debug);
+        self.passes.render.begin(buf, &self.dev);
 
-        begin_label(buf, "Entity draws", [57, 65, 62], &self.extensions.debug);
+        begin_label(buf, "Entity draws", [57, 65, 62], &self.dev);
         self.bind_pipeline(buf, self.pipelines.object);
         for (entity, gpu_entity) in world.entities().iter().zip(&self.entities) {
             let mesh = &self.mesh_objects[entity.mesh_id()];
@@ -261,9 +249,9 @@ impl Renderer {
             self.dev
                 .cmd_draw(buf, 3 * mesh.triangle_count as u32, 1, 0, 0);
         }
-        end_label(buf, &self.extensions.debug);
+        end_label(buf, &self.dev);
 
-        begin_label(buf, "Grass draws", [100, 142, 55], &self.extensions.debug);
+        begin_label(buf, "Grass draws", [100, 142, 55], &self.dev);
         self.bind_pipeline(buf, self.pipelines.grass);
         self.bind_descriptor_sets(
             buf,
@@ -288,9 +276,9 @@ impl Renderer {
                 0,
             );
         }
-        end_label(buf, &self.extensions.debug);
+        end_label(buf, &self.dev);
 
-        begin_label(buf, "Star draws", [213, 204, 184], &self.extensions.debug);
+        begin_label(buf, "Star draws", [213, 204, 184], &self.dev);
         self.bind_pipeline(buf, self.pipelines.star);
         self.bind_descriptor_sets(buf, self.pipeline_layouts.star, &self.star_descriptor_sets);
         self.dev.cmd_bind_vertex_buffers(
@@ -303,9 +291,9 @@ impl Renderer {
             &[0, 0],
         );
         self.dev.cmd_draw(buf, 3, world.stars.len() as u32, 0, 0);
-        end_label(buf, &self.extensions.debug);
+        end_label(buf, &self.dev);
 
-        begin_label(buf, "Skybox draw", [129, 147, 164], &self.extensions.debug);
+        begin_label(buf, "Skybox draw", [129, 147, 164], &self.dev);
         self.bind_pipeline(buf, self.pipelines.skybox);
         self.bind_descriptor_sets(
             buf,
@@ -316,16 +304,11 @@ impl Renderer {
             .cmd_bind_vertex_buffers(buf, 0, &[self.mesh_objects[1].vertex.buffer], &[0]);
         self.dev
             .cmd_draw(buf, 3 * self.mesh_objects[1].triangle_count as u32, 1, 0, 0);
-        end_label(buf, &self.extensions.debug);
+        end_label(buf, &self.dev);
 
         self.dev.cmd_next_subpass(buf, vk::SubpassContents::INLINE);
 
-        begin_label(
-            buf,
-            "Atmosphere draw",
-            [84, 115, 144],
-            &self.extensions.debug,
-        );
+        begin_label(buf, "Atmosphere draw", [84, 115, 144], &self.dev);
         self.bind_pipeline(buf, self.pipelines.deferred);
         self.bind_descriptor_sets(
             buf,
@@ -333,16 +316,14 @@ impl Renderer {
             &self.atmosphere_descriptor_sets,
         );
         self.dev.cmd_draw(buf, 6, 1, 0, 0);
-        end_label(buf, &self.extensions.debug);
+        end_label(buf, &self.dev);
 
         self.dev.cmd_end_render_pass(buf);
-        end_label(buf, &self.extensions.debug);
+        end_label(buf, &self.dev);
     }
 
     unsafe fn record_gaussian_passes(&mut self, buf: vk::CommandBuffer) {
-        self.passes
-            .gaussian_horizontal
-            .begin(buf, &self.dev, &self.extensions.debug);
+        self.passes.gaussian_horizontal.begin(buf, &self.dev);
 
         self.bind_pipeline(buf, self.pipelines.gaussian_horizontal);
         self.bind_descriptor_sets(
@@ -353,11 +334,9 @@ impl Renderer {
         self.dev.cmd_draw(buf, 6, 1, 0, 0);
 
         self.dev.cmd_end_render_pass(buf);
-        end_label(buf, &self.extensions.debug);
+        end_label(buf, &self.dev);
 
-        self.passes
-            .gaussian_vertical
-            .begin(buf, &self.dev, &self.extensions.debug);
+        self.passes.gaussian_vertical.begin(buf, &self.dev);
 
         self.bind_pipeline(buf, self.pipelines.gaussian_vertical);
         self.bind_descriptor_sets(
@@ -368,7 +347,7 @@ impl Renderer {
         self.dev.cmd_draw(buf, 6, 1, 0, 0);
 
         self.dev.cmd_end_render_pass(buf);
-        end_label(buf, &self.extensions.debug);
+        end_label(buf, &self.dev);
     }
 
     unsafe fn record_postprocess_pass(
@@ -377,19 +356,11 @@ impl Renderer {
         image_index: usize,
         ui_draw: &DrawData,
     ) {
-        self.passes.postprocess.begin_to_swapchain(
-            buf,
-            image_index,
-            &self.dev,
-            &self.extensions.debug,
-        );
+        self.passes
+            .postprocess
+            .begin_to_swapchain(buf, image_index, &self.dev);
 
-        begin_label(
-            buf,
-            "Postprocess draw",
-            [210, 206, 203],
-            &self.extensions.debug,
-        );
+        begin_label(buf, "Postprocess draw", [210, 206, 203], &self.dev);
         self.bind_pipeline(buf, self.pipelines.postprocess);
         self.bind_descriptor_sets(
             buf,
@@ -397,23 +368,18 @@ impl Renderer {
             &self.postprocess_descriptor_sets,
         );
         self.dev.cmd_draw(buf, 6, 1, 0, 0);
-        end_label(buf, &self.extensions.debug);
+        end_label(buf, &self.dev);
 
-        begin_label(
-            buf,
-            "Debugging interface draw",
-            [63, 70, 73],
-            &self.extensions.debug,
-        );
+        begin_label(buf, "Debugging interface draw", [63, 70, 73], &self.dev);
         self.interface_renderer
             .as_mut()
             .unwrap()
             .cmd_draw(buf, ui_draw)
             .unwrap();
-        end_label(buf, &self.extensions.debug);
+        end_label(buf, &self.dev);
 
         self.dev.cmd_end_render_pass(buf);
-        end_label(buf, &self.extensions.debug);
+        end_label(buf, &self.dev);
     }
 
     fn update_object_uniforms(&self, world: &World, entity_id: usize, settings: &RendererSettings) {
@@ -550,7 +516,12 @@ impl Renderer {
             .wait_semaphores(&wait_semaphores)
             .swapchains(&swapchains)
             .image_indices(&image_indices);
-        unsafe { self.swapchain_ext.queue_present(self.queue, &present_info) }.unwrap();
+        unsafe {
+            self.dev
+                .swapchain_ext
+                .queue_present(self.queue, &present_info)
+        }
+        .unwrap();
     }
 
     fn projection_matrix(&self, settings: &RendererSettings) -> Matrix4<f32> {

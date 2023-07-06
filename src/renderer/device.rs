@@ -11,9 +11,9 @@ pub struct DeviceInfo {
 }
 
 pub fn select_device(
-    instance: &Instance,
-    surface_extension: &Surface,
     surface: vk::SurfaceKHR,
+    instance: &Instance,
+    surface_ext: &Surface,
 ) -> DeviceInfo {
     // Select the GPU. For now, just select the first discrete GPU with graphics support. Later,
     // this should react better to iGPU, dGPU and iGPU+dGPU setups. In more complex setups, it would
@@ -28,7 +28,7 @@ pub fn select_device(
 
         // The GPU has to have a graphics queue. Otherwise there's no way to do any rendering
         // operations, so this must be some weird compute-only accelerator or something.
-        let Some(queue_family) = find_graphics_queue(&queue_families, surface_extension, device, surface) else {
+        let Some(queue_family) = find_graphics_queue(&queue_families, surface_ext, device, surface) else {
             warn!("physical device rejected, no graphics queue, \x1B[1mname\x1B[0m: {name}");
             continue;
         };

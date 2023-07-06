@@ -4,7 +4,7 @@ use ash::vk;
 use ash::vk::Handle;
 use std::ffi::{CStr, CString};
 
-pub fn create_debug_messenger(debug_extension: &DebugUtils) -> vk::DebugUtilsMessengerEXT {
+pub fn create_debug_messenger(debug_ext: &DebugUtils) -> vk::DebugUtilsMessengerEXT {
     // Enable filtering by message severity and type. General and verbose levels seem to produce
     // too much noise related to physical device selection, so I turned them off.
     // vulkan-tutorial.com also shows how to enable this for creating instances, but the ash
@@ -18,7 +18,7 @@ pub fn create_debug_messenger(debug_extension: &DebugUtils) -> vk::DebugUtilsMes
         .message_severity(severity_filter)
         .message_type(type_filter)
         .pfn_user_callback(Some(callback));
-    unsafe { debug_extension.create_debug_utils_messenger(&info, None) }.unwrap()
+    unsafe { debug_ext.create_debug_utils_messenger(&info, None) }.unwrap()
 }
 
 unsafe extern "system" fn callback(
@@ -48,7 +48,7 @@ unsafe extern "system" fn callback(
     vk::FALSE
 }
 
-pub fn begin_label(buf: vk::CommandBuffer, text: &str, color: [u8; 3], debug_ext: &DebugUtils) {
+pub fn begin_label(buf: vk::CommandBuffer, text: &str, color: [u8; 3], dev: &Dev) {
     let color = [
         color[0] as f32 / 255.,
         color[1] as f32 / 255.,
@@ -59,18 +59,22 @@ pub fn begin_label(buf: vk::CommandBuffer, text: &str, color: [u8; 3], debug_ext
     let label = *vk::DebugUtilsLabelEXT::builder()
         .label_name(&label_name)
         .color(color);
-    unsafe { debug_ext.cmd_begin_debug_utils_label(buf, &label) };
+    unsafe { dev.debug_ext.cmd_begin_debug_utils_label(buf, &label) };
 }
 
-pub fn end_label(buf: vk::CommandBuffer, debug_ext: &DebugUtils) {
-    unsafe { debug_ext.cmd_end_debug_utils_label(buf) };
+pub fn end_label(buf: vk::CommandBuffer, dev: &Dev) {
+    unsafe { dev.debug_ext.cmd_end_debug_utils_label(buf) };
 }
 
-pub fn set_label<T: Handle>(object: T, name: &str, debug_ext: &DebugUtils, dev: &Dev) {
+pub fn set_label<T: Handle>(object: T, name: &str, dev: &Dev) {
     let object_name = CString::new(name).unwrap();
     let name_info = *vk::DebugUtilsObjectNameInfoEXT::builder()
         .object_type(T::TYPE)
         .object_handle(object.as_raw())
         .object_name(&object_name);
-    unsafe { debug_ext.set_debug_utils_object_name(dev.logical.handle(), &name_info) }.unwrap();
+    unsafe {
+        dev.debug_ext
+            .set_debug_utils_object_name(dev.logical.handle(), &name_info)
+    }
+    .unwrap();
 }

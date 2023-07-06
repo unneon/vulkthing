@@ -1,6 +1,5 @@
 use crate::renderer::debug::begin_label;
 use crate::renderer::util::{Dev, ImageResources};
-use ash::extensions::ext::DebugUtils;
 use ash::vk;
 
 pub struct Pass {
@@ -27,29 +26,17 @@ impl Pass {
         }
     }
 
-    pub fn begin(&self, buf: vk::CommandBuffer, dev: &Dev, debug_ext: &DebugUtils) {
+    pub fn begin(&self, buf: vk::CommandBuffer, dev: &Dev) {
         assert!(!self.direct_to_swapchain);
-        self.generic_begin(buf, self.framebuffers[0], dev, debug_ext);
+        self.generic_begin(buf, self.framebuffers[0], dev);
     }
 
-    pub fn begin_to_swapchain(
-        &self,
-        buf: vk::CommandBuffer,
-        image_index: usize,
-        dev: &Dev,
-        debug_ext: &DebugUtils,
-    ) {
+    pub fn begin_to_swapchain(&self, buf: vk::CommandBuffer, image_index: usize, dev: &Dev) {
         assert!(self.direct_to_swapchain);
-        self.generic_begin(buf, self.framebuffers[image_index], dev, debug_ext);
+        self.generic_begin(buf, self.framebuffers[image_index], dev);
     }
 
-    fn generic_begin(
-        &self,
-        buf: vk::CommandBuffer,
-        framebuffer: vk::Framebuffer,
-        dev: &Dev,
-        debug_ext: &DebugUtils,
-    ) {
+    fn generic_begin(&self, buf: vk::CommandBuffer, framebuffer: vk::Framebuffer, dev: &Dev) {
         let info = *vk::RenderPassBeginInfo::builder()
             .render_pass(self.pass)
             .framebuffer(framebuffer)
@@ -58,7 +45,7 @@ impl Pass {
                 extent: self.extent,
             })
             .clear_values(&self.clears);
-        begin_label(buf, self.debug_name, self.debug_color, debug_ext);
+        begin_label(buf, self.debug_name, self.debug_color, dev);
         unsafe { dev.cmd_begin_render_pass(buf, &info, vk::SubpassContents::INLINE) };
     }
 }

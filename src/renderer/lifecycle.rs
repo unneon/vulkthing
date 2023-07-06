@@ -12,7 +12,7 @@ use crate::renderer::util::{vulkan_str, Buffer, Ctx, Dev, ImageResources};
 use crate::renderer::vertex::{GrassBlade, Star, Vertex};
 use crate::renderer::{
     AsyncLoader, GrassChunk, MeshObject, Object, Renderer, RendererSettings, Synchronization,
-    UniformBuffer, VulkanExtensions, FRAMES_IN_FLIGHT,
+    UniformBuffer, FRAMES_IN_FLIGHT,
 };
 use crate::window::Window;
 use crate::world::World;
@@ -47,30 +47,40 @@ impl Renderer {
     ) -> Renderer {
         let entry = unsafe { Entry::load() }.unwrap();
         let instance = create_instance(window, &entry, args);
-        let extensions = VulkanExtensions {
-            debug: DebugUtils::new(&entry, &instance),
-            surface: Surface::new(&entry, &instance),
-        };
-        let debug_messenger = create_debug_messenger(&extensions.debug);
+        let debug_ext = DebugUtils::new(&entry, &instance);
+        let surface_ext = Surface::new(&entry, &instance);
+        let debug_messenger = create_debug_messenger(&debug_ext);
         let surface = create_surface(window, &entry, &instance);
         let DeviceInfo {
             physical_device,
             queue_family,
             supports_raytracing,
-        } = select_device(&instance, &extensions.surface, surface);
+        } = select_device(surface, &instance, &surface_ext);
         let logical_device = create_logical_device(
             queue_family,
             supports_raytracing,
             &instance,
             physical_device,
         );
+        let (acceleration_structure_ext, buffer_device_address_ext) = if supports_raytracing {
+            let as_ext = AccelerationStructure::new(&instance, &logical_device);
+            let bda_ext = BufferDeviceAddress::new(&instance, &logical_device);
+            (Some(as_ext), Some(bda_ext))
+        } else {
+            (None, None)
+        };
+        let swapchain_ext = SwapchainKhr::new(&instance, &logical_device);
         let dev = Dev {
             logical: logical_device,
             physical: physical_device,
             instance,
+            acceleration_structure_ext,
+            buffer_device_address_ext,
+            debug_ext,
+            surface_ext,
+            swapchain_ext,
         };
         let queue = unsafe { dev.get_device_queue(queue_family, 0) };
-        let swapchain_ext = SwapchainKhr::new(&dev.instance, &dev);
         let command_pools = create_command_pools(queue_family, &dev);
         let command_buffers = create_command_buffers(&command_pools, &dev);
         let sync = create_sync(&dev);
@@ -86,14 +96,8 @@ impl Renderer {
         let descriptor_set_layouts = create_descriptor_set_layouts(&samplers, &dev);
         let descriptor_pools = create_descriptor_pools(&descriptor_set_layouts, &dev);
 
-        let swapchain = create_swapchain(
-            surface,
-            window.window.inner_size(),
-            &dev,
-            &extensions.surface,
-            &swapchain_ext,
-        );
-        let passes = create_render_passes(&swapchain, &dev, &extensions.debug);
+        let swapchain = create_swapchain(surface, window.window.inner_size(), &dev);
+        let passes = create_render_passes(&swapchain, &dev);
         let lowres_bloom = create_lowres_bloom(&swapchain, &ctx);
         let atmosphere_descriptor_sets = descriptor_pools.alloc_deferred(
             passes.render.resources[0].view,
@@ -179,12 +183,10 @@ impl Renderer {
 
         Renderer {
             _entry: entry,
-            extensions,
             debug_messenger,
             surface,
             dev,
             queue,
-            swapchain_ext,
             supports_raytracing,
             msaa_samples,
             samplers,
@@ -256,14 +258,8 @@ impl Renderer {
         // contain not only things like image formats, but also some sizes.
         self.cleanup_swapchain();
 
-        self.swapchain = create_swapchain(
-            self.surface,
-            window_size,
-            &self.dev,
-            &self.extensions.surface,
-            &self.swapchain_ext,
-        );
-        self.passes = create_render_passes(&self.swapchain, &self.dev, &self.extensions.debug);
+        self.swapchain = create_swapchain(self.surface, window_size, &self.dev);
+        self.passes = create_render_passes(&self.swapchain, &self.dev);
         self.lowres_bloom = create_lowres_bloom(
             &self.swapchain,
             &Ctx {
@@ -329,7 +325,6 @@ impl Renderer {
     pub fn get_async_loader(&self) -> AsyncLoader {
         AsyncLoader {
             dev: self.dev.clone(),
-            debug_ext: self.extensions.debug.clone(),
             grass_chunks: self.grass_chunks.clone(),
             grass_blades_total: self.grass_blades_total.clone(),
         }
@@ -373,13 +368,11 @@ impl AsyncLoader {
         set_label(
             blades.buffer,
             &format!("Grass buffer chunk={id}"),
-            &self.debug_ext,
             &self.dev,
         );
         set_label(
             blades.memory,
             &format!("Grass memory chunk={id}"),
-            &self.debug_ext,
             &self.dev,
         );
         self.grass_chunks.lock().unwrap().push(GrassChunk {
@@ -448,12 +441,11 @@ impl Drop for Renderer {
             self.skybox_mvp.cleanup(&self.dev);
             self.skybox_material.cleanup(&self.dev);
             self.global.cleanup(&self.dev);
-            let as_ext = AccelerationStructure::new(&self.dev.instance, &self.dev);
             if let Some(tlas) = self.tlas.as_ref() {
-                tlas.cleanup(&self.dev, &as_ext);
+                tlas.cleanup(&self.dev);
             }
             if let Some(blas) = self.blas.as_ref() {
-                blas.cleanup(&self.dev, &as_ext);
+                blas.cleanup(&self.dev);
             }
             self.sync.cleanup(&self.dev);
             for pool in &self.command_pools {
@@ -466,9 +458,9 @@ impl Drop for Renderer {
             self.descriptor_set_layouts.cleanup(&self.dev);
             self.samplers.cleanup(&self.dev);
             self.dev.destroy_device(None);
-            self.extensions.surface.destroy_surface(self.surface, None);
-            self.extensions
-                .debug
+            self.dev.surface_ext.destroy_surface(self.surface, None);
+            self.dev
+                .debug_ext
                 .destroy_debug_utils_messenger(self.debug_messenger, None);
             self.dev.instance.destroy_instance(None);
         }

@@ -135,7 +135,6 @@ use crate::renderer::uniform::{{"#
 use crate::renderer::debug::set_label;
 use crate::renderer::util::{{AnyUniformBuffer, Dev, ImageResources, UniformBuffer}};
 use crate::renderer::{{Pass, Swapchain, COLOR_FORMAT, DEPTH_FORMAT, FRAMES_IN_FLIGHT}};
-use ash::extensions::ext::DebugUtils;
 use ash::vk;
 use std::ffi::CStr;
 use std::mem::MaybeUninit;
@@ -1261,7 +1260,6 @@ pub fn create_descriptor_pools(layouts: &DescriptorSetLayouts, dev: &Dev) -> Des
 pub fn create_render_passes(
     swapchain: &Swapchain,
     dev: &Dev,
-    debug_ext: &DebugUtils,
 ) -> Passes {{"#
     )
     .unwrap();
@@ -1276,11 +1274,7 @@ pub fn create_render_passes(
         writeln!(file, "    let {pass} = unsafe {{ dev.create_render_pass(&SCRATCH.{pass}_pass, None).unwrap_unchecked() }};").unwrap();
     }
     for pass in &renderer.passes {
-        writeln!(
-            file,
-            "    set_label({pass}, \"RENDER-PASS-{pass}\", debug_ext, dev);"
-        )
-        .unwrap();
+        writeln!(file, "    set_label({pass}, \"RENDER-PASS-{pass}\", dev);").unwrap();
     }
     for pass in &renderer.passes {
         let downscale = pass

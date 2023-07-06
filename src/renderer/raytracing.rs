@@ -1,10 +1,10 @@
 use crate::renderer::lifecycle::UNIFIED_MEMORY;
-use crate::renderer::util::{Buffer, Ctx};
+use crate::renderer::util::{Buffer, Ctx, Dev};
 use crate::renderer::vertex::Vertex;
 use crate::renderer::MeshObject;
 use ash::extensions::khr::{AccelerationStructure, BufferDeviceAddress};
+use ash::vk;
 use ash::vk::Packed24_8;
-use ash::{vk, Device};
 use nalgebra::Matrix4;
 
 pub struct RaytraceResources {
@@ -14,17 +14,22 @@ pub struct RaytraceResources {
 }
 
 impl RaytraceResources {
-    pub fn cleanup(&self, dev: &Device, as_ext: &AccelerationStructure) {
-        unsafe { as_ext.destroy_acceleration_structure(self.acceleration_structure, None) };
+    pub fn cleanup(&self, dev: &Dev) {
+        unsafe {
+            dev.acceleration_structure_ext
+                .as_ref()
+                .unwrap()
+                .destroy_acceleration_structure(self.acceleration_structure, None)
+        };
         self.buffer.cleanup(dev);
     }
 }
 
 pub fn create_blas(mesh: &MeshObject, ctx: &Ctx) -> RaytraceResources {
-    let as_ext = AccelerationStructure::new(&ctx.dev.instance, ctx.dev);
-    let bda_ext = BufferDeviceAddress::new(&ctx.dev.instance, ctx.dev);
+    let as_ext = ctx.dev.acceleration_structure_ext.as_ref().unwrap();
+    let bda_ext = ctx.dev.buffer_device_address_ext.as_ref().unwrap();
 
-    let vertex_address = mesh.vertex.device_address(&bda_ext);
+    let vertex_address = mesh.vertex.device_address(bda_ext);
     let triangles = *vk::AccelerationStructureGeometryTrianglesDataKHR::builder()
         .vertex_format(vk::Format::R32G32B32_SFLOAT)
         .vertex_data(vk::DeviceOrHostAddressConstKHR {
@@ -79,7 +84,7 @@ pub fn create_blas(mesh: &MeshObject, ctx: &Ctx) -> RaytraceResources {
     let blas = unsafe { as_ext.create_acceleration_structure(&blas_create_info, None) }.unwrap();
 
     blas_info.dst_acceleration_structure = blas;
-    blas_info.scratch_data.device_address = scratch.device_address(&bda_ext);
+    blas_info.scratch_data.device_address = scratch.device_address(bda_ext);
 
     let blas_range_infos = [range_info];
     let all_blas_build_infos = [blas_info];

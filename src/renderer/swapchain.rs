@@ -1,5 +1,5 @@
 use crate::renderer::util::{create_image_view, Dev};
-use ash::extensions::khr::{Surface, Swapchain as SwapchainKhr};
+use ash::extensions::khr::Swapchain as SwapchainKhr;
 use ash::vk;
 use log::warn;
 use winit::dpi::PhysicalSize;
@@ -25,27 +25,24 @@ pub fn create_swapchain(
     surface: vk::SurfaceKHR,
     window_size: PhysicalSize<u32>,
     dev: &Dev,
-    surface_ext: &Surface,
-    swapchain_ext: &SwapchainKhr,
 ) -> Swapchain {
-    let capabilities =
-        unsafe { surface_ext.get_physical_device_surface_capabilities(dev.physical, surface) }
-            .unwrap();
+    let capabilities = unsafe {
+        dev.surface_ext
+            .get_physical_device_surface_capabilities(dev.physical, surface)
+    }
+    .unwrap();
     let formats = {
-        unsafe { surface_ext.get_physical_device_surface_formats(dev.physical, surface) }.unwrap()
+        unsafe {
+            dev.surface_ext
+                .get_physical_device_surface_formats(dev.physical, surface)
+        }
+        .unwrap()
     };
     let image_count = select_image_count(capabilities);
     let format = select_format(&formats);
     let extent = select_extent(capabilities, window_size);
-    let handle = create_handle(
-        surface,
-        image_count,
-        format,
-        extent,
-        capabilities,
-        swapchain_ext,
-    );
-    let image_views = create_image_views(handle, format.format, swapchain_ext, dev);
+    let handle = create_handle(surface, image_count, format, extent, capabilities, dev);
+    let image_views = create_image_views(handle, format.format, dev);
     Swapchain {
         handle,
         format,
@@ -112,7 +109,7 @@ fn create_handle(
     format: vk::SurfaceFormatKHR,
     extent: vk::Extent2D,
     capabilities: vk::SurfaceCapabilitiesKHR,
-    swapchain_ext: &SwapchainKhr,
+    dev: &Dev,
 ) -> vk::SwapchainKHR {
     let create_info = vk::SwapchainCreateInfoKHR::builder()
         .surface(surface)
@@ -128,16 +125,15 @@ fn create_handle(
         .present_mode(vk::PresentModeKHR::MAILBOX)
         .clipped(true)
         .old_swapchain(vk::SwapchainKHR::null());
-    unsafe { swapchain_ext.create_swapchain(&create_info, None) }.unwrap()
+    unsafe { dev.swapchain_ext.create_swapchain(&create_info, None) }.unwrap()
 }
 
 fn create_image_views(
     swapchain: vk::SwapchainKHR,
     format: vk::Format,
-    swapchain_ext: &SwapchainKhr,
     dev: &Dev,
 ) -> Vec<vk::ImageView> {
-    let images = unsafe { swapchain_ext.get_swapchain_images(swapchain) }.unwrap();
+    let images = unsafe { dev.swapchain_ext.get_swapchain_images(swapchain) }.unwrap();
     let mut image_views = Vec::new();
     for image in images {
         image_views.push(create_image_view(

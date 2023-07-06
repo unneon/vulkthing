@@ -1,5 +1,6 @@
 use crate::renderer::FRAMES_IN_FLIGHT;
-use ash::extensions::khr::BufferDeviceAddress;
+use ash::extensions::ext::DebugUtils;
+use ash::extensions::khr::{AccelerationStructure, BufferDeviceAddress, Surface, Swapchain};
 use ash::{vk, Device, Instance};
 use std::ffi::CStr;
 use std::mem::MaybeUninit;
@@ -20,6 +21,11 @@ pub struct Dev {
     pub logical: Device,
     pub physical: vk::PhysicalDevice,
     pub instance: Instance,
+    pub acceleration_structure_ext: Option<AccelerationStructure>,
+    pub buffer_device_address_ext: Option<BufferDeviceAddress>,
+    pub debug_ext: DebugUtils,
+    pub surface_ext: Surface,
+    pub swapchain_ext: Swapchain,
 }
 
 pub struct Buffer {
