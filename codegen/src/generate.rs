@@ -1600,12 +1600,10 @@ pub fn create_shader_modules(shaders: &Shaders, dev: &Dev) -> ShaderModules {{"#
 #[rustfmt::skip]
 #[allow(clippy::identity_op)]
 pub fn create_pipelines(
-    msaa_samples: vk::SampleCountFlags,"#
+    msaa_samples: vk::SampleCountFlags,
+    passes: &Passes,"#
     )
     .unwrap();
-    for pass in &renderer.passes {
-        writeln!(file, "    {}: &Pass,", pass.name).unwrap();
-    }
     for spec in &renderer.specializations {
         let name = &spec.name;
         let ty = &spec.ty;
@@ -1668,7 +1666,7 @@ pub fn create_pipelines(
         writeln!(
             file,
             r#"    unsafe {{ SCRATCH.{pipeline}_pipeline.layout = layouts.{pipeline} }};
-    unsafe {{ SCRATCH.{pipeline}_pipeline.render_pass = {pass}.pass }};"#
+    unsafe {{ SCRATCH.{pipeline}_pipeline.render_pass = passes.{pass}.pass }};"#
         )
         .unwrap();
     });

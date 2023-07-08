@@ -118,10 +118,7 @@ impl Renderer {
         let shader_modules = create_shader_modules(&shaders, &dev);
         let pipelines = create_pipelines(
             msaa_samples,
-            &passes.render,
-            &passes.gaussian_horizontal,
-            &passes.gaussian_vertical,
-            &passes.postprocess,
+            &passes,
             sample_count(msaa_samples) as i32,
             1,
             0,
@@ -285,10 +282,7 @@ impl Renderer {
         let shader_modules = create_shader_modules(&shaders, &self.dev);
         self.pipelines = create_pipelines(
             self.msaa_samples,
-            &self.passes.render,
-            &self.passes.gaussian_vertical,
-            &self.passes.gaussian_vertical,
-            &self.passes.postprocess,
+            &self.passes,
             sample_count(self.msaa_samples) as i32,
             1,
             0,
