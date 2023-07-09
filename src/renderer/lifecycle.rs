@@ -7,8 +7,8 @@ use crate::renderer::codegen::{
 use crate::renderer::debug::{create_debug_messenger, set_label};
 use crate::renderer::device::{select_device, DeviceInfo};
 use crate::renderer::raytracing::{create_blas, create_tlas};
-use crate::renderer::swapchain::{create_swapchain, Swapchain};
-use crate::renderer::util::{sample_count, vulkan_str, Buffer, Ctx, Dev, ImageResources};
+use crate::renderer::swapchain::create_swapchain;
+use crate::renderer::util::{sample_count, vulkan_str, Buffer, Ctx, Dev};
 use crate::renderer::vertex::{GrassBlade, Star, Vertex};
 use crate::renderer::{
     AsyncLoader, GrassChunk, MeshObject, Object, Renderer, RendererSettings, Synchronization,
@@ -98,16 +98,12 @@ impl Renderer {
 
         let swapchain = create_swapchain(surface, window.window.inner_size(), &dev);
         let passes = create_render_passes(&swapchain, msaa_samples, &dev);
-        let lowres_bloom = create_lowres_bloom(&swapchain, &ctx);
-        let atmosphere_descriptor_sets = descriptor_pools.alloc_deferred(
-            passes.render.resources[0].view,
-            lowres_bloom.view,
-            &dev,
-        );
+        let extract_descriptors =
+            descriptor_pools.alloc_extract(passes.render.resources[0].view, &dev);
         let gaussian_horizontal_descriptors =
-            descriptor_pools.alloc_gaussian_horizontal(lowres_bloom.view, &dev);
-        let gaussian_vertical_descriptors = descriptor_pools
-            .alloc_gaussian_vertical(passes.gaussian_horizontal.resources[0].view, &dev);
+            descriptor_pools.alloc_gaussian(passes.extract.resources[0].view, &dev);
+        let gaussian_vertical_descriptors =
+            descriptor_pools.alloc_gaussian(passes.gaussian_horizontal.resources[0].view, &dev);
         let postprocess_descriptor_sets = descriptor_pools.alloc_postprocess(
             passes.render.resources[0].view,
             passes.gaussian_vertical.resources[0].view,
@@ -196,8 +192,7 @@ impl Renderer {
             descriptor_pools,
             pipeline_layouts,
             passes,
-            lowres_bloom,
-            atmosphere_descriptor_sets,
+            extract_descriptors,
             swapchain,
             pipelines,
             gaussian_horizontal_descriptors,
@@ -262,14 +257,6 @@ impl Renderer {
 
         self.swapchain = create_swapchain(self.surface, window_size, &self.dev);
         self.passes = create_render_passes(&self.swapchain, self.msaa_samples, &self.dev);
-        self.lowres_bloom = create_lowres_bloom(
-            &self.swapchain,
-            &Ctx {
-                dev: &self.dev,
-                command_pool: self.command_pools[0],
-                queue: self.queue,
-            },
-        );
 
         self.update_offscreen_descriptors();
         self.recreate_pipelines();
@@ -302,18 +289,17 @@ impl Renderer {
         // doesn't sound like something involving state. It might be worth it to figure out what's
         // happening before I rewrite the descriptor set codegen to use batching properly. Or maybe
         // I'll switch to VK_EXT_descriptor_buffer completely?
-        self.descriptor_pools.update_deferred(
-            &self.atmosphere_descriptor_sets,
+        self.descriptor_pools.update_extract(
+            &self.extract_descriptors,
             self.passes.render.resources[0].view,
-            self.lowres_bloom.view,
             &self.dev,
         );
-        self.descriptor_pools.update_gaussian_horizontal(
+        self.descriptor_pools.update_gaussian(
             &self.gaussian_horizontal_descriptors,
-            self.lowres_bloom.view,
+            self.passes.extract.resources[0].view,
             &self.dev,
         );
-        self.descriptor_pools.update_gaussian_vertical(
+        self.descriptor_pools.update_gaussian(
             &self.gaussian_vertical_descriptors,
             self.passes.gaussian_horizontal.resources[0].view,
             &self.dev,
@@ -361,7 +347,6 @@ impl Renderer {
     fn cleanup_swapchain(&mut self) {
         self.swapchain.cleanup(&self.dev);
         self.passes.cleanup(&self.dev);
-        self.lowres_bloom.cleanup(&self.dev);
     }
 }
 
@@ -669,49 +654,4 @@ fn create_sync(dev: &Dev) -> Synchronization {
         render_finished,
         in_flight,
     }
-}
-
-fn create_lowres_bloom(swapchain: &Swapchain, ctx: &Ctx) -> ImageResources {
-    let bloom = ImageResources::create(
-        vk::Format::R16G16B16A16_SFLOAT,
-        vk::MemoryPropertyFlags::DEVICE_LOCAL,
-        vk::ImageTiling::OPTIMAL,
-        vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::SAMPLED,
-        vk::ImageAspectFlags::COLOR,
-        vk::Extent2D {
-            width: swapchain.extent.width / 2,
-            height: swapchain.extent.height / 2,
-        },
-        vk::SampleCountFlags::TYPE_1,
-        ctx.dev,
-    );
-    ctx.execute(|buf| {
-        let barrier = *vk::ImageMemoryBarrier::builder()
-            .old_layout(vk::ImageLayout::UNDEFINED)
-            .new_layout(vk::ImageLayout::GENERAL)
-            .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-            .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-            .image(bloom.image)
-            .subresource_range(vk::ImageSubresourceRange {
-                aspect_mask: vk::ImageAspectFlags::COLOR,
-                base_mip_level: 0,
-                level_count: 1,
-                base_array_layer: 0,
-                layer_count: 1,
-            })
-            .src_access_mask(vk::AccessFlags::empty())
-            .dst_access_mask(vk::AccessFlags::SHADER_WRITE);
-        unsafe {
-            ctx.dev.cmd_pipeline_barrier(
-                buf,
-                vk::PipelineStageFlags::TOP_OF_PIPE,
-                vk::PipelineStageFlags::FRAGMENT_SHADER,
-                vk::DependencyFlags::empty(),
-                &[],
-                &[],
-                &[barrier],
-            )
-        };
-    });
-    bloom
 }

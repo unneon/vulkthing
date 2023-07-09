@@ -9,29 +9,20 @@ sampler "nearest" {
     address-mode "CLAMP_TO_BORDER"
     unnormalized-coordinates
 }
-sampler "bilinear" {
-    filter "LINEAR"
-    address-mode "CLAMP_TO_BORDER"
-    unnormalized-coordinates
-}
 
 descriptor-set "object" 5 {
     uniform "mvp" "VERTEX" "ModelViewProjection"
     uniform "material" "FRAGMENT" "Material"
 }
-descriptor-set "deferred" 1 {
-    input-attachment "render" "FRAGMENT" msaa=true
-    storage-image "bloom" "FRAGMENT"
+descriptor-set "extract" 1 {
+    image "render" "FRAGMENT" "nearest" msaa=true
 }
-descriptor-set "gaussian_horizontal" 1 {
-    image "render" "FRAGMENT" "nearest" layout="GENERAL"
-}
-descriptor-set "gaussian_vertical" 1 {
-    image "render" "FRAGMENT" "nearest"
+descriptor-set "gaussian" 2 {
+    image "bloom" "FRAGMENT" "nearest"
 }
 descriptor-set "postprocess" 1 {
     image "render" "FRAGMENT" "nearest" msaa=true
-    image "bloom" "FRAGMENT" "bilinear"
+    image "bloom" "FRAGMENT" "nearest"
 }
 descriptor-set "global" 1 {
     uniform "global" "ALL" "Global"
@@ -101,26 +92,28 @@ pass "render" {
             cull-mode "FRONT"
         }
     }
-    subpass "deferred" {
-        input-attachment "color-1-rasterization"
-        pipeline "deferred" {
+}
+pass "extract" {
+    debug-name "Extraction pass"
+    debug-color 197 188 176
+    subpass "extract" {
+        color-attachment "bloom-1-raw" {
+            layout "COLOR_ATTACHMENT_OPTIMAL"
+            layout-final "SHADER_READ_ONLY_OPTIMAL"
+            sampled; store
+        }
+        pipeline "extract" {
             vertex-shader "util/quad.vert"
             fragment-specialization "msaa_sample_count"
-            descriptor-sets "deferred" "global"
+            descriptor-sets "extract" "global"
         }
-    }
-    dependency {
-        src "rasterization" "COLOR_ATTACHMENT_OUTPUT" "COLOR_ATTACHMENT_WRITE"
-        dst "deferred" "FRAGMENT_SHADER" "INPUT_ATTACHMENT_READ"
-        by-region
     }
 }
 pass "gaussian_horizontal" {
     debug-name "Gaussian horizontal pass"
     debug-color 244 244 247
-    resolution downscaled=2
     subpass "gaussian" {
-        color-attachment "gaussian-after-horizontal" {
+        color-attachment "bloom-2-horizontal" {
             layout "COLOR_ATTACHMENT_OPTIMAL"
             layout-final "SHADER_READ_ONLY_OPTIMAL"
             sampled; store
@@ -129,16 +122,15 @@ pass "gaussian_horizontal" {
             vertex-shader "util/quad.vert"
             fragment-shader "gaussian.frag"
             fragment-specialization "gaussian_dx" "gaussian_dy"
-            descriptor-sets "gaussian_horizontal" "global"
+            descriptor-sets "gaussian" "global"
         }
     }
 }
 pass "gaussian_vertical" {
     debug-name "Gaussian vertical pass"
     debug-color 244 244 247
-    resolution downscaled=2
     subpass "gaussian" {
-        color-attachment "gaussian-after-both" {
+        color-attachment "bloom-3-ready" {
             layout "COLOR_ATTACHMENT_OPTIMAL"
             layout-final "SHADER_READ_ONLY_OPTIMAL"
             sampled; store
@@ -147,7 +139,7 @@ pass "gaussian_vertical" {
             vertex-shader "util/quad.vert"
             fragment-shader "gaussian.frag"
             fragment-specialization "gaussian_dx" "gaussian_dy"
-            descriptor-sets "gaussian_vertical" "global"
+            descriptor-sets "gaussian" "global"
         }
     }
 }

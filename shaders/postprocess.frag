@@ -66,7 +66,7 @@ vec3 postprocess(vec3 color, vec3 bloom_color) {
 }
 
 void main() {
-    vec3 bloom_color = textureLod(bloom, gl_FragCoord.xy / 2, 0).rgb;
+    vec3 bloom_color = textureLod(bloom, gl_FragCoord.xy, 0).rgb;
     vec3 total = vec3(0);
     for (int i = 0; i < msaa_samples; ++i) {
         vec3 color = texelFetch(render, ivec2(gl_FragCoord.xy), i).rgb;

@@ -22,7 +22,7 @@ use crate::renderer::uniform::{
     Atmosphere, Camera, Gaussian, Global, GrassUniform, Material, ModelViewProjection,
     PostprocessUniform, Tonemapper,
 };
-use crate::renderer::util::{Buffer, Dev, ImageResources, UniformBuffer};
+use crate::renderer::util::{Buffer, Dev, UniformBuffer};
 use crate::world::World;
 use ash::{vk, Entry};
 use imgui::DrawData;
@@ -52,14 +52,13 @@ pub struct Renderer {
     descriptor_pools: DescriptorPools,
     pipeline_layouts: PipelineLayouts,
     passes: Passes,
-    lowres_bloom: ImageResources,
 
     // All resources that depend on swapchain extent (window size). So swapchain description, memory
     // used for all framebuffer attachments, framebuffers, and the mentioned postprocess descriptor
     // set. Projection matrix depends on the monitor aspect ratio, so it's included too.
     pub swapchain: Swapchain,
     pipelines: Pipelines,
-    atmosphere_descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
+    extract_descriptors: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
     gaussian_horizontal_descriptors: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
     gaussian_vertical_descriptors: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
     postprocess_descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
@@ -231,6 +230,7 @@ impl Renderer {
             .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
         self.dev.begin_command_buffer(buf, &begin_info).unwrap();
         self.record_render_pass(buf, world);
+        self.record_extract_pass(buf);
         self.record_gaussian_passes(buf);
         self.record_postprocess_pass(buf, image_index, ui_draw);
         self.dev.end_command_buffer(buf).unwrap();
@@ -280,17 +280,20 @@ impl Renderer {
         self.mesh_objects[1].draw(1, buf, &self.dev);
         end_label(buf, &self.dev);
 
-        self.dev.cmd_next_subpass(buf, vk::SubpassContents::INLINE);
+        self.dev.cmd_end_render_pass(buf);
+        end_label(buf, &self.dev);
+    }
 
-        begin_label(buf, "Atmosphere draw", [84, 115, 144], &self.dev);
-        self.bind_pipeline(buf, self.pipelines.deferred);
+    unsafe fn record_extract_pass(&mut self, buf: vk::CommandBuffer) {
+        self.passes.extract.begin(buf, &self.dev);
+
+        self.bind_pipeline(buf, self.pipelines.extract);
         self.bind_descriptor_sets(
             buf,
-            self.pipeline_layouts.deferred,
-            &self.atmosphere_descriptor_sets,
+            self.pipeline_layouts.extract,
+            &self.extract_descriptors,
         );
         self.dev.cmd_draw(buf, 6, 1, 0, 0);
-        end_label(buf, &self.dev);
 
         self.dev.cmd_end_render_pass(buf);
         end_label(buf, &self.dev);
