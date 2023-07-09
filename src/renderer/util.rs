@@ -5,6 +5,7 @@ use ash::{vk, Device, Instance};
 use std::ffi::CStr;
 use std::mem::MaybeUninit;
 use std::ops::Deref;
+use std::time::Duration;
 
 pub trait AnyUniformBuffer {
     fn descriptor(&self, flight_index: usize) -> vk::DescriptorBufferInfo;
@@ -348,4 +349,13 @@ fn find_memory_type(properties: vk::MemoryPropertyFlags, type_filter: u32, dev: 
 
 pub fn vulkan_str(slice: &[i8]) -> &str {
     unsafe { CStr::from_ptr(slice.as_ptr()) }.to_str().unwrap()
+}
+
+pub fn timestamp_difference_to_duration(
+    timestamp: u64,
+    properties: &vk::PhysicalDeviceProperties,
+) -> Duration {
+    Duration::from_secs_f64(
+        timestamp as f64 * properties.limits.timestamp_period as f64 / 1_000_000_000.,
+    )
 }

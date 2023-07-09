@@ -22,7 +22,7 @@ use crate::renderer::uniform::{
     Atmosphere, Camera, Gaussian, Global, GrassUniform, Material, ModelViewProjection,
     PostprocessUniform, Tonemapper,
 };
-use crate::renderer::util::{Buffer, Dev, UniformBuffer};
+use crate::renderer::util::{timestamp_difference_to_duration, Buffer, Dev, UniformBuffer};
 use crate::world::World;
 use ash::{vk, Entry};
 use imgui::DrawData;
@@ -30,6 +30,7 @@ use nalgebra::{Matrix4, Vector3};
 use std::f32::consts::FRAC_PI_4;
 use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use winit::dpi::PhysicalSize;
 
 pub struct Renderer {
@@ -41,6 +42,7 @@ pub struct Renderer {
     dev: Dev,
     queue: vk::Queue,
     supports_raytracing: bool,
+    properties: vk::PhysicalDeviceProperties,
 
     // Parameters of the renderer that are required early for creating more important objects.
     pub msaa_samples: vk::SampleCountFlags,
@@ -91,6 +93,10 @@ pub struct Renderer {
 
     tlas: Option<RaytraceResources>,
     blas: Option<RaytraceResources>,
+
+    query_pool: vk::QueryPool,
+    frame_index: usize,
+    pub frame_time: Option<Duration>,
 
     interface_renderer: Option<imgui_rs_vulkan_renderer::Renderer>,
 }
@@ -174,6 +180,7 @@ impl Renderer {
             return;
         };
         unsafe { self.record_command_buffer(image_index, world, ui_draw) };
+        self.frame_time = self.query_timestamps();
         for entity_id in 0..world.entities().len() {
             self.update_object_uniforms(world, entity_id, settings);
         }
@@ -185,6 +192,7 @@ impl Renderer {
         self.submit_present(image_index);
 
         self.flight_index = (self.flight_index + 1) % FRAMES_IN_FLIGHT;
+        self.frame_index += 1;
     }
 
     unsafe fn prepare_command_buffer(&mut self, window_size: PhysicalSize<u32>) -> Option<usize> {
@@ -229,10 +237,13 @@ impl Renderer {
         let begin_info = vk::CommandBufferBeginInfo::builder()
             .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
         self.dev.begin_command_buffer(buf, &begin_info).unwrap();
+        self.reset_timestamps(buf);
+        self.write_timestamp(buf, 0, vk::PipelineStageFlags::TOP_OF_PIPE);
         self.record_render_pass(buf, world);
         self.record_extract_pass(buf);
         self.record_gaussian_passes(buf);
         self.record_postprocess_pass(buf, image_index, ui_draw);
+        self.write_timestamp(buf, 1, vk::PipelineStageFlags::BOTTOM_OF_PIPE);
         self.dev.end_command_buffer(buf).unwrap();
     }
 
@@ -539,6 +550,48 @@ impl Renderer {
                 &[],
             )
         };
+    }
+
+    fn reset_timestamps(&self, buf: vk::CommandBuffer) {
+        unsafe {
+            self.dev
+                .cmd_reset_query_pool(buf, self.query_pool, self.flight_index as u32 * 2, 2)
+        };
+    }
+
+    fn write_timestamp(&self, buf: vk::CommandBuffer, index: usize, stage: vk::PipelineStageFlags) {
+        unsafe {
+            self.dev.cmd_write_timestamp(
+                buf,
+                stage,
+                self.query_pool,
+                (self.flight_index * 2 + index) as u32,
+            )
+        };
+    }
+
+    fn query_timestamps(&self) -> Option<Duration> {
+        // CPU can't wait for current frame metrics because it has to prepare command buffers for
+        // the next frame, the query results are delayed by FRAMES_IN_FLIGHT frames.
+        if self.frame_index < FRAMES_IN_FLIGHT {
+            return None;
+        }
+
+        let mut timestamps = [0; 2];
+        unsafe {
+            self.dev.get_query_pool_results(
+                self.query_pool,
+                (self.flight_index * 2) as u32,
+                2,
+                &mut timestamps,
+                vk::QueryResultFlags::TYPE_64,
+            )
+        }
+        .unwrap();
+        Some(timestamp_difference_to_duration(
+            timestamps[1] - timestamps[0],
+            &self.properties,
+        ))
     }
 }
 

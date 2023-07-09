@@ -8,6 +8,7 @@ use imgui::{Condition, Context, Drag, SliderFlags, TreeNodeFlags, Ui};
 use nalgebra::Vector3;
 use std::borrow::Cow;
 use std::f32::consts::PI;
+use std::time::Duration;
 
 pub mod integration;
 
@@ -37,6 +38,7 @@ impl Interface {
         grass: &mut Grass,
         renderer: &mut RendererSettings,
         total_grass_blades: usize,
+        frame_time: Option<Duration>,
     ) -> InterfaceEvents {
         let ui = self.ctx.frame();
         let mut events = InterfaceEvents {
@@ -159,6 +161,12 @@ impl Interface {
                 }
                 if ui.collapsing_header("Post-processing", TreeNodeFlags::empty()) {
                     build_postprocess(ui, &mut renderer.postprocess);
+                }
+                if let Some(frame_time) = frame_time {
+                    ui.label_text(
+                        "Frame time",
+                        format!("{:.2}ms", frame_time.as_secs_f64() * 1000.),
+                    );
                 }
             });
         events

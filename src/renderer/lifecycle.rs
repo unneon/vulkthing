@@ -56,6 +56,7 @@ impl Renderer {
             queue_family,
             supports_raytracing,
         } = select_device(surface, &instance, &surface_ext);
+        let properties = unsafe { instance.get_physical_device_properties(physical_device) };
         let logical_device = create_logical_device(
             queue_family,
             supports_raytracing,
@@ -179,6 +180,8 @@ impl Renderer {
         let global = UniformBuffer::create(&dev);
         let global_descriptor_sets = descriptor_pools.alloc_global(&global, &tlas, &dev);
 
+        let query_pool = create_query_pool(&dev);
+
         Renderer {
             _entry: entry,
             debug_messenger,
@@ -186,6 +189,7 @@ impl Renderer {
             dev,
             queue,
             supports_raytracing,
+            properties,
             msaa_samples,
             samplers,
             descriptor_set_layouts,
@@ -220,6 +224,9 @@ impl Renderer {
             global_descriptor_sets,
             blas,
             tlas,
+            query_pool,
+            frame_index: 0,
+            frame_time: None,
             interface_renderer: None,
         }
     }
@@ -413,6 +420,7 @@ impl Drop for Renderer {
             self.dev.device_wait_idle().unwrap();
 
             drop(self.interface_renderer.take());
+            self.dev.destroy_query_pool(self.query_pool, None);
             self.star_mvp.cleanup(&self.dev);
             self.star_material.cleanup(&self.dev);
             self.star_instances.cleanup(&self.dev);
@@ -654,4 +662,11 @@ fn create_sync(dev: &Dev) -> Synchronization {
         render_finished,
         in_flight,
     }
+}
+
+fn create_query_pool(dev: &Dev) -> vk::QueryPool {
+    let create_info = *vk::QueryPoolCreateInfo::builder()
+        .query_type(vk::QueryType::TIMESTAMP)
+        .query_count(2 * FRAMES_IN_FLIGHT as u32);
+    unsafe { dev.create_query_pool(&create_info, None) }.unwrap()
 }
