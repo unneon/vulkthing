@@ -1,6 +1,7 @@
 use crate::config::DEFAULT_PLANET_SCALE;
 use crate::grass::Grass;
 use crate::planet::Planet;
+use crate::renderer::codegen::{PASS_COUNT, PASS_NAMES};
 use crate::renderer::{PostprocessSettings, RendererSettings};
 use crate::world::World;
 use ash::vk;
@@ -38,7 +39,7 @@ impl Interface {
         grass: &mut Grass,
         renderer: &mut RendererSettings,
         total_grass_blades: usize,
-        frame_time: Option<Duration>,
+        pass_times: Option<&[Duration; PASS_COUNT]>,
     ) -> InterfaceEvents {
         let ui = self.ctx.frame();
         let mut events = InterfaceEvents {
@@ -162,11 +163,21 @@ impl Interface {
                 if ui.collapsing_header("Post-processing", TreeNodeFlags::empty()) {
                     build_postprocess(ui, &mut renderer.postprocess);
                 }
-                if let Some(frame_time) = frame_time {
-                    ui.label_text(
-                        "Frame time",
-                        format!("{:.2}ms", frame_time.as_secs_f64() * 1000.),
-                    );
+                if ui.collapsing_header("Performance", TreeNodeFlags::empty()) {
+                    if let Some(pass_times) = pass_times {
+                        let mut total_time = Duration::ZERO;
+                        for (name, time) in PASS_NAMES.iter().zip(pass_times.iter()) {
+                            ui.label_text(
+                                format!("{name} pass"),
+                                format!("{:.2}ms", time.as_secs_f64() * 1000.),
+                            );
+                            total_time += *time;
+                        }
+                        ui.label_text(
+                            "Total",
+                            format!("{:.2}ms", total_time.as_secs_f64() * 1000.),
+                        );
+                    }
                 }
             });
         events

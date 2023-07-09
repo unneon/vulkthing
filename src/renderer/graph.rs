@@ -1,3 +1,4 @@
+use crate::renderer::codegen::PASS_COUNT;
 use crate::renderer::debug::begin_label;
 use crate::renderer::util::{Dev, ImageResources};
 use ash::vk;
@@ -11,6 +12,7 @@ pub struct Pass {
     pub resources: Vec<ImageResources>,
     pub framebuffers: Vec<vk::Framebuffer>,
     pub direct_to_swapchain: bool,
+    pub index: usize,
 }
 
 impl Pass {
@@ -26,17 +28,51 @@ impl Pass {
         }
     }
 
-    pub fn begin(&self, buf: vk::CommandBuffer, dev: &Dev) {
+    pub fn begin(
+        &self,
+        buf: vk::CommandBuffer,
+        dev: &Dev,
+        query_pool: vk::QueryPool,
+        flight_index: usize,
+    ) {
         assert!(!self.direct_to_swapchain);
-        self.generic_begin(buf, self.framebuffers[0], dev);
+        self.generic_begin(buf, self.framebuffers[0], dev, query_pool, flight_index);
     }
 
-    pub fn begin_to_swapchain(&self, buf: vk::CommandBuffer, image_index: usize, dev: &Dev) {
+    pub fn begin_to_swapchain(
+        &self,
+        buf: vk::CommandBuffer,
+        image_index: usize,
+        dev: &Dev,
+        query_pool: vk::QueryPool,
+        flight_index: usize,
+    ) {
         assert!(self.direct_to_swapchain);
-        self.generic_begin(buf, self.framebuffers[image_index], dev);
+        self.generic_begin(
+            buf,
+            self.framebuffers[image_index],
+            dev,
+            query_pool,
+            flight_index,
+        );
     }
 
-    fn generic_begin(&self, buf: vk::CommandBuffer, framebuffer: vk::Framebuffer, dev: &Dev) {
+    fn generic_begin(
+        &self,
+        buf: vk::CommandBuffer,
+        framebuffer: vk::Framebuffer,
+        dev: &Dev,
+        query_pool: vk::QueryPool,
+        flight_index: usize,
+    ) {
+        unsafe {
+            dev.cmd_write_timestamp(
+                buf,
+                vk::PipelineStageFlags::ALL_COMMANDS,
+                query_pool,
+                (flight_index * (PASS_COUNT + 1) + self.index) as u32,
+            )
+        };
         let info = *vk::RenderPassBeginInfo::builder()
             .render_pass(self.pass)
             .framebuffer(framebuffer)

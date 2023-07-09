@@ -163,7 +163,7 @@ fn main() {
                     &mut grass.lock().unwrap(),
                     &mut renderer_settings,
                     renderer.grass_blades_total.load(Ordering::Relaxed),
-                    renderer.frame_time,
+                    renderer.pass_times.as_ref(),
                 );
                 assert!(!interface_events.planet_changed);
                 if interface_events.rebuild_swapchain {

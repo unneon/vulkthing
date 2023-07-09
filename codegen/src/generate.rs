@@ -380,9 +380,21 @@ struct Scratch {{"#
         )
         .unwrap();
     });
+    let pass_count = renderer.passes.len();
     writeln!(
         file,
         r#"}}
+
+pub const PASS_COUNT: usize = {pass_count};
+pub const PASS_NAMES: [&str; PASS_COUNT] = ["#
+    )
+    .unwrap();
+    for pass in &renderer.passes {
+        writeln!(file, "    \"{pass}\",").unwrap();
+    }
+    writeln!(
+        file,
+        r#"];
 
 #[rustfmt::skip]
 static mut SCRATCH: Scratch = Scratch {{"#
@@ -1349,7 +1361,7 @@ pub fn create_render_passes(
     for pass in &renderer.passes {
         writeln!(file, "    set_label({pass}, \"RENDER-PASS-{pass}\", dev);").unwrap();
     }
-    for pass in &renderer.passes {
+    for (index, pass) in renderer.passes.iter().enumerate() {
         let downscale = pass
             .resolution
             .as_ref()
@@ -1485,6 +1497,7 @@ pub fn create_render_passes(
         resources,
         framebuffers,
         direct_to_swapchain: {direct_to_swapchain:?},
+        index: {index},
     }};"#
         )
         .unwrap();

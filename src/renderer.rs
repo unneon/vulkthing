@@ -1,4 +1,4 @@
-mod codegen;
+pub mod codegen;
 mod debug;
 mod device;
 mod graph;
@@ -12,7 +12,7 @@ pub mod vertex;
 
 use crate::grass::Grass;
 use crate::renderer::codegen::{
-    DescriptorPools, DescriptorSetLayouts, Passes, PipelineLayouts, Pipelines, Samplers,
+    DescriptorPools, DescriptorSetLayouts, Passes, PipelineLayouts, Pipelines, Samplers, PASS_COUNT,
 };
 use crate::renderer::debug::{begin_label, end_label};
 use crate::renderer::graph::Pass;
@@ -96,7 +96,7 @@ pub struct Renderer {
 
     query_pool: vk::QueryPool,
     frame_index: usize,
-    pub frame_time: Option<Duration>,
+    pub pass_times: Option<[Duration; PASS_COUNT]>,
 
     interface_renderer: Option<imgui_rs_vulkan_renderer::Renderer>,
 }
@@ -180,7 +180,7 @@ impl Renderer {
             return;
         };
         unsafe { self.record_command_buffer(image_index, world, ui_draw) };
-        self.frame_time = self.query_timestamps();
+        self.pass_times = self.query_timestamps();
         for entity_id in 0..world.entities().len() {
             self.update_object_uniforms(world, entity_id, settings);
         }
@@ -238,17 +238,18 @@ impl Renderer {
             .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
         self.dev.begin_command_buffer(buf, &begin_info).unwrap();
         self.reset_timestamps(buf);
-        self.write_timestamp(buf, 0, vk::PipelineStageFlags::TOP_OF_PIPE);
         self.record_render_pass(buf, world);
         self.record_extract_pass(buf);
         self.record_gaussian_passes(buf);
         self.record_postprocess_pass(buf, image_index, ui_draw);
-        self.write_timestamp(buf, 1, vk::PipelineStageFlags::BOTTOM_OF_PIPE);
+        self.write_timestamp(buf, PASS_COUNT, vk::PipelineStageFlags::ALL_COMMANDS);
         self.dev.end_command_buffer(buf).unwrap();
     }
 
     unsafe fn record_render_pass(&self, buf: vk::CommandBuffer, world: &World) {
-        self.passes.render.begin(buf, &self.dev);
+        self.passes
+            .render
+            .begin(buf, &self.dev, self.query_pool, self.flight_index);
 
         begin_label(buf, "Entity draws", [57, 65, 62], &self.dev);
         self.bind_pipeline(buf, self.pipelines.object);
@@ -296,7 +297,9 @@ impl Renderer {
     }
 
     unsafe fn record_extract_pass(&mut self, buf: vk::CommandBuffer) {
-        self.passes.extract.begin(buf, &self.dev);
+        self.passes
+            .extract
+            .begin(buf, &self.dev, self.query_pool, self.flight_index);
 
         self.bind_pipeline(buf, self.pipelines.extract);
         self.bind_descriptor_sets(
@@ -311,7 +314,9 @@ impl Renderer {
     }
 
     unsafe fn record_gaussian_passes(&mut self, buf: vk::CommandBuffer) {
-        self.passes.gaussian_horizontal.begin(buf, &self.dev);
+        self.passes
+            .gaussian_horizontal
+            .begin(buf, &self.dev, self.query_pool, self.flight_index);
 
         self.bind_pipeline(buf, self.pipelines.gaussian_horizontal);
         self.bind_descriptor_sets(
@@ -324,7 +329,9 @@ impl Renderer {
         self.dev.cmd_end_render_pass(buf);
         end_label(buf, &self.dev);
 
-        self.passes.gaussian_vertical.begin(buf, &self.dev);
+        self.passes
+            .gaussian_vertical
+            .begin(buf, &self.dev, self.query_pool, self.flight_index);
 
         self.bind_pipeline(buf, self.pipelines.gaussian_vertical);
         self.bind_descriptor_sets(
@@ -344,9 +351,13 @@ impl Renderer {
         image_index: usize,
         ui_draw: &DrawData,
     ) {
-        self.passes
-            .postprocess
-            .begin_to_swapchain(buf, image_index, &self.dev);
+        self.passes.postprocess.begin_to_swapchain(
+            buf,
+            image_index,
+            &self.dev,
+            self.query_pool,
+            self.flight_index,
+        );
 
         begin_label(buf, "Postprocess draw", [210, 206, 203], &self.dev);
         self.bind_pipeline(buf, self.pipelines.postprocess);
@@ -554,8 +565,12 @@ impl Renderer {
 
     fn reset_timestamps(&self, buf: vk::CommandBuffer) {
         unsafe {
-            self.dev
-                .cmd_reset_query_pool(buf, self.query_pool, self.flight_index as u32 * 2, 2)
+            self.dev.cmd_reset_query_pool(
+                buf,
+                self.query_pool,
+                (self.flight_index * (PASS_COUNT + 1)) as u32,
+                (PASS_COUNT + 1) as u32,
+            )
         };
     }
 
@@ -565,33 +580,38 @@ impl Renderer {
                 buf,
                 stage,
                 self.query_pool,
-                (self.flight_index * 2 + index) as u32,
+                (self.flight_index * (PASS_COUNT + 1) + index) as u32,
             )
         };
     }
 
-    fn query_timestamps(&self) -> Option<Duration> {
+    fn query_timestamps(&self) -> Option<[Duration; PASS_COUNT]> {
         // CPU can't wait for current frame metrics because it has to prepare command buffers for
         // the next frame, the query results are delayed by FRAMES_IN_FLIGHT frames.
         if self.frame_index < FRAMES_IN_FLIGHT {
             return None;
         }
 
-        let mut timestamps = [0; 2];
+        let mut timestamps = [0; PASS_COUNT + 1];
         unsafe {
             self.dev.get_query_pool_results(
                 self.query_pool,
-                (self.flight_index * 2) as u32,
-                2,
+                (self.flight_index * (PASS_COUNT + 1)) as u32,
+                (PASS_COUNT + 1) as u32,
                 &mut timestamps,
                 vk::QueryResultFlags::TYPE_64,
             )
         }
         .unwrap();
-        Some(timestamp_difference_to_duration(
-            timestamps[1] - timestamps[0],
-            &self.properties,
-        ))
+
+        let mut pass_times = [Duration::ZERO; PASS_COUNT];
+        for i in 0..PASS_COUNT {
+            pass_times[i] = timestamp_difference_to_duration(
+                timestamps[i + 1] - timestamps[i],
+                &self.properties,
+            );
+        }
+        Some(pass_times)
     }
 }
 

@@ -3,6 +3,7 @@ use crate::mesh::MeshData;
 use crate::renderer::codegen::{
     create_descriptor_pools, create_descriptor_set_layouts, create_pipeline_layouts,
     create_pipelines, create_render_passes, create_samplers, create_shader_modules, create_shaders,
+    PASS_COUNT,
 };
 use crate::renderer::debug::{create_debug_messenger, set_label};
 use crate::renderer::device::{select_device, DeviceInfo};
@@ -226,7 +227,7 @@ impl Renderer {
             tlas,
             query_pool,
             frame_index: 0,
-            frame_time: None,
+            pass_times: None,
             interface_renderer: None,
         }
     }
@@ -667,6 +668,6 @@ fn create_sync(dev: &Dev) -> Synchronization {
 fn create_query_pool(dev: &Dev) -> vk::QueryPool {
     let create_info = *vk::QueryPoolCreateInfo::builder()
         .query_type(vk::QueryType::TIMESTAMP)
-        .query_count(2 * FRAMES_IN_FLIGHT as u32);
+        .query_count(((PASS_COUNT + 1) * FRAMES_IN_FLIGHT) as u32);
     unsafe { dev.create_query_pool(&create_info, None) }.unwrap()
 }
