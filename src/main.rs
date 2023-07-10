@@ -55,7 +55,7 @@ const WALK_SPEED: f32 = 25.;
 const SPRINT_SPEED: f32 = 100.;
 const CAMERA_SENSITIVITY: f32 = 0.01;
 
-const BENCHMARK_FRAMES: usize = 6000;
+const BENCHMARK_FRAMES: usize = 800;
 
 fn main() {
     initialize_logger();
@@ -100,8 +100,9 @@ fn main() {
     renderer.create_interface_renderer(&mut interface.ctx);
 
     let (chunk_tx, chunk_rx) = mpsc::channel::<usize>();
+    let mut chunk_tx = Some(chunk_tx);
     let async_loader = renderer.get_async_loader();
-    std::thread::spawn({
+    let mut grass_thread = Some(std::thread::spawn({
         let chunks = chunks.clone();
         let grass = grass.clone();
         let planet_model = planet_mesh.clone();
@@ -113,7 +114,7 @@ fn main() {
                 async_loader.load_grass_chunk(chunk_id, &blades);
             }
         }
-    });
+    }));
 
     // Run the event loop. Winit delivers events, like key presses. After it finishes delivering
     // some batch of events, it sends a MainEventsCleared event, which means the application should
@@ -141,7 +142,11 @@ fn main() {
                             old_size = new_size;
                         }
                     }
-                    WindowEvent::CloseRequested => control_flow.set_exit(),
+                    WindowEvent::CloseRequested => {
+                        let _ = chunk_tx.take();
+                        grass_thread.take().unwrap().join().unwrap();
+                        control_flow.set_exit();
+                    }
                     _ => (),
                 }
             }
@@ -154,8 +159,6 @@ fn main() {
             // limitation only applies on some platforms (Android).
             Event::Resumed => (),
             Event::MainEventsCleared => {
-                assert_ne!(frame_index, BENCHMARK_FRAMES);
-
                 let curr_update = Instant::now();
                 let delta_time = if args.benchmark {
                     0.01
@@ -204,7 +207,7 @@ fn main() {
                         let distance = (vertex - world.camera.position()).norm();
                         if distance < grass.lock().unwrap().chunk_load_distance {
                             loaded_chunks.insert(chunk_id);
-                            chunk_tx.send(chunk_id).unwrap();
+                            chunk_tx.as_ref().unwrap().send(chunk_id).unwrap();
                         }
                     }
                 }
@@ -220,6 +223,8 @@ fn main() {
 
                 frame_index += 1;
                 if frame_index == BENCHMARK_FRAMES {
+                    let _ = chunk_tx.take();
+                    grass_thread.take().unwrap().join().unwrap();
                     control_flow.set_exit();
                 }
             }
