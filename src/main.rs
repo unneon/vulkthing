@@ -222,7 +222,7 @@ fn main() {
                 );
 
                 frame_index += 1;
-                if frame_index == BENCHMARK_FRAMES {
+                if args.benchmark && frame_index == BENCHMARK_FRAMES {
                     let _ = chunk_tx.take();
                     grass_thread.take().unwrap().join().unwrap();
                     control_flow.set_exit();
