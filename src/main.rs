@@ -55,6 +55,8 @@ const WALK_SPEED: f32 = 25.;
 const SPRINT_SPEED: f32 = 100.;
 const CAMERA_SENSITIVITY: f32 = 0.01;
 
+const BENCHMARK_FRAMES: usize = 6000;
+
 fn main() {
     initialize_logger();
     let args = Args::parse();
@@ -93,6 +95,7 @@ fn main() {
     let mut last_update = Instant::now();
     let mut old_size = window.window.inner_size();
     let mut loaded_chunks = HashSet::new();
+    let mut frame_index = 0;
 
     renderer.create_interface_renderer(&mut interface.ctx);
 
@@ -151,10 +154,19 @@ fn main() {
             // limitation only applies on some platforms (Android).
             Event::Resumed => (),
             Event::MainEventsCleared => {
+                assert_ne!(frame_index, BENCHMARK_FRAMES);
+
                 let curr_update = Instant::now();
-                let delta_time = (curr_update - last_update).as_secs_f32();
+                let delta_time = if args.benchmark {
+                    0.01
+                } else {
+                    (curr_update - last_update).as_secs_f32()
+                };
                 last_update = curr_update;
-                world.update(delta_time, &input_state);
+                if args.benchmark {
+                    world.update_benchmark(frame_index);
+                }
+                world.update(delta_time, &input_state, args.benchmark);
                 input_state.reset_after_frame();
                 interface.apply_cursor(input_state.camera_lock, &window.window);
                 let interface_events = interface.build(
@@ -205,6 +217,11 @@ fn main() {
                     window.window.inner_size(),
                     interface.draw_data(),
                 );
+
+                frame_index += 1;
+                if frame_index == BENCHMARK_FRAMES {
+                    control_flow.set_exit();
+                }
             }
             // This event is only sent after MainEventsCleared, during which we render
             // unconditionally.
