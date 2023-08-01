@@ -207,9 +207,7 @@ impl EnumInterface for vk::SampleCountFlags {
 fn entity(ui: &Ui, world: &mut World, entity: usize) {
     Drag::new("Position").build_array(
         ui,
-        world.entities[entity]
-            .static_translation_mut()
-            .as_mut_slice(),
+        world.entities[entity].transform.translation.as_mut_slice(),
     );
 }
 

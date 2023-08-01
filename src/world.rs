@@ -33,23 +33,16 @@ pub struct World {
 }
 
 pub struct Entity {
-    transform: Transform,
+    pub transform: Transform,
     diffuse: Vector3<f32>,
     emit: Vector3<f32>,
     mesh_id: usize,
 }
 
-pub enum Transform {
-    Static {
-        translation: Vector3<f32>,
-        rotation: UnitQuaternion<f32>,
-        scale: Vector3<f32>,
-    },
-    #[allow(dead_code)]
-    Dynamic {
-        rigid_body: RigidBodyHandle,
-        scale: Vector3<f32>,
-    },
+pub struct Transform {
+    pub translation: Vector3<f32>,
+    pub rotation: UnitQuaternion<f32>,
+    pub scale: Vector3<f32>,
 }
 
 pub struct Star {
@@ -90,7 +83,7 @@ impl World {
         let planet_scale = Vector3::from_element(DEFAULT_PLANET_SCALE);
         let planet_collider = physics.trimesh(planet_model, &planet_scale).friction(0.);
         let planet = Entity {
-            transform: Transform::Static {
+            transform: Transform {
                 translation: DEFAULT_PLANET_POSITION,
                 rotation: UnitQuaternion::identity(),
                 scale: planet_scale,
@@ -101,7 +94,7 @@ impl World {
         };
         physics.insert_static(planet_collider);
         let sun = Entity {
-            transform: Transform::Static {
+            transform: Transform {
                 translation: DEFAULT_SUN_POSITION,
                 rotation: UnitQuaternion::identity(),
                 scale: Vector3::from_element(50.),
@@ -115,7 +108,7 @@ impl World {
         let mut rng = rand::thread_rng();
         for _ in 0..DEFAULT_STAR_COUNT {
             stars.push(Star {
-                transform: Transform::Static {
+                transform: Transform {
                     translation: DEFAULT_STAR_RADIUS * rng.sample(RandomDirection),
                     rotation: rng.sample(RandomRotation),
                     scale: Vector3::from_element(
@@ -182,16 +175,14 @@ impl World {
     }
 
     pub fn update_sun(&mut self) {
-        let Transform::Static { translation, .. } = &mut self.entities[1].transform else {
-            unreachable!()
-        };
+        let translation = &mut self.entities[1].transform.translation;
         translation.x = self.sun_radius * self.time_of_day.sin();
         translation.z = self.sun_radius * self.time_of_day.cos();
     }
 
     pub fn light(&self) -> Light {
         Light {
-            position: self.sun().translation(self),
+            position: self.sun().transform.translation,
             color: Vector3::new(1., 1., 1.),
             ambient_strength: self.ambient_strength,
             diffuse_strength: self.diffuse_strength,
@@ -220,37 +211,8 @@ impl World {
 }
 
 impl Entity {
-    pub fn translation(&self, world: &World) -> Vector3<f32> {
-        match self.transform {
-            Transform::Static { translation, .. } => translation,
-            Transform::Dynamic { rigid_body, .. } => world.physics.get_translation(rigid_body),
-        }
-    }
-
-    pub fn static_translation_mut(&mut self) -> &mut Vector3<f32> {
-        match &mut self.transform {
-            Transform::Static { translation, .. } => translation,
-            _ => unreachable!(),
-        }
-    }
-
-    pub fn rotation(&self, world: &World) -> UnitQuaternion<f32> {
-        match self.transform {
-            Transform::Static { rotation, .. } => rotation,
-            Transform::Dynamic { rigid_body, .. } => world.physics.get_rotation(rigid_body),
-        }
-    }
-
-    pub fn scale(&self) -> Vector3<f32> {
-        match self.transform {
-            Transform::Static { scale, .. } => scale,
-            Transform::Dynamic { scale, .. } => scale,
-        }
-    }
-
-    pub fn model_matrix(&self, world: &World) -> Matrix4<f32> {
-        Matrix4::new_translation(&self.translation(world)).prepend_nonuniform_scaling(&self.scale())
-            * self.rotation(world).to_homogeneous()
+    pub fn model_matrix(&self) -> Matrix4<f32> {
+        self.transform.model_matrix()
     }
 
     pub fn diffuse(&self) -> Vector3<f32> {
@@ -268,16 +230,7 @@ impl Entity {
 
 impl Transform {
     pub fn model_matrix(&self) -> Matrix4<f32> {
-        match self {
-            Transform::Static {
-                translation,
-                rotation,
-                scale,
-            } => {
-                Matrix4::new_translation(translation).prepend_nonuniform_scaling(scale)
-                    * rotation.to_homogeneous()
-            }
-            Transform::Dynamic { .. } => todo!(),
-        }
+        Matrix4::new_translation(&self.translation).prepend_nonuniform_scaling(&self.scale)
+            * self.rotation.to_homogeneous()
     }
 }

@@ -384,7 +384,7 @@ impl Renderer {
     fn update_object_uniforms(&self, world: &World, entity_id: usize, settings: &RendererSettings) {
         let entity = &world.entities()[entity_id];
         let mvp = ModelViewProjection {
-            model: entity.model_matrix(world),
+            model: entity.model_matrix(),
             view: world.view_matrix(),
             proj: self.projection_matrix(settings),
         };
@@ -401,7 +401,7 @@ impl Renderer {
 
     fn update_grass_uniform(&self, world: &World, settings: &RendererSettings) {
         let mvp = ModelViewProjection {
-            model: world.planet().model_matrix(world),
+            model: world.planet().model_matrix(),
             view: world.view_matrix(),
             proj: self.projection_matrix(settings),
         };
@@ -450,9 +450,9 @@ impl Renderer {
                     scatter_point_count: settings.atmosphere_in_scattering_samples as u32,
                     optical_depth_point_count: settings.atmosphere_optical_depth_samples as u32,
                     density_falloff: world.atmosphere.density_falloff,
-                    planet_position: world.planet().translation(world),
-                    planet_radius: world.planet().scale().x,
-                    sun_position: world.sun().translation(world),
+                    planet_position: world.planet().transform.translation,
+                    planet_radius: world.planet().transform.scale.x,
+                    sun_position: world.sun().transform.translation,
                     scale: world.atmosphere.scale,
                     wavelengths: settings.atmosphere_wavelengths,
                     scattering_strength: world.atmosphere.scattering_strength,

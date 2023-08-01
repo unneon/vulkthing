@@ -140,7 +140,7 @@ impl Renderer {
 
         let (tlas, blas) = if supports_raytracing {
             let blas = create_blas(&mesh_objects[0], &ctx);
-            let tlas = create_tlas(&world.planet().model_matrix(world), &blas, &ctx);
+            let tlas = create_tlas(&world.planet().model_matrix(), &blas, &ctx);
             (Some(tlas), Some(blas))
         } else {
             (None, None)
