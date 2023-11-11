@@ -97,6 +97,7 @@ pub struct Renderer {
     query_pool: vk::QueryPool,
     frame_index: usize,
     pub pass_times: Option<[Duration; PASS_COUNT]>,
+    pub just_completed_first_render: bool,
 
     interface_renderer: Option<imgui_rs_vulkan_renderer::Renderer>,
 }
@@ -202,6 +203,8 @@ impl Renderer {
         self.dev
             .wait_for_fences(&[in_flight], true, u64::MAX)
             .unwrap();
+
+        self.just_completed_first_render = self.frame_index == FRAMES_IN_FLIGHT;
 
         let acquire_result = self.dev.swapchain_ext.acquire_next_image(
             self.swapchain.handle,

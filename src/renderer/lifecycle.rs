@@ -228,6 +228,7 @@ impl Renderer {
             query_pool,
             frame_index: 0,
             pass_times: None,
+            just_completed_first_render: false,
             interface_renderer: None,
         }
     }
