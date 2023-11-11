@@ -1,4 +1,5 @@
-use winit::event::{ElementState, KeyboardInput, VirtualKeyCode};
+use winit::event::{ElementState, KeyEvent};
+use winit::keyboard::{Key, NamedKey};
 
 pub struct InputState {
     left_pressed: bool,
@@ -37,17 +38,20 @@ impl InputState {
         }
     }
 
-    pub fn apply_keyboard(&mut self, input: KeyboardInput) {
-        match input.virtual_keycode {
-            Some(VirtualKeyCode::W) => self.forward_pressed = input.state == ElementState::Pressed,
-            Some(VirtualKeyCode::A) => self.left_pressed = input.state == ElementState::Pressed,
-            Some(VirtualKeyCode::S) => self.backward_pressed = input.state == ElementState::Pressed,
-            Some(VirtualKeyCode::D) => self.right_pressed = input.state == ElementState::Pressed,
-            Some(VirtualKeyCode::Q) => self.roll_neg_pressed = input.state == ElementState::Pressed,
-            Some(VirtualKeyCode::E) => self.roll_pos_pressed = input.state == ElementState::Pressed,
-            Some(VirtualKeyCode::Space) => self.jump.apply(input.state),
-            Some(VirtualKeyCode::LShift) => self.sprint = input.state == ElementState::Pressed,
-            Some(VirtualKeyCode::F) => self.camera_lock = input.state == ElementState::Pressed,
+    pub fn apply_keyboard(&mut self, input: KeyEvent) {
+        match input.logical_key {
+            Key::Character(chr) => match chr.as_str() {
+                "w" => self.forward_pressed = input.state == ElementState::Pressed,
+                "a" => self.left_pressed = input.state == ElementState::Pressed,
+                "s" => self.backward_pressed = input.state == ElementState::Pressed,
+                "d" => self.right_pressed = input.state == ElementState::Pressed,
+                "q" => self.roll_neg_pressed = input.state == ElementState::Pressed,
+                "e" => self.roll_pos_pressed = input.state == ElementState::Pressed,
+                "f" => self.camera_lock = input.state == ElementState::Pressed,
+                _ => (),
+            },
+            Key::Named(NamedKey::Space) => self.jump.apply(input.state),
+            Key::Named(NamedKey::Shift) => self.sprint = input.state == ElementState::Pressed,
             _ => (),
         }
     }

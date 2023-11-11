@@ -18,9 +18,9 @@ pub fn create_window(args: &Args) -> Window {
     // Create the application window using winit. Use a predefined size for now, though games should
     // run in fullscreen eventually.
     let event_loop = if !args.x11 {
-        EventLoopBuilder::new().with_wayland().build()
+        EventLoopBuilder::new().with_wayland().build().unwrap()
     } else {
-        EventLoopBuilder::new().with_x11().build()
+        EventLoopBuilder::new().with_x11().build().unwrap()
     };
     let window = WindowBuilder::new()
         .with_title(TITLE)

@@ -2,8 +2,6 @@
 #![feature(extract_if)]
 #![feature(int_roundings)]
 #![feature(maybe_uninit_write_slice)]
-#![feature(option_as_slice)]
-#![feature(pointer_byte_offsets)]
 #![feature(inline_const)]
 #![feature(iter_array_chunks)]
 #![allow(clippy::collapsible_match)]
@@ -45,6 +43,7 @@ use std::sync::atomic::Ordering;
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::Instant;
 use winit::event::{DeviceEvent, Event, StartCause, WindowEvent};
+use winit::event_loop::ControlFlow;
 
 const VULKAN_APP_NAME: &str = "Vulkthing";
 const VULKAN_APP_VERSION: (u32, u32, u32) = (0, 0, 0);
@@ -122,17 +121,17 @@ fn main() {
     // redraw of a specific window. Redrawing a window can also be requested by the operating
     // system, for example if the window size changes. For games, always rendering after
     // MainEventsCleared is enough.
-    window.event_loop.run(move |event, _, control_flow| {
+    let loop_result = window.event_loop.run(move |event, target| {
         match event {
-            Event::NewEvents(StartCause::Init) => (),
-            // Can be used for collecting frame timing information later. Specifically, this makes
-            // it possible to measure frame times accounting for things like having multiple input
-            // events before a redraw request.
-            Event::NewEvents(StartCause::Poll) => (),
+            Event::NewEvents(StartCause::Init) => {
+                // winit is set up for desktop applications by default, so we need to enable polling
+                // regardless of whether there are any new events.
+                target.set_control_flow(ControlFlow::Poll);
+            }
             Event::WindowEvent { event, .. } => {
                 interface.apply_window(&event);
                 match event {
-                    WindowEvent::KeyboardInput { input, .. } => input_state.apply_keyboard(input),
+                    WindowEvent::KeyboardInput { event, .. } => input_state.apply_keyboard(event),
                     WindowEvent::Resized(new_size) => {
                         // On app launch under GNOME/Wayland, winit will send a resize event even if
                         // the size happens to be the same (the focus status also seems to change).
@@ -145,7 +144,7 @@ fn main() {
                     WindowEvent::CloseRequested => {
                         let _ = chunk_tx.take();
                         grass_thread.take().unwrap().join().unwrap();
-                        control_flow.set_exit();
+                        target.exit();
                     }
                     _ => (),
                 }
@@ -155,10 +154,12 @@ fn main() {
                 DeviceEvent::MouseMotion { delta } => input_state.apply_mouse(delta),
                 _ => (),
             },
-            // This is an indication that it's now allowed to create a graphics context, but the
-            // limitation only applies on some platforms (Android).
-            Event::Resumed => (),
-            Event::MainEventsCleared => {
+            // Desktop applications shouldn't render here according to winit documentation, but this
+            // is a game so it's necessary for the game to render even if the camera is not moving.
+            // Though I think this approach actually has a problem with input lag. The renderer has
+            // to wait on Vulkan fences internally, so rather, this waiting should be done in a
+            // background thread and notifications integrated into winit's event loop?
+            Event::AboutToWait => {
                 let curr_update = Instant::now();
                 let delta_time = if args.benchmark {
                     0.01
@@ -225,19 +226,13 @@ fn main() {
                 if args.benchmark && frame_index == BENCHMARK_FRAMES {
                     let _ = chunk_tx.take();
                     grass_thread.take().unwrap().join().unwrap();
-                    control_flow.set_exit();
+                    target.exit();
                 }
             }
-            // This event is only sent after MainEventsCleared, during which we render
-            // unconditionally.
-            Event::RedrawRequested(_) => (),
-            // This happens after redraws of all windows are finished, which isn't really applicable
-            // to games.
-            Event::RedrawEventsCleared => (),
-            // Eventually, I should change this from a run_return invocation to normal run, and
-            // handle all the Vulkan resource teardown during this event.
-            Event::LoopDestroyed => (),
+            // TODO: Handle all the Vulkan resource teardown during this event.
+            Event::LoopExiting => (),
             _ => (),
         }
     });
+    loop_result.unwrap();
 }

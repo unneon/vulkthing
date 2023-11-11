@@ -1085,6 +1085,7 @@ impl DescriptorPools {{"#
         descriptors
     }}
 
+    #[allow(clippy::unused_enumerate_index)]
     pub fn update_{descriptor_set}(
         &self,
         descriptors: &[vk::DescriptorSet; FRAMES_IN_FLIGHT],"#
