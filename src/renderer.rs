@@ -392,9 +392,10 @@ impl Renderer {
             proj: self.projection_matrix(settings),
         };
         let material = Material {
-            diffuse: entity.diffuse(),
-            _pad0: 0.,
-            emit: entity.emit(),
+            albedo: entity.albedo(),
+            metallic: entity.metallic(),
+            roughness: entity.roughness(),
+            ao: entity.ao(),
         };
         self.entities[entity_id].mvp.write(self.flight_index, &mvp);
         self.entities[entity_id]

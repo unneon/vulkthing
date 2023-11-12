@@ -24,9 +24,8 @@ struct Grass {
 
 struct Light {
     vec3 color;
-    float ambient_strength;
+    float intensity;
     vec3 position;
-    float diffuse_strength;
 };
 
 struct Settings {

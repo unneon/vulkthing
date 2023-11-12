@@ -13,9 +13,10 @@ pub struct ModelViewProjection {
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct Material {
-    pub diffuse: Vector3<f32>,
-    pub _pad0: f32,
-    pub emit: Vector3<f32>,
+    pub albedo: Vector3<f32>,
+    pub metallic: f32,
+    pub roughness: f32,
+    pub ao: f32,
 }
 
 #[repr(C)]
@@ -46,9 +47,8 @@ pub struct GrassUniform {
 #[derive(Clone, Copy)]
 pub struct Light {
     pub color: Vector3<f32>,
-    pub ambient_strength: f32,
+    pub intensity: f32,
     pub position: Vector3<f32>,
-    pub diffuse_strength: f32,
 }
 
 #[repr(C, align(4))]

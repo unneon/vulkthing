@@ -66,8 +66,9 @@ impl Interface {
                         .speed(0.01)
                         .build(ui, &mut world.time_of_day);
                     world.time_of_day = world.time_of_day.rem_euclid(2. * PI);
-                    ui.slider("Ambient strength", 0., 2., &mut world.ambient_strength);
-                    ui.slider("Diffuse strength", 0., 2., &mut world.diffuse_strength);
+                    ui.slider_config("Intensity", 0.001, 10000000.)
+                        .flags(SliderFlags::LOGARITHMIC)
+                        .build(&mut world.sun_intensity);
                     ui.slider(
                         "Orbit radius",
                         0.,

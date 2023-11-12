@@ -24,8 +24,7 @@ pub struct World {
     physics: Physics,
     pub time: f32,
     pub time_of_day: f32,
-    pub ambient_strength: f32,
-    pub diffuse_strength: f32,
+    pub sun_intensity: f32,
     pub sun_pause: bool,
     pub sun_radius: f32,
     pub sun_speed: f32,
@@ -34,8 +33,10 @@ pub struct World {
 
 pub struct Entity {
     pub transform: Transform,
-    diffuse: Vector3<f32>,
-    emit: Vector3<f32>,
+    albedo: Vector3<f32>,
+    metallic: f32,
+    roughness: f32,
+    ao: f32,
     mesh_id: usize,
 }
 
@@ -88,8 +89,10 @@ impl World {
                 rotation: UnitQuaternion::identity(),
                 scale: planet_scale,
             },
-            diffuse: Vector3::new(0.2, 0.8, 0.03).scale(0.7),
-            emit: Vector3::zeros(),
+            albedo: Vector3::new(0.2, 0.8, 0.03).scale(0.7),
+            metallic: 0.,
+            roughness: 1.,
+            ao: 0.,
             mesh_id: 0,
         };
         physics.insert_static(planet_collider);
@@ -99,8 +102,10 @@ impl World {
                 rotation: UnitQuaternion::identity(),
                 scale: Vector3::from_element(50.),
             },
-            diffuse: Vector3::zeros(),
-            emit: Vector3::from_element(100.),
+            albedo: Vector3::zeros(),
+            metallic: 0.,
+            roughness: 1.,
+            ao: 0.,
             mesh_id: 4,
         };
         let entities = vec![planet, sun];
@@ -126,8 +131,7 @@ impl World {
             physics,
             time: 0.,
             time_of_day: 0.,
-            ambient_strength: 0.01,
-            diffuse_strength: 1.,
+            sun_intensity: 4000000.,
             sun_pause: false,
             sun_radius: DEFAULT_SUN_RADIUS,
             sun_speed: DEFAULT_SUN_SPEED,
@@ -183,9 +187,8 @@ impl World {
     pub fn light(&self) -> Light {
         Light {
             position: self.sun().transform.translation,
+            intensity: self.sun_intensity,
             color: Vector3::new(1., 1., 1.),
-            ambient_strength: self.ambient_strength,
-            diffuse_strength: self.diffuse_strength,
         }
     }
 
@@ -215,12 +218,20 @@ impl Entity {
         self.transform.model_matrix()
     }
 
-    pub fn diffuse(&self) -> Vector3<f32> {
-        self.diffuse
+    pub fn albedo(&self) -> Vector3<f32> {
+        self.albedo
     }
 
-    pub fn emit(&self) -> Vector3<f32> {
-        self.emit
+    pub fn metallic(&self) -> f32 {
+        self.metallic
+    }
+
+    pub fn roughness(&self) -> f32 {
+        self.roughness
+    }
+
+    pub fn ao(&self) -> f32 {
+        self.ao
     }
 
     pub fn mesh_id(&self) -> usize {
