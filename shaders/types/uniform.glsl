@@ -26,6 +26,7 @@ struct Light {
     vec3 color;
     float intensity;
     vec3 position;
+    float shadow_sample_seed;
 };
 
 struct Settings {

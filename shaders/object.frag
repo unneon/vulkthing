@@ -61,6 +61,11 @@ vec3 fresnel_schlick(float cos_theta, vec3 f0) {
     return f0 + (1 - f0) * pow(clamp(1 - cos_theta, 0, 1), 5);
 }
 
+const float PHI = 1.61803398874989484820459;
+float gold_noise(vec2 xy, float seed){
+    return fract(tan(distance(xy*PHI, xy)*seed)*xy.x);
+}
+
 void main() {
     vec3 albedo = material.albedo;
     float metallic = material.metallic;
@@ -94,7 +99,15 @@ void main() {
     vec3 radiance_out = (kd * albedo / PI + specular) * radiance * ndotl;
 
     vec3 ambient = vec3(0.03) * albedo * ao;
-    vec3 color = ambient + radiance_out;
+    vec3 color = vec3(0);
+
+    float light_offset_x = gold_noise(vec2(gl_FragCoord.x, gl_FragCoord.y), global.light.shadow_sample_seed);
+    float light_offset_y = gold_noise(vec2(gl_FragCoord.x, gl_FragCoord.y), global.light.shadow_sample_seed + 1);
+    float light_offset_z = gold_noise(vec2(gl_FragCoord.x, gl_FragCoord.y), global.light.shadow_sample_seed + 2);
+    vec3 light_offset = vec3(light_offset_x, light_offset_y, light_offset_z);
+    if (!in_shadow(global.light.position + 10 * light_offset)) {
+        color = radiance_out;
+    }
 
     out_color = vec4(color, 1);
 }

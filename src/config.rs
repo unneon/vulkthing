@@ -44,7 +44,7 @@ pub const DEFAULT_GRASS: Grass = Grass {
 
 pub const DEFAULT_CAMERA: FirstPersonCamera = FirstPersonCamera {
     position: Vector3::new(
-        0.,
+        10.,
         0.,
         DEFAULT_PLANET_SCALE * (1. + 1.5 * DEFAULT_PLANET.noise_magnitude),
     ),

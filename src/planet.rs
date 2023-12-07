@@ -175,6 +175,9 @@ fn generate_vertex(
         + i as f32 * (2. * side.dx) / parameters.resolution as f32
         + j as f32 * (2. * side.dy) / parameters.resolution as f32)
         .normalize();
+    if direction.x == 0. && direction.y == 0. {
+        return direction * 2.;
+    }
     let mut noise_value = 0.;
     for i in 0..parameters.noise_layers {
         let factor = (2.0f64).powi(i as i32);

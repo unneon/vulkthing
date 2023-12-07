@@ -189,6 +189,7 @@ impl World {
             position: self.sun().transform.translation,
             intensity: self.sun_intensity,
             color: Vector3::new(1., 1., 1.),
+            shadow_sample_seed: self.time,
         }
     }
 
