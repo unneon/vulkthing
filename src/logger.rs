@@ -1,4 +1,5 @@
-use log::{Level, LevelFilter, Metadata, Record};
+use log::{error, Level, LevelFilter, Metadata, Record};
+use std::panic::PanicInfo;
 use std::sync::OnceLock;
 use std::time::Instant;
 
@@ -36,4 +37,23 @@ pub fn initialize_logger() {
     let logger = LOGGER.get_or_init(|| Logger { time_start });
     log::set_logger(logger).unwrap();
     log::set_max_level(LevelFilter::Trace);
+}
+
+pub fn initialize_panic_hook() {
+    std::panic::set_hook(Box::new(panic_hook));
+}
+
+fn panic_hook(info: &PanicInfo) {
+    let generic_message;
+    let message = if let Some(message) = info.message() {
+        message
+    } else {
+        generic_message = format_args!("panic");
+        &generic_message
+    };
+    if let Some(location) = info.location() {
+        error!("{message}, \x1B[1mlocation:\x1B[0m {location}");
+    } else {
+        error!("{message}");
+    }
 }

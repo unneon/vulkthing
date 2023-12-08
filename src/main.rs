@@ -4,6 +4,7 @@
 #![feature(maybe_uninit_write_slice)]
 #![feature(inline_const)]
 #![feature(iter_array_chunks)]
+#![feature(panic_info_message)]
 #![allow(clippy::collapsible_match)]
 #![allow(clippy::manual_map)]
 #![allow(clippy::single_match)]
@@ -32,7 +33,7 @@ use crate::config::{
 use crate::grass::generate_grass_blades;
 use crate::input::InputState;
 use crate::interface::Interface;
-use crate::logger::initialize_logger;
+use crate::logger::{initialize_logger, initialize_panic_hook};
 use crate::mesh::load_mesh;
 use crate::planet::generate_planet;
 use crate::renderer::Renderer;
@@ -59,6 +60,7 @@ const BENCHMARK_FRAMES: usize = 800;
 
 fn main() {
     initialize_logger();
+    initialize_panic_hook();
     let args = Args::parse();
     let window = create_window(&args);
     let cube_mesh = load_mesh("assets/cube.obj");
