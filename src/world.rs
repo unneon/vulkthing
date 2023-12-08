@@ -34,6 +34,7 @@ pub struct World {
 pub struct Entity {
     pub transform: Transform,
     albedo: Vector3<f32>,
+    emit: Vector3<f32>,
     metallic: f32,
     roughness: f32,
     ao: f32,
@@ -90,6 +91,7 @@ impl World {
                 scale: planet_scale,
             },
             albedo: Vector3::new(0.2, 0.8, 0.03).scale(0.7),
+            emit: Vector3::zeros(),
             metallic: 0.,
             roughness: 1.,
             ao: 0.,
@@ -103,6 +105,7 @@ impl World {
                 scale: Vector3::from_element(50.),
             },
             albedo: Vector3::zeros(),
+            emit: Vector3::from_element(100.),
             metallic: 0.,
             roughness: 1.,
             ao: 0.,
@@ -220,6 +223,10 @@ impl Entity {
 
     pub fn albedo(&self) -> Vector3<f32> {
         self.albedo
+    }
+
+    pub fn emit(&self) -> Vector3<f32> {
+        self.emit
     }
 
     pub fn metallic(&self) -> f32 {

@@ -9,6 +9,7 @@
 layout(binding = 1) uniform Material {
     vec3 albedo;
     float metallic;
+    vec3 emit;
     float roughness;
     float ao;
 } material;
@@ -92,9 +93,10 @@ void main() {
     float ndotl = max(dot(normal, light), 0);
 
     vec3 radiance_out = (kd * albedo / PI + specular) * radiance * ndotl;
-
     vec3 ambient = vec3(0.03) * albedo * ao;
-    vec3 color = ambient + radiance_out;
+    vec3 emit = material.emit;
+
+    vec3 color = radiance_out + ambient + emit;
 
     out_color = vec4(color, 1);
 }

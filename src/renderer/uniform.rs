@@ -15,6 +15,7 @@ pub struct ModelViewProjection {
 pub struct Material {
     pub albedo: Vector3<f32>,
     pub metallic: f32,
+    pub emit: Vector3<f32>,
     pub roughness: f32,
     pub ao: f32,
 }

@@ -395,6 +395,7 @@ impl Renderer {
         let material = Material {
             albedo: entity.albedo(),
             metallic: entity.metallic(),
+            emit: entity.emit(),
             roughness: entity.roughness(),
             ao: entity.ao(),
         };
