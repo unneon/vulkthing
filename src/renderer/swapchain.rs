@@ -1,7 +1,6 @@
 use crate::renderer::util::{create_image_view, Dev};
 use ash::extensions::khr::Swapchain as SwapchainKhr;
 use ash::vk;
-use log::warn;
 use winit::dpi::PhysicalSize;
 
 pub struct Swapchain {
@@ -68,20 +67,23 @@ fn select_image_count(capabilities: vk::SurfaceCapabilitiesKHR) -> usize {
 }
 
 fn select_format(formats: &[vk::SurfaceFormatKHR]) -> vk::SurfaceFormatKHR {
-    // Let's select something with a SRGB color space, so that at least colors look the way they are
-    // intended to. The actual format is determined by whatever the driver presents first; the
-    // tutorial looks for B8G8R8A8_SRGB specifically, but I don't see the point.
     for format in formats {
-        if format.color_space == vk::ColorSpaceKHR::SRGB_NONLINEAR {
+        // There is no display HDR support yet, so let's select the normal SRGB color space.
+        let good_color_space = format.color_space == vk::ColorSpaceKHR::SRGB_NONLINEAR;
+        // Picking a format that is SRGB rather than UNORM means the last shader has to work in
+        // linear space and NOT do a gamma correction. The conversion from linear space to SRGB
+        // (sometimes called gamma correction) done by the hardware is faster and better anyway, the
+        // simple power formula does not actually follow the SRGB EOTF curve accurately. Also, I've
+        // seen both BGRA and RGBA on common hardware.
+        let good_format = format.format == vk::Format::R8G8B8A8_SRGB
+            || format.format == vk::Format::B8G8R8A8_SRGB;
+        if good_color_space && good_format {
             return *format;
         }
     }
-    let format = formats[0];
-    warn!(
-        "surface doesn't support srgb color space, \x1B[1mfallback\x1B[0m: {:?} {:?}",
-        format.format, format.color_space
-    );
-    format
+    // Let's error out instead of (approach from the tutorial) just picking the first returned
+    // format and inevitably displaying wrong colors.
+    panic!("surface doesn't support SRGB color space with a desired format");
 }
 
 fn select_extent(

@@ -372,6 +372,7 @@ impl Renderer {
         self.dev.cmd_draw(buf, 6, 1, 0, 0);
         end_label(buf, &self.dev);
 
+        // TODO: Fix drawing SRGB interface to linear color space.
         begin_label(buf, "Debugging interface draw", [63, 70, 73], &self.dev);
         self.interface_renderer
             .as_mut()

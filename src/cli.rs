@@ -9,7 +9,7 @@ pub enum WindowProtocol {
     X11,
 }
 
-const DEFAULT_WINDOW_PROTOCOL: WindowProtocol = WindowProtocol::X11;
+const DEFAULT_WINDOW_PROTOCOL: WindowProtocol = WindowProtocol::Wayland;
 
 impl Args {
     pub fn parse() -> Args {
