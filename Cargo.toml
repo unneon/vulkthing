@@ -21,5 +21,3 @@ winit = { version = "0.29", features = ["rwh_05", "wayland", "x11"], default-fea
 
 [build-dependencies]
 codegen = { path = "codegen" }
-
-[workspace]

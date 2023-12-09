@@ -1,6 +1,6 @@
 use crate::camera::first_person::FirstPersonCamera;
 use crate::grass::Grass;
-use crate::planet::{NoiseType, Planet};
+use crate::planet::Planet;
 use crate::renderer::uniform::Tonemapper;
 use crate::renderer::{PostprocessSettings, RendererSettings};
 use ash::vk;
@@ -8,10 +8,8 @@ use nalgebra::Vector3;
 
 pub const DEFAULT_PLANET: Planet = Planet {
     resolution: 400,
-    noise_type: NoiseType::Ridge,
-    noise_magnitude: 0.05,
-    noise_scale: 1.,
-    noise_layers: 3,
+    noise_magnitude: 0.02,
+    noise_scale: 8.,
 };
 
 pub const DEFAULT_PLANET_POSITION: Vector3<f32> = Vector3::new(0., 0., 0.);

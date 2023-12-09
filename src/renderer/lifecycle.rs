@@ -25,7 +25,7 @@ use ash::extensions::khr::{
 };
 use ash::vk::{ExtDescriptorIndexingFn, KhrRayQueryFn, KhrShaderFloatControlsFn, KhrSpirv14Fn};
 use ash::{vk, Device, Entry, Instance};
-use log::{debug, trace, warn};
+use log::{debug, warn};
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use std::ffi::CString;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -341,7 +341,6 @@ impl Renderer {
             .unwrap()
             .extract_if(|chunk| predicate(chunk.id))
         {
-            trace!("unloading grass chunk, \x1B[1mid\x1B[0m: {}", chunk.id);
             self.grass_blades_total
                 .fetch_sub(chunk.blade_count, Ordering::Relaxed);
             on_unload(chunk.id);
@@ -361,7 +360,6 @@ impl Renderer {
 
 impl AsyncLoader {
     pub fn load_grass_chunk(&self, id: usize, blades_data: &[GrassBlade]) {
-        trace!("loading grass chunk, \x1B[1mid\x1B[0m: {}", id);
         let blades = create_blade_buffer(blades_data, &self.dev);
         set_label(
             blades.buffer,

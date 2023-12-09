@@ -54,10 +54,8 @@ impl Interface {
                 if ui.collapsing_header("Planet", TreeNodeFlags::empty()) {
                     let mut changed = false;
                     changed |= ui.slider("Resolution", 1, 800, &mut planet.resolution);
-                    changed |= enum_combo(ui, "Noise type", &mut planet.noise_type);
                     changed |= ui.slider("Noise magnitude", 0., 100., &mut planet.noise_magnitude);
                     changed |= ui.slider("Noise scale", 0., 64., &mut planet.noise_scale);
-                    changed |= ui.slider("Noise layers", 0, 16, &mut planet.noise_layers);
                     entity(ui, world, world.planet_entity());
                     events.planet_changed = changed;
                 }
