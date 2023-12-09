@@ -39,7 +39,7 @@ use crate::planet::generate_planet;
 use crate::renderer::Renderer;
 use crate::window::create_window;
 use crate::world::World;
-use log::info;
+use log::debug;
 use std::collections::HashSet;
 use std::sync::atomic::Ordering;
 use std::sync::{mpsc, Arc, Mutex};
@@ -136,11 +136,14 @@ fn main() {
                 match event {
                     WindowEvent::KeyboardInput { event, .. } => input_state.apply_keyboard(event),
                     WindowEvent::Resized(new_size) => {
-                        info!("window resized to {}x{}", new_size.width, new_size.height);
                         // On app launch under GNOME/Wayland, winit will send a resize event even if
                         // the size happens to be the same (the focus status also seems to change).
                         // Let's avoid rebuilding the pipelines in this case.
                         if new_size != old_size {
+                            debug!(
+                                "window resized from {}x{} to {}x{}",
+                                old_size.width, old_size.height, new_size.width, new_size.height
+                            );
                             renderer.recreate_swapchain(new_size);
                             old_size = new_size;
                         }
