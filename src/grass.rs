@@ -170,7 +170,7 @@ impl GrassThread {
     fn prepare_chunk(&self, chunk_id: usize) -> GrassChunk {
         let chunk: &[usize] = self.chunks[chunk_id].as_slice();
         let blades_data = generate_grass_blades(&self.parameters, &self.planet_mesh, chunk);
-        let blades_size = std::mem::size_of_val(&blades_data);
+        let blades_size = std::mem::size_of_val(blades_data.as_slice());
         let blades_buffer = Buffer::create(
             UNIFIED_MEMORY,
             vk::BufferUsageFlags::VERTEX_BUFFER,
