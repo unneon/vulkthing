@@ -16,6 +16,7 @@ descriptor-set "object" 5 {
 }
 descriptor-set "atmosphere" 1 {
     image "render" "FRAGMENT" "nearest"
+    image "position" "FRAGMENT" "nearest"
 }
 descriptor-set "extract" 1 {
     image "render" "FRAGMENT" "nearest"
@@ -37,6 +38,12 @@ pass "render" {
     debug-color 160 167 161
     subpass "rasterization" {
         color-attachment "color-1-rasterization" {
+            layout "COLOR_ATTACHMENT_OPTIMAL"
+            layout-final "SHADER_READ_ONLY_OPTIMAL"
+            clear 0 0 0 0
+            sampled; store
+        }
+        color-attachment "position-1-rasterization" {
             layout "COLOR_ATTACHMENT_OPTIMAL"
             layout-final "SHADER_READ_ONLY_OPTIMAL"
             clear 0 0 0 0

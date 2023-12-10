@@ -86,8 +86,11 @@ impl Renderer {
 
         let swapchain = create_swapchain(surface, window.window.inner_size(), &dev);
         let passes = create_render_passes(&swapchain, vk::SampleCountFlags::TYPE_1, &dev);
-        let atmosphere_descriptors =
-            descriptor_pools.alloc_atmosphere(passes.render.resources[0].view, &dev);
+        let atmosphere_descriptors = descriptor_pools.alloc_atmosphere(
+            passes.render.resources[0].view,
+            passes.render.resources[1].view,
+            &dev,
+        );
         let extract_descriptors =
             descriptor_pools.alloc_extract(passes.atmosphere.resources[0].view, &dev);
         let gaussian_horizontal_descriptors =
@@ -284,9 +287,15 @@ impl Renderer {
         // doesn't sound like something involving state. It might be worth it to figure out what's
         // happening before I rewrite the descriptor set codegen to use batching properly. Or maybe
         // I'll switch to VK_EXT_descriptor_buffer completely?
+        self.descriptor_pools.update_atmosphere(
+            &self.atmosphere_descriptors,
+            self.passes.render.resources[0].view,
+            self.passes.render.resources[1].view,
+            &self.dev,
+        );
         self.descriptor_pools.update_extract(
             &self.extract_descriptors,
-            self.passes.render.resources[0].view,
+            self.passes.atmosphere.resources[0].view,
             &self.dev,
         );
         self.descriptor_pools.update_gaussian(
@@ -301,7 +310,7 @@ impl Renderer {
         );
         self.descriptor_pools.update_postprocess(
             &self.postprocess_descriptor_sets,
-            self.passes.render.resources[0].view,
+            self.passes.atmosphere.resources[0].view,
             self.passes.gaussian_vertical.resources[0].view,
             &self.dev,
         );

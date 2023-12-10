@@ -27,7 +27,7 @@ pub const DEFAULT_STAR_MIN_SCALE: f32 = 10.;
 pub const DEFAULT_STAR_MAX_SCALE: f32 = 100.;
 
 pub const DEFAULT_GRASS: GrassParameters = GrassParameters {
-    enabled: false,
+    enabled: true,
     blades_per_triangle: 128,
     height_average: 1.2,
     height_max_variance: 0.3,
@@ -57,7 +57,7 @@ pub const DEFAULT_RENDERER_SETTINGS: RendererSettings = RendererSettings {
     atmosphere_wavelengths: Vector3::new(700., 530., 440.),
     depth_near: 0.2,
     depth_far: 65536.,
-    enable_atmosphere: false,
+    enable_atmosphere: true,
     enable_ray_tracing: false,
     postprocess: PostprocessSettings {
         exposure: 1.,

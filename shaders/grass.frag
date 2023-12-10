@@ -17,6 +17,7 @@ layout(location = 2) in vec3 frag_ground_normal;
 layout(location = 3) in float frag_naive_height;
 
 layout(location = 0) out vec4 out_color;
+layout(location = 1) out vec4 out_position;
 
 #include "lighting/atmosphere.glsl"
 #include "lighting/raytracing.glsl"
@@ -33,6 +34,7 @@ void main() {
     }
 
     vec3 color_at_object = ambient + diffuse;
-//    vec3 color_at_camera = compute_atmosphere(color_at_object, frag_position);
+
     out_color = vec4(color_at_object, 1);
+    out_position = vec4(frag_position, 1);
 }
