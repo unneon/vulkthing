@@ -1,6 +1,7 @@
 // Vulkan GLSL forces you to use blocks as uniform types, with the intent being to discourage people from using multiple
 // single-variable uniforms. However, I would like to reuse a big uniform struct across different shaders, hence the
-// unpleasant macro.
+// unpleasant macros.
+
 #define GLOBAL_UNIFORM_TYPE \
     Global { \
         Grass grass; \
@@ -10,6 +11,15 @@
         Gaussian gaussian; \
         Postprocessing postprocessing; \
         Camera camera; \
+    }
+
+#define MATERIAL_UNIFORM_TYPE \
+    Material { \
+        vec3 albedo; \
+        float metallic; \
+        vec3 emit; \
+        float roughness; \
+        float ao; \
     }
 
 struct Grass {
