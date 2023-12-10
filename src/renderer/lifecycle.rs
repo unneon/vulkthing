@@ -9,11 +9,11 @@ use crate::renderer::debug::create_debug_messenger;
 use crate::renderer::device::{select_device, DeviceInfo};
 use crate::renderer::raytracing::{create_blas, create_tlas};
 use crate::renderer::swapchain::create_swapchain;
-use crate::renderer::util::{sample_count, vulkan_str, Buffer, Ctx, Dev};
+use crate::renderer::util::{vulkan_str, Buffer, Ctx, Dev};
 use crate::renderer::vertex::{Star, Vertex};
 use crate::renderer::{
-    GrassChunk, MeshObject, Object, Renderer, RendererSettings, Synchronization, UniformBuffer,
-    FRAMES_IN_FLIGHT, UNIFIED_MEMORY,
+    GrassChunk, MeshObject, Object, Renderer, Synchronization, UniformBuffer, FRAMES_IN_FLIGHT,
+    UNIFIED_MEMORY,
 };
 use crate::window::Window;
 use crate::world::World;
@@ -32,13 +32,7 @@ use std::ffi::CString;
 use winit::dpi::PhysicalSize;
 
 impl Renderer {
-    pub fn new(
-        window: &Window,
-        meshes: &[&MeshData],
-        world: &World,
-        settings: &RendererSettings,
-        args: &Args,
-    ) -> Renderer {
+    pub fn new(window: &Window, meshes: &[&MeshData], world: &World, args: &Args) -> Renderer {
         let entry = unsafe { Entry::load() }.unwrap();
         let instance = create_instance(window, &entry, args);
         let debug_ext = DebugUtils::new(&entry, &instance);
@@ -85,14 +79,13 @@ impl Renderer {
             command_pool: command_pools[0],
         };
 
-        let msaa_samples = settings.msaa_samples;
         let samplers = create_samplers(&dev);
 
         let descriptor_set_layouts = create_descriptor_set_layouts(&samplers, &dev);
         let descriptor_pools = create_descriptor_pools(&descriptor_set_layouts, &dev);
 
         let swapchain = create_swapchain(surface, window.window.inner_size(), &dev);
-        let passes = create_render_passes(&swapchain, msaa_samples, &dev);
+        let passes = create_render_passes(&swapchain, vk::SampleCountFlags::TYPE_1, &dev);
         let extract_descriptors =
             descriptor_pools.alloc_extract(passes.render.resources[0].view, &dev);
         let gaussian_horizontal_descriptors =
@@ -108,9 +101,8 @@ impl Renderer {
         let shaders = create_shaders(supports_raytracing);
         let shader_modules = create_shader_modules(&shaders, &dev);
         let pipelines = create_pipelines(
-            msaa_samples,
+            vk::SampleCountFlags::TYPE_1,
             &passes,
-            sample_count(msaa_samples) as i32,
             1,
             0,
             0,
@@ -184,7 +176,6 @@ impl Renderer {
             queue,
             supports_raytracing,
             properties,
-            msaa_samples,
             samplers,
             descriptor_set_layouts,
             descriptor_pools,
@@ -257,7 +248,8 @@ impl Renderer {
         self.cleanup_swapchain();
 
         self.swapchain = create_swapchain(self.surface, window_size, &self.dev);
-        self.passes = create_render_passes(&self.swapchain, self.msaa_samples, &self.dev);
+        self.passes =
+            create_render_passes(&self.swapchain, vk::SampleCountFlags::TYPE_1, &self.dev);
 
         self.update_offscreen_descriptors();
         self.recreate_pipelines();
@@ -269,9 +261,8 @@ impl Renderer {
         let shaders = create_shaders(self.supports_raytracing);
         let shader_modules = create_shader_modules(&shaders, &self.dev);
         self.pipelines = create_pipelines(
-            self.msaa_samples,
+            vk::SampleCountFlags::TYPE_1,
             &self.passes,
-            sample_count(self.msaa_samples) as i32,
             1,
             0,
             0,

@@ -3,7 +3,6 @@ use crate::grass::GrassParameters;
 use crate::planet::Planet;
 use crate::renderer::uniform::Tonemapper;
 use crate::renderer::{PostprocessSettings, RendererSettings};
-use ash::vk;
 use nalgebra::Vector3;
 
 pub const DEFAULT_PLANET: Planet = Planet {
@@ -60,7 +59,6 @@ pub const DEFAULT_RENDERER_SETTINGS: RendererSettings = RendererSettings {
     depth_far: 65536.,
     enable_atmosphere: false,
     enable_ray_tracing: false,
-    msaa_samples: vk::SampleCountFlags::TYPE_8,
     postprocess: PostprocessSettings {
         exposure: 1.,
         bloom_exponent_coefficient: 0.25,

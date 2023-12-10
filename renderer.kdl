@@ -15,13 +15,13 @@ descriptor-set "object" 5 {
     uniform "material" "FRAGMENT" "Material"
 }
 descriptor-set "extract" 1 {
-    image "render" "FRAGMENT" "nearest" msaa=true
+    image "render" "FRAGMENT" "nearest"
 }
 descriptor-set "gaussian" 2 {
     image "bloom" "FRAGMENT" "nearest"
 }
 descriptor-set "postprocess" 1 {
-    image "render" "FRAGMENT" "nearest" msaa=true
+    image "render" "FRAGMENT" "nearest"
     image "bloom" "FRAGMENT" "nearest"
 }
 descriptor-set "global" 1 {
@@ -33,7 +33,6 @@ pass "render" {
     debug-name "Forward rendering pass"
     debug-color 160 167 161
     subpass "rasterization" {
-        msaa
         color-attachment "color-1-rasterization" {
             layout "COLOR_ATTACHMENT_OPTIMAL"
             layout-final "SHADER_READ_ONLY_OPTIMAL"
@@ -104,7 +103,6 @@ pass "extract" {
         }
         pipeline "extract" {
             vertex-shader "util/quad.vert"
-            fragment-specialization "msaa_sample_count"
             descriptor-sets "extract" "global"
         }
     }
@@ -154,12 +152,10 @@ pass "postprocess" {
         }
         pipeline "postprocess" {
             vertex-shader "util/quad.vert"
-            fragment-specialization "msaa_sample_count"
             descriptor-sets "postprocess" "global"
         }
     }
 }
 
-specialization "msaa_sample_count" "i32"
 specialization "gaussian_dx" "i32" shared=false
 specialization "gaussian_dy" "i32" shared=false

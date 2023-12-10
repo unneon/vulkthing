@@ -77,7 +77,6 @@ fn main() {
             &icosahedron_mesh,
         ],
         &world,
-        &renderer_settings,
         &args,
     );
     let mut interface = Interface::new(
@@ -163,7 +162,6 @@ fn main() {
                 );
                 assert!(!interface_events.planet_changed);
                 if interface_events.rebuild_swapchain {
-                    renderer.msaa_samples = renderer_settings.msaa_samples;
                     renderer.recreate_swapchain(window.window.inner_size());
                 } else if interface_events.rebuild_pipelines {
                     renderer.recreate_pipelines();

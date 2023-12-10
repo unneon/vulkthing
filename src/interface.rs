@@ -129,7 +129,6 @@ impl Interface {
                         .flags(SliderFlags::LOGARITHMIC)
                         .build(&mut renderer.depth_far);
                     ui.checkbox("Ray-traced shadows", &mut renderer.enable_ray_tracing);
-                    events.rebuild_swapchain |= enum_slider(ui, "MSAA", &mut renderer.msaa_samples);
                 }
                 if ui.collapsing_header("Atmosphere", TreeNodeFlags::empty()) {
                     ui.checkbox("Enable", &mut renderer.enable_atmosphere);
@@ -262,21 +261,6 @@ fn enum_combo<T: Copy + EnumInterface + PartialEq>(ui: &Ui, label: &str, value: 
         .unwrap()
         .0;
     let changed = ui.combo(label, &mut index, T::VALUES, T::label);
-    *value = T::VALUES[index];
-    changed
-}
-
-fn enum_slider<T: Copy + EnumInterface + PartialEq>(ui: &Ui, label: &str, value: &mut T) -> bool {
-    let mut index = T::VALUES
-        .iter()
-        .enumerate()
-        .find(|(_, x)| *x == value)
-        .unwrap()
-        .0;
-    let changed = ui
-        .slider_config(label, 0, T::VALUES.len() - 1)
-        .display_format(value.label())
-        .build(&mut index);
     *value = T::VALUES[index];
     changed
 }

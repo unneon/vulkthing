@@ -44,7 +44,6 @@ pub struct Renderer {
     properties: vk::PhysicalDeviceProperties,
 
     // Parameters of the renderer that are required early for creating more important objects.
-    pub msaa_samples: vk::SampleCountFlags,
     samplers: Samplers,
 
     // Description of the main render pass. Doesn't contain any information about the objects yet,
@@ -130,7 +129,6 @@ pub struct RendererSettings {
     pub depth_far: f32,
     pub enable_atmosphere: bool,
     pub enable_ray_tracing: bool,
-    pub msaa_samples: vk::SampleCountFlags,
     pub postprocess: PostprocessSettings,
 }
 

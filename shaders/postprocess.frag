@@ -7,9 +7,7 @@
 #include "tonemapper/rgb-clamping.glsl"
 #include "types/uniform.glsl"
 
-layout(constant_id = 0) const int msaa_samples = 0;
-
-layout(binding = 0) uniform sampler2DMS render;
+layout(binding = 0) uniform sampler2D render;
 layout(binding = 1) uniform sampler2D bloom;
 layout(binding = 0, set = 1) uniform GLOBAL_UNIFORM_TYPE global;
 
@@ -67,10 +65,7 @@ vec3 postprocess(vec3 color, vec3 bloom_color) {
 
 void main() {
     vec3 bloom_color = textureLod(bloom, gl_FragCoord.xy, 0).rgb;
-    vec3 total = vec3(0);
-    for (int i = 0; i < msaa_samples; ++i) {
-        vec3 color = texelFetch(render, ivec2(gl_FragCoord.xy), i).rgb;
-        total += postprocess(color, bloom_color);
-    }
-    out_color = vec4(total / msaa_samples, 1);
+    vec3 color = textureLod(render, gl_FragCoord.xy, 0).rgb;
+    vec3 postprocessed_color = postprocess(color, bloom_color);
+    out_color = vec4(postprocessed_color, 1);
 }

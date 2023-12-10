@@ -1341,7 +1341,7 @@ pub fn create_descriptor_pools(layouts: &DescriptorSetLayouts, dev: &Dev) -> Des
 #[rustfmt::skip]
 pub fn create_render_passes(
     swapchain: &Swapchain,
-    msaa_samples: vk::SampleCountFlags,
+    _msaa_samples: vk::SampleCountFlags,
     dev: &Dev,
 ) -> Passes {{"#
     )
@@ -1352,7 +1352,7 @@ pub fn create_render_passes(
                 writeln!(file, "    unsafe {{ SCRATCH.{pass}_attachments[{attachment_index}].format = swapchain.format.format }};").unwrap();
             }
             if subpass.msaa {
-                writeln!(file, "    unsafe {{ SCRATCH.{pass}_attachments[{attachment_index}].samples = msaa_samples }};").unwrap();
+                writeln!(file, "    unsafe {{ SCRATCH.{pass}_attachments[{attachment_index}].samples = _msaa_samples }};").unwrap();
             }
         }
     }
@@ -1406,7 +1406,7 @@ pub fn create_render_passes(
                     AttachmentType::Depth => "DEPTH",
                 };
                 let samples = if subpass.msaa {
-                    "msaa_samples"
+                    "_msaa_samples"
                 } else {
                     "vk::SampleCountFlags::TYPE_1"
                 };
@@ -1614,7 +1614,7 @@ pub fn create_shader_modules(shaders: &Shaders, dev: &Dev) -> ShaderModules {{"#
 #[rustfmt::skip]
 #[allow(clippy::identity_op)]
 pub fn create_pipelines(
-    msaa_samples: vk::SampleCountFlags,
+    _msaa_samples: vk::SampleCountFlags,
     passes: &Passes,"#
     )
     .unwrap();
@@ -1672,7 +1672,7 @@ pub fn create_pipelines(
         )
             .unwrap();
         if subpass.msaa {
-            writeln!(file, "    unsafe {{ SCRATCH.{pipeline}_multisampling.rasterization_samples = msaa_samples }};").unwrap();
+            writeln!(file, "    unsafe {{ SCRATCH.{pipeline}_multisampling.rasterization_samples = _msaa_samples }};").unwrap();
         }
     });
     for_pipelines(renderer, |pass, _, _, pipeline| {
