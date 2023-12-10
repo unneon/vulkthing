@@ -1,5 +1,5 @@
 use crate::camera::first_person::FirstPersonCamera;
-use crate::grass::Grass;
+use crate::grass::GrassParameters;
 use crate::planet::Planet;
 use crate::renderer::uniform::Tonemapper;
 use crate::renderer::{PostprocessSettings, RendererSettings};
@@ -27,8 +27,9 @@ pub const DEFAULT_STAR_RADIUS: f32 = 30. * DEFAULT_PLANET_SCALE;
 pub const DEFAULT_STAR_MIN_SCALE: f32 = 10.;
 pub const DEFAULT_STAR_MAX_SCALE: f32 = 100.;
 
-pub const DEFAULT_GRASS: Grass = Grass {
-    blades_per_triangle: 1,
+pub const DEFAULT_GRASS: GrassParameters = GrassParameters {
+    enabled: false,
+    blades_per_triangle: 128,
     height_average: 1.2,
     height_max_variance: 0.3,
     height_noise_frequency: 0.15,

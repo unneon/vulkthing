@@ -5,15 +5,15 @@ use crate::renderer::codegen::{
     create_pipelines, create_render_passes, create_samplers, create_shader_modules, create_shaders,
     PASS_COUNT,
 };
-use crate::renderer::debug::{create_debug_messenger, set_label};
+use crate::renderer::debug::create_debug_messenger;
 use crate::renderer::device::{select_device, DeviceInfo};
 use crate::renderer::raytracing::{create_blas, create_tlas};
 use crate::renderer::swapchain::create_swapchain;
 use crate::renderer::util::{sample_count, vulkan_str, Buffer, Ctx, Dev};
-use crate::renderer::vertex::{GrassBlade, Star, Vertex};
+use crate::renderer::vertex::{Star, Vertex};
 use crate::renderer::{
-    AsyncLoader, GrassChunk, MeshObject, Object, Renderer, RendererSettings, Synchronization,
-    UniformBuffer, FRAMES_IN_FLIGHT,
+    GrassChunk, MeshObject, Object, Renderer, RendererSettings, Synchronization, UniformBuffer,
+    FRAMES_IN_FLIGHT, UNIFIED_MEMORY,
 };
 use crate::window::Window;
 use crate::world::World;
@@ -27,16 +27,9 @@ use ash::vk::{ExtDescriptorIndexingFn, KhrRayQueryFn, KhrShaderFloatControlsFn, 
 use ash::{vk, Device, Entry, Instance};
 use log::{debug, warn};
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
+use std::collections::HashMap;
 use std::ffi::CString;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
 use winit::dpi::PhysicalSize;
-
-pub const UNIFIED_MEMORY: vk::MemoryPropertyFlags = vk::MemoryPropertyFlags::from_raw(
-    vk::MemoryPropertyFlags::DEVICE_LOCAL.as_raw()
-        | vk::MemoryPropertyFlags::HOST_VISIBLE.as_raw()
-        | vk::MemoryPropertyFlags::HOST_COHERENT.as_raw(),
-);
 
 impl Renderer {
     pub fn new(
@@ -219,8 +212,7 @@ impl Renderer {
             skybox_mvp,
             skybox_material,
             skybox_descriptor_sets,
-            grass_chunks: Arc::new(Mutex::new(Vec::new())),
-            grass_blades_total: Arc::new(AtomicUsize::new(0)),
+            grass_chunks: HashMap::new(),
             global,
             global_descriptor_sets,
             blas,
@@ -321,63 +313,19 @@ impl Renderer {
         );
     }
 
-    pub fn get_async_loader(&self) -> AsyncLoader {
-        AsyncLoader {
-            dev: self.dev.clone(),
-            grass_chunks: self.grass_chunks.clone(),
-            grass_blades_total: self.grass_blades_total.clone(),
-        }
+    pub fn grass_load_chunk(&mut self, id: usize, chunk: GrassChunk) {
+        self.grass_chunks.insert(id, chunk);
     }
 
-    pub fn unload_grass_chunks(
-        &mut self,
-        mut predicate: impl FnMut(usize) -> bool,
-        mut on_unload: impl FnMut(usize),
-    ) {
-        let mut first = true;
-        for chunk in self
-            .grass_chunks
-            .lock()
-            .unwrap()
-            .extract_if(|chunk| predicate(chunk.id))
-        {
-            self.grass_blades_total
-                .fetch_sub(chunk.blade_count, Ordering::Relaxed);
-            on_unload(chunk.id);
-            if first {
-                unsafe { self.dev.device_wait_idle() }.unwrap();
-                first = false;
-            }
-            chunk.cleanup(&self.dev);
-        }
+    pub fn grass_unload_chunk(&mut self, id: usize) {
+        unsafe { self.dev.device_wait_idle() }.unwrap();
+        let chunk = self.grass_chunks.remove(&id).unwrap();
+        chunk.buffer.cleanup(&self.dev);
     }
 
     fn cleanup_swapchain(&mut self) {
         self.swapchain.cleanup(&self.dev);
         self.passes.cleanup(&self.dev);
-    }
-}
-
-impl AsyncLoader {
-    pub fn load_grass_chunk(&self, id: usize, blades_data: &[GrassBlade]) {
-        let blades = create_blade_buffer(blades_data, &self.dev);
-        set_label(
-            blades.buffer,
-            &format!("Grass buffer chunk={id}"),
-            &self.dev,
-        );
-        set_label(
-            blades.memory,
-            &format!("Grass memory chunk={id}"),
-            &self.dev,
-        );
-        self.grass_chunks.lock().unwrap().push(GrassChunk {
-            id,
-            blades,
-            blade_count: blades_data.len(),
-        });
-        self.grass_blades_total
-            .fetch_add(blades_data.len(), Ordering::Relaxed);
     }
 }
 
@@ -408,12 +356,6 @@ impl Object {
     }
 }
 
-impl GrassChunk {
-    pub fn cleanup(&self, dev: &Device) {
-        self.blades.cleanup(dev);
-    }
-}
-
 impl Drop for Renderer {
     fn drop(&mut self) {
         unsafe {
@@ -430,8 +372,8 @@ impl Drop for Renderer {
             for mesh in &self.mesh_objects {
                 mesh.cleanup(&self.dev);
             }
-            for grass_chunk in self.grass_chunks.lock().unwrap().iter() {
-                grass_chunk.cleanup(&self.dev);
+            for grass_chunk in self.grass_chunks.values() {
+                grass_chunk.buffer.cleanup(&self.dev);
             }
             self.grass_mvp.cleanup(&self.dev);
             self.grass_material.cleanup(&self.dev);
@@ -632,18 +574,6 @@ fn create_vertex_buffer(vertex_data: &[Vertex], supports_raytracing: bool, dev: 
     );
     vertex.fill_from_slice_host_visible(vertex_data, dev);
     vertex
-}
-
-fn create_blade_buffer(blades_data: &[GrassBlade], dev: &Dev) -> Buffer {
-    let size = std::mem::size_of_val(blades_data);
-    let blades = Buffer::create(
-        UNIFIED_MEMORY,
-        vk::BufferUsageFlags::VERTEX_BUFFER,
-        size,
-        dev,
-    );
-    blades.fill_from_slice_host_visible(blades_data, dev);
-    blades
 }
 
 fn create_sync(dev: &Dev) -> Synchronization {

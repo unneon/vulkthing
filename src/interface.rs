@@ -1,5 +1,5 @@
 use crate::config::DEFAULT_PLANET_SCALE;
-use crate::grass::Grass;
+use crate::grass::GrassParameters;
 use crate::planet::Planet;
 use crate::renderer::codegen::{PASS_COUNT, PASS_NAMES};
 use crate::renderer::{PostprocessSettings, RendererSettings};
@@ -36,9 +36,8 @@ impl Interface {
         &mut self,
         world: &mut World,
         planet: &mut Planet,
-        grass: &mut Grass,
+        grass: &mut GrassParameters,
         renderer: &mut RendererSettings,
-        total_grass_blades: usize,
         pass_times: Option<&[Duration; PASS_COUNT]>,
     ) -> InterfaceEvents {
         let ui = self.ctx.frame();
@@ -79,45 +78,48 @@ impl Interface {
                         .build(&mut world.sun_speed);
                 }
                 if ui.collapsing_header("Grass", TreeNodeFlags::empty()) {
-                    let mut changed = false;
-                    ui.label_text("Total blades", total_grass_blades.to_string());
-                    changed |= ui.slider(
+                    events.grass_changed |= ui.checkbox("Enabled", &mut grass.enabled);
+                    events.grass_changed |= ui.slider(
                         "Blades per planet triangle",
                         1,
                         256,
                         &mut grass.blades_per_triangle,
                     );
-                    ui.slider("Height average", 0.01, 3., &mut grass.height_average);
-                    ui.slider(
+                    events.grass_changed |=
+                        ui.slider("Height average", 0.01, 3., &mut grass.height_average);
+                    events.grass_changed |= ui.slider(
                         "Height max variance",
                         0.,
                         1.,
                         &mut grass.height_max_variance,
                     );
-                    changed |= ui.slider(
+                    events.grass_changed |= ui.slider(
                         "Height noise frequency",
                         0.01,
                         1.,
                         &mut grass.height_noise_frequency,
                     );
-                    ui.slider("Width", 0., 0.5, &mut grass.width);
-                    ui.slider("Sway frequency", 0.25, 4., &mut grass.sway_frequency);
-                    ui.slider("Sway amplitude", 0., 0.5, &mut grass.sway_amplitude);
-                    changed |= ui.slider("Chunk count", 1, 4095, &mut grass.chunk_count);
+                    events.grass_changed |= ui.slider("Width", 0., 0.5, &mut grass.width);
+                    events.grass_changed |=
+                        ui.slider("Sway frequency", 0.25, 4., &mut grass.sway_frequency);
+                    events.grass_changed |=
+                        ui.slider("Sway amplitude", 0., 0.5, &mut grass.sway_amplitude);
+                    events.grass_changed |=
+                        ui.slider("Chunk count", 1, 4095, &mut grass.chunk_count);
                     grass.chunk_count += grass.chunk_count % 2 - 1;
-                    ui.slider(
+                    events.grass_changed |= ui.slider(
                         "Chunk load distance",
                         0.,
                         2000.,
                         &mut grass.chunk_load_distance,
                     );
-                    ui.slider(
+                    events.grass_changed |= ui.slider(
                         "Chunk unload distance",
                         0.,
                         2000.,
                         &mut grass.chunk_unload_distance,
                     );
-                    events.grass_changed = changed;
+                    events.grass_changed |= events.grass_changed;
                 }
                 if ui.collapsing_header("Renderer", TreeNodeFlags::empty()) {
                     ui.slider_config("Depth near plane", 0.001, 16.)

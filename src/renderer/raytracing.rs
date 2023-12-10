@@ -1,7 +1,6 @@
-use crate::renderer::lifecycle::UNIFIED_MEMORY;
 use crate::renderer::util::{Buffer, Ctx, Dev};
 use crate::renderer::vertex::Vertex;
-use crate::renderer::MeshObject;
+use crate::renderer::{MeshObject, UNIFIED_MEMORY};
 use ash::extensions::khr::{AccelerationStructure, BufferDeviceAddress};
 use ash::vk;
 use ash::vk::Packed24_8;

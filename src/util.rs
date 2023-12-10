@@ -2,6 +2,12 @@ use nalgebra::{UnitQuaternion, Vector3};
 use rand::distributions::Distribution;
 use rand::Rng;
 use std::f32::consts::PI;
+use std::sync::mpsc;
+
+/// Iterator over _pending_ messages in a mpsc channel.
+pub struct MpscPendingIterator<T> {
+    pub rx: mpsc::Receiver<T>,
+}
 
 pub struct RandomDirection;
 
@@ -27,5 +33,13 @@ impl Distribution<UnitQuaternion<f32>> for RandomRotation {
         let pitch = rng.gen_range((0.)..2. * PI);
         let yaw = rng.gen_range((0.)..2. * PI);
         UnitQuaternion::from_euler_angles(roll, pitch, yaw)
+    }
+}
+
+impl<T> Iterator for &MpscPendingIterator<T> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.rx.try_recv().ok()
     }
 }

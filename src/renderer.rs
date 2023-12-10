@@ -1,5 +1,5 @@
 pub mod codegen;
-mod debug;
+pub mod debug;
 mod device;
 mod graph;
 mod lifecycle;
@@ -7,10 +7,10 @@ mod raytracing;
 mod shader;
 mod swapchain;
 pub mod uniform;
-mod util;
+pub mod util;
 pub mod vertex;
 
-use crate::grass::Grass;
+use crate::grass::GrassParameters;
 use crate::renderer::codegen::{
     DescriptorPools, DescriptorSetLayouts, Passes, PipelineLayouts, Pipelines, Samplers, PASS_COUNT,
 };
@@ -27,9 +27,8 @@ use crate::world::World;
 use ash::{vk, Entry};
 use imgui::DrawData;
 use nalgebra::{Matrix4, Vector3};
+use std::collections::HashMap;
 use std::f32::consts::FRAC_PI_4;
-use std::sync::atomic::AtomicUsize;
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use winit::dpi::PhysicalSize;
 
@@ -39,7 +38,7 @@ pub struct Renderer {
     _entry: Entry,
     debug_messenger: vk::DebugUtilsMessengerEXT,
     surface: vk::SurfaceKHR,
-    dev: Dev,
+    pub dev: Dev,
     queue: vk::Queue,
     supports_raytracing: bool,
     properties: vk::PhysicalDeviceProperties,
@@ -78,8 +77,7 @@ pub struct Renderer {
     grass_material: UniformBuffer<Material>,
     mesh_objects: Vec<MeshObject>,
     entities: Vec<Object>,
-    grass_chunks: Arc<Mutex<Vec<GrassChunk>>>,
-    pub grass_blades_total: Arc<AtomicUsize>,
+    grass_chunks: HashMap<usize, GrassChunk>,
     grass_descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
     star_mvp: UniformBuffer<ModelViewProjection>,
     star_material: UniformBuffer<Material>,
@@ -120,15 +118,8 @@ pub struct Object {
 }
 
 pub struct GrassChunk {
-    id: usize,
-    blade_count: usize,
-    blades: Buffer,
-}
-
-pub struct AsyncLoader {
-    dev: Dev,
-    grass_chunks: Arc<Mutex<Vec<GrassChunk>>>,
-    grass_blades_total: Arc<AtomicUsize>,
+    pub buffer: Buffer,
+    pub triangle_count: usize,
 }
 
 pub struct RendererSettings {
@@ -159,6 +150,12 @@ pub struct PostprocessSettings {
     pub gamma: f32,
 }
 
+pub const UNIFIED_MEMORY: vk::MemoryPropertyFlags = vk::MemoryPropertyFlags::from_raw(
+    vk::MemoryPropertyFlags::DEVICE_LOCAL.as_raw()
+        | vk::MemoryPropertyFlags::HOST_VISIBLE.as_raw()
+        | vk::MemoryPropertyFlags::HOST_COHERENT.as_raw(),
+);
+
 const FRAMES_IN_FLIGHT: usize = 2;
 
 // Format used for passing HDR data between render passes to enable realistic differences in
@@ -172,7 +169,7 @@ impl Renderer {
     pub fn draw_frame(
         &mut self,
         world: &World,
-        grass: &Grass,
+        grass: &GrassParameters,
         settings: &RendererSettings,
         window_size: PhysicalSize<u32>,
         ui_draw: &DrawData,
@@ -271,9 +268,9 @@ impl Renderer {
             self.pipeline_layouts.grass,
             &self.grass_descriptor_sets,
         );
-        for grass_chunk in self.grass_chunks.lock().unwrap().iter() {
-            self.mesh_objects[3].bind_vertex_instanced(&grass_chunk.blades, buf, &self.dev);
-            self.mesh_objects[3].draw(grass_chunk.blade_count, buf, &self.dev);
+        for grass_chunk in self.grass_chunks.values() {
+            self.mesh_objects[3].bind_vertex_instanced(&grass_chunk.buffer, buf, &self.dev);
+            self.mesh_objects[3].draw(grass_chunk.triangle_count, buf, &self.dev);
         }
         end_label(buf, &self.dev);
 
@@ -432,7 +429,12 @@ impl Renderer {
         self.skybox_mvp.write(self.flight_index, &mvp);
     }
 
-    fn update_global_uniform(&self, world: &World, grass: &Grass, settings: &RendererSettings) {
+    fn update_global_uniform(
+        &self,
+        world: &World,
+        grass: &GrassParameters,
+        settings: &RendererSettings,
+    ) {
         self.global.write(
             self.flight_index,
             &Global {
