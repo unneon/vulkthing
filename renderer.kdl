@@ -14,6 +14,9 @@ descriptor-set "object" 5 {
     uniform "mvp" "VERTEX" "ModelViewProjection"
     uniform "material" "FRAGMENT" "Material"
 }
+descriptor-set "atmosphere" 1 {
+    image "render" "FRAGMENT" "nearest"
+}
 descriptor-set "extract" 1 {
     image "render" "FRAGMENT" "nearest"
 }
@@ -37,12 +40,13 @@ pass "render" {
             layout "COLOR_ATTACHMENT_OPTIMAL"
             layout-final "SHADER_READ_ONLY_OPTIMAL"
             clear 0 0 0 0
-            store; input-attachment; sampled
+            sampled; store
         }
         depth-attachment "depth" {
             layout "DEPTH_STENCIL_ATTACHMENT_OPTIMAL"
+            layout-final "DEPTH_STENCIL_READ_ONLY_OPTIMAL"
             clear 1
-            transient
+            sampled; store
         }
         pipeline "object" {
             vertex-binding {
@@ -92,6 +96,21 @@ pass "render" {
         }
     }
 }
+pass "atmosphere" {
+    debug-name "Atmosphere pass"
+    debug-color 84 115 144
+    subpass "atmosphere" {
+        color-attachment "color-2-atmosphere" {
+            layout "COLOR_ATTACHMENT_OPTIMAL"
+            layout-final "SHADER_READ_ONLY_OPTIMAL"
+            sampled; store
+        }
+        pipeline "atmosphere" {
+            vertex-shader "quad.vert"
+            descriptor-sets "atmosphere" "global"
+        }
+    }
+}
 pass "extract" {
     debug-name "Extraction pass"
     debug-color 197 188 176
@@ -102,7 +121,7 @@ pass "extract" {
             sampled; store
         }
         pipeline "extract" {
-            vertex-shader "util/quad.vert"
+            vertex-shader "quad.vert"
             descriptor-sets "extract" "global"
         }
     }
@@ -117,7 +136,7 @@ pass "gaussian_horizontal" {
             sampled; store
         }
         pipeline "gaussian_horizontal" {
-            vertex-shader "util/quad.vert"
+            vertex-shader "quad.vert"
             fragment-shader "gaussian.frag"
             fragment-specialization "gaussian_dx" "gaussian_dy"
             descriptor-sets "gaussian" "global"
@@ -134,7 +153,7 @@ pass "gaussian_vertical" {
             sampled; store
         }
         pipeline "gaussian_vertical" {
-            vertex-shader "util/quad.vert"
+            vertex-shader "quad.vert"
             fragment-shader "gaussian.frag"
             fragment-specialization "gaussian_dx" "gaussian_dy"
             descriptor-sets "gaussian" "global"
@@ -151,7 +170,7 @@ pass "postprocess" {
             store; swapchain
         }
         pipeline "postprocess" {
-            vertex-shader "util/quad.vert"
+            vertex-shader "quad.vert"
             descriptor-sets "postprocess" "global"
         }
     }

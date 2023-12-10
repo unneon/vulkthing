@@ -86,14 +86,16 @@ impl Renderer {
 
         let swapchain = create_swapchain(surface, window.window.inner_size(), &dev);
         let passes = create_render_passes(&swapchain, vk::SampleCountFlags::TYPE_1, &dev);
+        let atmosphere_descriptors =
+            descriptor_pools.alloc_atmosphere(passes.render.resources[0].view, &dev);
         let extract_descriptors =
-            descriptor_pools.alloc_extract(passes.render.resources[0].view, &dev);
+            descriptor_pools.alloc_extract(passes.atmosphere.resources[0].view, &dev);
         let gaussian_horizontal_descriptors =
             descriptor_pools.alloc_gaussian(passes.extract.resources[0].view, &dev);
         let gaussian_vertical_descriptors =
             descriptor_pools.alloc_gaussian(passes.gaussian_horizontal.resources[0].view, &dev);
         let postprocess_descriptor_sets = descriptor_pools.alloc_postprocess(
-            passes.render.resources[0].view,
+            passes.atmosphere.resources[0].view,
             passes.gaussian_vertical.resources[0].view,
             &dev,
         );
@@ -181,6 +183,7 @@ impl Renderer {
             descriptor_pools,
             pipeline_layouts,
             passes,
+            atmosphere_descriptors,
             extract_descriptors,
             swapchain,
             pipelines,

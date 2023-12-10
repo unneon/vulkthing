@@ -58,6 +58,7 @@ pub struct Renderer {
     // set. Projection matrix depends on the monitor aspect ratio, so it's included too.
     pub swapchain: Swapchain,
     pipelines: Pipelines,
+    atmosphere_descriptors: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
     extract_descriptors: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
     gaussian_horizontal_descriptors: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
     gaussian_vertical_descriptors: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
@@ -237,6 +238,7 @@ impl Renderer {
         self.dev.begin_command_buffer(buf, &begin_info).unwrap();
         self.reset_timestamps(buf);
         self.record_render_pass(buf, world);
+        self.record_atmosphere_pass(buf);
         self.record_extract_pass(buf);
         self.record_gaussian_passes(buf);
         self.record_postprocess_pass(buf, image_index, ui_draw);
@@ -289,6 +291,23 @@ impl Renderer {
         self.mesh_objects[1].bind_vertex(buf, &self.dev);
         self.mesh_objects[1].draw(1, buf, &self.dev);
         end_label(buf, &self.dev);
+
+        self.dev.cmd_end_render_pass(buf);
+        end_label(buf, &self.dev);
+    }
+
+    unsafe fn record_atmosphere_pass(&mut self, buf: vk::CommandBuffer) {
+        self.passes
+            .atmosphere
+            .begin(buf, &self.dev, self.query_pool, self.flight_index);
+
+        self.bind_pipeline(buf, self.pipelines.atmosphere);
+        self.bind_descriptor_sets(
+            buf,
+            self.pipeline_layouts.atmosphere,
+            &self.atmosphere_descriptors,
+        );
+        self.dev.cmd_draw(buf, 6, 1, 0, 0);
 
         self.dev.cmd_end_render_pass(buf);
         end_label(buf, &self.dev);
