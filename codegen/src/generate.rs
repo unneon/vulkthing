@@ -17,6 +17,12 @@ enum BindingType {
     Uniform,
 }
 
+#[derive(Eq, Ord, PartialEq, PartialOrd)]
+enum ShaderType {
+    Vertex,
+    Fragment,
+}
+
 impl BindingType {
     fn name(&self) -> &'static str {
         match self {
@@ -25,6 +31,29 @@ impl BindingType {
             BindingType::InputAttachment => "INPUT_ATTACHMENT",
             BindingType::StorageImage => "STORAGE_IMAGE",
             BindingType::Uniform => "UNIFORM_BUFFER",
+        }
+    }
+}
+
+impl ShaderType {
+    fn lowercase(&self) -> &'static str {
+        match self {
+            ShaderType::Fragment => "fragment",
+            ShaderType::Vertex => "vertex",
+        }
+    }
+
+    fn camelcase(&self) -> &'static str {
+        match self {
+            ShaderType::Fragment => "Fragment",
+            ShaderType::Vertex => "Vertex",
+        }
+    }
+
+    fn extension(&self) -> &'static str {
+        match self {
+            ShaderType::Fragment => "frag",
+            ShaderType::Vertex => "vert",
         }
     }
 }
@@ -192,10 +221,27 @@ pub struct PipelineLayouts {{"#
 pub struct Shaders {{"#
     )
     .unwrap();
+    let mut pipeline_vertex_shaders = HashMap::new();
+    let mut pipeline_fragment_shaders = HashMap::new();
+    let mut shaders = BTreeSet::new();
     for_pipelines(renderer, |_, _, _, pipeline| {
-        writeln!(file, "    pub {pipeline}_vertex: Vec<u32>,").unwrap();
-        writeln!(file, "    pub {pipeline}_fragment: Vec<u32>,").unwrap();
+        let vertex_shader = match &pipeline.vertex_shader {
+            Some(path) => path.strip_suffix(".vert").unwrap(),
+            None => pipeline.name.as_str(),
+        };
+        let fragment_shader = match &pipeline.fragment_shader {
+            Some(path) => path.strip_suffix(".frag").unwrap(),
+            None => pipeline.name.as_str(),
+        };
+        pipeline_vertex_shaders.insert(pipeline.name.as_str(), vertex_shader);
+        pipeline_fragment_shaders.insert(pipeline.name.as_str(), fragment_shader);
+        shaders.insert((vertex_shader, ShaderType::Vertex));
+        shaders.insert((fragment_shader, ShaderType::Fragment));
     });
+    for (name, typ) in &shaders {
+        let typ_lowercase = typ.lowercase();
+        writeln!(file, "    pub {name}_{typ_lowercase}: Vec<u32>,").unwrap();
+    }
     writeln!(
         file,
         r#"}}
@@ -203,10 +249,10 @@ pub struct Shaders {{"#
 pub struct ShaderModules {{"#
     )
     .unwrap();
-    for_pipelines(renderer, |_, _, _, pipeline| {
-        writeln!(file, "    pub {pipeline}_vertex: vk::ShaderModule,").unwrap();
-        writeln!(file, "    pub {pipeline}_fragment: vk::ShaderModule,").unwrap();
-    });
+    for (name, typ) in &shaders {
+        let typ_lowercase = typ.lowercase();
+        writeln!(file, "    pub {name}_{typ_lowercase}: vk::ShaderModule,").unwrap();
+    }
     writeln!(
         file,
         r#"}}
@@ -325,6 +371,14 @@ struct Scratch {{"#
     dynamic_state: vk::PipelineDynamicStateCreateInfo,"#
     )
     .unwrap();
+    for (name, typ) in &shaders {
+        let typ_lowercase = typ.lowercase();
+        writeln!(
+            file,
+            r#"    {name}_{typ_lowercase}: vk::ShaderModuleCreateInfo,"#
+        )
+        .unwrap();
+    }
     for_pipelines(renderer, |_, _, subpass, pipeline| {
         let layout_count = pipeline.descriptor_sets.len();
         let binding_count = pipeline.vertex_bindings.len();
@@ -355,12 +409,10 @@ struct Scratch {{"#
         writeln!(
             file,
             r#"    {pipeline}_pipeline_layout: vk::PipelineLayoutCreateInfo,
-    {pipeline}_shader_vertex: vk::ShaderModuleCreateInfo,
-    {pipeline}_shader_fragment: vk::ShaderModuleCreateInfo,
     {pipeline}_shader_stages: [vk::PipelineShaderStageCreateInfo; 2],
     {pipeline}_vertex_bindings: [vk::VertexInputBindingDescription; {binding_count}],
     {pipeline}_vertex_attributes: [vk::VertexInputAttributeDescription; {attribute_count}],
-    {pipeline}_vertex: vk::PipelineVertexInputStateCreateInfo,
+    {pipeline}_vertex_state: vk::PipelineVertexInputStateCreateInfo,
     {pipeline}_viewport: vk::Viewport,
     {pipeline}_scissor: vk::Rect2D,
     {pipeline}_viewport_state: vk::PipelineViewportStateCreateInfo,
@@ -701,6 +753,20 @@ static mut SCRATCH: Scratch = Scratch {{"#
     }},"#
     )
     .unwrap();
+    for (name, typ) in &shaders {
+        let typ_lowercase = typ.lowercase();
+        writeln!(
+            file,
+            r#"    {name}_{typ_lowercase}: vk::ShaderModuleCreateInfo {{
+        s_type: vk::StructureType::SHADER_MODULE_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::ShaderModuleCreateFlags::empty(),
+        code_size: 0,
+        p_code: std::ptr::null(),
+    }},"#
+        )
+        .unwrap();
+    }
     for_pipelines(renderer, |_, subpass_index, subpass, pipeline| {
         let descriptor_count = pipeline.descriptor_sets.len();
         let attribute_count = pipeline
@@ -773,20 +839,6 @@ static mut SCRATCH: Scratch = Scratch {{"#
         push_constant_range_count: 0,
         p_push_constant_ranges: std::ptr::null(),
     }},
-    {pipeline}_shader_vertex: vk::ShaderModuleCreateInfo {{
-        s_type: vk::StructureType::SHADER_MODULE_CREATE_INFO,
-        p_next: std::ptr::null(),
-        flags: vk::ShaderModuleCreateFlags::empty(),
-        code_size: 0,
-        p_code: std::ptr::null(),
-    }},
-    {pipeline}_shader_fragment: vk::ShaderModuleCreateInfo {{
-        s_type: vk::StructureType::SHADER_MODULE_CREATE_INFO,
-        p_next: std::ptr::null(),
-        flags: vk::ShaderModuleCreateFlags::empty(),
-        code_size: 0,
-        p_code: std::ptr::null(),
-    }},
     {pipeline}_shader_stages: [
         vk::PipelineShaderStageCreateInfo {{
             s_type: vk::StructureType::PIPELINE_SHADER_STAGE_CREATE_INFO,
@@ -856,7 +908,7 @@ static mut SCRATCH: Scratch = Scratch {{"#
         writeln!(
             file,
             r#"    ],
-    {pipeline}_vertex: vk::PipelineVertexInputStateCreateInfo {{
+    {pipeline}_vertex_state: vk::PipelineVertexInputStateCreateInfo {{
         s_type: vk::StructureType::PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
         p_next: std::ptr::null(),
         flags: vk::PipelineVertexInputStateCreateFlags::empty(),
@@ -986,7 +1038,7 @@ static mut SCRATCH: Scratch = Scratch {{"#
         flags: vk::PipelineCreateFlags::empty(),
         stage_count: 2,
         p_stages: unsafe {{ SCRATCH.{pipeline}_shader_stages.as_ptr() }},
-        p_vertex_input_state: unsafe {{ &SCRATCH.{pipeline}_vertex }},
+        p_vertex_input_state: unsafe {{ &SCRATCH.{pipeline}_vertex_state }},
         p_input_assembly_state: unsafe {{ &SCRATCH.assembly }},
         p_tessellation_state: std::ptr::null(),
         p_viewport_state: unsafe {{ &SCRATCH.{pipeline}_viewport_state }},
@@ -1225,18 +1277,14 @@ impl ShaderModules {{
     pub fn cleanup(&self, dev: &Dev) {{"#
     )
     .unwrap();
-    for_pipelines(renderer, |_, _, _, pipeline| {
+    for (name, typ) in &shaders {
+        let typ_lowercase = typ.lowercase();
         writeln!(
             file,
-            "        unsafe {{ dev.destroy_shader_module(self.{pipeline}_vertex, None) }};"
+            r#"        unsafe {{ dev.destroy_shader_module(self.{name}_{typ_lowercase}, None) }};"#
         )
         .unwrap();
-        writeln!(
-            file,
-            "        unsafe {{ dev.destroy_shader_module(self.{pipeline}_fragment, None) }};"
-        )
-        .unwrap();
-    });
+    }
     writeln!(
         file,
         r#"    }}
@@ -1547,23 +1595,17 @@ pub fn create_pipeline_layouts(
 pub fn create_shaders(supports_raytracing: bool) -> Shaders {{"#
     )
     .unwrap();
-    for_pipelines(renderer, |_, _, _, pipeline| {
-        let vertex_shader = match &pipeline.vertex_shader {
-            Some(path) => path.clone(),
-            None => format!("{pipeline}.vert"),
-        };
-        let fragment_shader = match &pipeline.fragment_shader {
-            Some(path) => path.clone(),
-            None => format!("{pipeline}.frag"),
-        };
-        writeln!(file, r#"    let {pipeline}_vertex = compile_glsl("shaders/{vertex_shader}", shaderc::ShaderKind::Vertex, supports_raytracing);"#).unwrap();
-        writeln!(file, r#"    let {pipeline}_fragment = compile_glsl("shaders/{fragment_shader}", shaderc::ShaderKind::Fragment, supports_raytracing);"#).unwrap();
-    });
+    for (name, typ) in &shaders {
+        let typ_lowercase = typ.lowercase();
+        let typ_camelcase = typ.camelcase();
+        let ext = typ.extension();
+        writeln!(file, r#"    let {name}_{typ_lowercase} = compile_glsl("shaders/{name}.{ext}", shaderc::ShaderKind::{typ_camelcase}, supports_raytracing);"#).unwrap();
+    }
     writeln!(file, "    Shaders {{").unwrap();
-    for_pipelines(renderer, |_, _, _, pipeline| {
-        writeln!(file, "        {pipeline}_vertex,").unwrap();
-        writeln!(file, "        {pipeline}_fragment,").unwrap();
-    });
+    for (name, typ) in &shaders {
+        let typ_lowercase = typ.lowercase();
+        writeln!(file, r#"        {name}_{typ_lowercase},"#).unwrap();
+    }
     writeln!(
         file,
         r#"    }}
@@ -1573,39 +1615,23 @@ pub fn create_shaders(supports_raytracing: bool) -> Shaders {{"#
 pub fn create_shader_modules(shaders: &Shaders, dev: &Dev) -> ShaderModules {{"#
     )
     .unwrap();
-    for_pipelines(renderer, |_, _, _, pipeline| {
-        writeln!(
-            file,
-            "    unsafe {{ SCRATCH.{pipeline}_shader_vertex.code_size = 4 * shaders.{pipeline}_vertex.len() }};"
-        )
-            .unwrap();
-        writeln!(
-            file,
-            "    unsafe {{ SCRATCH.{pipeline}_shader_fragment.code_size = 4 * shaders.{pipeline}_fragment.len() }};"
-        )
-            .unwrap();
-    });
-    for_pipelines(renderer, |_, _, _, pipeline| {
-        writeln!(
-            file,
-            "    unsafe {{ SCRATCH.{pipeline}_shader_vertex.p_code = shaders.{pipeline}_vertex.as_ptr() }};"
-        )
-        .unwrap();
-        writeln!(
-            file,
-            "    unsafe {{ SCRATCH.{pipeline}_shader_fragment.p_code = shaders.{pipeline}_fragment.as_ptr() }};"
-        )
-        .unwrap();
-    });
-    for_pipelines(renderer, |_, _, _, pipeline| {
-        writeln!(file, "    let {pipeline}_vertex = unsafe {{ dev.create_shader_module(&SCRATCH.{pipeline}_shader_vertex, None).unwrap_unchecked() }};").unwrap();
-        writeln!(file, "    let {pipeline}_fragment = unsafe {{ dev.create_shader_module(&SCRATCH.{pipeline}_shader_fragment, None).unwrap_unchecked() }};").unwrap();
-    });
+    for (name, typ) in &shaders {
+        let typ_lowercase = typ.lowercase();
+        writeln!(file, r#"    unsafe {{ SCRATCH.{name}_{typ_lowercase}.code_size = 4 * shaders.{name}_{typ_lowercase}.len() }};"#).unwrap();
+    }
+    for (name, typ) in &shaders {
+        let typ_lowercase = typ.lowercase();
+        writeln!(file, r#"    unsafe {{ SCRATCH.{name}_{typ_lowercase}.p_code = shaders.{name}_{typ_lowercase}.as_ptr() }};"#).unwrap();
+    }
+    for (name, typ) in &shaders {
+        let typ_lowercase = typ.lowercase();
+        writeln!(file, r#"    let {name}_{typ_lowercase} = unsafe {{ dev.create_shader_module(&SCRATCH.{name}_{typ_lowercase}, None).unwrap_unchecked() }};"#).unwrap();
+    }
     writeln!(file, "    ShaderModules {{").unwrap();
-    for_pipelines(renderer, |_, _, _, pipeline| {
-        writeln!(file, "        {pipeline}_vertex,").unwrap();
-        writeln!(file, "        {pipeline}_fragment,").unwrap();
-    });
+    for (name, typ) in &shaders {
+        let typ_lowercase = typ.lowercase();
+        writeln!(file, "        {name}_{typ_lowercase},").unwrap();
+    }
     writeln!(
         file,
         r#"    }}
@@ -1661,10 +1687,12 @@ pub fn create_pipelines(
                 writeln!(file, "    unsafe {{ SCRATCH.{pipeline}_fragment_specialization_scratch.{spec} = {value} }};").unwrap();
             }
         }
+        let vertex_shader = pipeline_vertex_shaders[pipeline.name.as_str()];
+        let fragment_shader = pipeline_fragment_shaders[pipeline.name.as_str()];
         writeln!(
             file,
-            r#"    unsafe {{ SCRATCH.{pipeline}_shader_stages[0].module = shader_modules.{pipeline}_vertex }};
-    unsafe {{ SCRATCH.{pipeline}_shader_stages[1].module = shader_modules.{pipeline}_fragment }};
+            r#"    unsafe {{ SCRATCH.{pipeline}_shader_stages[0].module = shader_modules.{vertex_shader}_vertex }};
+    unsafe {{ SCRATCH.{pipeline}_shader_stages[1].module = shader_modules.{fragment_shader}_fragment }};
     unsafe {{ SCRATCH.{pipeline}_viewport.width = (swapchain.extent.width / {downscale}) as f32 }};
     unsafe {{ SCRATCH.{pipeline}_viewport.height = (swapchain.extent.height / {downscale}) as f32 }};
     unsafe {{ SCRATCH.{pipeline}_scissor.extent.width = swapchain.extent.width / {downscale} }};
