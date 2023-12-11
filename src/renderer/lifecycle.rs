@@ -138,20 +138,20 @@ impl Renderer {
 
         let mut entities = Vec::new();
         for _ in world.entities() {
-            let mvp = UniformBuffer::create(&dev);
+            let transform = UniformBuffer::create(&dev);
             let material = UniformBuffer::create(&dev);
-            let descriptors = descriptor_pools.alloc_object(&mvp, &material, &dev);
+            let descriptors = descriptor_pools.alloc_object(&transform, &material, &dev);
             entities.push(Object {
-                mvp,
+                transform,
                 material,
                 descriptors,
             });
         }
-        let grass_mvp = UniformBuffer::create(&dev);
+        let grass_transform = UniformBuffer::create(&dev);
         let grass_material = UniformBuffer::create(&dev);
         let grass_descriptor_sets =
-            descriptor_pools.alloc_object(&grass_mvp, &grass_material, &dev);
-        let star_mvp = UniformBuffer::create(&dev);
+            descriptor_pools.alloc_object(&grass_transform, &grass_material, &dev);
+        let star_transform = UniformBuffer::create(&dev);
         let star_material = UniformBuffer::create(&dev);
         let star_instances = Buffer::create(
             UNIFIED_MEMORY,
@@ -159,15 +159,16 @@ impl Renderer {
             world.stars.len() * std::mem::size_of::<Star>(),
             &dev,
         );
-        let star_descriptor_sets = descriptor_pools.alloc_object(&star_mvp, &star_material, &dev);
+        let star_descriptor_sets =
+            descriptor_pools.alloc_object(&star_transform, &star_material, &dev);
         star_instances.generate_host_visible(world.stars.len(), &dev, |i| Star {
             model: world.stars[i].transform.model_matrix(),
             emit: world.stars[i].emit,
         });
-        let skybox_mvp = UniformBuffer::create(&dev);
+        let skybox_transform = UniformBuffer::create(&dev);
         let skybox_material = UniformBuffer::create(&dev);
         let skybox_descriptor_sets =
-            descriptor_pools.alloc_object(&skybox_mvp, &skybox_material, &dev);
+            descriptor_pools.alloc_object(&skybox_transform, &skybox_material, &dev);
         let global = UniformBuffer::create(&dev);
         let global_descriptor_sets = descriptor_pools.alloc_global(&global, &tlas, &dev);
 
@@ -197,16 +198,16 @@ impl Renderer {
             command_buffers,
             sync,
             flight_index: 0,
-            grass_mvp,
+            grass_transform,
             grass_material,
             mesh_objects,
             entities,
             grass_descriptor_sets,
-            star_mvp,
+            star_transform,
             star_material,
             star_instances,
             star_descriptor_sets,
-            skybox_mvp,
+            skybox_transform,
             skybox_material,
             skybox_descriptor_sets,
             grass_chunks: HashMap::new(),
@@ -354,7 +355,7 @@ impl MeshObject {
 
 impl Object {
     pub fn cleanup(&self, dev: &Device) {
-        self.mvp.cleanup(dev);
+        self.transform.cleanup(dev);
         self.material.cleanup(dev);
     }
 }
@@ -366,7 +367,7 @@ impl Drop for Renderer {
 
             drop(self.interface_renderer.take());
             self.dev.destroy_query_pool(self.query_pool, None);
-            self.star_mvp.cleanup(&self.dev);
+            self.star_transform.cleanup(&self.dev);
             self.star_material.cleanup(&self.dev);
             self.star_instances.cleanup(&self.dev);
             for entity in &self.entities {
@@ -378,9 +379,9 @@ impl Drop for Renderer {
             for grass_chunk in self.grass_chunks.values() {
                 grass_chunk.buffer.cleanup(&self.dev);
             }
-            self.grass_mvp.cleanup(&self.dev);
+            self.grass_transform.cleanup(&self.dev);
             self.grass_material.cleanup(&self.dev);
-            self.skybox_mvp.cleanup(&self.dev);
+            self.skybox_transform.cleanup(&self.dev);
             self.skybox_material.cleanup(&self.dev);
             self.global.cleanup(&self.dev);
             if let Some(tlas) = self.tlas.as_ref() {

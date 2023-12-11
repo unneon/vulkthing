@@ -19,14 +19,14 @@ use crate::renderer::graph::Pass;
 use crate::renderer::raytracing::RaytraceResources;
 use crate::renderer::swapchain::Swapchain;
 use crate::renderer::uniform::{
-    Atmosphere, Camera, Gaussian, Global, GrassUniform, Material, ModelViewProjection,
-    PostprocessUniform, Tonemapper,
+    Atmosphere, Camera, Gaussian, Global, GrassUniform, Material, PostprocessUniform, Tonemapper,
+    Transform,
 };
 use crate::renderer::util::{timestamp_difference_to_duration, Buffer, Dev, UniformBuffer};
 use crate::world::World;
 use ash::{vk, Entry};
 use imgui::DrawData;
-use nalgebra::{Matrix4, Vector3};
+use nalgebra::{Matrix4, Vector2, Vector3};
 use std::collections::HashMap;
 use std::f32::consts::FRAC_PI_4;
 use std::time::Duration;
@@ -73,17 +73,17 @@ pub struct Renderer {
 
     // And finally resources specific to this renderer. So various buffers related to objects we
     // actually render, their descriptor sets and the like.
-    grass_mvp: UniformBuffer<ModelViewProjection>,
+    grass_transform: UniformBuffer<Transform>,
     grass_material: UniformBuffer<Material>,
     mesh_objects: Vec<MeshObject>,
     entities: Vec<Object>,
     grass_chunks: HashMap<usize, GrassChunk>,
     grass_descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
-    star_mvp: UniformBuffer<ModelViewProjection>,
+    star_transform: UniformBuffer<Transform>,
     star_material: UniformBuffer<Material>,
     star_instances: Buffer,
     star_descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
-    skybox_mvp: UniformBuffer<ModelViewProjection>,
+    skybox_transform: UniformBuffer<Transform>,
     skybox_material: UniformBuffer<Material>,
     skybox_descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
     global: UniformBuffer<Global>,
@@ -112,7 +112,7 @@ pub struct MeshObject {
 }
 
 pub struct Object {
-    mvp: UniformBuffer<ModelViewProjection>,
+    transform: UniformBuffer<Transform>,
     material: UniformBuffer<Material>,
     descriptors: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
 }
@@ -184,7 +184,7 @@ impl Renderer {
         self.update_grass_uniform(world, settings);
         self.update_star_uniform(world, settings);
         self.update_skybox_uniform(world, settings);
-        self.update_global_uniform(world, grass, settings);
+        self.update_global_uniform(world, grass, settings, window_size);
         self.submit_graphics();
         self.submit_present(image_index);
 
@@ -401,7 +401,7 @@ impl Renderer {
 
     fn update_object_uniforms(&self, world: &World, entity_id: usize, settings: &RendererSettings) {
         let entity = &world.entities()[entity_id];
-        let mvp = ModelViewProjection {
+        let transform = Transform {
             model: entity.model_matrix(),
             view: world.view_matrix(),
             proj: self.projection_matrix(settings),
@@ -413,37 +413,39 @@ impl Renderer {
             roughness: entity.roughness(),
             ao: entity.ao(),
         };
-        self.entities[entity_id].mvp.write(self.flight_index, &mvp);
+        self.entities[entity_id]
+            .transform
+            .write(self.flight_index, &transform);
         self.entities[entity_id]
             .material
             .write(self.flight_index, &material);
     }
 
     fn update_grass_uniform(&self, world: &World, settings: &RendererSettings) {
-        let mvp = ModelViewProjection {
+        let transform = Transform {
             model: world.planet().model_matrix(),
             view: world.view_matrix(),
             proj: self.projection_matrix(settings),
         };
-        self.grass_mvp.write(self.flight_index, &mvp);
+        self.grass_transform.write(self.flight_index, &transform);
     }
 
     fn update_star_uniform(&self, world: &World, settings: &RendererSettings) {
-        let mvp = ModelViewProjection {
+        let transform = Transform {
             model: Matrix4::identity(),
             view: world.view_matrix(),
             proj: self.projection_matrix(settings),
         };
-        self.star_mvp.write(self.flight_index, &mvp);
+        self.star_transform.write(self.flight_index, &transform);
     }
 
     fn update_skybox_uniform(&self, world: &World, settings: &RendererSettings) {
-        let mvp = ModelViewProjection {
+        let transform = Transform {
             model: Matrix4::new_scaling(32000.),
             view: world.view_matrix(),
             proj: self.projection_matrix(settings),
         };
-        self.skybox_mvp.write(self.flight_index, &mvp);
+        self.skybox_transform.write(self.flight_index, &transform);
     }
 
     fn update_global_uniform(
@@ -451,6 +453,7 @@ impl Renderer {
         world: &World,
         grass: &GrassParameters,
         settings: &RendererSettings,
+        window_size: PhysicalSize<u32>,
     ) {
         self.global.write(
             self.flight_index,
@@ -501,6 +504,15 @@ impl Renderer {
                     gamma: settings.postprocess.gamma,
                 },
                 camera: Camera {
+                    view_matrix: world.view_matrix(),
+                    projection_matrix: self.projection_matrix(settings),
+                    inverse_view_matrix: world.view_matrix().try_inverse().unwrap(),
+                    inverse_projection_matrix: self
+                        .projection_matrix(settings)
+                        .try_inverse()
+                        .unwrap(),
+                    resolution: Vector2::new(window_size.width as f32, window_size.height as f32),
+                    _pad0: [0., 0.],
                     position: world.camera.position(),
                 },
             },

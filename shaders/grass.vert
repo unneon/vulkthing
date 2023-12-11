@@ -1,12 +1,10 @@
-#version 450
+#version 460
 
 #include "types/uniform.glsl"
 
-layout(binding = 0) uniform ModelViewProjection {
-    mat4 model;
-    mat4 view;
-    mat4 proj;
-} planet_mvp;
+layout(binding = 0) uniform Transform {
+    mat4 model_matrix;
+} planet_transform;
 
 layout(binding = 0, set = 1) uniform GLOBAL_UNIFORM_TYPE global;
 
@@ -30,9 +28,9 @@ void main() {
     float blade_height = global.grass.height_average + blade_height_noise * global.grass.height_max_variance;
     float sway_arg = global.grass.sway_frequency * global.grass.time;
     vec3 blade_swayed_up = blade_up + sin(sway_arg) * global.grass.sway_amplitude * global.grass.sway_direction;
-    vec3 position = (planet_mvp.model * vec4(blade_position, 1)).xyz + naive_x * blade_right * global.grass.width + naive_y * blade_swayed_up * blade_height;
-    gl_Position = planet_mvp.proj * planet_mvp.view * vec4(position, 1);
-    frag_position = position;
+    vec3 world_space = (planet_transform.model_matrix * vec4(blade_position, 1)).xyz + naive_x * blade_right * global.grass.width + naive_y * blade_swayed_up * blade_height;
+    gl_Position = global.camera.projection_matrix * global.camera.view_matrix * vec4(world_space, 1);
+    frag_position = world_space;
     frag_normal = blade_front;
     frag_ground_normal = ground_normal;
     frag_naive_height = naive_y;

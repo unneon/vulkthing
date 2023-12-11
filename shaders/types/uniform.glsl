@@ -76,6 +76,11 @@ struct Postprocessing {
 };
 
 struct Camera {
+    mat4 view_matrix;
+    mat4 projection_matrix;
+    mat4 inverse_view_matrix;
+    mat4 inverse_projection_matrix;
+    vec2 resolution;
     vec3 position;
 };
 

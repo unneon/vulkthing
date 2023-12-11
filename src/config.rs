@@ -27,7 +27,7 @@ pub const DEFAULT_STAR_MIN_SCALE: f32 = 10.;
 pub const DEFAULT_STAR_MAX_SCALE: f32 = 100.;
 
 pub const DEFAULT_GRASS: GrassParameters = GrassParameters {
-    enabled: true,
+    enabled: false,
     blades_per_triangle: 128,
     height_average: 1.2,
     height_max_variance: 0.3,

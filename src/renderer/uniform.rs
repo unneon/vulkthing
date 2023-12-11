@@ -1,10 +1,10 @@
 use crate::interface::EnumInterface;
-use nalgebra::{Matrix4, Vector3};
+use nalgebra::{Matrix4, Vector2, Vector3};
 use std::borrow::Cow;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct ModelViewProjection {
+pub struct Transform {
     pub model: Matrix4<f32>,
     pub view: Matrix4<f32>,
     pub proj: Matrix4<f32>,
@@ -102,6 +102,12 @@ pub struct PostprocessUniform {
 #[repr(C, align(16))]
 #[derive(Clone, Copy)]
 pub struct Camera {
+    pub view_matrix: Matrix4<f32>,
+    pub projection_matrix: Matrix4<f32>,
+    pub inverse_view_matrix: Matrix4<f32>,
+    pub inverse_projection_matrix: Matrix4<f32>,
+    pub resolution: Vector2<f32>,
+    pub _pad0: [f32; 2],
     pub position: Vector3<f32>,
 }
 

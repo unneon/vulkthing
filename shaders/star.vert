@@ -1,12 +1,13 @@
-#version 450
+#version 460
 
-layout(binding = 0) uniform ModelViewProjection {
-    mat4 model;
-    mat4 view;
-    mat4 proj;
-} mvp;
+#include "types/uniform.glsl"
 
-layout(location = 0) in vec3 vertex_position;
+layout(binding = 0) uniform Transform {
+    mat4 model_matrix;
+} transform;
+layout(binding = 0, set = 1) uniform GLOBAL_UNIFORM_TYPE global;
+
+layout(location = 0) in vec3 in_position;
 layout(location = 1) in vec4 star_model_c1;
 layout(location = 2) in vec4 star_model_c2;
 layout(location = 3) in vec4 star_model_c3;
@@ -18,7 +19,8 @@ layout(location = 1) out vec3 frag_emit;
 
 void main() {
     mat4 star_model = mat4(star_model_c1, star_model_c2, star_model_c3, star_model_c4);
-    gl_Position = mvp.proj * mvp.view * star_model * mvp.model * vec4(vertex_position, 1);
-    frag_position = (star_model * mvp.model * vec4(vertex_position, 1)).xyz;
+    vec4 world_space = star_model * transform.model_matrix * vec4(in_position, 1);
+    gl_Position = global.camera.projection_matrix * global.camera.view_matrix * world_space;
+    frag_position = world_space.xyz;
     frag_emit = star_emit;
 }
