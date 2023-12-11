@@ -98,7 +98,7 @@ fn main() {
     // redraw of a specific window. Redrawing a window can also be requested by the operating
     // system, for example if the window size changes. For games, always rendering after
     // MainEventsCleared is enough.
-    let loop_result = window.event_loop.run(move |event, target| {
+    let loop_result = window.event_loop.run(|event, target| {
         match event {
             Event::NewEvents(StartCause::Init) => {
                 // winit is set up for desktop applications by default, so we need to enable polling
@@ -123,7 +123,6 @@ fn main() {
                         }
                     }
                     WindowEvent::CloseRequested => {
-                        grass_state.shutdown();
                         target.exit();
                     }
                     _ => (),
@@ -194,7 +193,6 @@ fn main() {
 
                 frame_index += 1;
                 if args.benchmark && frame_index == BENCHMARK_FRAMES {
-                    grass_state.shutdown();
                     target.exit();
                 }
             }
@@ -204,4 +202,5 @@ fn main() {
         }
     });
     loop_result.unwrap();
+    grass_state.shutdown();
 }

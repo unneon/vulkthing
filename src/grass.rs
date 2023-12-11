@@ -16,10 +16,9 @@ use std::sync::mpsc;
 use std::thread::JoinHandle;
 
 pub struct GrassState {
-    // TODO: Remove Options once moving in main is fixed.
-    request_tx: Option<mpsc::Sender<GrassRequest>>,
+    request_tx: mpsc::Sender<GrassRequest>,
     response_rx: MpscPendingIterator<GrassResponse>,
-    thread_handle: Option<JoinHandle<()>>,
+    thread_handle: JoinHandle<()>,
 }
 
 struct GrassThread {
@@ -79,14 +78,19 @@ impl GrassState {
                     let mut camera_position = None;
                     let mut new_parameters = None;
                     let mut first_received = false;
-                    while let Some(grass_request) = if first_received {
-                        request_rx.try_recv().ok()
-                    } else {
-                        match request_rx.recv() {
-                            Ok(grass_request) => Some(grass_request),
-                            Err(_) => break 'outer,
-                        }
-                    } {
+                    'inner: loop {
+                        let grass_request = if first_received {
+                            match request_rx.try_recv() {
+                                Ok(grass_request) => grass_request,
+                                Err(mpsc::TryRecvError::Disconnected) => break 'outer,
+                                Err(mpsc::TryRecvError::Empty) => break 'inner,
+                            }
+                        } else {
+                            match request_rx.recv() {
+                                Ok(grass_request) => grass_request,
+                                Err(mpsc::RecvError) => break 'outer,
+                            }
+                        };
                         match grass_request {
                             GrassRequest::Camera(camera_position2) => {
                                 camera_position = Some(camera_position2)
@@ -107,31 +111,30 @@ impl GrassState {
             }
         });
         GrassState {
-            request_tx: Some(request_tx),
+            request_tx,
             response_rx: MpscPendingIterator { rx: response_rx },
-            thread_handle: Some(thread_handle),
+            thread_handle,
         }
     }
 
     pub fn update_parameters(&mut self, new_parameters: &GrassParameters) {
-        if let Some(request_tx) = self.request_tx.as_ref() {
-            let _ = request_tx.send(GrassRequest::Parameters(new_parameters.clone()));
-        }
+        let _ = self
+            .request_tx
+            .send(GrassRequest::Parameters(new_parameters.clone()));
     }
 
     pub fn update_camera(&mut self, camera_position: Vector3<f32>) {
-        if let Some(request_tx) = self.request_tx.as_ref() {
-            let _ = request_tx.send(GrassRequest::Camera(camera_position));
-        }
+        let _ = self.request_tx.send(GrassRequest::Camera(camera_position));
     }
 
     pub fn events(&self) -> &MpscPendingIterator<GrassResponse> {
         &self.response_rx
     }
 
-    pub fn shutdown(&mut self) {
-        drop(self.request_tx.take());
-        self.thread_handle.take().unwrap().join().unwrap();
+    pub fn shutdown(self) {
+        drop(self.request_tx);
+        drop(self.response_rx);
+        self.thread_handle.join().unwrap();
     }
 }
 
