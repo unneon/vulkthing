@@ -1143,16 +1143,33 @@ impl DescriptorPools {{"#
         descriptors: &[vk::DescriptorSet; FRAMES_IN_FLIGHT],"#
         )
         .unwrap();
-        for binding in &descriptor_set.bindings {
+        let mut only_tlas = None;
+        for (binding_index, binding) in descriptor_set.bindings.iter().enumerate() {
             let name = binding.name();
             let typ = binding.value_type();
             writeln!(file, "        {name}: {typ},").unwrap();
+            if binding.descriptor_type() == BindingType::AccelerationStructure {
+                assert!(only_tlas.is_none());
+                assert_eq!(binding_index, descriptor_set.bindings.len() - 1);
+                only_tlas = Some(name);
+            }
         }
         writeln!(
             file,
             r#"        dev: &Dev,
-    ) {{
-        for (_flight_index, descriptor) in descriptors.iter().enumerate() {{"#
+    ) {{"#
+        )
+        .unwrap();
+        if let Some(tlas) = only_tlas.as_ref() {
+            writeln!(
+                file,
+                r#"        let supports_raytracing = {tlas}.is_some();"#
+            )
+            .unwrap();
+        }
+        writeln!(
+            file,
+            r#"        for (_flight_index, descriptor) in descriptors.iter().enumerate() {{"#
         )
         .unwrap();
         for (binding_index, binding) in descriptor_set.bindings.iter().enumerate() {
@@ -1226,18 +1243,37 @@ impl DescriptorPools {{"#
                 .unwrap(),
             }
         }
-        write!(file, r"            let writes = [").unwrap();
-        for (binding_index, binding) in descriptor_set.bindings.iter().enumerate() {
-            let binding_name = binding.name();
-            write!(file, "{binding_name}").unwrap();
-            if binding_index != descriptor_set.bindings.len() - 1 {
-                write!(file, ", ").unwrap();
+        let write_writes = |file: &mut File, bindings: &[DescriptorBinding]| {
+            write!(file, r"[").unwrap();
+            for (binding_index, binding) in bindings.iter().enumerate() {
+                let binding_name = binding.name();
+                write!(file, "{binding_name}").unwrap();
+                if binding_index != bindings.len() - 1 {
+                    write!(file, ", ").unwrap();
+                }
             }
+            write!(file, "]").unwrap();
+        };
+        write!(file, r#"            let writes = "#).unwrap();
+        write_writes(&mut file, &descriptor_set.bindings);
+        writeln!(file, r#";"#).unwrap();
+        if only_tlas.is_some() {
+            let count_without_raytracing = descriptor_set.bindings.len() - 1;
+            writeln!(
+                file,
+                r#"            let writes = if supports_raytracing {{
+                &writes
+            }} else {{
+                &writes[..{count_without_raytracing}]
+            }};"#
+            )
+            .unwrap();
+        } else {
+            writeln!(file, "            let writes = &writes;").unwrap();
         }
         writeln!(
             file,
-            r#"];
-            unsafe {{ dev.update_descriptor_sets(&writes, &[]) }};
+            r#"            unsafe {{ dev.update_descriptor_sets(writes, &[]) }};
         }}
     }}
 "#
