@@ -221,12 +221,14 @@ impl<T: Copy> UniformBuffer<T> {
     }
 }
 
+#[allow(dead_code)]
 impl<T: ?Sized> StorageBuffer<T> {
     pub fn cleanup(&self, dev: &Device) {
         self.buffer.cleanup(dev);
     }
 }
 
+#[allow(dead_code)]
 impl<T: Copy> StorageBuffer<T> {
     pub fn new(flags: vk::MemoryPropertyFlags, dev: &Dev) -> StorageBuffer<T> {
         let size = std::mem::size_of::<T>();
@@ -246,6 +248,7 @@ impl<T: Copy> StorageBuffer<T> {
     }
 }
 
+#[allow(dead_code)]
 impl<T: Copy> StorageBuffer<[T]> {
     pub fn new_array(
         flags: vk::MemoryPropertyFlags,

@@ -182,6 +182,7 @@ use crate::renderer::uniform::{{"#
         file,
         r#"}};
 use crate::renderer::debug::set_label;
+#[allow(unused_imports)]
 use crate::renderer::util::{{AsDescriptor, Dev, ImageResources, StorageBuffer, UniformBuffer}};
 use crate::renderer::{{Pass, Swapchain, COLOR_FORMAT, DEPTH_FORMAT, FRAMES_IN_FLIGHT}};
 use ash::vk;
