@@ -33,8 +33,7 @@ vec3 fresnel_schlick(float cos_theta, vec3 f0) {
     return f0 + (1 - f0) * pow(clamp(1 - cos_theta, 0, 1), 5);
 }
 
-vec3 pbr(vec3 albedo, float metallic, float roughness, float ao, vec3 emit) {
-    vec3 normal = frag_normal;
+vec3 pbr(vec3 normal, vec3 albedo, float metallic, float roughness, float ao) {
     vec3 view = normalize(global.camera.position - frag_position);
 
     vec3 f0 = mix(vec3(0.04), albedo, metallic);
@@ -61,5 +60,5 @@ vec3 pbr(vec3 albedo, float metallic, float roughness, float ao, vec3 emit) {
     vec3 ambient = vec3(0.03) * albedo * ao;
     vec3 radiance_out = (kd * albedo / PI + specular) * radiance * ndotl;
 
-    return ambient + radiance_out + emit;
+    return ambient + radiance_out;
 }

@@ -17,24 +17,16 @@ layout(location = 2) in vec3 frag_ground_normal;
 layout(location = 3) in float frag_naive_height;
 
 layout(location = 0) out vec4 out_color;
-layout(location = 1) out vec4 out_position;
 
 #include "lighting/atmosphere.glsl"
+#include "lighting/pbr.glsl"
 #include "lighting/raytracing.glsl"
 
 void main() {
-    float height_factor = mix(0.7, 1, frag_naive_height);
-    vec3 grass_color = vec3(0.2, 0.8, 0.03) * height_factor;
-    float diffuse_factor = 1;
-
-    vec3 ambient = 0.03 * global.light.color * grass_color;
-    vec3 diffuse = global.light.color * grass_color * diffuse_factor;
-    if (in_shadow()) {
-        diffuse = vec3(0);
-    }
-
-    vec3 color_at_object = ambient + diffuse;
-
-    out_color = vec4(color_at_object, 1);
-    out_position = vec4(frag_position, 1);
+    vec3 normal = dot(frag_normal, global.light.position - frag_position) > 0 ? frag_normal : -frag_normal;
+    vec3 albedo = vec3(0.2, 0.8, 0.03);
+    vec3 reflected_color = pbr(normal, albedo, 0, 1, 0);
+    if (in_shadow())
+        reflected_color = vec3(0);
+    out_color = vec4(reflected_color, 1);
 }
