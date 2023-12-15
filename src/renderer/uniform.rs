@@ -4,6 +4,12 @@ use std::borrow::Cow;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
+pub struct ComputeParams {
+    pub count: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
 pub struct Transform {
     pub model: Matrix4<f32>,
     pub view: Matrix4<f32>,

@@ -252,7 +252,7 @@ impl Renderer {
             .begin(buf, &self.dev, self.query_pool, self.flight_index);
 
         begin_label(buf, "Entity draws", [57, 65, 62], &self.dev);
-        self.bind_pipeline(buf, self.pipelines.object);
+        self.bind_graphics_pipeline(buf, self.pipelines.object);
         for (entity, gpu_entity) in world.entities().iter().zip(&self.entities) {
             let mesh = &self.mesh_objects[entity.mesh_id()];
             self.bind_descriptor_sets(buf, self.pipeline_layouts.object, &gpu_entity.descriptors);
@@ -262,7 +262,7 @@ impl Renderer {
         end_label(buf, &self.dev);
 
         begin_label(buf, "Grass draws", [100, 142, 55], &self.dev);
-        self.bind_pipeline(buf, self.pipelines.grass);
+        self.bind_graphics_pipeline(buf, self.pipelines.grass);
         self.bind_descriptor_sets(
             buf,
             self.pipeline_layouts.grass,
@@ -275,14 +275,14 @@ impl Renderer {
         end_label(buf, &self.dev);
 
         begin_label(buf, "Star draws", [213, 204, 184], &self.dev);
-        self.bind_pipeline(buf, self.pipelines.star);
+        self.bind_graphics_pipeline(buf, self.pipelines.star);
         self.bind_descriptor_sets(buf, self.pipeline_layouts.star, &self.star_descriptor_sets);
         self.mesh_objects[2].bind_vertex_instanced(&self.star_instances, buf, &self.dev);
         self.mesh_objects[2].draw(world.stars.len(), buf, &self.dev);
         end_label(buf, &self.dev);
 
         begin_label(buf, "Skybox draw", [129, 147, 164], &self.dev);
-        self.bind_pipeline(buf, self.pipelines.skybox);
+        self.bind_graphics_pipeline(buf, self.pipelines.skybox);
         self.bind_descriptor_sets(
             buf,
             self.pipeline_layouts.skybox,
@@ -301,7 +301,7 @@ impl Renderer {
             .atmosphere
             .begin(buf, &self.dev, self.query_pool, self.flight_index);
 
-        self.bind_pipeline(buf, self.pipelines.atmosphere);
+        self.bind_graphics_pipeline(buf, self.pipelines.atmosphere);
         self.bind_descriptor_sets(
             buf,
             self.pipeline_layouts.atmosphere,
@@ -318,7 +318,7 @@ impl Renderer {
             .extract
             .begin(buf, &self.dev, self.query_pool, self.flight_index);
 
-        self.bind_pipeline(buf, self.pipelines.extract);
+        self.bind_graphics_pipeline(buf, self.pipelines.extract);
         self.bind_descriptor_sets(
             buf,
             self.pipeline_layouts.extract,
@@ -335,7 +335,7 @@ impl Renderer {
             .gaussian_horizontal
             .begin(buf, &self.dev, self.query_pool, self.flight_index);
 
-        self.bind_pipeline(buf, self.pipelines.gaussian_horizontal);
+        self.bind_graphics_pipeline(buf, self.pipelines.gaussian_horizontal);
         self.bind_descriptor_sets(
             buf,
             self.pipeline_layouts.gaussian_horizontal,
@@ -350,7 +350,7 @@ impl Renderer {
             .gaussian_vertical
             .begin(buf, &self.dev, self.query_pool, self.flight_index);
 
-        self.bind_pipeline(buf, self.pipelines.gaussian_vertical);
+        self.bind_graphics_pipeline(buf, self.pipelines.gaussian_vertical);
         self.bind_descriptor_sets(
             buf,
             self.pipeline_layouts.gaussian_vertical,
@@ -377,7 +377,7 @@ impl Renderer {
         );
 
         begin_label(buf, "Postprocess draw", [210, 206, 203], &self.dev);
-        self.bind_pipeline(buf, self.pipelines.postprocess);
+        self.bind_graphics_pipeline(buf, self.pipelines.postprocess);
         self.bind_descriptor_sets(
             buf,
             self.pipeline_layouts.postprocess,
@@ -572,10 +572,18 @@ impl Renderer {
         proj
     }
 
-    fn bind_pipeline(&self, buf: vk::CommandBuffer, pipeline: vk::Pipeline) {
+    fn bind_graphics_pipeline(&self, buf: vk::CommandBuffer, pipeline: vk::Pipeline) {
         unsafe {
             self.dev
                 .cmd_bind_pipeline(buf, vk::PipelineBindPoint::GRAPHICS, pipeline)
+        };
+    }
+
+    #[allow(dead_code)]
+    fn bind_compute_pipeline(&self, buf: vk::CommandBuffer, pipeline: vk::Pipeline) {
+        unsafe {
+            self.dev
+                .cmd_bind_pipeline(buf, vk::PipelineBindPoint::COMPUTE, pipeline)
         };
     }
 

@@ -4,10 +4,10 @@ use ash::extensions::khr::{AccelerationStructure, BufferDeviceAddress, Surface, 
 use ash::{vk, Device, Instance};
 use std::ffi::CStr;
 use std::mem::MaybeUninit;
-use std::ops::Deref;
+use std::ops::{Deref, DerefMut};
 use std::time::Duration;
 
-pub trait AnyUniformBuffer {
+pub trait AsDescriptor {
     fn descriptor(&self, flight_index: usize) -> vk::DescriptorBufferInfo;
 }
 
@@ -44,6 +44,12 @@ pub struct UniformBuffer<T> {
     buffer: Buffer,
     mapping: *mut T,
     aligned_size: usize,
+}
+
+pub struct StorageBuffer<T: ?Sized> {
+    buffer: Buffer,
+    mapping: *mut T,
+    size: usize,
 }
 
 impl Buffer {
@@ -95,7 +101,7 @@ impl Buffer {
         });
     }
 
-    fn with_mapped<T, R>(
+    pub fn with_mapped<T, R>(
         &self,
         count: usize,
         dev: &Dev,
@@ -215,6 +221,62 @@ impl<T: Copy> UniformBuffer<T> {
     }
 }
 
+impl<T: ?Sized> StorageBuffer<T> {
+    pub fn cleanup(&self, dev: &Device) {
+        self.buffer.cleanup(dev);
+    }
+}
+
+impl<T: Copy> StorageBuffer<T> {
+    pub fn new(flags: vk::MemoryPropertyFlags, dev: &Dev) -> StorageBuffer<T> {
+        let size = std::mem::size_of::<T>();
+        let buffer = Buffer::create(flags, vk::BufferUsageFlags::STORAGE_BUFFER, size, dev);
+        let flags = vk::MemoryMapFlags::empty();
+        let mapping =
+            unsafe { dev.map_memory(buffer.memory, 0, size as u64, flags) }.unwrap() as *mut T;
+        StorageBuffer {
+            buffer,
+            mapping,
+            size,
+        }
+    }
+
+    pub fn read(&self) -> T {
+        unsafe { *self.mapping }
+    }
+}
+
+impl<T: Copy> StorageBuffer<[T]> {
+    pub fn new_array(
+        flags: vk::MemoryPropertyFlags,
+        count: usize,
+        dev: &Dev,
+    ) -> StorageBuffer<[T]> {
+        let size = std::mem::size_of::<T>() * count;
+        let buffer = Buffer::create(flags, vk::BufferUsageFlags::STORAGE_BUFFER, size, dev);
+        let flags = vk::MemoryMapFlags::empty();
+        let raw_mapping = unsafe { dev.map_memory(buffer.memory, 0, size as u64, flags) }.unwrap();
+        let mapping = std::ptr::from_raw_parts_mut(raw_mapping as *mut (), count);
+        StorageBuffer {
+            buffer,
+            mapping,
+            size,
+        }
+    }
+
+    pub fn generate(&mut self, mut f: impl FnMut(usize) -> T) {
+        let slice = unsafe {
+            std::slice::from_raw_parts_mut(
+                self.mapping.as_mut_ptr() as *mut MaybeUninit<T>,
+                self.mapping.len(),
+            )
+        };
+        for (index, element) in slice.iter_mut().enumerate() {
+            element.write(f(index));
+        }
+    }
+}
+
 impl Deref for Dev {
     type Target = Device;
 
@@ -223,12 +285,34 @@ impl Deref for Dev {
     }
 }
 
-impl<T: Copy> AnyUniformBuffer for UniformBuffer<T> {
+impl<T: ?Sized> Deref for StorageBuffer<T> {
+    type Target = T;
+
+    fn deref(&self) -> &T {
+        unsafe { &*self.mapping }
+    }
+}
+
+impl<T: ?Sized> DerefMut for StorageBuffer<T> {
+    fn deref_mut(&mut self) -> &mut T {
+        unsafe { &mut *self.mapping }
+    }
+}
+
+impl<T> AsDescriptor for UniformBuffer<T> {
     fn descriptor(&self, flight_index: usize) -> vk::DescriptorBufferInfo {
         *vk::DescriptorBufferInfo::builder()
             .buffer(self.buffer.buffer)
             .offset((flight_index * self.aligned_size) as u64)
             .range(std::mem::size_of::<T>() as u64)
+    }
+}
+
+impl<T: ?Sized> AsDescriptor for StorageBuffer<T> {
+    fn descriptor(&self, _flight_index: usize) -> vk::DescriptorBufferInfo {
+        *vk::DescriptorBufferInfo::builder()
+            .buffer(self.buffer.buffer)
+            .range(self.size as u64)
     }
 }
 

@@ -1,5 +1,6 @@
 use crate::config::{
-    DescriptorBinding, DescriptorSet, Pass, Pipeline, Renderer, Sampler, Subpass, VertexAttribute,
+    Compute, DescriptorBinding, DescriptorSet, Pass, Pipeline, Renderer, Sampler, Subpass,
+    VertexAttribute,
 };
 use crate::helper::{to_camelcase, AttachmentType};
 use std::borrow::Cow;
@@ -13,12 +14,14 @@ enum BindingType {
     AccelerationStructure,
     Image,
     InputAttachment,
+    StorageBuffer,
     StorageImage,
     Uniform,
 }
 
 #[derive(Eq, Ord, PartialEq, PartialOrd)]
 enum ShaderType {
+    Compute,
     Vertex,
     Fragment,
 }
@@ -29,6 +32,7 @@ impl BindingType {
             BindingType::AccelerationStructure => "ACCELERATION_STRUCTURE_KHR",
             BindingType::Image => "COMBINED_IMAGE_SAMPLER",
             BindingType::InputAttachment => "INPUT_ATTACHMENT",
+            BindingType::StorageBuffer => "STORAGE_BUFFER",
             BindingType::StorageImage => "STORAGE_IMAGE",
             BindingType::Uniform => "UNIFORM_BUFFER",
         }
@@ -38,6 +42,7 @@ impl BindingType {
 impl ShaderType {
     fn lowercase(&self) -> &'static str {
         match self {
+            ShaderType::Compute => "compute",
             ShaderType::Fragment => "fragment",
             ShaderType::Vertex => "vertex",
         }
@@ -45,6 +50,7 @@ impl ShaderType {
 
     fn camelcase(&self) -> &'static str {
         match self {
+            ShaderType::Compute => "Compute",
             ShaderType::Fragment => "Fragment",
             ShaderType::Vertex => "Vertex",
         }
@@ -52,6 +58,7 @@ impl ShaderType {
 
     fn extension(&self) -> &'static str {
         match self {
+            ShaderType::Compute => "comp",
             ShaderType::Fragment => "frag",
             ShaderType::Vertex => "vert",
         }
@@ -64,6 +71,7 @@ impl DescriptorBinding {
             DescriptorBinding::AccelerationStructure(_) => BindingType::AccelerationStructure,
             DescriptorBinding::Image(_) => BindingType::Image,
             DescriptorBinding::InputAttachment(_) => BindingType::InputAttachment,
+            DescriptorBinding::StorageBuffer(_) => BindingType::StorageBuffer,
             DescriptorBinding::StorageImage(_) => BindingType::StorageImage,
             DescriptorBinding::Uniform(_) => BindingType::Uniform,
         }
@@ -74,6 +82,7 @@ impl DescriptorBinding {
             DescriptorBinding::AccelerationStructure(as_) => &as_.name,
             DescriptorBinding::Image(image) => &image.name,
             DescriptorBinding::InputAttachment(input) => &input.name,
+            DescriptorBinding::StorageBuffer(storage) => &storage.name,
             DescriptorBinding::StorageImage(image) => &image.name,
             DescriptorBinding::Uniform(uniform) => &uniform.name,
         }
@@ -84,6 +93,7 @@ impl DescriptorBinding {
             DescriptorBinding::AccelerationStructure(as_) => &as_.stage,
             DescriptorBinding::Image(image) => &image.stage,
             DescriptorBinding::InputAttachment(input) => &input.stage,
+            DescriptorBinding::StorageBuffer(storage) => &storage.stage,
             DescriptorBinding::StorageImage(image) => &image.stage,
             DescriptorBinding::Uniform(uniform) => &uniform.stage,
         }
@@ -95,6 +105,10 @@ impl DescriptorBinding {
             DescriptorBinding::Image(_)
             | DescriptorBinding::InputAttachment(_)
             | DescriptorBinding::StorageImage(_) => "vk::ImageView".into(),
+            DescriptorBinding::StorageBuffer(storage) => {
+                let typ = &storage.typ;
+                format!("&StorageBuffer<{typ}>").into()
+            }
             DescriptorBinding::Uniform(uniform) => {
                 let typ = &uniform.typ;
                 format!("&UniformBuffer<{typ}>").into()
@@ -104,6 +118,12 @@ impl DescriptorBinding {
 }
 
 impl Display for DescriptorSet {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.name.fmt(f)
+    }
+}
+
+impl Display for Compute {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.name.fmt(f)
     }
@@ -162,7 +182,7 @@ use crate::renderer::uniform::{{"#
         file,
         r#"}};
 use crate::renderer::debug::set_label;
-use crate::renderer::util::{{AnyUniformBuffer, Dev, ImageResources, UniformBuffer}};
+use crate::renderer::util::{{AsDescriptor, Dev, ImageResources, StorageBuffer, UniformBuffer}};
 use crate::renderer::{{Pass, Swapchain, COLOR_FORMAT, DEPTH_FORMAT, FRAMES_IN_FLIGHT}};
 use ash::vk;
 use std::ffi::CStr;
@@ -214,6 +234,9 @@ pub struct PipelineLayouts {{"#
     for_pipelines(renderer, |_, _, _, pipeline| {
         writeln!(file, "    pub {pipeline}: vk::PipelineLayout,").unwrap();
     });
+    for compute in &renderer.computes {
+        writeln!(file, "    pub {compute}: vk::PipelineLayout,").unwrap();
+    }
     writeln!(
         file,
         r#"}}
@@ -238,6 +261,9 @@ pub struct Shaders {{"#
         shaders.insert((vertex_shader, ShaderType::Vertex));
         shaders.insert((fragment_shader, ShaderType::Fragment));
     });
+    for compute in &renderer.computes {
+        shaders.insert((compute.name.as_str(), ShaderType::Compute));
+    }
     for (name, typ) in &shaders {
         let typ_lowercase = typ.lowercase();
         writeln!(file, "    pub {name}_{typ_lowercase}: Vec<u32>,").unwrap();
@@ -275,6 +301,9 @@ pub struct Pipelines {{"#
     for_pipelines(renderer, |_, _, _, pipeline| {
         writeln!(file, "    pub {pipeline}: vk::Pipeline,").unwrap();
     });
+    for compute in &renderer.computes {
+        writeln!(file, "    pub {compute}: vk::Pipeline,").unwrap();
+    }
     writeln!(
         file,
         r#"}}
@@ -379,15 +408,8 @@ struct Scratch {{"#
         )
         .unwrap();
     }
-    for_pipelines(renderer, |_, _, subpass, pipeline| {
+    for_pipelines(renderer, |_, _, _, pipeline| {
         let layout_count = pipeline.descriptor_sets.len();
-        let binding_count = pipeline.vertex_bindings.len();
-        let attribute_count = pipeline
-            .vertex_bindings
-            .iter()
-            .flat_map(|binding| binding.attributes.iter())
-            .filter(|attribute| !attribute.unused)
-            .count();
         if layout_count > 1 {
             writeln!(
                 file,
@@ -395,6 +417,35 @@ struct Scratch {{"#
             )
             .unwrap();
         }
+        writeln!(
+            file,
+            "    {pipeline}_pipeline_layout: vk::PipelineLayoutCreateInfo,"
+        )
+        .unwrap();
+    });
+    for compute in &renderer.computes {
+        let layout_count = compute.descriptor_sets.len();
+        if layout_count > 1 {
+            writeln!(
+                file,
+                "    {compute}_layouts: [vk::DescriptorSetLayout; {layout_count}],"
+            )
+            .unwrap();
+        }
+        writeln!(
+            file,
+            "    {compute}_pipeline_layout: vk::PipelineLayoutCreateInfo,"
+        )
+        .unwrap();
+    }
+    for_pipelines(renderer, |_, _, subpass, pipeline| {
+        let binding_count = pipeline.vertex_bindings.len();
+        let attribute_count = pipeline
+            .vertex_bindings
+            .iter()
+            .flat_map(|binding| binding.attributes.iter())
+            .filter(|attribute| !attribute.unused)
+            .count();
         if let Some(fragment_specialization) = &pipeline.fragment_specialization {
             let specialization_count = fragment_specialization.len();
             let pipeline_camelcase = to_camelcase(&pipeline.to_string());
@@ -408,8 +459,7 @@ struct Scratch {{"#
         }
         writeln!(
             file,
-            r#"    {pipeline}_pipeline_layout: vk::PipelineLayoutCreateInfo,
-    {pipeline}_shader_stages: [vk::PipelineShaderStageCreateInfo; 2],
+            r#"    {pipeline}_shader_stages: [vk::PipelineShaderStageCreateInfo; 2],
     {pipeline}_vertex_bindings: [vk::VertexInputBindingDescription; {binding_count}],
     {pipeline}_vertex_attributes: [vk::VertexInputAttributeDescription; {attribute_count}],
     {pipeline}_vertex_state: vk::PipelineVertexInputStateCreateInfo,
@@ -432,6 +482,13 @@ struct Scratch {{"#
         )
         .unwrap();
     });
+    for compute in &renderer.computes {
+        writeln!(
+            file,
+            r#"    {compute}_pipeline: vk::ComputePipelineCreateInfo,"#
+        )
+        .unwrap();
+    }
     let pass_count = renderer.passes.len();
     writeln!(
         file,
@@ -1056,6 +1113,44 @@ static mut SCRATCH: Scratch = Scratch {{"#
         )
         .unwrap();
     });
+    for compute in &renderer.computes {
+        let descriptor_count = compute.descriptor_sets.len();
+        let set_layouts_ptr = if descriptor_count > 1 {
+            format!("unsafe {{ SCRATCH.{compute}_layouts.as_ptr() }}")
+        } else {
+            "std::ptr::null()".to_owned()
+        };
+        writeln!(
+            file,
+            r#"    {compute}_pipeline_layout: vk::PipelineLayoutCreateInfo {{
+        s_type: vk::StructureType::PIPELINE_LAYOUT_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::PipelineLayoutCreateFlags::empty(),
+        set_layout_count: {descriptor_count},
+        p_set_layouts: {set_layouts_ptr},
+        push_constant_range_count: 0,
+        p_push_constant_ranges: std::ptr::null(),
+    }},
+    {compute}_pipeline: vk::ComputePipelineCreateInfo {{
+        s_type: vk::StructureType::COMPUTE_PIPELINE_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::PipelineCreateFlags::empty(),
+        stage: vk::PipelineShaderStageCreateInfo {{
+            s_type: vk::StructureType::PIPELINE_SHADER_STAGE_CREATE_INFO,
+            p_next: std::ptr::null(),
+            flags: vk::PipelineShaderStageCreateFlags::empty(),
+            stage: vk::ShaderStageFlags::COMPUTE,
+            module: vk::ShaderModule::null(),
+            p_name: unsafe {{ CStr::from_bytes_with_nul_unchecked(b"main\0") }}.as_ptr(),
+            p_specialization_info: std::ptr::null(),
+        }},
+        layout: vk::PipelineLayout::null(),
+        base_pipeline_handle: vk::Pipeline::null(),
+        base_pipeline_index: 0,
+    }},"#
+        )
+        .unwrap();
+    }
     writeln!(
         file,
         r#"}};
@@ -1203,6 +1298,7 @@ impl DescriptorPools {{"#
                 .image_view({binding_name});"#
                 )
                     .unwrap(),
+                DescriptorBinding::StorageBuffer(_) => writeln!(file, r#"            let {binding_name}_buffer = {binding_name}.descriptor(_flight_index);"#).unwrap(),
                 DescriptorBinding::StorageImage(_) => writeln!(file,
                     r#"            let {binding_name}_image = *vk::DescriptorImageInfo::builder()
                 .image_layout(vk::ImageLayout::GENERAL)
@@ -1234,6 +1330,11 @@ impl DescriptorPools {{"#
                 | DescriptorBinding::StorageImage(_) => writeln!(
                     file,
                     r#"                .image_info(std::slice::from_ref(&{binding_name}_image));"#
+                )
+                .unwrap(),
+                DescriptorBinding::StorageBuffer(_) => writeln!(
+                    file,
+                    r#"                .buffer_info(std::slice::from_ref(&{binding_name}_buffer));"#
                 )
                 .unwrap(),
                 DescriptorBinding::Uniform(_) => writeln!(
@@ -1304,6 +1405,13 @@ impl PipelineLayouts {{
         )
         .unwrap();
     });
+    for compute in &renderer.computes {
+        writeln!(
+            file,
+            "        unsafe {{ dev.destroy_pipeline_layout(self.{compute}, None) }};"
+        )
+        .unwrap();
+    }
     writeln!(
         file,
         r#"    }}
@@ -1349,6 +1457,13 @@ impl Pipelines {{
         )
         .unwrap();
     });
+    for compute in &renderer.computes {
+        writeln!(
+            file,
+            "        unsafe {{ dev.destroy_pipeline(self.{compute}, None) }};"
+        )
+        .unwrap();
+    }
     writeln!(
         file,
         r#"    }}
@@ -1615,13 +1730,30 @@ pub fn create_pipeline_layouts(
             writeln!(file, "    unsafe {{ SCRATCH.{pipeline}_pipeline_layout.p_set_layouts = &descriptor_set_layouts.{descriptor_set} }};").unwrap();
         }
     });
+    for compute in &renderer.computes {
+        if compute.descriptor_sets.len() > 1 {
+            for (descriptor_set_index, descriptor_set) in compute.descriptor_sets.iter().enumerate()
+            {
+                writeln!(file, "    unsafe {{ SCRATCH.{compute}_layouts[{descriptor_set_index}] = descriptor_set_layouts.{descriptor_set} }};").unwrap();
+            }
+        } else {
+            let descriptor_set = &compute.descriptor_sets[0];
+            writeln!(file, "    unsafe {{ SCRATCH.{compute}_pipeline_layout.p_set_layouts = &descriptor_set_layouts.{descriptor_set} }};").unwrap();
+        }
+    }
     for_pipelines(renderer, |_, _, _, pipeline| {
         writeln!(file, r#"    let {pipeline} = unsafe {{ dev.create_pipeline_layout(&SCRATCH.{pipeline}_pipeline_layout, None).unwrap_unchecked() }};"#).unwrap();
     });
+    for compute in &renderer.computes {
+        writeln!(file, r#"    let {compute} = unsafe {{ dev.create_pipeline_layout(&SCRATCH.{compute}_pipeline_layout, None).unwrap_unchecked() }};"#).unwrap();
+    }
     writeln!(file, "    PipelineLayouts {{").unwrap();
     for_pipelines(renderer, |_, _, _, pipeline| {
         writeln!(file, "        {pipeline},").unwrap();
     });
+    for compute in &renderer.computes {
+        writeln!(file, "        {compute},").unwrap();
+    }
     writeln!(
         file,
         r#"    }}
@@ -1748,6 +1880,14 @@ pub fn create_pipelines(
         )
         .unwrap();
     });
+    for compute in &renderer.computes {
+        writeln!(
+            file,
+            r#"    unsafe {{ SCRATCH.{compute}_pipeline.layout = layouts.{compute} }};
+    unsafe {{ SCRATCH.{compute}_pipeline.stage.module = shader_modules.{compute}_compute }};"#
+        )
+        .unwrap();
+    }
     let mut pipeline_count = 0;
     let mut first_pipeline = None;
     for_pipelines(renderer, |_, _, _, pipeline| {
@@ -1767,8 +1907,28 @@ pub fn create_pipelines(
         &SCRATCH.{first_pipeline}_pipeline,
         std::ptr::null(),
         pipelines.as_mut_ptr() as *mut vk::Pipeline,
-    ) }};
-    unsafe {{ pipelines.assume_init() }}
+    ) }};"#
+    )
+    .unwrap();
+    if !renderer.computes.is_empty() {
+        let compute_pipeline_count = renderer.computes.len();
+        let first_compute_pipeline = &renderer.computes[0].name;
+        writeln!(
+            file,
+            r#"    let _ = unsafe {{ (dev.fp_v1_0().create_compute_pipelines)(
+        dev.handle(),
+        vk::PipelineCache::null(),
+        {compute_pipeline_count},
+        &SCRATCH.{first_compute_pipeline}_pipeline,
+        std::ptr::null(),
+        (pipelines.as_mut_ptr() as *mut vk::Pipeline).offset({pipeline_count}),
+    ) }};"#
+        )
+        .unwrap();
+    }
+    writeln!(
+        file,
+        r#"    unsafe {{ pipelines.assume_init() }}
 }}"#
     )
     .unwrap();

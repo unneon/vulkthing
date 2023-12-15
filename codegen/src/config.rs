@@ -10,6 +10,8 @@ pub struct Renderer {
     pub descriptor_sets: Vec<DescriptorSet>,
     #[knuffel(children(name = "pass"))]
     pub passes: Vec<Pass>,
+    #[knuffel(children(name = "compute"))]
+    pub computes: Vec<Compute>,
     #[knuffel(children(name = "specialization"))]
     pub specializations: Vec<Specialization>,
 }
@@ -49,6 +51,7 @@ pub enum DescriptorBinding {
     AccelerationStructure(AccelerationStructureBinding),
     Image(ImageBinding),
     InputAttachment(InputAttachmentBinding),
+    StorageBuffer(StorageBufferBinding),
     StorageImage(StorageImageBinding),
     Uniform(UniformBinding),
 }
@@ -83,6 +86,16 @@ pub struct InputAttachmentBinding {
     pub stage: String,
     #[knuffel(property, default)]
     pub msaa: bool,
+}
+
+#[derive(Debug, Decode)]
+pub struct StorageBufferBinding {
+    #[knuffel(argument)]
+    pub name: String,
+    #[knuffel(argument)]
+    pub stage: String,
+    #[knuffel(argument)]
+    pub typ: String,
 }
 
 #[derive(Debug, Decode)]
@@ -229,6 +242,14 @@ pub struct DependencyTarget {
     pub stage_mask: String,
     #[knuffel(argument)]
     pub access_mask: String,
+}
+
+#[derive(Debug, Decode)]
+pub struct Compute {
+    #[knuffel(argument)]
+    pub name: String,
+    #[knuffel(child, unwrap(arguments))]
+    pub descriptor_sets: Vec<String>,
 }
 
 #[derive(Debug, Decode)]
