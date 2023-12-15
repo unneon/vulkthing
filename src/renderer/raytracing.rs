@@ -1,6 +1,6 @@
 use crate::renderer::util::{Buffer, Ctx, Dev};
 use crate::renderer::vertex::Vertex;
-use crate::renderer::{MeshObject, UNIFIED_MEMORY};
+use crate::renderer::{MeshObject, VRAM_VIA_BAR};
 use ash::extensions::khr::{AccelerationStructure, BufferDeviceAddress};
 use ash::vk;
 use ash::vk::Packed24_8;
@@ -129,7 +129,7 @@ pub fn create_tlas(model: &Matrix4<f32>, blas: &RaytraceResources, ctx: &Ctx) ->
     };
 
     let instances_buffer = Buffer::create(
-        UNIFIED_MEMORY,
+        VRAM_VIA_BAR,
         vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS
             | vk::BufferUsageFlags::ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_KHR,
         std::mem::size_of::<vk::AccelerationStructureInstanceKHR>(),

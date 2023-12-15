@@ -13,7 +13,7 @@ use crate::renderer::util::{vulkan_str, Buffer, Ctx, Dev};
 use crate::renderer::vertex::{Star, Vertex};
 use crate::renderer::{
     GrassChunk, MeshObject, Object, Renderer, Synchronization, UniformBuffer, FRAMES_IN_FLIGHT,
-    UNIFIED_MEMORY,
+    VRAM_VIA_BAR,
 };
 use crate::window::Window;
 use crate::world::World;
@@ -154,7 +154,7 @@ impl Renderer {
         let star_transform = UniformBuffer::create(&dev);
         let star_material = UniformBuffer::create(&dev);
         let star_instances = Buffer::create(
-            UNIFIED_MEMORY,
+            VRAM_VIA_BAR,
             vk::BufferUsageFlags::VERTEX_BUFFER,
             world.stars.len() * std::mem::size_of::<Star>(),
             &dev,
@@ -565,7 +565,7 @@ fn create_command_buffers(
 fn create_vertex_buffer(vertex_data: &[Vertex], supports_raytracing: bool, dev: &Dev) -> Buffer {
     let size = std::mem::size_of_val(vertex_data);
     let vertex = Buffer::create(
-        UNIFIED_MEMORY,
+        VRAM_VIA_BAR,
         vk::BufferUsageFlags::VERTEX_BUFFER
             | if supports_raytracing {
                 vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS

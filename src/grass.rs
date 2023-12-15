@@ -2,7 +2,7 @@ use crate::config::DEFAULT_PLANET_SCALE;
 use crate::mesh::MeshData;
 use crate::renderer::util::{Buffer, Dev};
 use crate::renderer::vertex::GrassBlade;
-use crate::renderer::{GrassChunk, UNIFIED_MEMORY};
+use crate::renderer::{GrassChunk, VRAM_VIA_BAR};
 use crate::util::MpscPendingIterator;
 use ash::vk;
 use log::debug;
@@ -175,7 +175,7 @@ impl GrassThread {
         let blades_data = generate_grass_blades(&self.parameters, &self.planet_mesh, chunk);
         let blades_size = std::mem::size_of_val(blades_data.as_slice());
         let blades_buffer = Buffer::create(
-            UNIFIED_MEMORY,
+            VRAM_VIA_BAR,
             vk::BufferUsageFlags::VERTEX_BUFFER,
             blades_size,
             &self.dev,

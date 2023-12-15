@@ -149,7 +149,7 @@ pub struct PostprocessSettings {
     pub gamma: f32,
 }
 
-pub const UNIFIED_MEMORY: vk::MemoryPropertyFlags = vk::MemoryPropertyFlags::from_raw(
+pub const VRAM_VIA_BAR: vk::MemoryPropertyFlags = vk::MemoryPropertyFlags::from_raw(
     vk::MemoryPropertyFlags::DEVICE_LOCAL.as_raw()
         | vk::MemoryPropertyFlags::HOST_VISIBLE.as_raw()
         | vk::MemoryPropertyFlags::HOST_COHERENT.as_raw(),
