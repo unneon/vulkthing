@@ -26,7 +26,7 @@ void main() {
     vec3 normal = dot(frag_normal, global.light.position - frag_position) > 0 ? frag_normal : -frag_normal;
     vec3 albedo = vec3(0.2, 0.8, 0.03);
     vec3 reflected_color = pbr(normal, albedo, 0, 1, 0);
-    if (in_shadow())
+    if (in_shadow_denoised())
         reflected_color = vec3(0);
     out_color = vec4(reflected_color, 1);
 }

@@ -56,6 +56,8 @@ pub struct Light {
     pub color: Vector3<f32>,
     pub intensity: f32,
     pub position: Vector3<f32>,
+    pub shadow_sample_seed: f32,
+    pub scale: f32,
 }
 
 #[repr(C, align(4))]

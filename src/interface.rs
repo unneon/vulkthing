@@ -72,6 +72,9 @@ impl Interface {
                         4. * DEFAULT_PLANET_SCALE,
                         &mut world.sun_radius,
                     );
+                    ui.slider_config("Scale", 1., 500.)
+                        .flags(SliderFlags::LOGARITHMIC)
+                        .build(&mut world.sun_scale);
                     ui.checkbox("Pause movement", &mut world.sun_pause);
                     ui.slider_config("Speed", 0.001, 10.)
                         .flags(SliderFlags::LOGARITHMIC)

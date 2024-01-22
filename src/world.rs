@@ -28,6 +28,7 @@ pub struct World {
     pub sun_pause: bool,
     pub sun_radius: f32,
     pub sun_speed: f32,
+    pub sun_scale: f32,
     pub atmosphere: Atmosphere,
 }
 
@@ -138,6 +139,7 @@ impl World {
             sun_pause: false,
             sun_radius: DEFAULT_SUN_RADIUS,
             sun_speed: DEFAULT_SUN_SPEED,
+            sun_scale: 50.,
             atmosphere: Atmosphere {
                 density_falloff: 6.,
                 scale: 1.3,
@@ -185,6 +187,8 @@ impl World {
         let translation = &mut self.entities[1].transform.translation;
         translation.x = self.sun_radius * self.time_of_day.sin();
         translation.z = self.sun_radius * self.time_of_day.cos();
+        let scale = &mut self.entities[1].transform.scale;
+        *scale = Vector3::from_element(self.sun_scale);
     }
 
     pub fn light(&self) -> Light {
@@ -192,6 +196,8 @@ impl World {
             position: self.sun().transform.translation,
             intensity: self.sun_intensity,
             color: Vector3::new(1., 1., 1.),
+            shadow_sample_seed: self.time,
+            scale: self.sun_scale,
         }
     }
 

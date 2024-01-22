@@ -23,7 +23,7 @@ layout(location = 0) out vec4 out_color;
 
 void main() {
     vec3 reflected_color = pbr(frag_normal, material.albedo, material.metallic, material.roughness, material.ao);
-    if (in_shadow())
+    if (in_shadow_denoised())
         reflected_color = vec3(0);
     vec3 color = reflected_color + material.emit;
     out_color = vec4(color, 1);

@@ -57,8 +57,8 @@ vec3 pbr(vec3 normal, vec3 albedo, float metallic, float roughness, float ao) {
 
     float ndotl = max(dot(normal, light), 0);
 
-    vec3 ambient = vec3(0.03) * albedo * ao;
+//    vec3 ambient = vec3(0.03) * albedo * ao;
     vec3 radiance_out = (kd * albedo / PI + specular) * radiance * ndotl;
 
-    return ambient + radiance_out;
+    return radiance_out;
 }
