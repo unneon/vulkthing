@@ -4,7 +4,7 @@ use crate::camera::Camera;
 use crate::config::{
     DEFAULT_CAMERA, DEFAULT_PLANET_POSITION, DEFAULT_PLANET_SCALE, DEFAULT_STAR_COUNT,
     DEFAULT_STAR_MAX_SCALE, DEFAULT_STAR_MIN_SCALE, DEFAULT_STAR_RADIUS, DEFAULT_SUN_POSITION,
-    DEFAULT_SUN_RADIUS, DEFAULT_SUN_SPEED,
+    DEFAULT_SUN_RADIUS, DEFAULT_SUN_SPEED, DEFAULT_VOXEL_CHUNK_SIZE,
 };
 use crate::input::InputState;
 use crate::mesh::MeshData;
@@ -125,7 +125,21 @@ impl World {
             ao: 0.,
             mesh_id: 5,
         };
-        let entities = vec![planet, sun, voxels];
+        let voxels2 = Entity {
+            transform: Transform {
+                translation: camera.position
+                    + Vector3::new(DEFAULT_VOXEL_CHUNK_SIZE as f32, 0., 0.),
+                rotation: UnitQuaternion::identity(),
+                scale: Vector3::from_element(1.),
+            },
+            albedo: Vector3::from_element(1.),
+            emit: Vector3::from_element(1.),
+            metallic: 0.,
+            roughness: 1.,
+            ao: 0.,
+            mesh_id: 6,
+        };
+        let entities = vec![planet, sun, voxels, voxels2];
         let mut stars = Vec::new();
         let mut rng = rand::thread_rng();
         for _ in 0..DEFAULT_STAR_COUNT {

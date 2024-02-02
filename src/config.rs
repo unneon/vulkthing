@@ -75,3 +75,5 @@ pub const DEFAULT_RENDERER_SETTINGS: RendererSettings = RendererSettings {
         gamma: 1.,
     },
 };
+
+pub const DEFAULT_VOXEL_CHUNK_SIZE: usize = 256;

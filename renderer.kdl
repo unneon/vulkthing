@@ -10,7 +10,7 @@ sampler "nearest" {
     unnormalized-coordinates
 }
 
-descriptor-set "object" 6 {
+descriptor-set "object" 7 {
     uniform "transform" "VERTEX" "Transform"
     uniform "material" "FRAGMENT" "Material"
 }
