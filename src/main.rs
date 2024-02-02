@@ -81,14 +81,14 @@ fn main() {
     debug!("voxel heightmap 1 generated");
     let heightmap1 = voxels.generate_chunk_heightmap(chunk1);
     debug!("voxel heightmap 2 generated");
-    let svo0 = voxels.svo_from_heightmap(chunk0, &heightmap0);
+    let svo0 = voxels.generate_chunk_svo(chunk0, &heightmap0);
     debug!("sparse voxel octree 1 generated");
-    let svo1 = voxels.svo_from_heightmap(chunk1, &heightmap1);
+    let svo1 = voxels.generate_chunk_svo(chunk1, &heightmap1);
     debug!("sparse voxel octree 2 generated");
-    let triangles0 = voxels.triangles_from_voxels(&svo0);
-    debug!("voxel mesh 1 generated");
-    let triangles1 = voxels.triangles_from_voxels(&svo1);
-    debug!("voxel mesh 2 generated");
+    let triangles0 = voxels.generate_chunk_mesh(&svo0);
+    debug!("voxel mesh 1 generated ({})", triangles0.vertices.len());
+    let triangles1 = voxels.generate_chunk_mesh(&svo1);
+    debug!("voxel mesh 2 generated ({})", triangles1.vertices.len());
     let mut world = World::new(&planet_mesh);
     let mut renderer_settings = DEFAULT_RENDERER_SETTINGS;
     let mut renderer = Renderer::new(

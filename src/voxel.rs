@@ -25,6 +25,24 @@ pub enum VoxelKind {
     Stone = 1,
 }
 
+pub struct BinaryCube {
+    position: Vector3<i64>,
+    size: BinaryCubeSize,
+}
+
+struct BinaryCubeSize {
+    length: usize,
+}
+
+const DIRECTIONS: [Vector3<i64>; 6] = [
+    Vector3::new(1, 0, 0),
+    Vector3::new(-1, 0, 0),
+    Vector3::new(0, 1, 0),
+    Vector3::new(0, -1, 0),
+    Vector3::new(0, 0, 1),
+    Vector3::new(0, 0, -1),
+];
+
 impl Voxels {
     pub fn new(chunk_size: usize, seed: u32) -> Voxels {
         Voxels {
@@ -44,13 +62,12 @@ impl Voxels {
                 let raw_noise = self.noise.get(noise_arguments);
                 let scaled_noise = raw_noise * 32.;
                 heightmap[(x, y)] = scaled_noise.round() as i64;
-                // heightmap[(x, y)] = 1;
             }
         }
         heightmap
     }
 
-    pub fn svo_from_heightmap(
+    pub fn generate_chunk_svo(
         &self,
         chunk: Vector3<i64>,
         heightmap: &DMatrix<i64>,
@@ -66,70 +83,75 @@ impl Voxels {
         )
     }
 
-    pub fn triangles_from_voxels(&self, voxels: &SparseVoxelOctree) -> MeshData {
+    pub fn generate_chunk_mesh(&self, voxels: &SparseVoxelOctree) -> MeshData {
+        let cube = BinaryCube::new_at_zero(self.chunk_size);
         let mut vertices = Vec::new();
-        for x in 0..self.chunk_size as i64 {
-            for y in 0..self.chunk_size as i64 {
-                for z in 0..self.chunk_size as i64 {
-                    if let Some(side) = self.side((x, y, z), (x, y, z + 1), voxels) {
-                        vertices.extend_from_slice(&side);
-                    }
-                    if let Some(side) = self.side((x, y, z), (x, y, z - 1), voxels) {
-                        vertices.extend_from_slice(&side);
-                    }
-                    if let Some(side) = self.side((x, y, z), (x + 1, y, z), voxels) {
-                        vertices.extend_from_slice(&side);
-                    }
-                    if let Some(side) = self.side((x, y, z), (x - 1, y, z), voxels) {
-                        vertices.extend_from_slice(&side);
-                    }
-                    if let Some(side) = self.side((x, y, z), (x, y + 1, z), voxels) {
-                        vertices.extend_from_slice(&side);
-                    }
-                    if let Some(side) = self.side((x, y, z), (x, y - 1, z), voxels) {
-                        vertices.extend_from_slice(&side);
-                    }
-                }
-            }
-        }
+        self.generate_chunk_mesh_impl(cube, voxels, voxels, &mut vertices);
         MeshData { vertices }
     }
 
-    fn side(
+    fn generate_chunk_mesh_impl(
         &self,
-        from: (i64, i64, i64),
-        to: (i64, i64, i64),
+        cube: BinaryCube,
+        cube_voxels: &SparseVoxelOctree,
+        root_voxels: &SparseVoxelOctree,
+        vertices: &mut Vec<Vertex>,
+    ) {
+        if cube.is_single_voxel() {
+            self.generate_chunk_mesh_voxel(cube.position, root_voxels, vertices);
+            return;
+        }
+
+        match cube_voxels {
+            SparseVoxelOctree::Uniform { .. } => {
+                for side_voxel in cube.side_voxels() {
+                    self.generate_chunk_mesh_voxel(side_voxel, root_voxels, vertices);
+                }
+            }
+            SparseVoxelOctree::Mixed { children } => {
+                for (sub_cube, child) in cube.subdivide().zip(children.iter()) {
+                    self.generate_chunk_mesh_impl(sub_cube, child, root_voxels, vertices);
+                }
+            }
+        };
+    }
+
+    fn generate_chunk_mesh_voxel(
+        &self,
+        position: Vector3<i64>,
+        root_voxels: &SparseVoxelOctree,
+        vertices: &mut Vec<Vertex>,
+    ) {
+        for direction in DIRECTIONS {
+            let side = self.generate_chunk_mesh_side(position, direction, root_voxels);
+            if let Some(side) = side {
+                vertices.extend_from_slice(&side);
+            }
+        }
+    }
+
+    fn generate_chunk_mesh_side(
+        &self,
+        position: Vector3<i64>,
+        normal: Vector3<i64>,
         voxels: &SparseVoxelOctree,
     ) -> Option<[Vertex; 3]> {
-        if !voxels.at(
-            Vector3::new(from.0 as usize, from.1 as usize, from.2 as usize),
-            self.chunk_size,
-        ) {
+        if !voxels.at(position, self.chunk_size as i64) {
             return None;
         }
-        let to_out_of_bounds = (to.0 < 0 || to.0 >= self.chunk_size as i64)
-            || (to.1 < 0 || to.1 >= self.chunk_size as i64)
-            || (to.2 < 0 || to.2 >= self.chunk_size as i64);
-        if !to_out_of_bounds
-            && voxels.at(
-                Vector3::new(to.0 as usize, to.1 as usize, to.2 as usize),
-                self.chunk_size,
-            )
-        {
+        let neighbour = position + normal;
+        let to_out_of_bounds = (neighbour.x < 0 || neighbour.x >= self.chunk_size as i64)
+            || (neighbour.y < 0 || neighbour.y >= self.chunk_size as i64)
+            || (neighbour.z < 0 || neighbour.z >= self.chunk_size as i64);
+        if !to_out_of_bounds && voxels.at(neighbour, self.chunk_size as i64) {
             return None;
         }
-        let normal = Vector3::new(
-            (to.0 - from.0) as f32,
-            (to.1 - from.1) as f32,
-            (to.2 - from.2) as f32,
-        );
         let rot1 = Vector3::new(normal.z.abs(), normal.x.abs(), normal.y.abs());
         let rot2 = Vector3::new(normal.y.abs(), normal.z.abs(), normal.x.abs());
-        let base = Vector3::new(from.0 as f32, from.1 as f32, from.2 as f32);
-        let base = if normal.x + normal.y + normal.z > 0. {
-            base + normal
+        let base = if normal.x + normal.y + normal.z > 0 {
+            position + normal
         } else {
-            base
+            position
         };
         let (rot1, rot2) = if normal == rot1.cross(&rot2) {
             (rot1, rot2)
@@ -137,45 +159,95 @@ impl Voxels {
             (rot2, rot1)
         };
         let v1 = Vertex {
-            position: base,
-            normal,
+            position: base.cast::<f32>(),
+            normal: normal.cast::<f32>(),
         };
         let v2 = Vertex {
-            position: base + rot1,
-            normal,
+            position: (base + rot1).cast::<f32>(),
+            normal: normal.cast::<f32>(),
         };
         let v3 = Vertex {
-            position: base + rot2,
-            normal,
+            position: (base + rot2).cast::<f32>(),
+            normal: normal.cast::<f32>(),
         };
         Some([v1, v2, v3])
     }
 }
 
 impl SparseVoxelOctree {
-    pub fn at(&self, local_coordinates: Vector3<usize>, local_size: usize) -> bool {
+    pub fn at(&self, point: Vector3<i64>, local_size: i64) -> bool {
         match self {
             SparseVoxelOctree::Uniform { kind } => *kind == VoxelKind::Stone,
             SparseVoxelOctree::Mixed { children } => {
                 let child_size = local_size / 2;
                 let mut index = 0;
-                if local_coordinates.z >= child_size {
+                if point.z >= child_size {
                     index += 4;
                 }
-                if local_coordinates.y >= child_size {
+                if point.y >= child_size {
                     index += 2;
                 }
-                if local_coordinates.x >= child_size {
+                if point.x >= child_size {
                     index += 1;
                 }
                 let child_coordinates = Vector3::new(
-                    local_coordinates.x % child_size,
-                    local_coordinates.y % child_size,
-                    local_coordinates.z % child_size,
+                    point.x % child_size,
+                    point.y % child_size,
+                    point.z % child_size,
                 );
                 children[index].at(child_coordinates, child_size)
             }
         }
+    }
+}
+
+impl BinaryCube {
+    pub fn new_at_zero(length: usize) -> BinaryCube {
+        BinaryCube {
+            position: Vector3::new(0, 0, 0),
+            size: BinaryCubeSize { length },
+        }
+    }
+
+    fn subdivide(&self) -> impl Iterator<Item = BinaryCube> {
+        let position = self.position;
+        let sublength = self.size.length / 2;
+        (0..2).flat_map(move |dz| {
+            (0..2).flat_map(move |dy| {
+                (0..2).map(move |dx| BinaryCube {
+                    position: position + sublength as i64 * Vector3::new(dx, dy, dz),
+                    size: BinaryCubeSize { length: sublength },
+                })
+            })
+        })
+    }
+
+    pub fn side_voxels(&self) -> impl Iterator<Item = Vector3<i64>> {
+        let position = self.position;
+        let length = self.size.length as i64;
+        DIRECTIONS.iter().flat_map(move |direction| {
+            let du = if direction.x == 0 {
+                Vector3::new(1, 0, 0)
+            } else {
+                Vector3::new(0, 1, 0)
+            };
+            let dv = if direction.z == 0 {
+                Vector3::new(0, 0, 1)
+            } else {
+                Vector3::new(0, 1, 0)
+            };
+            let side_base = position
+                + Vector3::new(
+                    if direction.x > 0 { length - 1 } else { 0 },
+                    if direction.y > 0 { length - 1 } else { 0 },
+                    if direction.z > 0 { length - 1 } else { 0 },
+                );
+            (0..length).flat_map(move |i| (0..length).map(move |j| side_base + i * du + j * dv))
+        })
+    }
+
+    fn is_single_voxel(&self) -> bool {
+        self.size.length == 1
     }
 }
 

@@ -76,4 +76,4 @@ pub const DEFAULT_RENDERER_SETTINGS: RendererSettings = RendererSettings {
     },
 };
 
-pub const DEFAULT_VOXEL_CHUNK_SIZE: usize = 256;
+pub const DEFAULT_VOXEL_CHUNK_SIZE: usize = 512;
