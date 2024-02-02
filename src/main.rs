@@ -35,12 +35,16 @@ use crate::grass::{GrassResponse, GrassState};
 use crate::input::InputState;
 use crate::interface::Interface;
 use crate::logger::{initialize_logger, initialize_panic_hook};
-use crate::mesh::load_mesh;
+use crate::mesh::{load_mesh, MeshData};
 use crate::planet::generate_planet;
+use crate::renderer::vertex::Vertex;
 use crate::renderer::Renderer;
 use crate::window::create_window;
 use crate::world::World;
 use log::debug;
+use nalgebra::Vector3;
+use noise::{NoiseFn, Perlin};
+use rand::random;
 use std::sync::Arc;
 use std::time::Instant;
 use winit::event::{DeviceEvent, Event, StartCause, WindowEvent};
@@ -57,6 +61,118 @@ const CAMERA_SENSITIVITY: f32 = 0.01;
 
 const BENCHMARK_FRAMES: usize = 800;
 
+fn generate_heightmap(chunk_size: usize, noise: &Perlin) -> Vec<Vec<i64>> {
+    let mut heightmap = Vec::new();
+    for x in 0..chunk_size {
+        let mut row = Vec::new();
+        for y in 0..chunk_size {
+            let raw_noise_value =
+                noise.get([x as f64 / chunk_size as f64, y as f64 / chunk_size as f64]);
+            let scaled_noise_value = (raw_noise_value * (chunk_size as f64 / 2.));
+            row.push(scaled_noise_value as i64);
+            debug!("heightmap[{x}][{y}, raw={raw_noise_value}, scaled={scaled_noise_value}");
+        }
+        heightmap.push(row);
+    }
+    heightmap
+}
+
+fn voxels_from_heightmap(chunk_size: usize, heightmap: Vec<Vec<i64>>) -> Vec<Vec<Vec<bool>>> {
+    let mut voxels = Vec::new();
+    for x in 0..chunk_size as i64 {
+        let mut slice = Vec::new();
+        for y in 0..chunk_size as i64 {
+            let mut row = Vec::new();
+            for z in 0..chunk_size as i64 {
+                row.push(heightmap[x as usize][y as usize] >= z);
+            }
+            slice.push(row);
+        }
+        voxels.push(slice);
+    }
+    voxels
+}
+
+fn triangles_from_voxels(chunk_size: usize, voxels: Vec<Vec<Vec<bool>>>) -> MeshData {
+    let mut vertices = Vec::new();
+    for x in 0..chunk_size as i64 {
+        for y in 0..chunk_size as i64 {
+            for z in 0..chunk_size as i64 {
+                if let Some(side) = side((x, y, z), (x, y, z + 1), chunk_size, &voxels) {
+                    vertices.extend_from_slice(&side);
+                }
+                if let Some(side) = side((x, y, z), (x, y, z - 1), chunk_size, &voxels) {
+                    vertices.extend_from_slice(&side);
+                }
+                if let Some(side) = side((x, y, z), (x + 1, y, z), chunk_size, &voxels) {
+                    vertices.extend_from_slice(&side);
+                }
+                if let Some(side) = side((x, y, z), (x - 1, y, z), chunk_size, &voxels) {
+                    vertices.extend_from_slice(&side);
+                }
+                if let Some(side) = side((x, y, z), (x, y + 1, z), chunk_size, &voxels) {
+                    vertices.extend_from_slice(&side);
+                }
+                if let Some(side) = side((x, y, z), (x, y - 1, z), chunk_size, &voxels) {
+                    vertices.extend_from_slice(&side);
+                }
+            }
+        }
+    }
+    MeshData { vertices }
+}
+
+fn side(
+    from: (i64, i64, i64),
+    to: (i64, i64, i64),
+    chunk_size: usize,
+    voxels: &[Vec<Vec<bool>>],
+) -> Option<[Vertex; 3]> {
+    if !voxels[from.0 as usize][from.1 as usize][from.2 as usize] {
+        return None;
+    }
+    if (to.0 < 0 || to.0 >= chunk_size as i64)
+        || (to.1 < 0 || to.1 >= chunk_size as i64)
+        || (to.2 < 0 || to.2 >= chunk_size as i64)
+    {
+    } else {
+        if voxels[to.0 as usize][to.1 as usize][to.2 as usize] {
+            return None;
+        }
+    }
+    let normal = Vector3::new(
+        (to.0 - from.0) as f32,
+        (to.1 - from.1) as f32,
+        (to.2 - from.2) as f32,
+    );
+    let rot1 = Vector3::new(normal.z.abs(), normal.x.abs(), normal.y.abs());
+    let rot2 = Vector3::new(normal.y.abs(), normal.z.abs(), normal.x.abs());
+    let base = Vector3::new(from.0 as f32, from.1 as f32, from.2 as f32);
+    let base = if normal.x + normal.y + normal.z > 0. {
+        base + normal
+    } else {
+        base
+    };
+    let (rot1, rot2) = if normal == rot1.cross(&rot2) {
+        (rot1, rot2)
+    } else {
+        (rot2, rot1)
+    };
+    let v1 = Vertex {
+        position: base,
+        normal,
+    };
+    let v2 = Vertex {
+        position: base + rot1,
+        normal,
+    };
+    let v3 = Vertex {
+        position: base + rot2,
+        normal,
+    };
+    Some([v1, v2, v3])
+}
+
 fn main() {
     initialize_logger();
     initialize_panic_hook();
@@ -68,6 +184,11 @@ fn main() {
     let icosahedron_mesh = load_mesh("assets/icosahedron.obj");
     let mut planet = DEFAULT_PLANET;
     let planet_mesh = Arc::new(generate_planet(&planet));
+    let noise = Perlin::new(random());
+    let chunk_size = 1024;
+    let heightmap = generate_heightmap(chunk_size, &noise);
+    let voxels = voxels_from_heightmap(chunk_size, heightmap);
+    let triangles = triangles_from_voxels(chunk_size, voxels);
     let mut world = World::new(&planet_mesh);
     let mut renderer_settings = DEFAULT_RENDERER_SETTINGS;
     let mut renderer = Renderer::new(
@@ -78,6 +199,7 @@ fn main() {
             &tetrahedron_mesh,
             &grass_mesh,
             &icosahedron_mesh,
+            &triangles,
         ],
         &world,
         &args,

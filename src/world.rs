@@ -112,7 +112,20 @@ impl World {
             ao: 0.,
             mesh_id: 4,
         };
-        let entities = vec![planet, sun];
+        let voxels = Entity {
+            transform: Transform {
+                translation: camera.position,
+                rotation: UnitQuaternion::identity(),
+                scale: Vector3::from_element(1.),
+            },
+            albedo: Vector3::from_element(1.),
+            emit: Vector3::from_element(1.),
+            metallic: 0.,
+            roughness: 1.,
+            ao: 0.,
+            mesh_id: 5,
+        };
+        let entities = vec![planet, sun, voxels];
         let mut stars = Vec::new();
         let mut rng = rand::thread_rng();
         for _ in 0..DEFAULT_STAR_COUNT {
