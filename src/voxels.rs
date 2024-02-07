@@ -14,7 +14,7 @@ use nalgebra::{DMatrix, Vector2, Vector3};
 use noise::NoiseFn;
 use noise::Perlin;
 use rand::random;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::mem::MaybeUninit;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -25,7 +25,9 @@ pub struct Voxels<'a> {
     // TODO: That is really not in the spirit of Rust safety.
     buffer: &'a mut [MaybeUninit<Vertex>],
     vertices: Arc<AtomicU64>,
-    loaded: HashMap<Vector3<i64>, SparseOctree>,
+    loaded_cpu: HashMap<Vector3<i64>, SparseOctree>,
+    loaded_gpu: HashSet<Vector3<i64>>,
+    loaded_heightmaps: HashMap<Vector2<i64>, DMatrix<i64>>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -51,7 +53,9 @@ impl<'a> Voxels<'a> {
             heightmap_noise: Perlin::new(random()),
             buffer,
             vertices: Arc::new(AtomicU64::new(0)),
-            loaded: HashMap::new(),
+            loaded_cpu: HashMap::new(),
+            loaded_gpu: HashSet::new(),
+            loaded_heightmaps: HashMap::new(),
         }
     }
 
@@ -70,7 +74,7 @@ impl<'a> Voxels<'a> {
             for dy in range_horizontal.clone() {
                 for dz in range_vertical.clone() {
                     let chunk = camera_chunk + Vector3::new(dx, dy, dz);
-                    if !self.loaded.contains_key(&chunk) {
+                    if !self.loaded_gpu.contains(&chunk) {
                         to_load.push(chunk);
                     }
                 }
@@ -88,16 +92,18 @@ impl<'a> Voxels<'a> {
     }
 
     pub fn generate_chunk_cpu(&mut self, chunk: Vector3<i64>) {
-        if self.loaded.contains_key(&chunk) {
+        if self.loaded_cpu.contains_key(&chunk) {
             return;
         }
-        let heightmap = self.generate_chunk_heightmap(chunk);
-        let svo = self.generate_chunk_svo(chunk, &heightmap);
-        self.loaded.insert(chunk, svo);
+        self.generate_chunk_heightmap(chunk);
+        let heightmap = &self.loaded_heightmaps[&chunk.xy()];
+        let svo = self.generate_chunk_svo(chunk, heightmap);
+        self.loaded_cpu.insert(chunk, svo);
     }
 
     pub fn generate_chunk_gpu(&mut self, chunk: Vector3<i64>) {
-        let mesh = self.generate_chunk_mesh(chunk, &self.loaded[&chunk]);
+        assert!(!self.loaded_gpu.contains(&chunk));
+        let mesh = self.generate_chunk_mesh(chunk, &self.loaded_cpu[&chunk]);
         debug!(
             "generated chunk, \x1B[1mid\x1B[0m: {},{},{}, \x1B[1mvertices\x1B[0m: {}",
             chunk.x,
@@ -114,9 +120,13 @@ impl<'a> Voxels<'a> {
         MaybeUninit::write_slice(memory, &mesh.vertices);
         self.vertices
             .store(new_vertex_count as u64, Ordering::SeqCst);
+        self.loaded_gpu.insert(chunk);
     }
 
-    pub fn generate_chunk_heightmap(&self, chunk: Vector3<i64>) -> DMatrix<i64> {
+    pub fn generate_chunk_heightmap(&mut self, chunk: Vector3<i64>) {
+        if self.loaded_heightmaps.contains_key(&chunk.xy()) {
+            return;
+        }
         let chunk_coordinates = chunk.xy() * self.chunk_size as i64;
         let mut heightmap = DMatrix::from_element(self.chunk_size, self.chunk_size, 0);
         for x in 0..self.chunk_size {
@@ -129,7 +139,7 @@ impl<'a> Voxels<'a> {
                 heightmap[(x, y)] = scaled_noise.round() as i64;
             }
         }
-        heightmap
+        self.loaded_heightmaps.insert(chunk.xy(), heightmap);
     }
 
     pub fn generate_chunk_svo(
@@ -211,11 +221,12 @@ impl<'a> Voxels<'a> {
             return None;
         }
         let neighbour = position + normal;
-        let to_out_of_bounds = (neighbour.x < 0 || neighbour.x >= self.chunk_size as i64)
+        let neighbour_in_different_chunk = (neighbour.x < 0
+            || neighbour.x >= self.chunk_size as i64)
             || (neighbour.y < 0 || neighbour.y >= self.chunk_size as i64)
             || (neighbour.z < 0 || neighbour.z >= self.chunk_size as i64);
-        if to_out_of_bounds {
-            let neighbour_voxels = &self.loaded[&(chunk + normal)];
+        if neighbour_in_different_chunk {
+            let neighbour_voxels = &self.loaded_cpu[&(chunk + normal)];
             let neighbour_in_chunk = Vector3::new(
                 (neighbour.x + self.chunk_size as i64) % self.chunk_size as i64,
                 (neighbour.y + self.chunk_size as i64) % self.chunk_size as i64,
@@ -224,10 +235,8 @@ impl<'a> Voxels<'a> {
             if neighbour_voxels.at(neighbour_in_chunk, self.chunk_size as i64) {
                 return None;
             }
-        } else {
-            if voxels.at(neighbour, self.chunk_size as i64) {
-                return None;
-            }
+        } else if voxels.at(neighbour, self.chunk_size as i64) {
+            return None;
         }
         let rot1 = Vector3::new(normal.z.abs(), normal.x.abs(), normal.y.abs());
         let rot2 = Vector3::new(normal.y.abs(), normal.z.abs(), normal.x.abs());
