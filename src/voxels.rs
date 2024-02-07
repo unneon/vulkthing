@@ -1,4 +1,5 @@
 mod binary_cube;
+mod culled_meshing;
 mod sparse_octree;
 
 use crate::config::{
@@ -8,7 +9,7 @@ use crate::config::{
 };
 use crate::mesh::MeshData;
 use crate::renderer::vertex::Vertex;
-use crate::voxels::binary_cube::BinaryCube;
+use crate::voxels::culled_meshing::CulledMeshing;
 use crate::voxels::sparse_octree::SparseOctree;
 use nalgebra::{DMatrix, Vector2, Vector3};
 use noise::Perlin;
@@ -18,6 +19,14 @@ use std::collections::{HashMap, HashSet};
 use std::mem::MaybeUninit;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{mpsc, Arc};
+
+trait MeshingAlgorithm {
+    fn mesh(
+        chunk_svo: &SparseOctree,
+        neighbour_svos: [&SparseOctree; 6],
+        chunk_size: usize,
+    ) -> MeshData;
+}
 
 pub struct Voxels<'a> {
     config: VoxelsConfig,
@@ -139,9 +148,14 @@ impl<'a> Voxels<'a> {
 
     pub fn generate_chunk_gpu(&mut self, chunk: Vector3<i64>) {
         assert!(!self.loaded_gpu.contains(&chunk));
-        let mesh = self.generate_chunk_mesh(chunk, &self.loaded_cpu[&chunk]);
+        let chunk_svo = &self.loaded_cpu[&chunk];
+        let neighbour_svos = std::array::from_fn(|i| &self.loaded_cpu[&(chunk + DIRECTIONS[i])]);
+        let mut mesh = CulledMeshing::mesh(chunk_svo, neighbour_svos, self.config.chunk_size);
         if mesh.vertices.is_empty() {
             return;
+        }
+        for vertex in &mut mesh.vertices {
+            vertex.position += (chunk * self.config.chunk_size as i64).cast::<f32>();
         }
         let old_vertex_count = self.vertices.load(Ordering::SeqCst) as usize;
         let new_vertex_count = old_vertex_count + mesh.vertices.len();
@@ -188,117 +202,6 @@ impl<'a> Voxels<'a> {
             self.config.chunk_size,
             heightmap,
         )
-    }
-
-    pub fn generate_chunk_mesh(&self, chunk: Vector3<i64>, voxels: &SparseOctree) -> MeshData {
-        let cube = BinaryCube::new_at_zero(self.config.chunk_size);
-        let mut vertices = Vec::new();
-        self.generate_chunk_mesh_impl(cube, voxels, voxels, chunk, &mut vertices);
-        for vertex in &mut vertices {
-            vertex.position += (chunk * self.config.chunk_size as i64).cast::<f32>();
-        }
-        MeshData { vertices }
-    }
-
-    fn generate_chunk_mesh_impl(
-        &self,
-        cube: BinaryCube,
-        cube_voxels: &SparseOctree,
-        root_voxels: &SparseOctree,
-        chunk: Vector3<i64>,
-        vertices: &mut Vec<Vertex>,
-    ) {
-        if cube.is_single_voxel() {
-            self.generate_chunk_mesh_voxel(cube.position, root_voxels, chunk, vertices);
-            return;
-        }
-
-        match cube_voxels {
-            SparseOctree::Uniform { .. } => {
-                for side_voxel in cube.side_voxels() {
-                    self.generate_chunk_mesh_voxel(side_voxel, root_voxels, chunk, vertices);
-                }
-            }
-            SparseOctree::Mixed { children } => {
-                for (sub_cube, child) in cube.subdivide().zip(children.iter()) {
-                    self.generate_chunk_mesh_impl(sub_cube, child, root_voxels, chunk, vertices);
-                }
-            }
-        };
-    }
-
-    fn generate_chunk_mesh_voxel(
-        &self,
-        position: Vector3<i64>,
-        root_voxels: &SparseOctree,
-        chunk: Vector3<i64>,
-        vertices: &mut Vec<Vertex>,
-    ) {
-        for direction in DIRECTIONS {
-            let side = self.generate_chunk_mesh_side(position, direction, root_voxels, chunk);
-            if let Some(side) = side {
-                vertices.extend_from_slice(&side);
-            }
-        }
-    }
-
-    fn generate_chunk_mesh_side(
-        &self,
-        position: Vector3<i64>,
-        normal: Vector3<i64>,
-        voxels: &SparseOctree,
-        chunk: Vector3<i64>,
-    ) -> Option<[Vertex; 6]> {
-        let chunk_size = self.config.chunk_size as i64;
-        if !voxels.at(position, chunk_size) {
-            return None;
-        }
-        let neighbour = position + normal;
-        let neighbour_in_different_chunk = (neighbour.x < 0 || neighbour.x >= chunk_size)
-            || (neighbour.y < 0 || neighbour.y >= chunk_size)
-            || (neighbour.z < 0 || neighbour.z >= chunk_size);
-        if neighbour_in_different_chunk {
-            let neighbour_voxels = &self.loaded_cpu[&(chunk + normal)];
-            let neighbour_in_chunk = Vector3::new(
-                (neighbour.x + chunk_size) % chunk_size,
-                (neighbour.y + chunk_size) % chunk_size,
-                (neighbour.z + chunk_size) % chunk_size,
-            );
-            if neighbour_voxels.at(neighbour_in_chunk, chunk_size) {
-                return None;
-            }
-        } else if voxels.at(neighbour, chunk_size) {
-            return None;
-        }
-        let rot1 = Vector3::new(normal.z.abs(), normal.x.abs(), normal.y.abs());
-        let rot2 = Vector3::new(normal.y.abs(), normal.z.abs(), normal.x.abs());
-        let base = if normal.x + normal.y + normal.z > 0 {
-            position + normal
-        } else {
-            position
-        };
-        let (rot1, rot2) = if normal == rot1.cross(&rot2) {
-            (rot1, rot2)
-        } else {
-            (rot2, rot1)
-        };
-        let v1 = Vertex {
-            position: base.cast::<f32>(),
-            normal: normal.cast::<f32>(),
-        };
-        let v2 = Vertex {
-            position: (base + rot1).cast::<f32>(),
-            normal: normal.cast::<f32>(),
-        };
-        let v3 = Vertex {
-            position: (base + rot2).cast::<f32>(),
-            normal: normal.cast::<f32>(),
-        };
-        let v4 = Vertex {
-            position: (base + rot1 + rot2).cast::<f32>(),
-            normal: normal.cast::<f32>(),
-        };
-        Some([v1, v2, v3, v2, v4, v3])
     }
 
     fn check_config_change(&mut self) -> bool {
