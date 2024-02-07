@@ -961,6 +961,7 @@ static mut SCRATCH: Scratch = Scratch {{"#
             }
         }
         let vertex_binding_count = pipeline.vertex_bindings.len();
+        let polygon_mode = &pipeline.polygon_mode;
         let cull_mode = &pipeline.cull_mode;
         let rasterization_samples = if subpass.msaa { "empty()" } else { "TYPE_1" };
         writeln!(
@@ -1002,7 +1003,7 @@ static mut SCRATCH: Scratch = Scratch {{"#
         flags: vk::PipelineRasterizationStateCreateFlags::empty(),
         depth_clamp_enable: 0,
         rasterizer_discard_enable: 0,
-        polygon_mode: vk::PolygonMode::FILL,
+        polygon_mode: vk::PolygonMode::{polygon_mode},
         cull_mode: vk::CullModeFlags::{cull_mode},
         front_face: vk::FrontFace::COUNTER_CLOCKWISE,
         depth_bias_enable: 0,

@@ -202,6 +202,8 @@ pub struct Pipeline {
     pub fragment_specialization: Option<Vec<String>>,
     #[knuffel(child, unwrap(arguments))]
     pub descriptor_sets: Vec<String>,
+    #[knuffel(child, unwrap(argument), default = "FILL".into())]
+    pub polygon_mode: String,
     #[knuffel(child, unwrap(argument), default = "BACK".into())]
     pub cull_mode: String,
 }

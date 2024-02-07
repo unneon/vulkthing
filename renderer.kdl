@@ -55,6 +55,7 @@ pass "render" {
                 attribute "vertex_normal" "R32G32B32_SFLOAT"
             }
             descriptor-sets "object" "global"
+            polygon-mode "LINE"
         }
         pipeline "star" {
             vertex-binding {

@@ -406,7 +406,7 @@ impl Renderer {
             proj: self.projection_matrix(settings),
         };
         let material = Material {
-            emit: Vector3::from_element(0.01),
+            emit: Vector3::from_element(0.3),
             metallic: 0.,
             ao: 0.,
             roughness: 1.,
