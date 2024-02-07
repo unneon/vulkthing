@@ -1,5 +1,6 @@
 use crate::renderer::codegen::{PASS_COUNT, PASS_NAMES};
 use crate::renderer::{PostprocessSettings, RendererSettings};
+use crate::voxels::VoxelsConfig;
 use crate::world::World;
 use ash::vk;
 use imgui::{Condition, Context, Drag, SliderFlags, TreeNodeFlags, Ui};
@@ -26,6 +27,7 @@ pub struct InterfaceEvents {
     pub grass_changed: bool,
     pub rebuild_swapchain: bool,
     pub rebuild_pipelines: bool,
+    pub rebuild_voxels: bool,
 }
 
 impl Interface {
@@ -33,18 +35,50 @@ impl Interface {
         &mut self,
         world: &mut World,
         renderer: &mut RendererSettings,
+        voxels: &mut VoxelsConfig,
         pass_times: Option<&[Duration; PASS_COUNT]>,
     ) -> InterfaceEvents {
         let ui = self.ctx.frame();
-        let events = InterfaceEvents {
+        let mut events = InterfaceEvents {
             planet_changed: false,
             grass_changed: false,
             rebuild_swapchain: false,
             rebuild_pipelines: false,
+            rebuild_voxels: false,
         };
         ui.window("Debugging")
             .size([0., 0.], Condition::Always)
             .build(|| {
+                if ui.collapsing_header("Voxels", TreeNodeFlags::empty()) {
+                    let mut changed = false;
+                    let mut chunk_size_log2 = 63 - voxels.chunk_size.leading_zeros();
+                    changed |= ui.slider("Chunk size", 0, 10, &mut chunk_size_log2);
+                    voxels.chunk_size = 1 << chunk_size_log2;
+                    changed |= ui.slider(
+                        "Heightmap amplitude",
+                        0.,
+                        256.,
+                        &mut voxels.heightmap_amplitude,
+                    );
+                    changed |= ui
+                        .slider_config("Heightmap frequency", 0.001, 100.)
+                        .flags(SliderFlags::LOGARITHMIC)
+                        .build(&mut voxels.heightmap_frequency);
+                    changed |= ui.slider("Heightmap bias", -1., 1., &mut voxels.heightmap_bias);
+                    changed |= ui.slider(
+                        "Render distance (horizontal)",
+                        1,
+                        1024,
+                        &mut voxels.render_distance_horizontal,
+                    );
+                    changed |= ui.slider(
+                        "Render distance (vertical)",
+                        1,
+                        1024,
+                        &mut voxels.render_distance_vertical,
+                    );
+                    events.rebuild_voxels = changed;
+                }
                 if ui.collapsing_header("Sun", TreeNodeFlags::empty()) {
                     Drag::new("Time of day")
                         .speed(0.01)

@@ -2,25 +2,27 @@ mod binary_cube;
 mod sparse_octree;
 
 use crate::config::{
-    DEFAULT_VOXEL_CHUNK_SIZE, DEFAULT_VOXEL_RENDER_DISTANCE_HORIZONTAL,
+    DEFAULT_VOXEL_CHUNK_SIZE, DEFAULT_VOXEL_HEIGHTMAP_AMPLITUDE, DEFAULT_VOXEL_HEIGHTMAP_BIAS,
+    DEFAULT_VOXEL_HEIGHTMAP_FREQUENCY, DEFAULT_VOXEL_RENDER_DISTANCE_HORIZONTAL,
     DEFAULT_VOXEL_RENDER_DISTANCE_VERTICAL,
 };
 use crate::mesh::MeshData;
 use crate::renderer::vertex::Vertex;
 use crate::voxels::binary_cube::BinaryCube;
 use crate::voxels::sparse_octree::SparseOctree;
-use log::debug;
 use nalgebra::{DMatrix, Vector2, Vector3};
-use noise::NoiseFn;
 use noise::Perlin;
+use noise::{NoiseFn, Seedable};
 use rand::random;
 use std::collections::{HashMap, HashSet};
 use std::mem::MaybeUninit;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{mpsc, Arc};
 
 pub struct Voxels<'a> {
-    chunk_size: usize,
+    config: VoxelsConfig,
+    config_rx: mpsc::Receiver<VoxelsConfig>,
+    config_changed: bool,
     heightmap_noise: Perlin,
     // TODO: That is really not in the spirit of Rust safety.
     buffer: &'a mut [MaybeUninit<Vertex>],
@@ -28,6 +30,16 @@ pub struct Voxels<'a> {
     loaded_cpu: HashMap<Vector3<i64>, SparseOctree>,
     loaded_gpu: HashSet<Vector3<i64>>,
     loaded_heightmaps: HashMap<Vector2<i64>, DMatrix<i64>>,
+}
+
+#[derive(Clone)]
+pub struct VoxelsConfig {
+    pub chunk_size: usize,
+    pub heightmap_amplitude: f32,
+    pub heightmap_frequency: f32,
+    pub heightmap_bias: f32,
+    pub render_distance_horizontal: usize,
+    pub render_distance_vertical: usize,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -47,26 +59,47 @@ const DIRECTIONS: [Vector3<i64>; 6] = [
 ];
 
 impl<'a> Voxels<'a> {
-    pub fn new(buffer: &'a mut [MaybeUninit<Vertex>]) -> Voxels {
-        Voxels {
-            chunk_size: DEFAULT_VOXEL_CHUNK_SIZE,
+    pub fn new(buffer: &'a mut [MaybeUninit<Vertex>]) -> (Voxels, mpsc::Sender<VoxelsConfig>) {
+        let (new_config_tx, new_config_rx) = mpsc::channel();
+        let voxels = Voxels {
+            config: VoxelsConfig {
+                chunk_size: DEFAULT_VOXEL_CHUNK_SIZE,
+                heightmap_amplitude: DEFAULT_VOXEL_HEIGHTMAP_AMPLITUDE,
+                heightmap_frequency: DEFAULT_VOXEL_HEIGHTMAP_FREQUENCY,
+                heightmap_bias: DEFAULT_VOXEL_HEIGHTMAP_BIAS,
+                render_distance_horizontal: DEFAULT_VOXEL_RENDER_DISTANCE_HORIZONTAL,
+                render_distance_vertical: DEFAULT_VOXEL_RENDER_DISTANCE_VERTICAL,
+            },
+            config_rx: new_config_rx,
+            config_changed: true,
             heightmap_noise: Perlin::new(random()),
             buffer,
             vertices: Arc::new(AtomicU64::new(0)),
             loaded_cpu: HashMap::new(),
             loaded_gpu: HashSet::new(),
             loaded_heightmaps: HashMap::new(),
-        }
+        };
+        (voxels, new_config_tx)
     }
 
     pub fn update_camera(&mut self, camera: Vector3<f32>) {
+        if self.config_changed {
+            self.config_changed = false;
+            self.heightmap_noise = Perlin::new(self.heightmap_noise.seed());
+            self.vertices.store(0, Ordering::SeqCst);
+            self.loaded_cpu.clear();
+            self.loaded_gpu.clear();
+            self.loaded_heightmaps.clear();
+        }
         let camera_chunk = Vector3::new(
-            (camera.x / DEFAULT_VOXEL_CHUNK_SIZE as f32).floor() as i64,
-            (camera.y / DEFAULT_VOXEL_CHUNK_SIZE as f32).floor() as i64,
-            (camera.z / DEFAULT_VOXEL_CHUNK_SIZE as f32).floor() as i64,
+            (camera.x / self.config.chunk_size as f32).floor() as i64,
+            (camera.y / self.config.chunk_size as f32).floor() as i64,
+            (camera.z / self.config.chunk_size as f32).floor() as i64,
         );
-        let distance_horizontal = DEFAULT_VOXEL_RENDER_DISTANCE_HORIZONTAL as i64;
-        let distance_vertical = DEFAULT_VOXEL_RENDER_DISTANCE_VERTICAL as i64;
+        let distance_horizontal =
+            (self.config.render_distance_horizontal / self.config.chunk_size) as i64;
+        let distance_vertical =
+            (self.config.render_distance_vertical / self.config.chunk_size) as i64;
         let range_horizontal = -distance_horizontal..=distance_horizontal;
         let range_vertical = -distance_vertical..=distance_vertical;
         let mut to_load = Vec::new();
@@ -88,6 +121,9 @@ impl<'a> Voxels<'a> {
                 self.generate_chunk_cpu(neighbour);
             }
             self.generate_chunk_gpu(chunk);
+            if self.check_config_change() {
+                break;
+            }
         }
     }
 
@@ -104,13 +140,6 @@ impl<'a> Voxels<'a> {
     pub fn generate_chunk_gpu(&mut self, chunk: Vector3<i64>) {
         assert!(!self.loaded_gpu.contains(&chunk));
         let mesh = self.generate_chunk_mesh(chunk, &self.loaded_cpu[&chunk]);
-        debug!(
-            "generated chunk, \x1B[1mid\x1B[0m: {},{},{}, \x1B[1mvertices\x1B[0m: {}",
-            chunk.x,
-            chunk.y,
-            chunk.z,
-            mesh.vertices.len()
-        );
         if mesh.vertices.is_empty() {
             return;
         }
@@ -127,15 +156,18 @@ impl<'a> Voxels<'a> {
         if self.loaded_heightmaps.contains_key(&chunk.xy()) {
             return;
         }
-        let chunk_coordinates = chunk.xy() * self.chunk_size as i64;
-        let mut heightmap = DMatrix::from_element(self.chunk_size, self.chunk_size, 0);
-        for x in 0..self.chunk_size {
-            for y in 0..self.chunk_size {
+        let chunk_coordinates = chunk.xy() * self.config.chunk_size as i64;
+        let mut heightmap =
+            DMatrix::from_element(self.config.chunk_size, self.config.chunk_size, 0);
+        for x in 0..self.config.chunk_size {
+            for y in 0..self.config.chunk_size {
                 let column_coordinates = chunk_coordinates + Vector2::new(x as i64, y as i64);
-                let noise_position = column_coordinates.cast::<f64>() / 128.;
+                let noise_position =
+                    column_coordinates.cast::<f64>() * self.config.heightmap_frequency as f64;
                 let noise_arguments: [f64; 2] = noise_position.into();
-                let raw_noise = self.heightmap_noise.get(noise_arguments);
-                let scaled_noise = raw_noise * 32.;
+                let raw_noise = self.heightmap_noise.get(noise_arguments) as f32;
+                let scaled_noise =
+                    (raw_noise + self.config.heightmap_bias) * self.config.heightmap_amplitude;
                 heightmap[(x, y)] = scaled_noise.round() as i64;
             }
         }
@@ -147,23 +179,23 @@ impl<'a> Voxels<'a> {
         chunk: Vector3<i64>,
         heightmap: &DMatrix<i64>,
     ) -> SparseOctree {
-        assert_eq!(heightmap.nrows(), self.chunk_size);
-        assert_eq!(heightmap.ncols(), self.chunk_size);
+        assert_eq!(heightmap.nrows(), self.config.chunk_size);
+        assert_eq!(heightmap.ncols(), self.config.chunk_size);
         svo_from_heightmap_impl(
             0,
             0,
-            chunk.z * self.chunk_size as i64,
-            self.chunk_size,
+            chunk.z * self.config.chunk_size as i64,
+            self.config.chunk_size,
             heightmap,
         )
     }
 
     pub fn generate_chunk_mesh(&self, chunk: Vector3<i64>, voxels: &SparseOctree) -> MeshData {
-        let cube = BinaryCube::new_at_zero(self.chunk_size);
+        let cube = BinaryCube::new_at_zero(self.config.chunk_size);
         let mut vertices = Vec::new();
         self.generate_chunk_mesh_impl(cube, voxels, voxels, chunk, &mut vertices);
         for vertex in &mut vertices {
-            vertex.position += (chunk * DEFAULT_VOXEL_CHUNK_SIZE as i64).cast::<f32>();
+            vertex.position += (chunk * self.config.chunk_size as i64).cast::<f32>();
         }
         MeshData { vertices }
     }
@@ -217,25 +249,25 @@ impl<'a> Voxels<'a> {
         voxels: &SparseOctree,
         chunk: Vector3<i64>,
     ) -> Option<[Vertex; 6]> {
-        if !voxels.at(position, self.chunk_size as i64) {
+        let chunk_size = self.config.chunk_size as i64;
+        if !voxels.at(position, chunk_size) {
             return None;
         }
         let neighbour = position + normal;
-        let neighbour_in_different_chunk = (neighbour.x < 0
-            || neighbour.x >= self.chunk_size as i64)
-            || (neighbour.y < 0 || neighbour.y >= self.chunk_size as i64)
-            || (neighbour.z < 0 || neighbour.z >= self.chunk_size as i64);
+        let neighbour_in_different_chunk = (neighbour.x < 0 || neighbour.x >= chunk_size)
+            || (neighbour.y < 0 || neighbour.y >= chunk_size)
+            || (neighbour.z < 0 || neighbour.z >= chunk_size);
         if neighbour_in_different_chunk {
             let neighbour_voxels = &self.loaded_cpu[&(chunk + normal)];
             let neighbour_in_chunk = Vector3::new(
-                (neighbour.x + self.chunk_size as i64) % self.chunk_size as i64,
-                (neighbour.y + self.chunk_size as i64) % self.chunk_size as i64,
-                (neighbour.z + self.chunk_size as i64) % self.chunk_size as i64,
+                (neighbour.x + chunk_size) % chunk_size,
+                (neighbour.y + chunk_size) % chunk_size,
+                (neighbour.z + chunk_size) % chunk_size,
             );
-            if neighbour_voxels.at(neighbour_in_chunk, self.chunk_size as i64) {
+            if neighbour_voxels.at(neighbour_in_chunk, chunk_size) {
                 return None;
             }
-        } else if voxels.at(neighbour, self.chunk_size as i64) {
+        } else if voxels.at(neighbour, chunk_size) {
             return None;
         }
         let rot1 = Vector3::new(normal.z.abs(), normal.x.abs(), normal.y.abs());
@@ -267,6 +299,23 @@ impl<'a> Voxels<'a> {
             normal: normal.cast::<f32>(),
         };
         Some([v1, v2, v3, v2, v4, v3])
+    }
+
+    fn check_config_change(&mut self) -> bool {
+        let Ok(new_config) = self.config_rx.try_recv() else {
+            return false;
+        };
+        self.config = new_config;
+        self.config_changed = true;
+        true
+    }
+
+    pub fn config(&self) -> &VoxelsConfig {
+        &self.config
+    }
+
+    pub fn config_changed(&self) -> bool {
+        self.config_changed
     }
 
     pub fn shared(&self) -> Arc<AtomicU64> {

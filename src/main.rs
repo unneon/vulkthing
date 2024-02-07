@@ -82,7 +82,9 @@ fn main() {
         &world,
         &args,
     );
-    let mut voxels = Voxels::new(renderer.voxel_buffer.map_memory(&renderer.dev));
+    let (mut voxels, voxel_config_tx) =
+        Voxels::new(renderer.voxel_buffer.map_memory(&renderer.dev));
+    let mut voxel_config = voxels.config().clone();
     renderer.voxels_shared = Some(voxels.shared());
     let mut interface = Interface::new(
         renderer.swapchain.extent.width as usize,
@@ -106,7 +108,11 @@ fn main() {
                 let camera_position = *camera_lock;
                 drop(camera_lock);
                 voxels.update_camera(camera_position);
-                camera_lock = condvar.wait(camera.lock().unwrap()).unwrap();
+                camera_lock = if !voxels.config_changed() {
+                    condvar.wait(camera.lock().unwrap()).unwrap()
+                } else {
+                    camera.lock().unwrap()
+                };
             }
         }
     });
@@ -174,6 +180,7 @@ fn main() {
                 let interface_events = interface.build(
                     &mut world,
                     &mut renderer_settings,
+                    &mut voxel_config,
                     renderer.pass_times.as_ref(),
                 );
                 assert!(!interface_events.planet_changed);
@@ -181,6 +188,9 @@ fn main() {
                     renderer.recreate_swapchain(window.window.inner_size());
                 } else if interface_events.rebuild_pipelines {
                     renderer.recreate_pipelines();
+                }
+                if interface_events.rebuild_voxels {
+                    let _ = voxel_config_tx.send(voxel_config.clone());
                 }
 
                 *voxels_camera.lock().unwrap() = world.camera.position();
