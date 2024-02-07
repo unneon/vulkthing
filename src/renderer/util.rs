@@ -110,7 +110,7 @@ impl Buffer {
 
     // TODO: Safety
     #[allow(clippy::mut_from_ref)]
-    pub fn map_memory<T>(&self, dev: &Dev) -> &mut [MaybeUninit<T>] {
+    pub fn map_memory<'a, T: 'a>(&self, dev: &Dev) -> &'a mut [MaybeUninit<T>] {
         let count = self.size / std::mem::size_of::<T>();
         let flags = vk::MemoryMapFlags::empty();
         let ptr = unsafe { dev.map_memory(self.memory, 0, self.size as u64, flags) }.unwrap();

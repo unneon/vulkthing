@@ -43,7 +43,6 @@ use crate::voxel::Voxels;
 use crate::window::create_window;
 use crate::world::World;
 use log::debug;
-use nalgebra::Vector3;
 use rand::random;
 use std::sync::Arc;
 use std::time::Instant;
@@ -89,13 +88,6 @@ fn main() {
     let voxels = Voxels::new(DEFAULT_VOXEL_CHUNK_SIZE, random());
     let mut chunks = Chunks::new(voxels, renderer.voxel_buffer.map_memory(&renderer.dev));
     renderer.voxel_chunks = Some(chunks.shared());
-    for z in -1..1 {
-        for x in -2..2 {
-            for y in -2..2 {
-                chunks.generate_chunk(Vector3::new(x, y, z));
-            }
-        }
-    }
     let mut interface = Interface::new(
         renderer.swapchain.extent.width as usize,
         renderer.swapchain.extent.height as usize,
@@ -178,6 +170,8 @@ fn main() {
                 } else if interface_events.rebuild_pipelines {
                     renderer.recreate_pipelines();
                 }
+
+                chunks.update_camera(world.camera.position());
 
                 renderer.draw_frame(
                     &world,
