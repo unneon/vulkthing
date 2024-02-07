@@ -12,8 +12,7 @@ use crate::renderer::swapchain::create_swapchain;
 use crate::renderer::util::{vulkan_str, Buffer, Ctx, Dev};
 use crate::renderer::vertex::{Star, Vertex};
 use crate::renderer::{
-    GrassChunk, MeshObject, Object, Renderer, Synchronization, UniformBuffer, FRAMES_IN_FLIGHT,
-    VRAM_VIA_BAR,
+    MeshObject, Object, Renderer, Synchronization, UniformBuffer, FRAMES_IN_FLIGHT, VRAM_VIA_BAR,
 };
 use crate::window::Window;
 use crate::world::World;
@@ -27,12 +26,17 @@ use ash::vk::{ExtDescriptorIndexingFn, KhrRayQueryFn, KhrShaderFloatControlsFn, 
 use ash::{vk, Device, Entry, Instance};
 use log::{debug, warn};
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
-use std::collections::HashMap;
 use std::ffi::CString;
 use winit::dpi::PhysicalSize;
 
 impl Renderer {
-    pub fn new(window: &Window, meshes: &[&MeshData], world: &World, args: &Args) -> Renderer {
+    pub fn new(
+        window: &Window,
+        chunk_count: usize,
+        meshes: &[&MeshData],
+        world: &World,
+        args: &Args,
+    ) -> Renderer {
         let entry = unsafe { Entry::load() }.unwrap();
         let instance = create_instance(window, &entry, args);
         let debug_ext = DebugUtils::new(&entry, &instance);
@@ -130,11 +134,12 @@ impl Renderer {
 
         let (tlas, blas) = if supports_raytracing {
             let blas = create_blas(&mesh_objects[0], &ctx);
-            let tlas = create_tlas(&world.planet().model_matrix(), &blas, &ctx);
+            let tlas = create_tlas(&world.entities()[0].model_matrix(), &blas, &ctx);
             (Some(tlas), Some(blas))
         } else {
             (None, None)
         };
+        // let (tlas, blas) = (None, None);
 
         let mut entities = Vec::new();
         for _ in world.entities() {
@@ -147,10 +152,6 @@ impl Renderer {
                 descriptors,
             });
         }
-        let grass_transform = UniformBuffer::create(&dev);
-        let grass_material = UniformBuffer::create(&dev);
-        let grass_descriptor_sets =
-            descriptor_pools.alloc_object(&grass_transform, &grass_material, &dev);
         let star_transform = UniformBuffer::create(&dev);
         let star_material = UniformBuffer::create(&dev);
         let star_instances = Buffer::create(
@@ -173,6 +174,17 @@ impl Renderer {
         let global_descriptor_sets = descriptor_pools.alloc_global(&global, &tlas, &dev);
 
         let query_pool = create_query_pool(&dev);
+
+        let mut voxel_transforms = Vec::new();
+        let mut voxel_materials = Vec::new();
+        let mut voxel_descriptor_sets = Vec::new();
+        for _ in 0..chunk_count {
+            let transform = UniformBuffer::create(&dev);
+            let material = UniformBuffer::create(&dev);
+            voxel_descriptor_sets.push(descriptor_pools.alloc_object(&transform, &material, &dev));
+            voxel_transforms.push(transform);
+            voxel_materials.push(material);
+        }
 
         Renderer {
             _entry: entry,
@@ -198,11 +210,8 @@ impl Renderer {
             command_buffers,
             sync,
             flight_index: 0,
-            grass_transform,
-            grass_material,
             mesh_objects,
             entities,
-            grass_descriptor_sets,
             star_transform,
             star_material,
             star_instances,
@@ -210,7 +219,6 @@ impl Renderer {
             skybox_transform,
             skybox_material,
             skybox_descriptor_sets,
-            grass_chunks: HashMap::new(),
             global,
             global_descriptor_sets,
             blas,
@@ -220,6 +228,10 @@ impl Renderer {
             pass_times: None,
             just_completed_first_render: false,
             interface_renderer: None,
+            voxel_chunks: None,
+            voxel_transforms,
+            voxel_materials,
+            voxel_descriptor_sets,
         }
     }
 
@@ -317,16 +329,6 @@ impl Renderer {
         );
     }
 
-    pub fn grass_load_chunk(&mut self, id: usize, chunk: GrassChunk) {
-        self.grass_chunks.insert(id, chunk);
-    }
-
-    pub fn grass_unload_chunk(&mut self, id: usize) {
-        unsafe { self.dev.device_wait_idle() }.unwrap();
-        let chunk = self.grass_chunks.remove(&id).unwrap();
-        chunk.buffer.cleanup(&self.dev);
-    }
-
     fn cleanup_swapchain(&mut self) {
         self.swapchain.cleanup(&self.dev);
         self.passes.cleanup(&self.dev);
@@ -367,6 +369,11 @@ impl Drop for Renderer {
 
             drop(self.interface_renderer.take());
             self.dev.destroy_query_pool(self.query_pool, None);
+            // let mut voxels = self.voxel_chunks.unwrap().lock().unwrap();
+            for i in 0..self.voxel_descriptor_sets.len() {
+                self.voxel_materials[i].cleanup(&self.dev);
+                self.voxel_transforms[i].cleanup(&self.dev);
+            }
             self.star_transform.cleanup(&self.dev);
             self.star_material.cleanup(&self.dev);
             self.star_instances.cleanup(&self.dev);
@@ -376,11 +383,6 @@ impl Drop for Renderer {
             for mesh in &self.mesh_objects {
                 mesh.cleanup(&self.dev);
             }
-            for grass_chunk in self.grass_chunks.values() {
-                grass_chunk.buffer.cleanup(&self.dev);
-            }
-            self.grass_transform.cleanup(&self.dev);
-            self.grass_material.cleanup(&self.dev);
             self.skybox_transform.cleanup(&self.dev);
             self.skybox_material.cleanup(&self.dev);
             self.global.cleanup(&self.dev);
@@ -562,7 +564,11 @@ fn create_command_buffers(
     buffers
 }
 
-fn create_vertex_buffer(vertex_data: &[Vertex], supports_raytracing: bool, dev: &Dev) -> Buffer {
+pub fn create_vertex_buffer(
+    vertex_data: &[Vertex],
+    supports_raytracing: bool,
+    dev: &Dev,
+) -> Buffer {
     let size = std::mem::size_of_val(vertex_data);
     let vertex = Buffer::create(
         VRAM_VIA_BAR,

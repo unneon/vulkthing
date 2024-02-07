@@ -15,9 +15,9 @@
 #![allow(clippy::type_complexity)]
 
 mod camera;
+mod chunks;
 mod cli;
 mod config;
-mod grass;
 mod input;
 mod interface;
 mod logger;
@@ -25,16 +25,17 @@ mod mesh;
 mod physics;
 mod planet;
 mod renderer;
+mod types;
 mod util;
 mod voxel;
 mod window;
 mod world;
 
+use crate::chunks::Chunks;
 use crate::cli::Args;
 use crate::config::{
-    DEFAULT_GRASS, DEFAULT_PLANET, DEFAULT_RENDERER_SETTINGS, DEFAULT_VOXEL_CHUNK_SIZE,
+    DEFAULT_PLANET, DEFAULT_RENDERER_SETTINGS, DEFAULT_VOXEL_CHUNK_COUNT, DEFAULT_VOXEL_CHUNK_SIZE,
 };
-use crate::grass::{GrassResponse, GrassState};
 use crate::input::InputState;
 use crate::interface::Interface;
 use crate::logger::{initialize_logger, initialize_panic_hook};
@@ -72,45 +73,37 @@ fn main() {
     let grass_mesh = load_mesh("assets/grass.obj");
     let tetrahedron_mesh = load_mesh("assets/tetrahedron.obj");
     let icosahedron_mesh = load_mesh("assets/icosahedron.obj");
-    let mut planet = DEFAULT_PLANET;
+    let planet = DEFAULT_PLANET;
     let planet_mesh = Arc::new(generate_planet(&planet));
-    let voxels = Voxels::new(DEFAULT_VOXEL_CHUNK_SIZE, random());
-    let chunk0 = Vector3::new(0, 0, 0);
-    let chunk1 = Vector3::new(1, 0, 0);
-    let heightmap0 = voxels.generate_chunk_heightmap(chunk0);
-    debug!("voxel heightmap 1 generated");
-    let heightmap1 = voxels.generate_chunk_heightmap(chunk1);
-    debug!("voxel heightmap 2 generated");
-    let svo0 = voxels.generate_chunk_svo(chunk0, &heightmap0);
-    debug!("sparse voxel octree 1 generated");
-    let svo1 = voxels.generate_chunk_svo(chunk1, &heightmap1);
-    debug!("sparse voxel octree 2 generated");
-    let triangles0 = voxels.generate_chunk_mesh(&svo0);
-    debug!("voxel mesh 1 generated ({})", triangles0.vertices.len());
-    let triangles1 = voxels.generate_chunk_mesh(&svo1);
-    debug!("voxel mesh 2 generated ({})", triangles1.vertices.len());
-    let mut world = World::new(&planet_mesh);
+    let mut world = World::new();
     let mut renderer_settings = DEFAULT_RENDERER_SETTINGS;
     let mut renderer = Renderer::new(
         &window,
+        DEFAULT_VOXEL_CHUNK_COUNT,
         &[
             &planet_mesh,
             &cube_mesh,
             &tetrahedron_mesh,
             &grass_mesh,
             &icosahedron_mesh,
-            &triangles0,
-            &triangles1,
         ],
         &world,
         &args,
     );
+    let voxels = Voxels::new(DEFAULT_VOXEL_CHUNK_SIZE, random());
+    let mut chunks = Chunks::new(DEFAULT_VOXEL_CHUNK_COUNT, voxels, renderer.dev.clone());
+    renderer.voxel_chunks = Some(chunks.shared());
+    for z in -1..1 {
+        for x in -2..2 {
+            for y in -2..2 {
+                chunks.generate_chunk(Vector3::new(x, y, z));
+            }
+        }
+    }
     let mut interface = Interface::new(
         renderer.swapchain.extent.width as usize,
         renderer.swapchain.extent.height as usize,
     );
-    let mut grass_parameters = DEFAULT_GRASS;
-    let mut grass_state = GrassState::new(&grass_parameters, &planet_mesh, renderer.dev.clone());
     let mut input_state = InputState::new();
     let mut last_update = Instant::now();
     let mut old_size = window.window.inner_size();
@@ -180,8 +173,6 @@ fn main() {
                 interface.apply_cursor(input_state.camera_lock, &window.window);
                 let interface_events = interface.build(
                     &mut world,
-                    &mut planet,
-                    &mut grass_parameters,
                     &mut renderer_settings,
                     renderer.pass_times.as_ref(),
                 );
@@ -192,22 +183,8 @@ fn main() {
                     renderer.recreate_pipelines();
                 }
 
-                if interface_events.grass_changed {
-                    grass_state.update_parameters(&grass_parameters);
-                }
-                grass_state.update_camera(world.camera.position());
-                for grass_event in grass_state.events() {
-                    match grass_event {
-                        GrassResponse::Load(chunk_id, chunk) => {
-                            renderer.grass_load_chunk(chunk_id, chunk)
-                        }
-                        GrassResponse::Unload(chunk_id) => renderer.grass_unload_chunk(chunk_id),
-                    }
-                }
-
                 renderer.draw_frame(
                     &world,
-                    &grass_parameters,
                     &renderer_settings,
                     window.window.inner_size(),
                     interface.draw_data(),
@@ -228,5 +205,4 @@ fn main() {
         }
     });
     loop_result.unwrap();
-    grass_state.shutdown();
 }

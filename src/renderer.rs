@@ -2,7 +2,7 @@ pub mod codegen;
 pub mod debug;
 mod device;
 mod graph;
-mod lifecycle;
+pub mod lifecycle;
 mod raytracing;
 mod shader;
 mod swapchain;
@@ -10,7 +10,7 @@ pub mod uniform;
 pub mod util;
 pub mod vertex;
 
-use crate::grass::GrassParameters;
+use crate::chunks::ChunksShared;
 use crate::renderer::codegen::{
     DescriptorPools, DescriptorSetLayouts, Passes, PipelineLayouts, Pipelines, Samplers, PASS_COUNT,
 };
@@ -19,16 +19,15 @@ use crate::renderer::graph::Pass;
 use crate::renderer::raytracing::RaytraceResources;
 use crate::renderer::swapchain::Swapchain;
 use crate::renderer::uniform::{
-    Atmosphere, Camera, Gaussian, Global, GrassUniform, Material, PostprocessUniform, Tonemapper,
-    Transform,
+    Atmosphere, Camera, Gaussian, Global, Material, PostprocessUniform, Tonemapper, Transform,
 };
 use crate::renderer::util::{timestamp_difference_to_duration, Buffer, Dev, UniformBuffer};
 use crate::world::World;
 use ash::{vk, Entry};
 use imgui::DrawData;
 use nalgebra::{Matrix4, Vector2, Vector3};
-use std::collections::HashMap;
 use std::f32::consts::FRAC_PI_4;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use winit::dpi::PhysicalSize;
 
@@ -73,12 +72,8 @@ pub struct Renderer {
 
     // And finally resources specific to this renderer. So various buffers related to objects we
     // actually render, their descriptor sets and the like.
-    grass_transform: UniformBuffer<Transform>,
-    grass_material: UniformBuffer<Material>,
     mesh_objects: Vec<MeshObject>,
     entities: Vec<Object>,
-    grass_chunks: HashMap<usize, GrassChunk>,
-    grass_descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
     star_transform: UniformBuffer<Transform>,
     star_material: UniformBuffer<Material>,
     star_instances: Buffer,
@@ -98,6 +93,11 @@ pub struct Renderer {
     pub just_completed_first_render: bool,
 
     interface_renderer: Option<imgui_rs_vulkan_renderer::Renderer>,
+
+    pub voxel_chunks: Option<Arc<Mutex<ChunksShared>>>,
+    voxel_transforms: Vec<UniformBuffer<Transform>>,
+    voxel_materials: Vec<UniformBuffer<Material>>,
+    voxel_descriptor_sets: Vec<[vk::DescriptorSet; FRAMES_IN_FLIGHT]>,
 }
 
 struct Synchronization {
@@ -115,11 +115,6 @@ pub struct Object {
     transform: UniformBuffer<Transform>,
     material: UniformBuffer<Material>,
     descriptors: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
-}
-
-pub struct GrassChunk {
-    pub buffer: Buffer,
-    pub triangle_count: usize,
 }
 
 pub struct RendererSettings {
@@ -155,7 +150,7 @@ pub const VRAM_VIA_BAR: vk::MemoryPropertyFlags = vk::MemoryPropertyFlags::from_
         | vk::MemoryPropertyFlags::HOST_COHERENT.as_raw(),
 );
 
-const FRAMES_IN_FLIGHT: usize = 2;
+pub const FRAMES_IN_FLIGHT: usize = 2;
 
 // Format used for passing HDR data between render passes to enable realistic differences in
 // lighting parameters and improve postprocessing effect quality, not related to monitor HDR.
@@ -168,7 +163,6 @@ impl Renderer {
     pub fn draw_frame(
         &mut self,
         world: &World,
-        grass: &GrassParameters,
         settings: &RendererSettings,
         window_size: PhysicalSize<u32>,
         ui_draw: &DrawData,
@@ -176,15 +170,14 @@ impl Renderer {
         let Some(image_index) = (unsafe { self.prepare_command_buffer(window_size) }) else {
             return;
         };
-        unsafe { self.record_command_buffer(image_index, world, ui_draw) };
+        unsafe { self.record_command_buffer(image_index, world, ui_draw, settings) };
         self.pass_times = self.query_timestamps();
         for entity_id in 0..world.entities().len() {
             self.update_object_uniforms(world, entity_id, settings);
         }
-        self.update_grass_uniform(world, settings);
         self.update_star_uniform(world, settings);
         self.update_skybox_uniform(world, settings);
-        self.update_global_uniform(world, grass, settings, window_size);
+        self.update_global_uniform(world, settings, window_size);
         self.submit_graphics();
         self.submit_present(image_index);
 
@@ -230,6 +223,7 @@ impl Renderer {
         image_index: usize,
         world: &World,
         ui_draw: &DrawData,
+        settings: &RendererSettings,
     ) {
         let buf = self.command_buffers[self.flight_index];
 
@@ -237,7 +231,7 @@ impl Renderer {
             .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
         self.dev.begin_command_buffer(buf, &begin_info).unwrap();
         self.reset_timestamps(buf);
-        self.record_render_pass(buf, world);
+        self.record_render_pass(buf, world, settings);
         self.record_atmosphere_pass(buf);
         self.record_extract_pass(buf);
         self.record_gaussian_passes(buf);
@@ -246,10 +240,56 @@ impl Renderer {
         self.dev.end_command_buffer(buf).unwrap();
     }
 
-    unsafe fn record_render_pass(&self, buf: vk::CommandBuffer, world: &World) {
+    unsafe fn record_render_pass(
+        &self,
+        buf: vk::CommandBuffer,
+        world: &World,
+        settings: &RendererSettings,
+    ) {
         self.passes
             .render
             .begin(buf, &self.dev, self.query_pool, self.flight_index);
+
+        if let Some(voxel_chunks) = self.voxel_chunks.as_ref() {
+            begin_label(buf, "Voxel draws", [255, 0, 0], &self.dev);
+            self.bind_graphics_pipeline(buf, self.pipelines.object);
+            for (i, chunk) in voxel_chunks.lock().unwrap().slots.iter().enumerate() {
+                if chunk.active {
+                    self.voxel_materials[i].write(
+                        self.flight_index,
+                        &Material {
+                            emit: Vector3::from_element(0.01),
+                            metallic: 0.,
+                            ao: 0.,
+                            roughness: 1.,
+                            albedo: Vector3::from_element(0.9),
+                        },
+                    );
+                    self.voxel_transforms[i].write(
+                        self.flight_index,
+                        &Transform {
+                            model: Matrix4::new_translation(&chunk.position),
+                            view: world.view_matrix(),
+                            proj: self.projection_matrix(settings),
+                        },
+                    );
+                    self.bind_descriptor_sets(
+                        buf,
+                        self.pipeline_layouts.object,
+                        &self.voxel_descriptor_sets[i],
+                    );
+                    unsafe {
+                        self.dev
+                            .cmd_bind_vertex_buffers(buf, 0, &[chunk.buffer], &[0])
+                    };
+                    unsafe {
+                        self.dev
+                            .cmd_draw(buf, 3 * chunk.triangle_count as u32, 1, 0, 0)
+                    };
+                }
+            }
+            end_label(buf, &self.dev);
+        }
 
         begin_label(buf, "Entity draws", [57, 65, 62], &self.dev);
         self.bind_graphics_pipeline(buf, self.pipelines.object);
@@ -258,19 +298,6 @@ impl Renderer {
             self.bind_descriptor_sets(buf, self.pipeline_layouts.object, &gpu_entity.descriptors);
             mesh.bind_vertex(buf, &self.dev);
             mesh.draw(1, buf, &self.dev);
-        }
-        end_label(buf, &self.dev);
-
-        begin_label(buf, "Grass draws", [100, 142, 55], &self.dev);
-        self.bind_graphics_pipeline(buf, self.pipelines.grass);
-        self.bind_descriptor_sets(
-            buf,
-            self.pipeline_layouts.grass,
-            &self.grass_descriptor_sets,
-        );
-        for grass_chunk in self.grass_chunks.values() {
-            self.mesh_objects[3].bind_vertex_instanced(&grass_chunk.buffer, buf, &self.dev);
-            self.mesh_objects[3].draw(grass_chunk.triangle_count, buf, &self.dev);
         }
         end_label(buf, &self.dev);
 
@@ -421,15 +448,6 @@ impl Renderer {
             .write(self.flight_index, &material);
     }
 
-    fn update_grass_uniform(&self, world: &World, settings: &RendererSettings) {
-        let transform = Transform {
-            model: world.planet().model_matrix(),
-            view: world.view_matrix(),
-            proj: self.projection_matrix(settings),
-        };
-        self.grass_transform.write(self.flight_index, &transform);
-    }
-
     fn update_star_uniform(&self, world: &World, settings: &RendererSettings) {
         let transform = Transform {
             model: Matrix4::identity(),
@@ -451,22 +469,12 @@ impl Renderer {
     fn update_global_uniform(
         &self,
         world: &World,
-        grass: &GrassParameters,
         settings: &RendererSettings,
         window_size: PhysicalSize<u32>,
     ) {
         self.global.write(
             self.flight_index,
             &Global {
-                grass: GrassUniform {
-                    height_average: grass.height_average,
-                    height_max_variance: grass.height_max_variance,
-                    width: grass.width,
-                    time: world.time,
-                    sway_direction: Vector3::new(0., 1., 0.),
-                    sway_frequency: grass.sway_frequency,
-                    sway_amplitude: grass.sway_amplitude,
-                },
                 light: world.light(),
                 settings: uniform::Settings {
                     use_ray_tracing: settings.enable_ray_tracing,
@@ -478,8 +486,9 @@ impl Renderer {
                     scatter_point_count: settings.atmosphere_in_scattering_samples as u32,
                     optical_depth_point_count: settings.atmosphere_optical_depth_samples as u32,
                     density_falloff: world.atmosphere.density_falloff,
-                    planet_position: world.planet().transform.translation,
-                    planet_radius: world.planet().transform.scale.x,
+                    // TODO
+                    planet_position: Vector3::zeros(),
+                    planet_radius: 0.,
                     sun_position: world.sun().transform.translation,
                     scale: world.atmosphere.scale,
                     wavelengths: settings.atmosphere_wavelengths,

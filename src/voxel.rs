@@ -135,7 +135,7 @@ impl Voxels {
         position: Vector3<i64>,
         normal: Vector3<i64>,
         voxels: &SparseVoxelOctree,
-    ) -> Option<[Vertex; 3]> {
+    ) -> Option<[Vertex; 6]> {
         if !voxels.at(position, self.chunk_size as i64) {
             return None;
         }
@@ -170,7 +170,11 @@ impl Voxels {
             position: (base + rot2).cast::<f32>(),
             normal: normal.cast::<f32>(),
         };
-        Some([v1, v2, v3])
+        let v4 = Vertex {
+            position: (base + rot1 + rot2).cast::<f32>(),
+            normal: normal.cast::<f32>(),
+        };
+        Some([v1, v2, v3, v2, v4, v3])
     }
 }
 

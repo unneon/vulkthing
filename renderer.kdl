@@ -10,7 +10,7 @@ sampler "nearest" {
     unnormalized-coordinates
 }
 
-descriptor-set "object" 7 {
+descriptor-set "object" 1024 {
     uniform "transform" "VERTEX" "Transform"
     uniform "material" "FRAGMENT" "Material"
 }
@@ -55,22 +55,6 @@ pass "render" {
                 attribute "vertex_normal" "R32G32B32_SFLOAT"
             }
             descriptor-sets "object" "global"
-        }
-        pipeline "grass" {
-            vertex-binding {
-                attribute "vertex_position" "R32G32B32_SFLOAT"
-                attribute "vertex_normal" "R32G32B32_SFLOAT"
-            }
-            vertex-binding rate="INSTANCE" {
-                attribute "blade_position" "R32G32B32_SFLOAT"
-                attribute "blade_up" "R32G32B32_SFLOAT"
-                attribute "blade_right" "R32G32B32_SFLOAT"
-                attribute "blade_front" "R32G32B32_SFLOAT"
-                attribute "blade_height_noise" "R32_SFLOAT"
-                attribute "ground_normal" "R32G32B32_SFLOAT"
-            }
-            descriptor-sets "object" "global"
-            cull-mode "NONE"
         }
         pipeline "star" {
             vertex-binding {

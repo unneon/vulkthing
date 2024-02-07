@@ -4,7 +4,6 @@
 
 #define GLOBAL_UNIFORM_TYPE \
     Global { \
-        Grass grass; \
         Light light; \
         Settings settings; \
         Atmosphere atmosphere; \
@@ -21,16 +20,6 @@
         float roughness; \
         float ao; \
     }
-
-struct Grass {
-    float height_average;
-    float height_max_variance;
-    float width;
-    float time;
-    vec3 sway_direction;
-    float sway_frequency;
-    float sway_amplitude;
-};
 
 struct Light {
     vec3 color;

@@ -1,6 +1,3 @@
-use crate::config::DEFAULT_PLANET_SCALE;
-use crate::grass::GrassParameters;
-use crate::planet::Planet;
 use crate::renderer::codegen::{PASS_COUNT, PASS_NAMES};
 use crate::renderer::{PostprocessSettings, RendererSettings};
 use crate::world::World;
@@ -35,13 +32,11 @@ impl Interface {
     pub fn build(
         &mut self,
         world: &mut World,
-        planet: &mut Planet,
-        grass: &mut GrassParameters,
         renderer: &mut RendererSettings,
         pass_times: Option<&[Duration; PASS_COUNT]>,
     ) -> InterfaceEvents {
         let ui = self.ctx.frame();
-        let mut events = InterfaceEvents {
+        let events = InterfaceEvents {
             planet_changed: false,
             grass_changed: false,
             rebuild_swapchain: false,
@@ -50,14 +45,6 @@ impl Interface {
         ui.window("Debugging")
             .size([0., 0.], Condition::Always)
             .build(|| {
-                if ui.collapsing_header("Planet", TreeNodeFlags::empty()) {
-                    let mut changed = false;
-                    changed |= ui.slider("Resolution", 1, 800, &mut planet.resolution);
-                    changed |= ui.slider("Noise magnitude", 0., 100., &mut planet.noise_magnitude);
-                    changed |= ui.slider("Noise scale", 0., 64., &mut planet.noise_scale);
-                    entity(ui, world, world.planet_entity());
-                    events.planet_changed = changed;
-                }
                 if ui.collapsing_header("Sun", TreeNodeFlags::empty()) {
                     Drag::new("Time of day")
                         .speed(0.01)
@@ -66,12 +53,7 @@ impl Interface {
                     ui.slider_config("Intensity", 0.001, 10000000.)
                         .flags(SliderFlags::LOGARITHMIC)
                         .build(&mut world.sun_intensity);
-                    ui.slider(
-                        "Orbit radius",
-                        0.,
-                        4. * DEFAULT_PLANET_SCALE,
-                        &mut world.sun_radius,
-                    );
+                    ui.slider("Orbit radius", 0., 4000., &mut world.sun_radius);
                     ui.slider_config("Scale", 1., 500.)
                         .flags(SliderFlags::LOGARITHMIC)
                         .build(&mut world.sun_scale);
@@ -79,50 +61,6 @@ impl Interface {
                     ui.slider_config("Speed", 0.001, 10.)
                         .flags(SliderFlags::LOGARITHMIC)
                         .build(&mut world.sun_speed);
-                }
-                if ui.collapsing_header("Grass", TreeNodeFlags::empty()) {
-                    events.grass_changed |= ui.checkbox("Enabled", &mut grass.enabled);
-                    events.grass_changed |= ui.slider(
-                        "Blades per planet triangle",
-                        1,
-                        256,
-                        &mut grass.blades_per_triangle,
-                    );
-                    events.grass_changed |=
-                        ui.slider("Height average", 0.01, 3., &mut grass.height_average);
-                    events.grass_changed |= ui.slider(
-                        "Height max variance",
-                        0.,
-                        1.,
-                        &mut grass.height_max_variance,
-                    );
-                    events.grass_changed |= ui.slider(
-                        "Height noise frequency",
-                        0.01,
-                        1.,
-                        &mut grass.height_noise_frequency,
-                    );
-                    events.grass_changed |= ui.slider("Width", 0., 0.5, &mut grass.width);
-                    events.grass_changed |=
-                        ui.slider("Sway frequency", 0.25, 4., &mut grass.sway_frequency);
-                    events.grass_changed |=
-                        ui.slider("Sway amplitude", 0., 0.5, &mut grass.sway_amplitude);
-                    events.grass_changed |=
-                        ui.slider("Chunk count", 1, 4095, &mut grass.chunk_count);
-                    grass.chunk_count += grass.chunk_count % 2 - 1;
-                    events.grass_changed |= ui.slider(
-                        "Chunk load distance",
-                        0.,
-                        2000.,
-                        &mut grass.chunk_load_distance,
-                    );
-                    events.grass_changed |= ui.slider(
-                        "Chunk unload distance",
-                        0.,
-                        2000.,
-                        &mut grass.chunk_unload_distance,
-                    );
-                    events.grass_changed |= events.grass_changed;
                 }
                 if ui.collapsing_header("Renderer", TreeNodeFlags::empty()) {
                     ui.slider_config("Depth near plane", 0.001, 16.)
@@ -205,13 +143,6 @@ impl EnumInterface for vk::SampleCountFlags {
             Cow::Borrowed("1x")
         }
     }
-}
-
-fn entity(ui: &Ui, world: &mut World, entity: usize) {
-    Drag::new("Position").build_array(
-        ui,
-        world.entities[entity].transform.translation.as_mut_slice(),
-    );
 }
 
 fn build_postprocess(ui: &Ui, postprocess: &mut PostprocessSettings) {

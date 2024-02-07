@@ -2,9 +2,9 @@ mod benchmark;
 
 use crate::camera::Camera;
 use crate::config::{
-    DEFAULT_CAMERA, DEFAULT_PLANET_POSITION, DEFAULT_PLANET_SCALE, DEFAULT_STAR_COUNT,
-    DEFAULT_STAR_MAX_SCALE, DEFAULT_STAR_MIN_SCALE, DEFAULT_STAR_RADIUS, DEFAULT_SUN_POSITION,
-    DEFAULT_SUN_RADIUS, DEFAULT_SUN_SPEED, DEFAULT_VOXEL_CHUNK_SIZE,
+    DEFAULT_CAMERA, DEFAULT_STAR_COUNT, DEFAULT_STAR_MAX_SCALE, DEFAULT_STAR_MIN_SCALE,
+    DEFAULT_STAR_RADIUS, DEFAULT_SUN_POSITION, DEFAULT_SUN_RADIUS, DEFAULT_SUN_SPEED,
+    DEFAULT_VOXEL_CHUNK_SIZE,
 };
 use crate::input::InputState;
 use crate::mesh::MeshData;
@@ -65,7 +65,7 @@ const AVERAGE_MALE_EYE_HEIGHT: f32 = 1.63;
 const AVERAGE_MALE_SHOULDER_WIDTH: f32 = 0.465;
 
 impl World {
-    pub fn new(planet_model: &MeshData) -> World {
+    pub fn new() -> World {
         let camera = Box::new(DEFAULT_CAMERA);
         let mut physics = Physics::new();
         let camera_rigid_body = RigidBodyBuilder::dynamic()
@@ -83,22 +83,6 @@ impl World {
             camera_rigid_body_handle,
             &mut physics.rigid_body_set,
         );
-        let planet_scale = Vector3::from_element(DEFAULT_PLANET_SCALE);
-        let planet_collider = physics.trimesh(planet_model, &planet_scale).friction(0.);
-        let planet = Entity {
-            transform: Transform {
-                translation: DEFAULT_PLANET_POSITION,
-                rotation: UnitQuaternion::identity(),
-                scale: planet_scale,
-            },
-            albedo: Vector3::new(0.2, 0.8, 0.03).scale(0.7),
-            emit: Vector3::zeros(),
-            metallic: 0.,
-            roughness: 1.,
-            ao: 0.,
-            mesh_id: 0,
-        };
-        physics.insert_static(planet_collider);
         let sun = Entity {
             transform: Transform {
                 translation: DEFAULT_SUN_POSITION,
@@ -112,34 +96,7 @@ impl World {
             ao: 0.,
             mesh_id: 4,
         };
-        let voxels = Entity {
-            transform: Transform {
-                translation: camera.position,
-                rotation: UnitQuaternion::identity(),
-                scale: Vector3::from_element(1.),
-            },
-            albedo: Vector3::from_element(1.),
-            emit: Vector3::from_element(1.),
-            metallic: 0.,
-            roughness: 1.,
-            ao: 0.,
-            mesh_id: 5,
-        };
-        let voxels2 = Entity {
-            transform: Transform {
-                translation: camera.position
-                    + Vector3::new(DEFAULT_VOXEL_CHUNK_SIZE as f32, 0., 0.),
-                rotation: UnitQuaternion::identity(),
-                scale: Vector3::from_element(1.),
-            },
-            albedo: Vector3::from_element(1.),
-            emit: Vector3::from_element(1.),
-            metallic: 0.,
-            roughness: 1.,
-            ao: 0.,
-            mesh_id: 6,
-        };
-        let entities = vec![planet, sun, voxels, voxels2];
+        let entities = vec![sun];
         let mut stars = Vec::new();
         let mut rng = rand::thread_rng();
         for _ in 0..DEFAULT_STAR_COUNT {
@@ -211,10 +168,10 @@ impl World {
     }
 
     pub fn update_sun(&mut self) {
-        let translation = &mut self.entities[1].transform.translation;
+        let translation = &mut self.entities[0].transform.translation;
         translation.x = self.sun_radius * self.time_of_day.sin();
         translation.z = self.sun_radius * self.time_of_day.cos();
-        let scale = &mut self.entities[1].transform.scale;
+        let scale = &mut self.entities[0].transform.scale;
         *scale = Vector3::from_element(self.sun_scale);
     }
 
@@ -236,16 +193,8 @@ impl World {
         &self.entities
     }
 
-    pub fn planet(&self) -> &Entity {
-        &self.entities[0]
-    }
-
-    pub fn planet_entity(&self) -> usize {
-        0
-    }
-
     pub fn sun(&self) -> &Entity {
-        &self.entities[1]
+        &self.entities[0]
     }
 }
 
