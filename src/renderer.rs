@@ -10,7 +10,6 @@ pub mod uniform;
 pub mod util;
 pub mod vertex;
 
-use crate::chunks::ChunksShared;
 use crate::renderer::codegen::{
     DescriptorPools, DescriptorSetLayouts, Passes, PipelineLayouts, Pipelines, Samplers, PASS_COUNT,
 };
@@ -27,7 +26,8 @@ use ash::{vk, Entry};
 use imgui::DrawData;
 use nalgebra::{Matrix4, Vector2, Vector3};
 use std::f32::consts::FRAC_PI_4;
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 use winit::dpi::PhysicalSize;
 
@@ -94,10 +94,11 @@ pub struct Renderer {
 
     interface_renderer: Option<imgui_rs_vulkan_renderer::Renderer>,
 
-    pub voxel_chunks: Option<Arc<Mutex<ChunksShared>>>,
-    voxel_transforms: Vec<UniformBuffer<Transform>>,
-    voxel_materials: Vec<UniformBuffer<Material>>,
-    voxel_descriptor_sets: Vec<[vk::DescriptorSet; FRAMES_IN_FLIGHT]>,
+    pub voxel_chunks: Option<Arc<AtomicU64>>,
+    voxel_transform: UniformBuffer<Transform>,
+    voxel_material: UniformBuffer<Material>,
+    voxel_descriptor_set: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
+    pub voxel_buffer: Buffer,
 }
 
 struct Synchronization {
@@ -170,8 +171,9 @@ impl Renderer {
         let Some(image_index) = (unsafe { self.prepare_command_buffer(window_size) }) else {
             return;
         };
-        unsafe { self.record_command_buffer(image_index, world, ui_draw, settings) };
+        unsafe { self.record_command_buffer(image_index, world, ui_draw) };
         self.pass_times = self.query_timestamps();
+        self.update_voxel_uniform(world, settings);
         for entity_id in 0..world.entities().len() {
             self.update_object_uniforms(world, entity_id, settings);
         }
@@ -223,7 +225,6 @@ impl Renderer {
         image_index: usize,
         world: &World,
         ui_draw: &DrawData,
-        settings: &RendererSettings,
     ) {
         let buf = self.command_buffers[self.flight_index];
 
@@ -231,7 +232,7 @@ impl Renderer {
             .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
         self.dev.begin_command_buffer(buf, &begin_info).unwrap();
         self.reset_timestamps(buf);
-        self.record_render_pass(buf, world, settings);
+        self.record_render_pass(buf, world);
         self.record_atmosphere_pass(buf);
         self.record_extract_pass(buf);
         self.record_gaussian_passes(buf);
@@ -240,54 +241,26 @@ impl Renderer {
         self.dev.end_command_buffer(buf).unwrap();
     }
 
-    unsafe fn record_render_pass(
-        &self,
-        buf: vk::CommandBuffer,
-        world: &World,
-        settings: &RendererSettings,
-    ) {
+    unsafe fn record_render_pass(&self, buf: vk::CommandBuffer, world: &World) {
         self.passes
             .render
             .begin(buf, &self.dev, self.query_pool, self.flight_index);
 
         if let Some(voxel_chunks) = self.voxel_chunks.as_ref() {
+            let vertex_count = voxel_chunks.load(Ordering::SeqCst) as u32;
+
             begin_label(buf, "Voxel draws", [255, 0, 0], &self.dev);
             self.bind_graphics_pipeline(buf, self.pipelines.object);
-            for (i, chunk) in voxel_chunks.lock().unwrap().slots.iter().enumerate() {
-                if chunk.active {
-                    self.voxel_materials[i].write(
-                        self.flight_index,
-                        &Material {
-                            emit: Vector3::from_element(0.01),
-                            metallic: 0.,
-                            ao: 0.,
-                            roughness: 1.,
-                            albedo: Vector3::from_element(0.9),
-                        },
-                    );
-                    self.voxel_transforms[i].write(
-                        self.flight_index,
-                        &Transform {
-                            model: Matrix4::new_translation(&chunk.position),
-                            view: world.view_matrix(),
-                            proj: self.projection_matrix(settings),
-                        },
-                    );
-                    self.bind_descriptor_sets(
-                        buf,
-                        self.pipeline_layouts.object,
-                        &self.voxel_descriptor_sets[i],
-                    );
-                    unsafe {
-                        self.dev
-                            .cmd_bind_vertex_buffers(buf, 0, &[chunk.buffer], &[0])
-                    };
-                    unsafe {
-                        self.dev
-                            .cmd_draw(buf, 3 * chunk.triangle_count as u32, 1, 0, 0)
-                    };
-                }
-            }
+            self.bind_descriptor_sets(
+                buf,
+                self.pipeline_layouts.object,
+                &self.voxel_descriptor_set,
+            );
+            unsafe {
+                self.dev
+                    .cmd_bind_vertex_buffers(buf, 0, &[self.voxel_buffer.buffer], &[0])
+            };
+            unsafe { self.dev.cmd_draw(buf, vertex_count, 1, 0, 0) };
             end_label(buf, &self.dev);
         }
 
@@ -424,6 +397,23 @@ impl Renderer {
 
         self.dev.cmd_end_render_pass(buf);
         end_label(buf, &self.dev);
+    }
+
+    fn update_voxel_uniform(&self, world: &World, settings: &RendererSettings) {
+        let transform = Transform {
+            model: Matrix4::identity(),
+            view: world.view_matrix(),
+            proj: self.projection_matrix(settings),
+        };
+        let material = Material {
+            emit: Vector3::from_element(0.01),
+            metallic: 0.,
+            ao: 0.,
+            roughness: 1.,
+            albedo: Vector3::from_element(0.9),
+        };
+        self.voxel_material.write(self.flight_index, &material);
+        self.voxel_transform.write(self.flight_index, &transform);
     }
 
     fn update_object_uniforms(&self, world: &World, entity_id: usize, settings: &RendererSettings) {

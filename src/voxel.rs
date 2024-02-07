@@ -1,3 +1,4 @@
+use crate::config::DEFAULT_VOXEL_CHUNK_SIZE;
 use crate::mesh::MeshData;
 use crate::renderer::vertex::Vertex;
 use nalgebra::{DMatrix, Vector2, Vector3};
@@ -83,10 +84,13 @@ impl Voxels {
         )
     }
 
-    pub fn generate_chunk_mesh(&self, voxels: &SparseVoxelOctree) -> MeshData {
+    pub fn generate_chunk_mesh(&self, chunk: Vector3<i64>, voxels: &SparseVoxelOctree) -> MeshData {
         let cube = BinaryCube::new_at_zero(self.chunk_size);
         let mut vertices = Vec::new();
         self.generate_chunk_mesh_impl(cube, voxels, voxels, &mut vertices);
+        for vertex in &mut vertices {
+            vertex.position += (chunk * DEFAULT_VOXEL_CHUNK_SIZE as i64).cast::<f32>();
+        }
         MeshData { vertices }
     }
 

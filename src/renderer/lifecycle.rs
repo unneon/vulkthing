@@ -1,4 +1,5 @@
 use crate::cli::Args;
+use crate::config::DEFAULT_VOXEL_VERTEX_MEMORY;
 use crate::mesh::MeshData;
 use crate::renderer::codegen::{
     create_descriptor_pools, create_descriptor_set_layouts, create_pipeline_layouts,
@@ -30,13 +31,7 @@ use std::ffi::CString;
 use winit::dpi::PhysicalSize;
 
 impl Renderer {
-    pub fn new(
-        window: &Window,
-        chunk_count: usize,
-        meshes: &[&MeshData],
-        world: &World,
-        args: &Args,
-    ) -> Renderer {
+    pub fn new(window: &Window, meshes: &[&MeshData], world: &World, args: &Args) -> Renderer {
         let entry = unsafe { Entry::load() }.unwrap();
         let instance = create_instance(window, &entry, args);
         let debug_ext = DebugUtils::new(&entry, &instance);
@@ -162,7 +157,7 @@ impl Renderer {
         );
         let star_descriptor_sets =
             descriptor_pools.alloc_object(&star_transform, &star_material, &dev);
-        star_instances.generate_host_visible(world.stars.len(), &dev, |i| Star {
+        star_instances.generate_host_visible(&dev, |i| Star {
             model: world.stars[i].transform.model_matrix(),
             emit: world.stars[i].emit,
         });
@@ -175,16 +170,16 @@ impl Renderer {
 
         let query_pool = create_query_pool(&dev);
 
-        let mut voxel_transforms = Vec::new();
-        let mut voxel_materials = Vec::new();
-        let mut voxel_descriptor_sets = Vec::new();
-        for _ in 0..chunk_count {
-            let transform = UniformBuffer::create(&dev);
-            let material = UniformBuffer::create(&dev);
-            voxel_descriptor_sets.push(descriptor_pools.alloc_object(&transform, &material, &dev));
-            voxel_transforms.push(transform);
-            voxel_materials.push(material);
-        }
+        let voxel_transform = UniformBuffer::create(&dev);
+        let voxel_material = UniformBuffer::create(&dev);
+        let voxel_descriptor_set =
+            descriptor_pools.alloc_object(&voxel_transform, &voxel_material, &dev);
+        let voxel_buffer = Buffer::create(
+            VRAM_VIA_BAR,
+            vk::BufferUsageFlags::VERTEX_BUFFER,
+            DEFAULT_VOXEL_VERTEX_MEMORY,
+            &dev,
+        );
 
         Renderer {
             _entry: entry,
@@ -229,9 +224,10 @@ impl Renderer {
             just_completed_first_render: false,
             interface_renderer: None,
             voxel_chunks: None,
-            voxel_transforms,
-            voxel_materials,
-            voxel_descriptor_sets,
+            voxel_transform,
+            voxel_material,
+            voxel_descriptor_set,
+            voxel_buffer,
         }
     }
 
@@ -369,11 +365,9 @@ impl Drop for Renderer {
 
             drop(self.interface_renderer.take());
             self.dev.destroy_query_pool(self.query_pool, None);
-            // let mut voxels = self.voxel_chunks.unwrap().lock().unwrap();
-            for i in 0..self.voxel_descriptor_sets.len() {
-                self.voxel_materials[i].cleanup(&self.dev);
-                self.voxel_transforms[i].cleanup(&self.dev);
-            }
+            self.voxel_material.cleanup(&self.dev);
+            self.voxel_transform.cleanup(&self.dev);
+            self.voxel_buffer.cleanup(&self.dev);
             self.star_transform.cleanup(&self.dev);
             self.star_material.cleanup(&self.dev);
             self.star_instances.cleanup(&self.dev);

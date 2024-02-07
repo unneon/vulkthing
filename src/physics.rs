@@ -33,6 +33,7 @@ impl Physics {
         }
     }
 
+    #[allow(dead_code)]
     pub fn trimesh(&self, model: &MeshData, scale: &Vector3<f32>) -> ColliderBuilder {
         let vertices: Vec<_> = model
             .vertices
@@ -43,6 +44,7 @@ impl Physics {
         ColliderBuilder::trimesh(vertices, indices)
     }
 
+    #[allow(dead_code)]
     pub fn insert_static(&mut self, collider: ColliderBuilder) {
         self.collider_set.insert(collider);
     }

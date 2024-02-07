@@ -53,5 +53,5 @@ pub const DEFAULT_RENDERER_SETTINGS: RendererSettings = RendererSettings {
     },
 };
 
-pub const DEFAULT_VOXEL_CHUNK_COUNT: usize = 32;
 pub const DEFAULT_VOXEL_CHUNK_SIZE: usize = 128;
+pub const DEFAULT_VOXEL_VERTEX_MEMORY: usize = 1024 * 1024 * 1024;

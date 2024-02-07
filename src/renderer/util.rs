@@ -32,6 +32,7 @@ pub struct Dev {
 pub struct Buffer {
     pub buffer: vk::Buffer,
     pub memory: vk::DeviceMemory,
+    pub size: usize,
 }
 
 pub struct ImageResources {
@@ -79,40 +80,41 @@ impl Buffer {
 
         let memory = unsafe { dev.allocate_memory(&memory_info, None) }.unwrap();
         unsafe { dev.bind_buffer_memory(buffer, memory, 0) }.unwrap();
-        Buffer { buffer, memory }
+        Buffer {
+            buffer,
+            memory,
+            size,
+        }
     }
 
     pub fn fill_from_slice_host_visible<T: Copy>(&self, data: &[T], dev: &Dev) {
-        self.with_mapped(data.len(), dev, |mapped| {
+        self.with_mapped(dev, |mapped| {
             MaybeUninit::write_slice(mapped, data);
         });
     }
 
-    pub fn generate_host_visible<T: Copy>(
-        &self,
-        count: usize,
-        dev: &Dev,
-        mut f: impl FnMut(usize) -> T,
-    ) {
-        self.with_mapped(count, dev, |mapped| {
+    pub fn generate_host_visible<T: Copy>(&self, dev: &Dev, mut f: impl FnMut(usize) -> T) {
+        self.with_mapped(dev, |mapped| {
             for (i, mapped) in mapped.iter_mut().enumerate() {
                 mapped.write(f(i));
             }
         });
     }
 
-    pub fn with_mapped<T, R>(
-        &self,
-        count: usize,
-        dev: &Dev,
-        f: impl FnOnce(&mut [MaybeUninit<T>]) -> R,
-    ) -> R {
-        let size = std::mem::size_of::<T>() * count;
-        let flags = vk::MemoryMapFlags::empty();
-        let ptr = unsafe { dev.map_memory(self.memory, 0, size as u64, flags) }.unwrap();
-        let r = f(unsafe { std::slice::from_raw_parts_mut(ptr as *mut MaybeUninit<T>, count) });
+    pub fn with_mapped<T, R>(&self, dev: &Dev, f: impl FnOnce(&mut [MaybeUninit<T>]) -> R) -> R {
+        let memory = self.map_memory(dev);
+        let r = f(memory);
         unsafe { dev.unmap_memory(self.memory) };
         r
+    }
+
+    // TODO: Safety
+    #[allow(clippy::mut_from_ref)]
+    pub fn map_memory<T>(&self, dev: &Dev) -> &mut [MaybeUninit<T>] {
+        let count = self.size / std::mem::size_of::<T>();
+        let flags = vk::MemoryMapFlags::empty();
+        let ptr = unsafe { dev.map_memory(self.memory, 0, self.size as u64, flags) }.unwrap();
+        unsafe { std::slice::from_raw_parts_mut(ptr as *mut MaybeUninit<T>, count) }
     }
 
     pub fn device_address(&self, buffer_device_address_ext: &BufferDeviceAddress) -> u64 {

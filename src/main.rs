@@ -25,7 +25,6 @@ mod mesh;
 mod physics;
 mod planet;
 mod renderer;
-mod types;
 mod util;
 mod voxel;
 mod window;
@@ -33,9 +32,7 @@ mod world;
 
 use crate::chunks::Chunks;
 use crate::cli::Args;
-use crate::config::{
-    DEFAULT_PLANET, DEFAULT_RENDERER_SETTINGS, DEFAULT_VOXEL_CHUNK_COUNT, DEFAULT_VOXEL_CHUNK_SIZE,
-};
+use crate::config::{DEFAULT_PLANET, DEFAULT_RENDERER_SETTINGS, DEFAULT_VOXEL_CHUNK_SIZE};
 use crate::input::InputState;
 use crate::interface::Interface;
 use crate::logger::{initialize_logger, initialize_panic_hook};
@@ -79,7 +76,6 @@ fn main() {
     let mut renderer_settings = DEFAULT_RENDERER_SETTINGS;
     let mut renderer = Renderer::new(
         &window,
-        DEFAULT_VOXEL_CHUNK_COUNT,
         &[
             &planet_mesh,
             &cube_mesh,
@@ -91,7 +87,7 @@ fn main() {
         &args,
     );
     let voxels = Voxels::new(DEFAULT_VOXEL_CHUNK_SIZE, random());
-    let mut chunks = Chunks::new(DEFAULT_VOXEL_CHUNK_COUNT, voxels, renderer.dev.clone());
+    let mut chunks = Chunks::new(voxels, renderer.voxel_buffer.map_memory(&renderer.dev));
     renderer.voxel_chunks = Some(chunks.shared());
     for z in -1..1 {
         for x in -2..2 {
