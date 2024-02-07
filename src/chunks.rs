@@ -39,17 +39,21 @@ impl<'a> Chunks<'a> {
         let distance_vertical = DEFAULT_VOXEL_RENDER_DISTANCE_VERTICAL as i64;
         let range_horizontal = -distance_horizontal..=distance_horizontal;
         let range_vertical = -distance_vertical..=distance_vertical;
-        'outer: for dx in range_horizontal.clone() {
+        let mut to_load = Vec::new();
+        for dx in range_horizontal.clone() {
             for dy in range_horizontal.clone() {
                 for dz in range_vertical.clone() {
                     let chunk = camera_chunk + Vector3::new(dx, dy, dz);
                     if !self.loaded.contains(&chunk) {
-                        self.generate_chunk(chunk);
-                        self.loaded.insert(chunk);
-                        break 'outer;
+                        to_load.push(chunk);
                     }
                 }
             }
+        }
+        to_load.sort_by_key(|chunk| (chunk - camera_chunk).abs().sum());
+        for chunk in to_load {
+            self.generate_chunk(chunk);
+            self.loaded.insert(chunk);
         }
     }
 

@@ -44,7 +44,7 @@ use crate::window::create_window;
 use crate::world::World;
 use log::debug;
 use rand::random;
-use std::sync::Arc;
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::Instant;
 use winit::event::{DeviceEvent, Event, StartCause, WindowEvent};
 use winit::event_loop::ControlFlow;
@@ -98,6 +98,22 @@ fn main() {
     let mut frame_index = 0;
 
     renderer.create_interface_renderer(&mut interface.ctx);
+
+    let camera_position = Arc::new(Mutex::new(world.camera.position()));
+    let condvar = Arc::new(Condvar::new());
+    std::thread::spawn({
+        let camera_position = camera_position.clone();
+        let condvar = condvar.clone();
+        move || {
+            let mut camera_position_lock = camera_position.lock().unwrap();
+            loop {
+                let camera_position_value = *camera_position_lock;
+                drop(camera_position_lock);
+                chunks.update_camera(camera_position_value);
+                camera_position_lock = condvar.wait(camera_position.lock().unwrap()).unwrap();
+            }
+        }
+    });
 
     // Run the event loop. Winit delivers events, like key presses. After it finishes delivering
     // some batch of events, it sends a MainEventsCleared event, which means the application should
@@ -171,7 +187,8 @@ fn main() {
                     renderer.recreate_pipelines();
                 }
 
-                chunks.update_camera(world.camera.position());
+                *camera_position.lock().unwrap() = world.camera.position();
+                condvar.notify_one();
 
                 renderer.draw_frame(
                     &world,
