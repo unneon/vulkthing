@@ -15,7 +15,6 @@
 #![allow(clippy::type_complexity)]
 
 mod camera;
-mod chunks;
 mod cli;
 mod config;
 mod input;
@@ -26,24 +25,22 @@ mod physics;
 mod planet;
 mod renderer;
 mod util;
-mod voxel;
+mod voxels;
 mod window;
 mod world;
 
-use crate::chunks::Chunks;
 use crate::cli::Args;
-use crate::config::{DEFAULT_PLANET, DEFAULT_RENDERER_SETTINGS, DEFAULT_VOXEL_CHUNK_SIZE};
+use crate::config::{DEFAULT_PLANET, DEFAULT_RENDERER_SETTINGS};
 use crate::input::InputState;
 use crate::interface::Interface;
 use crate::logger::{initialize_logger, initialize_panic_hook};
 use crate::mesh::load_mesh;
 use crate::planet::generate_planet;
 use crate::renderer::Renderer;
-use crate::voxel::Voxels;
+use crate::voxels::Voxels;
 use crate::window::create_window;
 use crate::world::World;
 use log::debug;
-use rand::random;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Instant;
 use winit::event::{DeviceEvent, Event, StartCause, WindowEvent};
@@ -85,9 +82,8 @@ fn main() {
         &world,
         &args,
     );
-    let voxels = Voxels::new(DEFAULT_VOXEL_CHUNK_SIZE, random());
-    let mut chunks = Chunks::new(voxels, renderer.voxel_buffer.map_memory(&renderer.dev));
-    renderer.voxel_chunks = Some(chunks.shared());
+    let mut voxels = Voxels::new(renderer.voxel_buffer.map_memory(&renderer.dev));
+    renderer.voxels_shared = Some(voxels.shared());
     let mut interface = Interface::new(
         renderer.swapchain.extent.width as usize,
         renderer.swapchain.extent.height as usize,
@@ -99,18 +95,18 @@ fn main() {
 
     renderer.create_interface_renderer(&mut interface.ctx);
 
-    let camera_position = Arc::new(Mutex::new(world.camera.position()));
-    let condvar = Arc::new(Condvar::new());
+    let voxels_camera = Arc::new(Mutex::new(world.camera.position()));
+    let voxels_condvar = Arc::new(Condvar::new());
     std::thread::spawn({
-        let camera_position = camera_position.clone();
-        let condvar = condvar.clone();
+        let camera = voxels_camera.clone();
+        let condvar = voxels_condvar.clone();
         move || {
-            let mut camera_position_lock = camera_position.lock().unwrap();
+            let mut camera_lock = camera.lock().unwrap();
             loop {
-                let camera_position_value = *camera_position_lock;
-                drop(camera_position_lock);
-                chunks.update_camera(camera_position_value);
-                camera_position_lock = condvar.wait(camera_position.lock().unwrap()).unwrap();
+                let camera_position = *camera_lock;
+                drop(camera_lock);
+                voxels.update_camera(camera_position);
+                camera_lock = condvar.wait(camera.lock().unwrap()).unwrap();
             }
         }
     });
@@ -187,8 +183,8 @@ fn main() {
                     renderer.recreate_pipelines();
                 }
 
-                *camera_position.lock().unwrap() = world.camera.position();
-                condvar.notify_one();
+                *voxels_camera.lock().unwrap() = world.camera.position();
+                voxels_condvar.notify_one();
 
                 renderer.draw_frame(
                     &world,

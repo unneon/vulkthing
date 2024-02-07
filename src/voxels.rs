@@ -1,22 +1,31 @@
-use crate::config::DEFAULT_VOXEL_CHUNK_SIZE;
+mod binary_cube;
+mod sparse_octree;
+
+use crate::config::{
+    DEFAULT_VOXEL_CHUNK_SIZE, DEFAULT_VOXEL_RENDER_DISTANCE_HORIZONTAL,
+    DEFAULT_VOXEL_RENDER_DISTANCE_VERTICAL,
+};
 use crate::mesh::MeshData;
 use crate::renderer::vertex::Vertex;
+use crate::voxels::binary_cube::BinaryCube;
+use crate::voxels::sparse_octree::SparseOctree;
+use log::debug;
 use nalgebra::{DMatrix, Vector2, Vector3};
-use noise::{NoiseFn, Perlin};
+use noise::NoiseFn;
+use noise::Perlin;
+use rand::random;
+use std::collections::HashSet;
+use std::mem::MaybeUninit;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
-pub struct Voxels {
-    pub chunk_size: usize,
-    noise: Perlin,
-}
-
-#[derive(Clone, Debug)]
-pub enum SparseVoxelOctree {
-    Uniform {
-        kind: VoxelKind,
-    },
-    Mixed {
-        children: [Box<SparseVoxelOctree>; 8],
-    },
+pub struct Voxels<'a> {
+    chunk_size: usize,
+    heightmap_noise: Perlin,
+    // TODO: That is really not in the spirit of Rust safety.
+    buffer: &'a mut [MaybeUninit<Vertex>],
+    vertices: Arc<AtomicU64>,
+    loaded: HashSet<Vector3<i64>>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -24,15 +33,6 @@ pub enum SparseVoxelOctree {
 pub enum VoxelKind {
     Air = 0,
     Stone = 1,
-}
-
-pub struct BinaryCube {
-    position: Vector3<i64>,
-    size: BinaryCubeSize,
-}
-
-struct BinaryCubeSize {
-    length: usize,
 }
 
 const DIRECTIONS: [Vector3<i64>; 6] = [
@@ -44,12 +44,65 @@ const DIRECTIONS: [Vector3<i64>; 6] = [
     Vector3::new(0, 0, -1),
 ];
 
-impl Voxels {
-    pub fn new(chunk_size: usize, seed: u32) -> Voxels {
+impl<'a> Voxels<'a> {
+    pub fn new(buffer: &'a mut [MaybeUninit<Vertex>]) -> Voxels {
         Voxels {
-            chunk_size,
-            noise: Perlin::new(seed),
+            chunk_size: DEFAULT_VOXEL_CHUNK_SIZE,
+            heightmap_noise: Perlin::new(random()),
+            buffer,
+            vertices: Arc::new(AtomicU64::new(0)),
+            loaded: HashSet::new(),
         }
+    }
+
+    pub fn update_camera(&mut self, camera: Vector3<f32>) {
+        let camera_chunk = Vector3::new(
+            (camera.x / DEFAULT_VOXEL_CHUNK_SIZE as f32).floor() as i64,
+            (camera.y / DEFAULT_VOXEL_CHUNK_SIZE as f32).floor() as i64,
+            (camera.z / DEFAULT_VOXEL_CHUNK_SIZE as f32).floor() as i64,
+        );
+        let distance_horizontal = DEFAULT_VOXEL_RENDER_DISTANCE_HORIZONTAL as i64;
+        let distance_vertical = DEFAULT_VOXEL_RENDER_DISTANCE_VERTICAL as i64;
+        let range_horizontal = -distance_horizontal..=distance_horizontal;
+        let range_vertical = -distance_vertical..=distance_vertical;
+        let mut to_load = Vec::new();
+        for dx in range_horizontal.clone() {
+            for dy in range_horizontal.clone() {
+                for dz in range_vertical.clone() {
+                    let chunk = camera_chunk + Vector3::new(dx, dy, dz);
+                    if !self.loaded.contains(&chunk) {
+                        to_load.push(chunk);
+                    }
+                }
+            }
+        }
+        to_load.sort_by_key(|chunk| (chunk - camera_chunk).abs().sum());
+        for chunk in to_load {
+            self.generate_chunk(chunk);
+            self.loaded.insert(chunk);
+        }
+    }
+
+    pub fn generate_chunk(&mut self, chunk: Vector3<i64>) {
+        let heightmap = self.generate_chunk_heightmap(chunk);
+        let svo = self.generate_chunk_svo(chunk, &heightmap);
+        let mesh = self.generate_chunk_mesh(chunk, &svo);
+        debug!(
+            "generated chunk, \x1B[1mid\x1B[0m: {},{},{}, \x1B[1mvertices:\x1B[0m: {}",
+            chunk.x,
+            chunk.y,
+            chunk.z,
+            mesh.vertices.len()
+        );
+        if mesh.vertices.is_empty() {
+            return;
+        }
+        let old_vertex_count = self.vertices.load(Ordering::SeqCst) as usize;
+        let new_vertex_count = old_vertex_count + mesh.vertices.len();
+        let memory = &mut self.buffer[old_vertex_count..new_vertex_count];
+        MaybeUninit::write_slice(memory, &mesh.vertices);
+        self.vertices
+            .store(new_vertex_count as u64, Ordering::SeqCst);
     }
 
     pub fn generate_chunk_heightmap(&self, chunk: Vector3<i64>) -> DMatrix<i64> {
@@ -60,7 +113,7 @@ impl Voxels {
                 let column_coordinates = chunk_coordinates + Vector2::new(x as i64, y as i64);
                 let noise_position = column_coordinates.cast::<f64>() / 128.;
                 let noise_arguments: [f64; 2] = noise_position.into();
-                let raw_noise = self.noise.get(noise_arguments);
+                let raw_noise = self.heightmap_noise.get(noise_arguments);
                 let scaled_noise = raw_noise * 32.;
                 heightmap[(x, y)] = scaled_noise.round() as i64;
             }
@@ -72,7 +125,7 @@ impl Voxels {
         &self,
         chunk: Vector3<i64>,
         heightmap: &DMatrix<i64>,
-    ) -> SparseVoxelOctree {
+    ) -> SparseOctree {
         assert_eq!(heightmap.nrows(), self.chunk_size);
         assert_eq!(heightmap.ncols(), self.chunk_size);
         svo_from_heightmap_impl(
@@ -84,7 +137,7 @@ impl Voxels {
         )
     }
 
-    pub fn generate_chunk_mesh(&self, chunk: Vector3<i64>, voxels: &SparseVoxelOctree) -> MeshData {
+    pub fn generate_chunk_mesh(&self, chunk: Vector3<i64>, voxels: &SparseOctree) -> MeshData {
         let cube = BinaryCube::new_at_zero(self.chunk_size);
         let mut vertices = Vec::new();
         self.generate_chunk_mesh_impl(cube, voxels, voxels, &mut vertices);
@@ -97,8 +150,8 @@ impl Voxels {
     fn generate_chunk_mesh_impl(
         &self,
         cube: BinaryCube,
-        cube_voxels: &SparseVoxelOctree,
-        root_voxels: &SparseVoxelOctree,
+        cube_voxels: &SparseOctree,
+        root_voxels: &SparseOctree,
         vertices: &mut Vec<Vertex>,
     ) {
         if cube.is_single_voxel() {
@@ -107,12 +160,12 @@ impl Voxels {
         }
 
         match cube_voxels {
-            SparseVoxelOctree::Uniform { .. } => {
+            SparseOctree::Uniform { .. } => {
                 for side_voxel in cube.side_voxels() {
                     self.generate_chunk_mesh_voxel(side_voxel, root_voxels, vertices);
                 }
             }
-            SparseVoxelOctree::Mixed { children } => {
+            SparseOctree::Mixed { children } => {
                 for (sub_cube, child) in cube.subdivide().zip(children.iter()) {
                     self.generate_chunk_mesh_impl(sub_cube, child, root_voxels, vertices);
                 }
@@ -123,7 +176,7 @@ impl Voxels {
     fn generate_chunk_mesh_voxel(
         &self,
         position: Vector3<i64>,
-        root_voxels: &SparseVoxelOctree,
+        root_voxels: &SparseOctree,
         vertices: &mut Vec<Vertex>,
     ) {
         for direction in DIRECTIONS {
@@ -138,7 +191,7 @@ impl Voxels {
         &self,
         position: Vector3<i64>,
         normal: Vector3<i64>,
-        voxels: &SparseVoxelOctree,
+        voxels: &SparseOctree,
     ) -> Option<[Vertex; 6]> {
         if !voxels.at(position, self.chunk_size as i64) {
             return None;
@@ -147,7 +200,10 @@ impl Voxels {
         let to_out_of_bounds = (neighbour.x < 0 || neighbour.x >= self.chunk_size as i64)
             || (neighbour.y < 0 || neighbour.y >= self.chunk_size as i64)
             || (neighbour.z < 0 || neighbour.z >= self.chunk_size as i64);
-        if !to_out_of_bounds && voxels.at(neighbour, self.chunk_size as i64) {
+        if to_out_of_bounds {
+            return None;
+        }
+        if voxels.at(neighbour, self.chunk_size as i64) {
             return None;
         }
         let rot1 = Vector3::new(normal.z.abs(), normal.x.abs(), normal.y.abs());
@@ -180,82 +236,9 @@ impl Voxels {
         };
         Some([v1, v2, v3, v2, v4, v3])
     }
-}
 
-impl SparseVoxelOctree {
-    pub fn at(&self, point: Vector3<i64>, local_size: i64) -> bool {
-        match self {
-            SparseVoxelOctree::Uniform { kind } => *kind == VoxelKind::Stone,
-            SparseVoxelOctree::Mixed { children } => {
-                let child_size = local_size / 2;
-                let mut index = 0;
-                if point.z >= child_size {
-                    index += 4;
-                }
-                if point.y >= child_size {
-                    index += 2;
-                }
-                if point.x >= child_size {
-                    index += 1;
-                }
-                let child_coordinates = Vector3::new(
-                    point.x % child_size,
-                    point.y % child_size,
-                    point.z % child_size,
-                );
-                children[index].at(child_coordinates, child_size)
-            }
-        }
-    }
-}
-
-impl BinaryCube {
-    pub fn new_at_zero(length: usize) -> BinaryCube {
-        BinaryCube {
-            position: Vector3::new(0, 0, 0),
-            size: BinaryCubeSize { length },
-        }
-    }
-
-    fn subdivide(&self) -> impl Iterator<Item = BinaryCube> {
-        let position = self.position;
-        let sublength = self.size.length / 2;
-        (0..2).flat_map(move |dz| {
-            (0..2).flat_map(move |dy| {
-                (0..2).map(move |dx| BinaryCube {
-                    position: position + sublength as i64 * Vector3::new(dx, dy, dz),
-                    size: BinaryCubeSize { length: sublength },
-                })
-            })
-        })
-    }
-
-    pub fn side_voxels(&self) -> impl Iterator<Item = Vector3<i64>> {
-        let position = self.position;
-        let length = self.size.length as i64;
-        DIRECTIONS.iter().flat_map(move |direction| {
-            let du = if direction.x == 0 {
-                Vector3::new(1, 0, 0)
-            } else {
-                Vector3::new(0, 1, 0)
-            };
-            let dv = if direction.z == 0 {
-                Vector3::new(0, 0, 1)
-            } else {
-                Vector3::new(0, 1, 0)
-            };
-            let side_base = position
-                + Vector3::new(
-                    if direction.x > 0 { length - 1 } else { 0 },
-                    if direction.y > 0 { length - 1 } else { 0 },
-                    if direction.z > 0 { length - 1 } else { 0 },
-                );
-            (0..length).flat_map(move |i| (0..length).map(move |j| side_base + i * du + j * dv))
-        })
-    }
-
-    fn is_single_voxel(&self) -> bool {
-        self.size.length == 1
+    pub fn shared(&self) -> Arc<AtomicU64> {
+        self.vertices.clone()
     }
 }
 
@@ -265,7 +248,7 @@ fn svo_from_heightmap_impl(
     z: i64,
     n: usize,
     heightmap: &DMatrix<i64>,
-) -> SparseVoxelOctree {
+) -> SparseOctree {
     'check_all_same: {
         let is_stone = heightmap[(x, y)] > z;
         for ly in y..y + n {
@@ -282,7 +265,7 @@ fn svo_from_heightmap_impl(
                 }
             }
         }
-        return SparseVoxelOctree::Uniform {
+        return SparseOctree::Uniform {
             kind: if is_stone {
                 VoxelKind::Stone
             } else {
@@ -305,5 +288,5 @@ fn svo_from_heightmap_impl(
         }
     }
     let children = std::array::from_fn(|i| Box::new(children[i].clone()));
-    SparseVoxelOctree::Mixed { children }
+    SparseOctree::Mixed { children }
 }

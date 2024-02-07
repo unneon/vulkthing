@@ -223,7 +223,7 @@ impl Renderer {
             pass_times: None,
             just_completed_first_render: false,
             interface_renderer: None,
-            voxel_chunks: None,
+            voxels_shared: None,
             voxel_transform,
             voxel_material,
             voxel_descriptor_set,

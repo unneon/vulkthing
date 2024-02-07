@@ -94,7 +94,7 @@ pub struct Renderer {
 
     interface_renderer: Option<imgui_rs_vulkan_renderer::Renderer>,
 
-    pub voxel_chunks: Option<Arc<AtomicU64>>,
+    pub voxels_shared: Option<Arc<AtomicU64>>,
     voxel_transform: UniformBuffer<Transform>,
     voxel_material: UniformBuffer<Material>,
     voxel_descriptor_set: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
@@ -246,7 +246,7 @@ impl Renderer {
             .render
             .begin(buf, &self.dev, self.query_pool, self.flight_index);
 
-        if let Some(voxel_chunks) = self.voxel_chunks.as_ref() {
+        if let Some(voxel_chunks) = self.voxels_shared.as_ref() {
             let vertex_count = voxel_chunks.load(Ordering::SeqCst) as u32;
 
             begin_label(buf, "Voxel draws", [255, 0, 0], &self.dev);
