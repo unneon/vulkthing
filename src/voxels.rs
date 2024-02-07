@@ -14,7 +14,7 @@ use nalgebra::{DMatrix, Vector2, Vector3};
 use noise::NoiseFn;
 use noise::Perlin;
 use rand::random;
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::mem::MaybeUninit;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -25,7 +25,7 @@ pub struct Voxels<'a> {
     // TODO: That is really not in the spirit of Rust safety.
     buffer: &'a mut [MaybeUninit<Vertex>],
     vertices: Arc<AtomicU64>,
-    loaded: HashSet<Vector3<i64>>,
+    loaded: HashMap<Vector3<i64>, SparseOctree>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -51,7 +51,7 @@ impl<'a> Voxels<'a> {
             heightmap_noise: Perlin::new(random()),
             buffer,
             vertices: Arc::new(AtomicU64::new(0)),
-            loaded: HashSet::new(),
+            loaded: HashMap::new(),
         }
     }
 
@@ -70,7 +70,7 @@ impl<'a> Voxels<'a> {
             for dy in range_horizontal.clone() {
                 for dz in range_vertical.clone() {
                     let chunk = camera_chunk + Vector3::new(dx, dy, dz);
-                    if !self.loaded.contains(&chunk) {
+                    if !self.loaded.contains_key(&chunk) {
                         to_load.push(chunk);
                     }
                 }
@@ -78,17 +78,28 @@ impl<'a> Voxels<'a> {
         }
         to_load.sort_by_key(|chunk| (chunk - camera_chunk).abs().sum());
         for chunk in to_load {
-            self.generate_chunk(chunk);
-            self.loaded.insert(chunk);
+            self.generate_chunk_cpu(chunk);
+            for dir in DIRECTIONS {
+                let neighbour = chunk + dir;
+                self.generate_chunk_cpu(neighbour);
+            }
+            self.generate_chunk_gpu(chunk);
         }
     }
 
-    pub fn generate_chunk(&mut self, chunk: Vector3<i64>) {
+    pub fn generate_chunk_cpu(&mut self, chunk: Vector3<i64>) {
+        if self.loaded.contains_key(&chunk) {
+            return;
+        }
         let heightmap = self.generate_chunk_heightmap(chunk);
         let svo = self.generate_chunk_svo(chunk, &heightmap);
-        let mesh = self.generate_chunk_mesh(chunk, &svo);
+        self.loaded.insert(chunk, svo);
+    }
+
+    pub fn generate_chunk_gpu(&mut self, chunk: Vector3<i64>) {
+        let mesh = self.generate_chunk_mesh(chunk, &self.loaded[&chunk]);
         debug!(
-            "generated chunk, \x1B[1mid\x1B[0m: {},{},{}, \x1B[1mvertices:\x1B[0m: {}",
+            "generated chunk, \x1B[1mid\x1B[0m: {},{},{}, \x1B[1mvertices\x1B[0m: {}",
             chunk.x,
             chunk.y,
             chunk.z,
@@ -140,7 +151,7 @@ impl<'a> Voxels<'a> {
     pub fn generate_chunk_mesh(&self, chunk: Vector3<i64>, voxels: &SparseOctree) -> MeshData {
         let cube = BinaryCube::new_at_zero(self.chunk_size);
         let mut vertices = Vec::new();
-        self.generate_chunk_mesh_impl(cube, voxels, voxels, &mut vertices);
+        self.generate_chunk_mesh_impl(cube, voxels, voxels, chunk, &mut vertices);
         for vertex in &mut vertices {
             vertex.position += (chunk * DEFAULT_VOXEL_CHUNK_SIZE as i64).cast::<f32>();
         }
@@ -152,22 +163,23 @@ impl<'a> Voxels<'a> {
         cube: BinaryCube,
         cube_voxels: &SparseOctree,
         root_voxels: &SparseOctree,
+        chunk: Vector3<i64>,
         vertices: &mut Vec<Vertex>,
     ) {
         if cube.is_single_voxel() {
-            self.generate_chunk_mesh_voxel(cube.position, root_voxels, vertices);
+            self.generate_chunk_mesh_voxel(cube.position, root_voxels, chunk, vertices);
             return;
         }
 
         match cube_voxels {
             SparseOctree::Uniform { .. } => {
                 for side_voxel in cube.side_voxels() {
-                    self.generate_chunk_mesh_voxel(side_voxel, root_voxels, vertices);
+                    self.generate_chunk_mesh_voxel(side_voxel, root_voxels, chunk, vertices);
                 }
             }
             SparseOctree::Mixed { children } => {
                 for (sub_cube, child) in cube.subdivide().zip(children.iter()) {
-                    self.generate_chunk_mesh_impl(sub_cube, child, root_voxels, vertices);
+                    self.generate_chunk_mesh_impl(sub_cube, child, root_voxels, chunk, vertices);
                 }
             }
         };
@@ -177,10 +189,11 @@ impl<'a> Voxels<'a> {
         &self,
         position: Vector3<i64>,
         root_voxels: &SparseOctree,
+        chunk: Vector3<i64>,
         vertices: &mut Vec<Vertex>,
     ) {
         for direction in DIRECTIONS {
-            let side = self.generate_chunk_mesh_side(position, direction, root_voxels);
+            let side = self.generate_chunk_mesh_side(position, direction, root_voxels, chunk);
             if let Some(side) = side {
                 vertices.extend_from_slice(&side);
             }
@@ -192,6 +205,7 @@ impl<'a> Voxels<'a> {
         position: Vector3<i64>,
         normal: Vector3<i64>,
         voxels: &SparseOctree,
+        chunk: Vector3<i64>,
     ) -> Option<[Vertex; 6]> {
         if !voxels.at(position, self.chunk_size as i64) {
             return None;
@@ -201,10 +215,19 @@ impl<'a> Voxels<'a> {
             || (neighbour.y < 0 || neighbour.y >= self.chunk_size as i64)
             || (neighbour.z < 0 || neighbour.z >= self.chunk_size as i64);
         if to_out_of_bounds {
-            return None;
-        }
-        if voxels.at(neighbour, self.chunk_size as i64) {
-            return None;
+            let neighbour_voxels = &self.loaded[&(chunk + normal)];
+            let neighbour_in_chunk = Vector3::new(
+                (neighbour.x + self.chunk_size as i64) % self.chunk_size as i64,
+                (neighbour.y + self.chunk_size as i64) % self.chunk_size as i64,
+                (neighbour.z + self.chunk_size as i64) % self.chunk_size as i64,
+            );
+            if neighbour_voxels.at(neighbour_in_chunk, self.chunk_size as i64) {
+                return None;
+            }
+        } else {
+            if voxels.at(neighbour, self.chunk_size as i64) {
+                return None;
+            }
         }
         let rot1 = Vector3::new(normal.z.abs(), normal.x.abs(), normal.y.abs());
         let rot2 = Vector3::new(normal.y.abs(), normal.z.abs(), normal.x.abs());
