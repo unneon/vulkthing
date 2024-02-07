@@ -77,6 +77,7 @@ impl Interface {
                         1024,
                         &mut voxels.render_distance_vertical,
                     );
+                    changed |= enum_combo(ui, "Meshing algorithm", &mut voxels.meshing_algorithm);
                     events.rebuild_voxels = changed;
                 }
                 if ui.collapsing_header("Sun", TreeNodeFlags::empty()) {

@@ -1,20 +1,24 @@
 mod binary_cube;
 mod culled_meshing;
+mod greedy_meshing;
 mod sparse_octree;
 
 use crate::config::{
     DEFAULT_VOXEL_CHUNK_SIZE, DEFAULT_VOXEL_HEIGHTMAP_AMPLITUDE, DEFAULT_VOXEL_HEIGHTMAP_BIAS,
-    DEFAULT_VOXEL_HEIGHTMAP_FREQUENCY, DEFAULT_VOXEL_RENDER_DISTANCE_HORIZONTAL,
-    DEFAULT_VOXEL_RENDER_DISTANCE_VERTICAL,
+    DEFAULT_VOXEL_HEIGHTMAP_FREQUENCY, DEFAULT_VOXEL_MESHING_ALGORITHM,
+    DEFAULT_VOXEL_RENDER_DISTANCE_HORIZONTAL, DEFAULT_VOXEL_RENDER_DISTANCE_VERTICAL,
 };
+use crate::interface::EnumInterface;
 use crate::mesh::MeshData;
 use crate::renderer::vertex::Vertex;
 use crate::voxels::culled_meshing::CulledMeshing;
+use crate::voxels::greedy_meshing::GreedyMeshing;
 use crate::voxels::sparse_octree::SparseOctree;
 use nalgebra::{DMatrix, Vector2, Vector3};
 use noise::Perlin;
 use noise::{NoiseFn, Seedable};
 use rand::random;
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::mem::MaybeUninit;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -49,6 +53,7 @@ pub struct VoxelsConfig {
     pub heightmap_bias: f32,
     pub render_distance_horizontal: usize,
     pub render_distance_vertical: usize,
+    pub meshing_algorithm: MeshingAlgorithmKind,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -56,6 +61,12 @@ pub struct VoxelsConfig {
 pub enum VoxelKind {
     Air = 0,
     Stone = 1,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub enum MeshingAlgorithmKind {
+    Culled,
+    Greedy,
 }
 
 const DIRECTIONS: [Vector3<i64>; 6] = [
@@ -78,6 +89,7 @@ impl<'a> Voxels<'a> {
                 heightmap_bias: DEFAULT_VOXEL_HEIGHTMAP_BIAS,
                 render_distance_horizontal: DEFAULT_VOXEL_RENDER_DISTANCE_HORIZONTAL,
                 render_distance_vertical: DEFAULT_VOXEL_RENDER_DISTANCE_VERTICAL,
+                meshing_algorithm: DEFAULT_VOXEL_MESHING_ALGORITHM,
             },
             config_rx: new_config_rx,
             config_changed: true,
@@ -150,7 +162,11 @@ impl<'a> Voxels<'a> {
         assert!(!self.loaded_gpu.contains(&chunk));
         let chunk_svo = &self.loaded_cpu[&chunk];
         let neighbour_svos = std::array::from_fn(|i| &self.loaded_cpu[&(chunk + DIRECTIONS[i])]);
-        let mut mesh = CulledMeshing::mesh(chunk_svo, neighbour_svos, self.config.chunk_size);
+        let meshing_algorithm = match self.config.meshing_algorithm {
+            MeshingAlgorithmKind::Culled => CulledMeshing::mesh,
+            MeshingAlgorithmKind::Greedy => GreedyMeshing::mesh,
+        };
+        let mut mesh = meshing_algorithm(chunk_svo, neighbour_svos, self.config.chunk_size);
         if mesh.vertices.is_empty() {
             return;
         }
@@ -223,6 +239,18 @@ impl<'a> Voxels<'a> {
 
     pub fn shared(&self) -> Arc<AtomicU64> {
         self.vertices.clone()
+    }
+}
+
+impl EnumInterface for MeshingAlgorithmKind {
+    const VALUES: &'static [MeshingAlgorithmKind] =
+        &[MeshingAlgorithmKind::Culled, MeshingAlgorithmKind::Greedy];
+
+    fn label(&self) -> Cow<str> {
+        match self {
+            MeshingAlgorithmKind::Culled => Cow::Borrowed("Culled Meshing"),
+            MeshingAlgorithmKind::Greedy => Cow::Borrowed("Greedy Meshing"),
+        }
     }
 }
 
