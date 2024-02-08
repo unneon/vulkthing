@@ -19,6 +19,7 @@ use crate::renderer::raytracing::RaytraceResources;
 use crate::renderer::swapchain::Swapchain;
 use crate::renderer::uniform::{
     Atmosphere, Camera, Gaussian, Global, Material, PostprocessUniform, Tonemapper, Transform,
+    VoxelMaterial,
 };
 use crate::renderer::util::{timestamp_difference_to_duration, Buffer, Dev, UniformBuffer};
 use crate::world::World;
@@ -95,9 +96,6 @@ pub struct Renderer {
     interface_renderer: Option<imgui_rs_vulkan_renderer::Renderer>,
 
     pub voxels_shared: Option<Arc<AtomicU64>>,
-    voxel_transform: UniformBuffer<Transform>,
-    voxel_material: UniformBuffer<Material>,
-    voxel_descriptor_set: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
     pub voxel_buffer: Buffer,
 }
 
@@ -173,7 +171,6 @@ impl Renderer {
         };
         unsafe { self.record_command_buffer(image_index, world, ui_draw) };
         self.pass_times = self.query_timestamps();
-        self.update_voxel_uniform(world, settings);
         for entity_id in 0..world.entities().len() {
             self.update_object_uniforms(world, entity_id, settings);
         }
@@ -250,12 +247,17 @@ impl Renderer {
             let vertex_count = voxel_chunks.load(Ordering::SeqCst) as u32;
 
             begin_label(buf, "Voxel draws", [255, 0, 0], &self.dev);
-            self.bind_graphics_pipeline(buf, self.pipelines.object);
-            self.bind_descriptor_sets(
-                buf,
-                self.pipeline_layouts.object,
-                &self.voxel_descriptor_set,
-            );
+            self.bind_graphics_pipeline(buf, self.pipelines.voxel);
+            unsafe {
+                self.dev.cmd_bind_descriptor_sets(
+                    buf,
+                    vk::PipelineBindPoint::GRAPHICS,
+                    self.pipeline_layouts.voxel,
+                    0,
+                    &[self.global_descriptor_sets[self.flight_index]],
+                    &[],
+                )
+            };
             unsafe {
                 self.dev
                     .cmd_bind_vertex_buffers(buf, 0, &[self.voxel_buffer.buffer], &[0])
@@ -399,23 +401,6 @@ impl Renderer {
         end_label(buf, &self.dev);
     }
 
-    fn update_voxel_uniform(&self, world: &World, settings: &RendererSettings) {
-        let transform = Transform {
-            model: Matrix4::identity(),
-            view: world.view_matrix(),
-            proj: self.projection_matrix(settings),
-        };
-        let material = Material {
-            emit: Vector3::from_element(0.3),
-            metallic: 0.,
-            ao: 0.,
-            roughness: 1.,
-            albedo: Vector3::from_element(0.9),
-        };
-        self.voxel_material.write(self.flight_index, &material);
-        self.voxel_transform.write(self.flight_index, &transform);
-    }
-
     fn update_object_uniforms(&self, world: &World, entity_id: usize, settings: &RendererSettings) {
         let entity = &world.entities()[entity_id];
         let transform = Transform {
@@ -462,6 +447,30 @@ impl Renderer {
         settings: &RendererSettings,
         window_size: PhysicalSize<u32>,
     ) {
+        let mut materials = [VoxelMaterial {
+            albedo: Vector3::zeros(),
+            roughness: 0.,
+            emit: Vector3::zeros(),
+            metallic: 0.,
+        }; 256];
+        materials[1] = VoxelMaterial {
+            albedo: Vector3::new(0.55, 0.6, 0.66),
+            roughness: 1.,
+            emit: Vector3::zeros(),
+            metallic: 0.,
+        };
+        materials[2] = VoxelMaterial {
+            albedo: Vector3::new(0.62, 0.4, 0.24),
+            roughness: 1.,
+            emit: Vector3::zeros(),
+            metallic: 0.,
+        };
+        materials[3] = VoxelMaterial {
+            albedo: Vector3::new(0.63, 0.81, 0.42),
+            roughness: 1.,
+            emit: Vector3::zeros(),
+            metallic: 0.,
+        };
         self.global.write(
             self.flight_index,
             &Global {
@@ -514,6 +523,7 @@ impl Renderer {
                     _pad0: [0., 0.],
                     position: world.camera.position(),
                 },
+                materials,
             },
         );
     }

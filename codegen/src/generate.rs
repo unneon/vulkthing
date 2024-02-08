@@ -921,7 +921,8 @@ static mut SCRATCH: Scratch = Scratch {{"#
         )
         .unwrap();
         for (binding_index, binding) in pipeline.vertex_bindings.iter().enumerate() {
-            let stride: usize = binding.attributes.iter().map(attribute_size).sum();
+            let raw_stride: usize = binding.attributes.iter().map(attribute_size).sum();
+            let stride = raw_stride.next_multiple_of(4);
             let rate = &binding.rate;
             writeln!(
                 file,
@@ -1951,6 +1952,7 @@ fn for_pipelines<'a>(
 
 fn attribute_size(attribute: &VertexAttribute) -> usize {
     match attribute.format.as_str() {
+        "R16_UINT" => 2,
         "R32_SFLOAT" => 4,
         "R32G32B32_SFLOAT" => 12,
         "R32G32B32A32_SFLOAT" => 16,

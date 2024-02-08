@@ -8,6 +8,15 @@ pub struct Vertex {
 }
 
 #[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct VoxelVertex {
+    pub position: Vector3<f32>,
+    pub normal: Vector3<f32>,
+    pub material: u16,
+    pub _pad0: [u8; 2],
+}
+
+#[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct GrassBlade {
     pub position: Vector3<f32>,

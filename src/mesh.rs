@@ -4,11 +4,11 @@ use nalgebra::Vector3;
 use tobj::LoadOptions;
 
 #[derive(Clone, Debug)]
-pub struct MeshData {
-    pub vertices: Vec<Vertex>,
+pub struct MeshData<V> {
+    pub vertices: Vec<V>,
 }
 
-pub fn load_mesh(obj_path: &str) -> MeshData {
+pub fn load_mesh(obj_path: &str) -> MeshData<Vertex> {
     let load_options = LoadOptions {
         // Faces can sometimes be given as arbitrary (convex?) polygons, but we only render
         // triangles so let's get the loader to split them up for us.
@@ -27,7 +27,7 @@ pub fn load_mesh(obj_path: &str) -> MeshData {
     mesh
 }
 
-fn flatten_meshes(models: &[tobj::Model]) -> MeshData {
+fn flatten_meshes(models: &[tobj::Model]) -> MeshData<Vertex> {
     // OBJ format supports quite complex meshes with many materials and meshes, but temporarily
     // let's just throw all of it into a single vertex buffer.
     let mut vertices = Vec::new();

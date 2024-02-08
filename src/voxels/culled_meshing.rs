@@ -1,5 +1,5 @@
 use crate::mesh::MeshData;
-use crate::renderer::vertex::Vertex;
+use crate::renderer::vertex::VoxelVertex;
 use crate::voxels::binary_cube::BinaryCube;
 use crate::voxels::sparse_octree::SparseOctree;
 use crate::voxels::{MeshingAlgorithm, VoxelKind, DIRECTIONS};
@@ -11,7 +11,7 @@ struct State<'a> {
     chunk_size: usize,
     chunk_svo: &'a SparseOctree,
     neighbour_svos: [&'a SparseOctree; 6],
-    vertices: Vec<Vertex>,
+    vertices: Vec<VoxelVertex>,
 }
 
 impl MeshingAlgorithm for CulledMeshing {
@@ -19,7 +19,7 @@ impl MeshingAlgorithm for CulledMeshing {
         chunk_svo: &SparseOctree,
         neighbour_svos: [&SparseOctree; 6],
         chunk_size: usize,
-    ) -> MeshData {
+    ) -> MeshData<VoxelVertex> {
         let cube = BinaryCube::new_at_zero(chunk_size);
         let mut state = State {
             chunk_size,
@@ -67,9 +67,10 @@ impl State<'_> {
         &mut self,
         position: Vector3<i64>,
         normal_index: usize,
-    ) -> Option<[Vertex; 6]> {
+    ) -> Option<[VoxelVertex; 6]> {
         let chunk_size = self.chunk_size as i64;
-        if self.chunk_svo.at(position, chunk_size) == VoxelKind::Air {
+        let position_voxel_kind = self.chunk_svo.at(position, chunk_size);
+        if position_voxel_kind == VoxelKind::Air {
             return None;
         }
         let normal = DIRECTIONS[normal_index];
@@ -105,21 +106,30 @@ impl State<'_> {
         } else {
             (rot2, rot1)
         };
-        let v1 = Vertex {
+        let material = position_voxel_kind as u8 as u16;
+        let v1 = VoxelVertex {
             position: base.cast::<f32>(),
             normal: normal.cast::<f32>(),
+            material,
+            _pad0: [0; 2],
         };
-        let v2 = Vertex {
+        let v2 = VoxelVertex {
             position: (base + rot1).cast::<f32>(),
             normal: normal.cast::<f32>(),
+            material,
+            _pad0: [0; 2],
         };
-        let v3 = Vertex {
+        let v3 = VoxelVertex {
             position: (base + rot2).cast::<f32>(),
             normal: normal.cast::<f32>(),
+            material,
+            _pad0: [0; 2],
         };
-        let v4 = Vertex {
+        let v4 = VoxelVertex {
             position: (base + rot1 + rot2).cast::<f32>(),
             normal: normal.cast::<f32>(),
+            material,
+            _pad0: [0; 2],
         };
         Some([v1, v2, v3, v2, v4, v3])
     }

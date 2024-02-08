@@ -51,7 +51,7 @@ const SIDES: [Side; 6] = [
     },
 ];
 
-pub fn generate_planet(parameters: &Planet) -> MeshData {
+pub fn generate_planet(parameters: &Planet) -> MeshData<Vertex> {
     let mut vertices = Vec::new();
     let noise_seed = random();
     let noise = Perlin::new(noise_seed);

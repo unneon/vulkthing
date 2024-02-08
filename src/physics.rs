@@ -1,4 +1,5 @@
 use crate::mesh::MeshData;
+use crate::renderer::vertex::Vertex;
 use nalgebra::{Point3, Vector3};
 use rapier3d::prelude::*;
 
@@ -34,7 +35,7 @@ impl Physics {
     }
 
     #[allow(dead_code)]
-    pub fn trimesh(&self, model: &MeshData, scale: &Vector3<f32>) -> ColliderBuilder {
+    pub fn trimesh(&self, model: &MeshData<Vertex>, scale: &Vector3<f32>) -> ColliderBuilder {
         let vertices: Vec<_> = model
             .vertices
             .iter()

@@ -31,7 +31,12 @@ use std::ffi::CString;
 use winit::dpi::PhysicalSize;
 
 impl Renderer {
-    pub fn new(window: &Window, meshes: &[&MeshData], world: &World, args: &Args) -> Renderer {
+    pub fn new(
+        window: &Window,
+        meshes: &[&MeshData<Vertex>],
+        world: &World,
+        args: &Args,
+    ) -> Renderer {
         let entry = unsafe { Entry::load() }.unwrap();
         let instance = create_instance(window, &entry, args);
         let debug_ext = DebugUtils::new(&entry, &instance);
@@ -170,10 +175,6 @@ impl Renderer {
 
         let query_pool = create_query_pool(&dev);
 
-        let voxel_transform = UniformBuffer::create(&dev);
-        let voxel_material = UniformBuffer::create(&dev);
-        let voxel_descriptor_set =
-            descriptor_pools.alloc_object(&voxel_transform, &voxel_material, &dev);
         let voxel_buffer = Buffer::create(
             VRAM_VIA_BAR,
             vk::BufferUsageFlags::VERTEX_BUFFER,
@@ -224,9 +225,6 @@ impl Renderer {
             just_completed_first_render: false,
             interface_renderer: None,
             voxels_shared: None,
-            voxel_transform,
-            voxel_material,
-            voxel_descriptor_set,
             voxel_buffer,
         }
     }
@@ -365,8 +363,6 @@ impl Drop for Renderer {
 
             drop(self.interface_renderer.take());
             self.dev.destroy_query_pool(self.query_pool, None);
-            self.voxel_material.cleanup(&self.dev);
-            self.voxel_transform.cleanup(&self.dev);
             self.voxel_buffer.cleanup(&self.dev);
             self.star_transform.cleanup(&self.dev);
             self.star_material.cleanup(&self.dev);

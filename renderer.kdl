@@ -10,7 +10,7 @@ sampler "nearest" {
     unnormalized-coordinates
 }
 
-descriptor-set "object" 1024 {
+descriptor-set "object" 3 {
     uniform "transform" "VERTEX" "Transform"
     uniform "material" "FRAGMENT" "Material"
 }
@@ -48,6 +48,14 @@ pass "render" {
             layout-final "DEPTH_STENCIL_READ_ONLY_OPTIMAL"
             clear 1
             sampled; store
+        }
+        pipeline "voxel" {
+            vertex-binding {
+                attribute "vertex_position" "R32G32B32_SFLOAT"
+                attribute "vertex_normal" "R32G32B32_SFLOAT"
+                attribute "vertex_material" "R16_UINT"
+            }
+            descriptor-sets "global"
         }
         pipeline "object" {
             vertex-binding {

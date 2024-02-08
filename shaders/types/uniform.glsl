@@ -10,6 +10,7 @@
         Gaussian gaussian; \
         Postprocessing postprocessing; \
         Camera camera; \
+        VoxelMaterial materials[256]; \
     }
 
 #define MATERIAL_UNIFORM_TYPE \
@@ -73,6 +74,13 @@ struct Camera {
     mat4 inverse_projection_matrix;
     vec2 resolution;
     vec3 position;
+};
+
+struct VoxelMaterial {
+    vec3 albedo;
+    float roughness;
+    vec3 emit;
+    float metallic;
 };
 
 const uint TONEMAPPER_RGB_CLAMPING = 0;

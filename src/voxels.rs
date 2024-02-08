@@ -10,7 +10,7 @@ use crate::config::{
 };
 use crate::interface::EnumInterface;
 use crate::mesh::MeshData;
-use crate::renderer::vertex::Vertex;
+use crate::renderer::vertex::VoxelVertex;
 use crate::voxels::culled_meshing::CulledMeshing;
 use crate::voxels::greedy_meshing::GreedyMeshing;
 use crate::voxels::sparse_octree::SparseOctree;
@@ -29,7 +29,7 @@ trait MeshingAlgorithm {
         chunk_svo: &SparseOctree,
         neighbour_svos: [&SparseOctree; 6],
         chunk_size: usize,
-    ) -> MeshData;
+    ) -> MeshData<VoxelVertex>;
 }
 
 pub struct Voxels<'a> {
@@ -39,7 +39,7 @@ pub struct Voxels<'a> {
     shutdown: Arc<AtomicBool>,
     heightmap_noise: Perlin,
     // TODO: That is really not in the spirit of Rust safety.
-    buffer: &'a mut [MaybeUninit<Vertex>],
+    buffer: &'a mut [MaybeUninit<VoxelVertex>],
     vertices: Arc<AtomicU64>,
     loaded_cpu: HashMap<Vector3<i64>, SparseOctree>,
     loaded_gpu: HashSet<Vector3<i64>>,
@@ -62,6 +62,8 @@ pub struct VoxelsConfig {
 pub enum VoxelKind {
     Air = 0,
     Stone = 1,
+    Dirt = 2,
+    Grass = 3,
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -80,7 +82,7 @@ const DIRECTIONS: [Vector3<i64>; 6] = [
 ];
 
 impl<'a> Voxels<'a> {
-    pub fn new(buffer: &'a mut [MaybeUninit<Vertex>]) -> (Voxels, mpsc::Sender<VoxelsConfig>) {
+    pub fn new(buffer: &'a mut [MaybeUninit<VoxelVertex>]) -> (Voxels, mpsc::Sender<VoxelsConfig>) {
         let (new_config_tx, new_config_rx) = mpsc::channel();
         let voxels = Voxels {
             config: VoxelsConfig {
@@ -250,6 +252,12 @@ impl<'a> Voxels<'a> {
 
     pub fn shared(&self) -> Arc<AtomicU64> {
         self.vertices.clone()
+    }
+}
+
+impl VoxelKind {
+    pub fn is_air(&self) -> bool {
+        matches!(self, VoxelKind::Air)
     }
 }
 

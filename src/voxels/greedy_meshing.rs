@@ -1,5 +1,5 @@
 use crate::mesh::MeshData;
-use crate::renderer::vertex::Vertex;
+use crate::renderer::vertex::VoxelVertex;
 use crate::voxels::sparse_octree::SparseOctree;
 use crate::voxels::{MeshingAlgorithm, VoxelKind, DIRECTIONS};
 use nalgebra::{Vector2, Vector3};
@@ -17,7 +17,7 @@ struct State<'a> {
     slice_minus_normal_index: usize,
     slice_offset: i64,
     slice_used: Vec<bool>,
-    vertices: Vec<Vertex>,
+    vertices: Vec<VoxelVertex>,
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -31,7 +31,7 @@ impl MeshingAlgorithm for GreedyMeshing {
         chunk_svo: &SparseOctree,
         neighbour_svos: [&SparseOctree; 6],
         chunk_size: usize,
-    ) -> MeshData {
+    ) -> MeshData<VoxelVertex> {
         let mut state = State {
             chunk_size,
             chunk_svo,
@@ -83,17 +83,17 @@ impl State<'_> {
     fn mesh_slice(&mut self) {
         for y1 in 0..self.chunk_size as i64 {
             for x1 in 0..self.chunk_size as i64 {
-                let Some(along) = self.wall(Vector2::new(x1, y1)) else {
+                let Some(wall_info) = self.wall(Vector2::new(x1, y1)) else {
                     continue;
                 };
 
                 let mut x2 = x1 + 1;
-                while self.wall(Vector2::new(x2, y1)) == Some(along) {
+                while self.wall(Vector2::new(x2, y1)) == Some(wall_info) {
                     x2 += 1;
                 }
 
                 let mut y2 = y1 + 1;
-                while (x1..x2).all(|x| self.wall(Vector2::new(x, y2)) == Some(along)) {
+                while (x1..x2).all(|x| self.wall(Vector2::new(x, y2)) == Some(wall_info)) {
                     y2 += 1;
                 }
 
@@ -107,26 +107,35 @@ impl State<'_> {
                 let top_right = self.convert_2d_to_3d(Vector2::new(x2, y1)).cast::<f32>();
                 let bottom_left = self.convert_2d_to_3d(Vector2::new(x1, y2)).cast::<f32>();
                 let bottom_right = self.convert_2d_to_3d(Vector2::new(x2, y2)).cast::<f32>();
-                let normal_i64 = match along {
+                let normal_i64 = match wall_info.0 {
                     WallNormal::AlongSliceNormal => self.slice_normal,
                     WallNormal::AlongMinusSliceNormal => -self.slice_normal,
                 };
                 let normal = normal_i64.cast::<f32>();
-                let v1 = Vertex {
+                let material = wall_info.1 as u8 as u16;
+                let v1 = VoxelVertex {
                     position: top_left,
                     normal,
+                    material,
+                    _pad0: [0; 2],
                 };
-                let v2 = Vertex {
+                let v2 = VoxelVertex {
                     position: top_right,
                     normal,
+                    material,
+                    _pad0: [0; 2],
                 };
-                let v3 = Vertex {
+                let v3 = VoxelVertex {
                     position: bottom_left,
                     normal,
+                    material,
+                    _pad0: [0; 2],
                 };
-                let v4 = Vertex {
+                let v4 = VoxelVertex {
                     position: bottom_right,
                     normal,
+                    material,
+                    _pad0: [0; 2],
                 };
                 let (v2, v3) = if self.slice_right.cross(&self.slice_down) == normal_i64 {
                     (v2, v3)
@@ -139,8 +148,8 @@ impl State<'_> {
     }
 
     /// Checks whether a wall should be placed between a voxel position and a voxel a minus normal apart from it. Also
-    /// checks the desired orientation of the wall.
-    fn wall(&self, voxel_2d: Vector2<i64>) -> Option<WallNormal> {
+    /// checks the desired orientation of the wall, and the material the wall should be made of.
+    fn wall(&self, voxel_2d: Vector2<i64>) -> Option<(WallNormal, VoxelKind)> {
         // Note this assert and the following condition refer to 2D coordinates, not 3D. The out of bounds checks later
         // are related only to the normal axis, so the only reason 2D coordinates would be out of bounds is because of
         // the closed-open interval convention used in mesh_slice function.
@@ -174,16 +183,14 @@ impl State<'_> {
         // If the checked voxel is outside the chunk, the wall shouldn't be generated along the minus slice normal,
         // because it would belong to the other chunk. If the neighbour voxel is outside the chunk, the wall also
         // shouldn't be generated along the slice normal for the same reason.
-        if voxel_kind == VoxelKind::Stone
-            && neighbour_kind == VoxelKind::Air
-            && !self.out_of_bounds_positive(voxel_3d)
+        if !voxel_kind.is_air() && neighbour_kind.is_air() && !self.out_of_bounds_positive(voxel_3d)
         {
-            Some(WallNormal::AlongMinusSliceNormal)
-        } else if voxel_kind == VoxelKind::Air
-            && neighbour_kind == VoxelKind::Stone
+            Some((WallNormal::AlongMinusSliceNormal, voxel_kind))
+        } else if voxel_kind.is_air()
+            && !neighbour_kind.is_air()
             && !self.out_of_bounds_negative(neighbour_3d)
         {
-            Some(WallNormal::AlongSliceNormal)
+            Some((WallNormal::AlongSliceNormal, neighbour_kind))
         } else {
             None
         }

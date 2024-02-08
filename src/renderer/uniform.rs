@@ -35,6 +35,7 @@ pub struct Global {
     pub gaussian: Gaussian,
     pub postprocessing: PostprocessUniform,
     pub camera: Camera,
+    pub materials: [VoxelMaterial; 256],
 }
 
 #[repr(C, align(16))]
@@ -104,6 +105,15 @@ pub struct Camera {
     pub resolution: Vector2<f32>,
     pub _pad0: [f32; 2],
     pub position: Vector3<f32>,
+}
+
+#[repr(C, align(16))]
+#[derive(Clone, Copy)]
+pub struct VoxelMaterial {
+    pub albedo: Vector3<f32>,
+    pub roughness: f32,
+    pub emit: Vector3<f32>,
+    pub metallic: f32,
 }
 
 #[repr(u32)]

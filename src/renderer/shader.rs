@@ -24,6 +24,7 @@ pub fn compile_glsl(
     let spirv_data = match compile_result {
         Err(shaderc::Error::CompilationError(_, output)) => {
             for message in output.trim().split('\n') {
+                eprintln!("{message:?}");
                 let (file, message) = message.split_once(':').unwrap();
                 let (line, message) = message.split_once(':').unwrap();
                 let message = message.strip_prefix(" error: '").unwrap();
