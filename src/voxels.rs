@@ -281,28 +281,18 @@ fn svo_from_heightmap_impl(
     heightmap: &DMatrix<i64>,
 ) -> SparseOctree {
     'check_all_same: {
-        let is_stone = heightmap[(x, y)] > z;
+        let material = material_from_height(heightmap[(x, y)], z);
         for ly in y..y + n {
             for lx in x..x + n {
                 let height = heightmap[(lx, ly)];
-                if height > z && height < z + n as i64 {
-                    break 'check_all_same;
-                }
-                if height <= z && is_stone {
-                    break 'check_all_same;
-                }
-                if height >= z + n as i64 && !is_stone {
+                let low_material = material_from_height(height, z);
+                let high_material = material_from_height(height, z + n as i64 - 1);
+                if low_material != material || high_material != material {
                     break 'check_all_same;
                 }
             }
         }
-        return SparseOctree::Uniform {
-            kind: if is_stone {
-                VoxelKind::Stone
-            } else {
-                VoxelKind::Air
-            },
-        };
+        return SparseOctree::Uniform { kind: material };
     }
     let mut children = Vec::new();
     for dz in 0..2 {
@@ -320,4 +310,16 @@ fn svo_from_heightmap_impl(
     }
     let children = std::array::from_fn(|i| Box::new(children[i].clone()));
     SparseOctree::Mixed { children }
+}
+
+fn material_from_height(height: i64, z: i64) -> VoxelKind {
+    if height <= z {
+        VoxelKind::Air
+    } else if height <= z + 1 {
+        VoxelKind::Grass
+    } else if height <= z + 5 {
+        VoxelKind::Dirt
+    } else {
+        VoxelKind::Stone
+    }
 }
