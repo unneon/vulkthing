@@ -1,7 +1,7 @@
 use crate::voxels::VoxelKind;
 use nalgebra::Vector3;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SparseOctree {
     Uniform { kind: VoxelKind },
     Mixed { children: [Box<SparseOctree>; 8] },
@@ -31,5 +31,9 @@ impl SparseOctree {
                 children[index].at(child_coordinates, child_size)
             }
         }
+    }
+
+    pub fn is_uniform(&self) -> bool {
+        matches!(self, SparseOctree::Uniform { .. })
     }
 }

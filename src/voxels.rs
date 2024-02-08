@@ -164,6 +164,14 @@ impl<'a> Voxels<'a> {
         assert!(!self.loaded_gpu.contains(&chunk));
         let chunk_svo = &self.loaded_cpu[&chunk];
         let neighbour_svos = std::array::from_fn(|i| &self.loaded_cpu[&(chunk + DIRECTIONS[i])]);
+        if chunk_svo.is_uniform()
+            && neighbour_svos
+                .iter()
+                .all(|neighbour_svo| *neighbour_svo == chunk_svo)
+        {
+            self.loaded_gpu.insert(chunk);
+            return;
+        }
         let meshing_algorithm = match self.config.meshing_algorithm {
             MeshingAlgorithmKind::Culled => CulledMeshing::mesh,
             MeshingAlgorithmKind::Greedy => GreedyMeshing::mesh,
