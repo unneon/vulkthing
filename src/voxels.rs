@@ -56,7 +56,7 @@ pub struct VoxelsConfig {
     pub meshing_algorithm: MeshingAlgorithmKind,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
 pub enum VoxelKind {
     Air = 0,
@@ -160,6 +160,10 @@ impl<'a> Voxels<'a> {
 
     pub fn generate_chunk_gpu(&mut self, chunk: Vector3<i64>) {
         assert!(!self.loaded_gpu.contains(&chunk));
+        // if chunk != Vector3::zeros() {
+        //     self.loaded_gpu.insert(chunk);
+        //     return;
+        // }
         let chunk_svo = &self.loaded_cpu[&chunk];
         let neighbour_svos = std::array::from_fn(|i| &self.loaded_cpu[&(chunk + DIRECTIONS[i])]);
         let meshing_algorithm = match self.config.meshing_algorithm {
@@ -167,9 +171,6 @@ impl<'a> Voxels<'a> {
             MeshingAlgorithmKind::Greedy => GreedyMeshing::mesh,
         };
         let mut mesh = meshing_algorithm(chunk_svo, neighbour_svos, self.config.chunk_size);
-        if mesh.vertices.is_empty() {
-            return;
-        }
         for vertex in &mut mesh.vertices {
             vertex.position += (chunk * self.config.chunk_size as i64).cast::<f32>();
         }

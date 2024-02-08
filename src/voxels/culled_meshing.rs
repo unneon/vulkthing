@@ -2,7 +2,7 @@ use crate::mesh::MeshData;
 use crate::renderer::vertex::Vertex;
 use crate::voxels::binary_cube::BinaryCube;
 use crate::voxels::sparse_octree::SparseOctree;
-use crate::voxels::{MeshingAlgorithm, DIRECTIONS};
+use crate::voxels::{MeshingAlgorithm, VoxelKind, DIRECTIONS};
 use nalgebra::Vector3;
 
 pub struct CulledMeshing;
@@ -69,7 +69,7 @@ impl State<'_> {
         normal_index: usize,
     ) -> Option<[Vertex; 6]> {
         let chunk_size = self.chunk_size as i64;
-        if !self.chunk_svo.at(position, chunk_size) {
+        if self.chunk_svo.at(position, chunk_size) == VoxelKind::Air {
             return None;
         }
         let normal = DIRECTIONS[normal_index];
@@ -87,10 +87,10 @@ impl State<'_> {
                 (neighbour_in_chunk.y + chunk_size) % chunk_size,
                 (neighbour_in_chunk.z + chunk_size) % chunk_size,
             );
-            if neighbour_svo.at(neighbour_in_neighbour, chunk_size) {
+            if neighbour_svo.at(neighbour_in_neighbour, chunk_size) == VoxelKind::Stone {
                 return None;
             }
-        } else if self.chunk_svo.at(neighbour_in_chunk, chunk_size) {
+        } else if self.chunk_svo.at(neighbour_in_chunk, chunk_size) == VoxelKind::Stone {
             return None;
         }
         let rot1 = Vector3::new(normal.z.abs(), normal.x.abs(), normal.y.abs());

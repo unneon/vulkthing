@@ -60,5 +60,5 @@ pub const DEFAULT_VOXEL_HEIGHTMAP_FREQUENCY: f32 = 0.01;
 pub const DEFAULT_VOXEL_HEIGHTMAP_BIAS: f32 = 0.;
 pub const DEFAULT_VOXEL_RENDER_DISTANCE_HORIZONTAL: usize = 512;
 pub const DEFAULT_VOXEL_RENDER_DISTANCE_VERTICAL: usize = 64;
-pub const DEFAULT_VOXEL_MESHING_ALGORITHM: MeshingAlgorithmKind = MeshingAlgorithmKind::Culled;
+pub const DEFAULT_VOXEL_MESHING_ALGORITHM: MeshingAlgorithmKind = MeshingAlgorithmKind::Greedy;
 pub const DEFAULT_VOXEL_VERTEX_MEMORY: usize = 2048 * 1024 * 1024;

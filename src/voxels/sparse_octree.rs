@@ -8,9 +8,9 @@ pub enum SparseOctree {
 }
 
 impl SparseOctree {
-    pub fn at(&self, point: Vector3<i64>, local_size: i64) -> bool {
+    pub fn at(&self, point: Vector3<i64>, local_size: i64) -> VoxelKind {
         match self {
-            SparseOctree::Uniform { kind } => *kind == VoxelKind::Stone,
+            SparseOctree::Uniform { kind } => *kind,
             SparseOctree::Mixed { children } => {
                 let child_size = local_size / 2;
                 let mut index = 0;
