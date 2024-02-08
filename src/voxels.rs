@@ -21,7 +21,7 @@ use rand::random;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::mem::MaybeUninit;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc};
 
 trait MeshingAlgorithm {
@@ -36,6 +36,7 @@ pub struct Voxels<'a> {
     config: VoxelsConfig,
     config_rx: mpsc::Receiver<VoxelsConfig>,
     config_changed: bool,
+    shutdown: Arc<AtomicBool>,
     heightmap_noise: Perlin,
     // TODO: That is really not in the spirit of Rust safety.
     buffer: &'a mut [MaybeUninit<Vertex>],
@@ -93,6 +94,7 @@ impl<'a> Voxels<'a> {
             },
             config_rx: new_config_rx,
             config_changed: true,
+            shutdown: Arc::new(AtomicBool::new(false)),
             heightmap_noise: Perlin::new(random()),
             buffer,
             vertices: Arc::new(AtomicU64::new(0)),
@@ -142,7 +144,7 @@ impl<'a> Voxels<'a> {
                 self.generate_chunk_cpu(neighbour);
             }
             self.generate_chunk_gpu(chunk);
-            if self.check_config_change() {
+            if self.check_config_change() || self.shutdown.load(Ordering::SeqCst) {
                 break;
             }
         }
@@ -160,10 +162,6 @@ impl<'a> Voxels<'a> {
 
     pub fn generate_chunk_gpu(&mut self, chunk: Vector3<i64>) {
         assert!(!self.loaded_gpu.contains(&chunk));
-        // if chunk != Vector3::zeros() {
-        //     self.loaded_gpu.insert(chunk);
-        //     return;
-        // }
         let chunk_svo = &self.loaded_cpu[&chunk];
         let neighbour_svos = std::array::from_fn(|i| &self.loaded_cpu[&(chunk + DIRECTIONS[i])]);
         let meshing_algorithm = match self.config.meshing_algorithm {
@@ -236,6 +234,10 @@ impl<'a> Voxels<'a> {
 
     pub fn config_changed(&self) -> bool {
         self.config_changed
+    }
+
+    pub fn shutdown(&self) -> Arc<AtomicBool> {
+        self.shutdown.clone()
     }
 
     pub fn shared(&self) -> Arc<AtomicU64> {

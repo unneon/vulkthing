@@ -41,6 +41,7 @@ use crate::voxels::Voxels;
 use crate::window::create_window;
 use crate::world::World;
 use log::debug;
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Instant;
 use winit::event::{DeviceEvent, Event, StartCause, WindowEvent};
@@ -82,10 +83,6 @@ fn main() {
         &world,
         &args,
     );
-    let (mut voxels, voxel_config_tx) =
-        Voxels::new(renderer.voxel_buffer.map_memory(&renderer.dev));
-    let mut voxel_config = voxels.config().clone();
-    renderer.voxels_shared = Some(voxels.shared());
     let mut interface = Interface::new(
         renderer.swapchain.extent.width as usize,
         renderer.swapchain.extent.height as usize,
@@ -97,17 +94,25 @@ fn main() {
 
     renderer.create_interface_renderer(&mut interface.ctx);
 
+    let (mut voxels, voxel_config_tx) =
+        Voxels::new(renderer.voxel_buffer.map_memory(&renderer.dev));
+    let mut voxel_config = voxels.config().clone();
     let voxels_camera = Arc::new(Mutex::new(world.camera.position()));
     let voxels_condvar = Arc::new(Condvar::new());
-    std::thread::spawn({
+    let voxels_shutdown = voxels.shutdown();
+    let voxels_shared = voxels.shared();
+    let voxels_thread = std::thread::spawn({
         let camera = voxels_camera.clone();
         let condvar = voxels_condvar.clone();
         move || {
             let mut camera_lock = camera.lock().unwrap();
-            loop {
+            while !voxels.shutdown().load(Ordering::SeqCst) {
                 let camera_position = *camera_lock;
                 drop(camera_lock);
                 voxels.update_camera(camera_position);
+                if voxels.shutdown().load(Ordering::SeqCst) {
+                    break;
+                }
                 camera_lock = if !voxels.config_changed() {
                     condvar.wait(camera.lock().unwrap()).unwrap()
                 } else {
@@ -116,6 +121,7 @@ fn main() {
             }
         }
     });
+    renderer.voxels_shared = Some(voxels_shared);
 
     // Run the event loop. Winit delivers events, like key presses. After it finishes delivering
     // some batch of events, it sends a MainEventsCleared event, which means the application should
@@ -217,5 +223,8 @@ fn main() {
             _ => (),
         }
     });
+    voxels_shutdown.store(true, Ordering::SeqCst);
+    voxels_condvar.notify_one();
+    voxels_thread.join().unwrap();
     loop_result.unwrap();
 }
