@@ -107,11 +107,11 @@ impl State<'_> {
                 let top_right = self.convert_2d_to_3d(Vector2::new(x2, y1)).cast::<f32>();
                 let bottom_left = self.convert_2d_to_3d(Vector2::new(x1, y2)).cast::<f32>();
                 let bottom_right = self.convert_2d_to_3d(Vector2::new(x2, y2)).cast::<f32>();
-                let normal = match along {
+                let normal_i64 = match along {
                     WallNormal::AlongSliceNormal => self.slice_normal,
                     WallNormal::AlongMinusSliceNormal => -self.slice_normal,
-                }
-                .cast::<f32>();
+                };
+                let normal = normal_i64.cast::<f32>();
                 let v1 = Vertex {
                     position: top_left,
                     normal,
@@ -128,7 +128,7 @@ impl State<'_> {
                     position: bottom_right,
                     normal,
                 };
-                let (v2, v3) = if self.slice_right.cross(&self.slice_down) == self.slice_normal {
+                let (v2, v3) = if self.slice_right.cross(&self.slice_down) == normal_i64 {
                     (v2, v3)
                 } else {
                     (v3, v2)
