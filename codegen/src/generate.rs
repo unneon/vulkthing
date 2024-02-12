@@ -158,7 +158,8 @@ pub fn generate_code(in_path: &str, renderer: &Renderer, mut file: File) {
         file,
         r#"// Code generated from {in_path}.
 
-#[allow(unused_imports)]
+#![allow(unused_imports)]
+
 use crate::renderer::raytracing::RaytraceResources;
 use crate::renderer::shader::compile_glsl;
 #[rustfmt::skip]
@@ -183,7 +184,6 @@ use crate::renderer::uniform::{{"#
         file,
         r#"}};
 use crate::renderer::debug::set_label;
-#[allow(unused_imports)]
 use crate::renderer::util::{{AsDescriptor, Dev, ImageResources, StorageBuffer, UniformBuffer}};
 use crate::renderer::{{Pass, Swapchain, COLOR_FORMAT, DEPTH_FORMAT, FRAMES_IN_FLIGHT}};
 use ash::vk;
@@ -1490,7 +1490,7 @@ pub fn create_samplers(dev: &Dev) -> Samplers {{"#
 }}
 
 #[rustfmt::skip]
-pub fn create_descriptor_set_layouts(samplers: &Samplers, dev: &Dev) -> DescriptorSetLayouts {{"#
+pub fn create_descriptor_set_layouts(_samplers: &Samplers, dev: &Dev) -> DescriptorSetLayouts {{"#
     )
     .unwrap();
     for descriptor_set in &renderer.descriptor_sets {
@@ -1498,7 +1498,7 @@ pub fn create_descriptor_set_layouts(samplers: &Samplers, dev: &Dev) -> Descript
             if let DescriptorBinding::Image(image) = binding {
                 writeln!(
                     file,
-                    "    unsafe {{ SCRATCH.{}_bindings[{binding_index}].p_immutable_samplers = &samplers.{} }};",
+                    "    unsafe {{ SCRATCH.{}_bindings[{binding_index}].p_immutable_samplers = &_samplers.{} }};",
                     descriptor_set.name, image.sampler,
                 )
                 .unwrap();

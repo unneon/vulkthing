@@ -28,6 +28,7 @@ impl Pass {
         }
     }
 
+    #[allow(unused)]
     pub fn begin(
         &self,
         buf: vk::CommandBuffer,

@@ -58,11 +58,6 @@ pub struct Renderer {
     // set. Projection matrix depends on the monitor aspect ratio, so it's included too.
     pub swapchain: Swapchain,
     pipelines: Pipelines,
-    atmosphere_descriptors: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
-    extract_descriptors: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
-    gaussian_horizontal_descriptors: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
-    gaussian_vertical_descriptors: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
-    postprocess_descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
 
     // Vulkan objects actually used for command recording and synchronization. Also internal
     // renderer state for keeping track of concurrent frames.
@@ -154,6 +149,7 @@ pub const FRAMES_IN_FLIGHT: usize = 2;
 // Format used for passing HDR data between render passes to enable realistic differences in
 // lighting parameters and improve postprocessing effect quality, not related to monitor HDR.
 // Support for this format is required by the Vulkan specification.
+#[allow(dead_code)]
 const COLOR_FORMAT: vk::Format = vk::Format::R16G16B16A16_SFLOAT;
 
 const DEPTH_FORMAT: vk::Format = vk::Format::D32_SFLOAT;
@@ -229,19 +225,25 @@ impl Renderer {
             .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
         self.dev.begin_command_buffer(buf, &begin_info).unwrap();
         self.reset_timestamps(buf);
-        self.record_render_pass(buf, world);
-        self.record_atmosphere_pass(buf);
-        self.record_extract_pass(buf);
-        self.record_gaussian_passes(buf);
-        self.record_postprocess_pass(buf, image_index, ui_draw);
+        self.record_render_pass(image_index, buf, world, ui_draw);
         self.write_timestamp(buf, PASS_COUNT, vk::PipelineStageFlags::ALL_COMMANDS);
         self.dev.end_command_buffer(buf).unwrap();
     }
 
-    unsafe fn record_render_pass(&self, buf: vk::CommandBuffer, world: &World) {
-        self.passes
-            .render
-            .begin(buf, &self.dev, self.query_pool, self.flight_index);
+    unsafe fn record_render_pass(
+        &mut self,
+        image_index: usize,
+        buf: vk::CommandBuffer,
+        world: &World,
+        ui_draw: &DrawData,
+    ) {
+        self.passes.render.begin_to_swapchain(
+            buf,
+            image_index,
+            &self.dev,
+            self.query_pool,
+            self.flight_index,
+        );
 
         if let Some(voxel_chunks) = self.voxels_shared.as_ref() {
             let vertex_count = voxel_chunks.load(Ordering::SeqCst) as u32;
@@ -292,100 +294,6 @@ impl Renderer {
         );
         self.mesh_objects[1].bind_vertex(buf, &self.dev);
         self.mesh_objects[1].draw(1, buf, &self.dev);
-        end_label(buf, &self.dev);
-
-        self.dev.cmd_end_render_pass(buf);
-        end_label(buf, &self.dev);
-    }
-
-    unsafe fn record_atmosphere_pass(&mut self, buf: vk::CommandBuffer) {
-        self.passes
-            .atmosphere
-            .begin(buf, &self.dev, self.query_pool, self.flight_index);
-
-        self.bind_graphics_pipeline(buf, self.pipelines.atmosphere);
-        self.bind_descriptor_sets(
-            buf,
-            self.pipeline_layouts.atmosphere,
-            &self.atmosphere_descriptors,
-        );
-        self.dev.cmd_draw(buf, 6, 1, 0, 0);
-
-        self.dev.cmd_end_render_pass(buf);
-        end_label(buf, &self.dev);
-    }
-
-    unsafe fn record_extract_pass(&mut self, buf: vk::CommandBuffer) {
-        self.passes
-            .extract
-            .begin(buf, &self.dev, self.query_pool, self.flight_index);
-
-        self.bind_graphics_pipeline(buf, self.pipelines.extract);
-        self.bind_descriptor_sets(
-            buf,
-            self.pipeline_layouts.extract,
-            &self.extract_descriptors,
-        );
-        self.dev.cmd_draw(buf, 6, 1, 0, 0);
-
-        self.dev.cmd_end_render_pass(buf);
-        end_label(buf, &self.dev);
-    }
-
-    unsafe fn record_gaussian_passes(&mut self, buf: vk::CommandBuffer) {
-        self.passes
-            .gaussian_horizontal
-            .begin(buf, &self.dev, self.query_pool, self.flight_index);
-
-        self.bind_graphics_pipeline(buf, self.pipelines.gaussian_horizontal);
-        self.bind_descriptor_sets(
-            buf,
-            self.pipeline_layouts.gaussian_horizontal,
-            &self.gaussian_horizontal_descriptors,
-        );
-        self.dev.cmd_draw(buf, 6, 1, 0, 0);
-
-        self.dev.cmd_end_render_pass(buf);
-        end_label(buf, &self.dev);
-
-        self.passes
-            .gaussian_vertical
-            .begin(buf, &self.dev, self.query_pool, self.flight_index);
-
-        self.bind_graphics_pipeline(buf, self.pipelines.gaussian_vertical);
-        self.bind_descriptor_sets(
-            buf,
-            self.pipeline_layouts.gaussian_vertical,
-            &self.gaussian_vertical_descriptors,
-        );
-        self.dev.cmd_draw(buf, 6, 1, 0, 0);
-
-        self.dev.cmd_end_render_pass(buf);
-        end_label(buf, &self.dev);
-    }
-
-    unsafe fn record_postprocess_pass(
-        &mut self,
-        buf: vk::CommandBuffer,
-        image_index: usize,
-        ui_draw: &DrawData,
-    ) {
-        self.passes.postprocess.begin_to_swapchain(
-            buf,
-            image_index,
-            &self.dev,
-            self.query_pool,
-            self.flight_index,
-        );
-
-        begin_label(buf, "Postprocess draw", [210, 206, 203], &self.dev);
-        self.bind_graphics_pipeline(buf, self.pipelines.postprocess);
-        self.bind_descriptor_sets(
-            buf,
-            self.pipeline_layouts.postprocess,
-            &self.postprocess_descriptor_sets,
-        );
-        self.dev.cmd_draw(buf, 6, 1, 0, 0);
         end_label(buf, &self.dev);
 
         // TODO: Fix drawing SRGB interface to linear color space.

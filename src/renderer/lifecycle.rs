@@ -90,32 +90,12 @@ impl Renderer {
 
         let swapchain = create_swapchain(surface, window.window.inner_size(), &dev);
         let passes = create_render_passes(&swapchain, vk::SampleCountFlags::TYPE_1, &dev);
-        let atmosphere_descriptors = descriptor_pools.alloc_atmosphere(
-            passes.render.resources[0].view,
-            passes.render.resources[1].view,
-            &dev,
-        );
-        let extract_descriptors =
-            descriptor_pools.alloc_extract(passes.atmosphere.resources[0].view, &dev);
-        let gaussian_horizontal_descriptors =
-            descriptor_pools.alloc_gaussian(passes.extract.resources[0].view, &dev);
-        let gaussian_vertical_descriptors =
-            descriptor_pools.alloc_gaussian(passes.gaussian_horizontal.resources[0].view, &dev);
-        let postprocess_descriptor_sets = descriptor_pools.alloc_postprocess(
-            passes.atmosphere.resources[0].view,
-            passes.gaussian_vertical.resources[0].view,
-            &dev,
-        );
         let pipeline_layouts = create_pipeline_layouts(&descriptor_set_layouts, &dev);
         let shaders = create_shaders(supports_raytracing);
         let shader_modules = create_shader_modules(&shaders, &dev);
         let pipelines = create_pipelines(
             vk::SampleCountFlags::TYPE_1,
             &passes,
-            1,
-            0,
-            0,
-            1,
             &swapchain,
             &shader_modules,
             &pipeline_layouts,
@@ -195,13 +175,8 @@ impl Renderer {
             descriptor_pools,
             pipeline_layouts,
             passes,
-            atmosphere_descriptors,
-            extract_descriptors,
             swapchain,
             pipelines,
-            gaussian_horizontal_descriptors,
-            gaussian_vertical_descriptors,
-            postprocess_descriptor_sets,
             command_pools,
             command_buffers,
             sync,
@@ -237,7 +212,7 @@ impl Renderer {
                 self.dev.logical.clone(),
                 self.queue,
                 self.command_pools[0],
-                self.passes.postprocess.pass,
+                self.passes.render.pass,
                 imgui,
                 Some(imgui_rs_vulkan_renderer::Options {
                     in_flight_frames: FRAMES_IN_FLIGHT,
@@ -264,7 +239,6 @@ impl Renderer {
         self.passes =
             create_render_passes(&self.swapchain, vk::SampleCountFlags::TYPE_1, &self.dev);
 
-        self.update_offscreen_descriptors();
         self.recreate_pipelines();
     }
 
@@ -276,51 +250,12 @@ impl Renderer {
         self.pipelines = create_pipelines(
             vk::SampleCountFlags::TYPE_1,
             &self.passes,
-            1,
-            0,
-            0,
-            1,
             &self.swapchain,
             &shader_modules,
             &self.pipeline_layouts,
             &self.dev,
         );
         shader_modules.cleanup(&self.dev);
-    }
-
-    fn update_offscreen_descriptors(&self) {
-        // Trying to update only some of the descriptors can cause DEVICE_LOST for some reason. It
-        // happens even if I split the initial update right after creation into two parts, so it
-        // doesn't sound like something involving state. It might be worth it to figure out what's
-        // happening before I rewrite the descriptor set codegen to use batching properly. Or maybe
-        // I'll switch to VK_EXT_descriptor_buffer completely?
-        self.descriptor_pools.update_atmosphere(
-            &self.atmosphere_descriptors,
-            self.passes.render.resources[0].view,
-            self.passes.render.resources[1].view,
-            &self.dev,
-        );
-        self.descriptor_pools.update_extract(
-            &self.extract_descriptors,
-            self.passes.atmosphere.resources[0].view,
-            &self.dev,
-        );
-        self.descriptor_pools.update_gaussian(
-            &self.gaussian_horizontal_descriptors,
-            self.passes.extract.resources[0].view,
-            &self.dev,
-        );
-        self.descriptor_pools.update_gaussian(
-            &self.gaussian_vertical_descriptors,
-            self.passes.gaussian_horizontal.resources[0].view,
-            &self.dev,
-        );
-        self.descriptor_pools.update_postprocess(
-            &self.postprocess_descriptor_sets,
-            self.passes.atmosphere.resources[0].view,
-            self.passes.gaussian_vertical.resources[0].view,
-            &self.dev,
-        );
     }
 
     fn cleanup_swapchain(&mut self) {

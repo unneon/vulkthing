@@ -14,20 +14,6 @@ descriptor-set "object" 3 {
     uniform "transform" "VERTEX" "Transform"
     uniform "material" "FRAGMENT" "Material"
 }
-descriptor-set "atmosphere" 1 {
-    image "render" "FRAGMENT" "nearest"
-    image "depth" "FRAGMENT" "nearest" layout="DEPTH_STENCIL_READ_ONLY_OPTIMAL"
-}
-descriptor-set "extract" 1 {
-    image "render" "FRAGMENT" "nearest"
-}
-descriptor-set "gaussian" 2 {
-    image "bloom" "FRAGMENT" "nearest"
-}
-descriptor-set "postprocess" 1 {
-    image "render" "FRAGMENT" "nearest"
-    image "bloom" "FRAGMENT" "nearest"
-}
 descriptor-set "global" 1 {
     uniform "global" "ALL" "Global"
 }
@@ -38,15 +24,14 @@ pass "render" {
     subpass "rasterization" {
         color-attachment "color-1-rasterization" {
             layout "COLOR_ATTACHMENT_OPTIMAL"
-            layout-final "SHADER_READ_ONLY_OPTIMAL"
+            layout-final "PRESENT_SRC_KHR"
             clear 0 0 0 0
-            sampled; store
+            store; swapchain
         }
         depth-attachment "depth" {
             layout "DEPTH_STENCIL_ATTACHMENT_OPTIMAL"
-            layout-final "DEPTH_STENCIL_READ_ONLY_OPTIMAL"
             clear 1
-            sampled; store
+            transient
         }
         pipeline "voxel" {
             vertex-binding {
@@ -88,85 +73,3 @@ pass "render" {
         }
     }
 }
-pass "atmosphere" {
-    debug-name "Atmosphere pass"
-    debug-color 84 115 144
-    subpass "atmosphere" {
-        color-attachment "color-2-atmosphere" {
-            layout "COLOR_ATTACHMENT_OPTIMAL"
-            layout-final "SHADER_READ_ONLY_OPTIMAL"
-            sampled; store
-        }
-        pipeline "atmosphere" {
-            vertex-shader "quad.vert"
-            descriptor-sets "atmosphere" "global"
-        }
-    }
-}
-pass "extract" {
-    debug-name "Extraction pass"
-    debug-color 197 188 176
-    subpass "extract" {
-        color-attachment "bloom-1-raw" {
-            layout "COLOR_ATTACHMENT_OPTIMAL"
-            layout-final "SHADER_READ_ONLY_OPTIMAL"
-            sampled; store
-        }
-        pipeline "extract" {
-            vertex-shader "quad.vert"
-            descriptor-sets "extract" "global"
-        }
-    }
-}
-pass "gaussian_horizontal" {
-    debug-name "Gaussian horizontal pass"
-    debug-color 244 244 247
-    subpass "gaussian" {
-        color-attachment "bloom-2-horizontal" {
-            layout "COLOR_ATTACHMENT_OPTIMAL"
-            layout-final "SHADER_READ_ONLY_OPTIMAL"
-            sampled; store
-        }
-        pipeline "gaussian_horizontal" {
-            vertex-shader "quad.vert"
-            fragment-shader "gaussian.frag"
-            fragment-specialization "gaussian_dx" "gaussian_dy"
-            descriptor-sets "gaussian" "global"
-        }
-    }
-}
-pass "gaussian_vertical" {
-    debug-name "Gaussian vertical pass"
-    debug-color 244 244 247
-    subpass "gaussian" {
-        color-attachment "bloom-3-ready" {
-            layout "COLOR_ATTACHMENT_OPTIMAL"
-            layout-final "SHADER_READ_ONLY_OPTIMAL"
-            sampled; store
-        }
-        pipeline "gaussian_vertical" {
-            vertex-shader "quad.vert"
-            fragment-shader "gaussian.frag"
-            fragment-specialization "gaussian_dx" "gaussian_dy"
-            descriptor-sets "gaussian" "global"
-        }
-    }
-}
-pass "postprocess" {
-    debug-name "Postprocess pass"
-    debug-color 210 206 203
-    subpass "postprocess" {
-        color-attachment "color-2-postprocess" {
-            layout "COLOR_ATTACHMENT_OPTIMAL"
-            layout-final "PRESENT_SRC_KHR"
-            store; swapchain
-        }
-        pipeline "postprocess" {
-            vertex-shader "quad.vert"
-            descriptor-sets "postprocess" "global"
-        }
-    }
-}
-
-specialization "gaussian_dx" "i32" shared=false
-specialization "gaussian_dy" "i32" shared=false
