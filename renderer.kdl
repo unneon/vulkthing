@@ -30,7 +30,6 @@ descriptor-set "postprocess" 1 {
 }
 descriptor-set "global" 1 {
     uniform "global" "ALL" "Global"
-    acceleration-structure "tlas" "FRAGMENT"
 }
 
 pass "render" {

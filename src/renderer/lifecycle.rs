@@ -171,7 +171,7 @@ impl Renderer {
         let skybox_descriptor_sets =
             descriptor_pools.alloc_object(&skybox_transform, &skybox_material, &dev);
         let global = UniformBuffer::create(&dev);
-        let global_descriptor_sets = descriptor_pools.alloc_global(&global, &tlas, &dev);
+        let global_descriptor_sets = descriptor_pools.alloc_global(&global, &dev);
 
         let query_pool = create_query_pool(&dev);
 
