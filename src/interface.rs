@@ -89,9 +89,6 @@ impl Interface {
                         .flags(SliderFlags::LOGARITHMIC)
                         .build(&mut world.sun_intensity);
                     ui.slider("Orbit radius", 0., 4000., &mut world.sun_radius);
-                    ui.slider_config("Scale", 1., 500.)
-                        .flags(SliderFlags::LOGARITHMIC)
-                        .build(&mut world.sun_scale);
                     ui.checkbox("Pause movement", &mut world.sun_pause);
                     ui.slider_config("Speed", 0.001, 10.)
                         .flags(SliderFlags::LOGARITHMIC)
@@ -104,7 +101,6 @@ impl Interface {
                     ui.slider_config("Depth far plane", 16., 1048576.)
                         .flags(SliderFlags::LOGARITHMIC)
                         .build(&mut renderer.depth_far);
-                    ui.checkbox("Ray-traced shadows", &mut renderer.enable_ray_tracing);
                 }
                 if ui.collapsing_header("Atmosphere", TreeNodeFlags::empty()) {
                     ui.checkbox("Enable", &mut renderer.enable_atmosphere);
@@ -120,6 +116,9 @@ impl Interface {
                         32,
                         &mut renderer.atmosphere_optical_depth_samples,
                     );
+                    ui.slider_config("Planet radius", 10., 4000.)
+                        .flags(SliderFlags::LOGARITHMIC)
+                        .build(&mut world.atmosphere.planet_radius);
                     ui.slider_config("Density falloff", 0.001, 100.)
                         .flags(SliderFlags::LOGARITHMIC)
                         .build(&mut world.atmosphere.density_falloff);

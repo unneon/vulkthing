@@ -1,15 +1,8 @@
 use crate::camera::first_person::FirstPersonCamera;
-use crate::planet::Planet;
 use crate::renderer::uniform::Tonemapper;
 use crate::renderer::{PostprocessSettings, RendererSettings};
 use crate::voxels::MeshingAlgorithmKind;
 use nalgebra::Vector3;
-
-pub const DEFAULT_PLANET: Planet = Planet {
-    resolution: 400,
-    noise_magnitude: 0.02,
-    noise_scale: 8.,
-};
 
 pub const DEFAULT_SUN_POSITION: Vector3<f32> = Vector3::new(0., 0., DEFAULT_SUN_RADIUS);
 
@@ -35,8 +28,7 @@ pub const DEFAULT_RENDERER_SETTINGS: RendererSettings = RendererSettings {
     atmosphere_wavelengths: Vector3::new(700., 530., 440.),
     depth_near: 0.2,
     depth_far: 65536.,
-    enable_atmosphere: false,
-    enable_ray_tracing: false,
+    enable_atmosphere: true,
     postprocess: PostprocessSettings {
         exposure: 1.,
         bloom_exponent_coefficient: 0.25,

@@ -26,7 +26,6 @@ pub struct World {
     pub sun_pause: bool,
     pub sun_radius: f32,
     pub sun_speed: f32,
-    pub sun_scale: f32,
     pub atmosphere: Atmosphere,
 }
 
@@ -56,6 +55,7 @@ pub struct Atmosphere {
     pub scale: f32,
     pub scattering_strength: f32,
     pub henyey_greenstein_g: f32,
+    pub planet_radius: f32,
 }
 
 const AVERAGE_MALE_HEIGHT: f32 = 1.74;
@@ -92,7 +92,7 @@ impl World {
             metallic: 0.,
             roughness: 1.,
             ao: 0.,
-            mesh_id: 4,
+            mesh_id: 2,
         };
         let entities = vec![sun];
         let mut stars = Vec::new();
@@ -121,12 +121,12 @@ impl World {
             sun_pause: false,
             sun_radius: DEFAULT_SUN_RADIUS,
             sun_speed: DEFAULT_SUN_SPEED,
-            sun_scale: 50.,
             atmosphere: Atmosphere {
                 density_falloff: 6.,
-                scale: 1.3,
-                scattering_strength: 0.01,
+                scale: 1.5,
+                scattering_strength: 0.03,
                 henyey_greenstein_g: 0.,
+                planet_radius: 1000.,
             },
         }
     }
@@ -169,8 +169,6 @@ impl World {
         let translation = &mut self.entities[0].transform.translation;
         translation.x = self.sun_radius * self.time_of_day.sin();
         translation.z = self.sun_radius * self.time_of_day.cos();
-        let scale = &mut self.entities[0].transform.scale;
-        *scale = Vector3::from_element(self.sun_scale);
     }
 
     pub fn light(&self) -> Light {
@@ -179,7 +177,7 @@ impl World {
             intensity: self.sun_intensity,
             color: Vector3::new(1., 1., 1.),
             shadow_sample_seed: self.time,
-            scale: self.sun_scale,
+            scale: 50.,
         }
     }
 

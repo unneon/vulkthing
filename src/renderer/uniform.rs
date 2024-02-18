@@ -30,7 +30,6 @@ pub struct Material {
 #[derive(Clone, Copy)]
 pub struct Global {
     pub light: Light,
-    pub settings: Settings,
     pub atmosphere: Atmosphere,
     pub gaussian: Gaussian,
     pub postprocessing: PostprocessUniform,
@@ -46,13 +45,6 @@ pub struct Light {
     pub position: Vector3<f32>,
     pub shadow_sample_seed: f32,
     pub scale: f32,
-}
-
-#[repr(C, align(4))]
-#[derive(Clone, Copy)]
-pub struct Settings {
-    pub use_ray_tracing: bool,
-    pub _pad0: [u8; 3],
 }
 
 #[repr(C, align(16))]

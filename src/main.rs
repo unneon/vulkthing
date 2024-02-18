@@ -22,7 +22,6 @@ mod interface;
 mod logger;
 mod mesh;
 mod physics;
-mod planet;
 mod renderer;
 mod util;
 mod voxels;
@@ -30,12 +29,11 @@ mod window;
 mod world;
 
 use crate::cli::Args;
-use crate::config::{DEFAULT_PLANET, DEFAULT_RENDERER_SETTINGS};
+use crate::config::DEFAULT_RENDERER_SETTINGS;
 use crate::input::InputState;
 use crate::interface::Interface;
 use crate::logger::{initialize_logger, initialize_panic_hook};
 use crate::mesh::load_mesh;
-use crate::planet::generate_planet;
 use crate::renderer::Renderer;
 use crate::voxels::Voxels;
 use crate::window::create_window;
@@ -64,22 +62,13 @@ fn main() {
     let args = Args::parse();
     let window = create_window(&args);
     let cube_mesh = load_mesh("assets/cube.obj");
-    let grass_mesh = load_mesh("assets/grass.obj");
     let tetrahedron_mesh = load_mesh("assets/tetrahedron.obj");
     let icosahedron_mesh = load_mesh("assets/icosahedron.obj");
-    let planet = DEFAULT_PLANET;
-    let planet_mesh = Arc::new(generate_planet(&planet));
     let mut world = World::new();
     let mut renderer_settings = DEFAULT_RENDERER_SETTINGS;
     let mut renderer = Renderer::new(
         &window,
-        &[
-            &planet_mesh,
-            &cube_mesh,
-            &tetrahedron_mesh,
-            &grass_mesh,
-            &icosahedron_mesh,
-        ],
+        &[&cube_mesh, &tetrahedron_mesh, &icosahedron_mesh],
         &world,
         &args,
     );

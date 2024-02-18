@@ -112,7 +112,6 @@ pub struct RendererSettings {
     pub depth_near: f32,
     pub depth_far: f32,
     pub enable_atmosphere: bool,
-    pub enable_ray_tracing: bool,
     pub postprocess: PostprocessSettings,
 }
 
@@ -275,8 +274,8 @@ impl Renderer {
         begin_label(buf, "Star draws", [213, 204, 184], &self.dev);
         self.bind_graphics_pipeline(buf, self.pipelines.star);
         self.bind_descriptor_sets(buf, self.pipeline_layouts.star, &self.star_descriptor_sets);
-        self.mesh_objects[2].bind_vertex_instanced(&self.star_instances, buf, &self.dev);
-        self.mesh_objects[2].draw(world.stars.len(), buf, &self.dev);
+        self.mesh_objects[1].bind_vertex_instanced(&self.star_instances, buf, &self.dev);
+        self.mesh_objects[1].draw(world.stars.len(), buf, &self.dev);
         end_label(buf, &self.dev);
 
         begin_label(buf, "Skybox draw", [129, 147, 164], &self.dev);
@@ -286,8 +285,8 @@ impl Renderer {
             self.pipeline_layouts.skybox,
             &self.skybox_descriptor_sets,
         );
-        self.mesh_objects[1].bind_vertex(buf, &self.dev);
-        self.mesh_objects[1].draw(1, buf, &self.dev);
+        self.mesh_objects[0].bind_vertex(buf, &self.dev);
+        self.mesh_objects[0].draw(1, buf, &self.dev);
         end_label(buf, &self.dev);
 
         // TODO: Fix drawing SRGB interface to linear color space.
@@ -377,10 +376,6 @@ impl Renderer {
             self.flight_index,
             &Global {
                 light: world.light(),
-                settings: uniform::Settings {
-                    use_ray_tracing: settings.enable_ray_tracing,
-                    _pad0: [0; 3],
-                },
                 atmosphere: Atmosphere {
                     enable: settings.enable_atmosphere,
                     _pad0: [0; 3],
@@ -388,8 +383,12 @@ impl Renderer {
                     optical_depth_point_count: settings.atmosphere_optical_depth_samples as u32,
                     density_falloff: world.atmosphere.density_falloff,
                     // TODO
-                    planet_position: Vector3::zeros(),
-                    planet_radius: 0.,
+                    planet_position: Vector3::new(
+                        world.camera.position().x,
+                        world.camera.position().y,
+                        -world.atmosphere.planet_radius,
+                    ),
+                    planet_radius: world.atmosphere.planet_radius,
                     sun_position: world.sun().transform.translation,
                     scale: world.atmosphere.scale,
                     wavelengths: settings.atmosphere_wavelengths,

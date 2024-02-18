@@ -5,7 +5,6 @@
 #define GLOBAL_UNIFORM_TYPE \
     Global { \
         Light light; \
-        Settings settings; \
         Atmosphere atmosphere; \
         Gaussian gaussian; \
         Postprocessing postprocessing; \
@@ -28,10 +27,6 @@ struct Light {
     vec3 position;
     float shadow_sample_seed;
     float scale;
-};
-
-struct Settings {
-    bool ray_traced_shadows;
 };
 
 struct Atmosphere {
