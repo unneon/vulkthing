@@ -1,16 +1,8 @@
 mesh "cube"
-mesh "grass"
 mesh "icosahedron"
-mesh "planet" dynamic=true
 mesh "tetrahedron"
 
-sampler "nearest" {
-    filter "NEAREST"
-    address-mode "CLAMP_TO_BORDER"
-    unnormalized-coordinates
-}
-
-descriptor-set "object" 3 {
+descriptor-set "object" 1 {
     uniform "transform" "VERTEX" "Transform"
     uniform "material" "FRAGMENT" "Material"
 }
@@ -60,15 +52,14 @@ pass "render" {
                 attribute "model_c4" "R32G32B32A32_SFLOAT"
                 attribute "emit" "R32G32B32_SFLOAT"
             }
-            descriptor-sets "object" "global"
-            cull-mode "NONE"
+            descriptor-sets "global"
         }
         pipeline "skybox" {
             vertex-binding {
                 attribute "vertex_position" "R32G32B32_SFLOAT"
                 attribute "vertex_normal" "R32G32B32_SFLOAT" unused=true
             }
-            descriptor-sets "object" "global"
+            descriptor-sets "global"
             cull-mode "FRONT"
         }
     }

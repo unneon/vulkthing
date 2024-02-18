@@ -12,8 +12,6 @@ pub struct ComputeParams {
 #[derive(Clone, Copy)]
 pub struct Transform {
     pub model: Matrix4<f32>,
-    pub view: Matrix4<f32>,
-    pub proj: Matrix4<f32>,
 }
 
 #[repr(C)]

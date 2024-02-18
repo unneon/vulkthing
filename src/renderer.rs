@@ -67,13 +67,7 @@ pub struct Renderer {
     // actually render, their descriptor sets and the like.
     mesh_objects: Vec<MeshObject>,
     entities: Vec<Object>,
-    star_transform: UniformBuffer<Transform>,
-    star_material: UniformBuffer<Material>,
     star_instances: Buffer,
-    star_descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
-    skybox_transform: UniformBuffer<Transform>,
-    skybox_material: UniformBuffer<Material>,
-    skybox_descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
     global: UniformBuffer<Global>,
     global_descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
 
@@ -161,10 +155,8 @@ impl Renderer {
         unsafe { self.record_command_buffer(image_index, world, ui_draw) };
         self.pass_times = self.query_timestamps();
         for entity_id in 0..world.entities().len() {
-            self.update_object_uniforms(world, entity_id, settings);
+            self.update_object_uniforms(world, entity_id);
         }
-        self.update_star_uniform(world, settings);
-        self.update_skybox_uniform(world, settings);
         self.update_global_uniform(world, settings, window_size);
         self.submit_graphics();
         self.submit_present(image_index);
@@ -243,16 +235,7 @@ impl Renderer {
 
             begin_label(buf, "Voxel draws", [255, 0, 0], &self.dev);
             self.bind_graphics_pipeline(buf, self.pipelines.voxel);
-            unsafe {
-                self.dev.cmd_bind_descriptor_sets(
-                    buf,
-                    vk::PipelineBindPoint::GRAPHICS,
-                    self.pipeline_layouts.voxel,
-                    0,
-                    &[self.global_descriptor_sets[self.flight_index]],
-                    &[],
-                )
-            };
+            self.bind_descriptor_set(buf, self.pipeline_layouts.voxel);
             unsafe {
                 self.dev
                     .cmd_bind_vertex_buffers(buf, 0, &[self.voxel_buffer.buffer], &[0])
@@ -273,18 +256,14 @@ impl Renderer {
 
         begin_label(buf, "Star draws", [213, 204, 184], &self.dev);
         self.bind_graphics_pipeline(buf, self.pipelines.star);
-        self.bind_descriptor_sets(buf, self.pipeline_layouts.star, &self.star_descriptor_sets);
+        self.bind_descriptor_set(buf, self.pipeline_layouts.star);
         self.mesh_objects[1].bind_vertex_instanced(&self.star_instances, buf, &self.dev);
         self.mesh_objects[1].draw(world.stars.len(), buf, &self.dev);
         end_label(buf, &self.dev);
 
         begin_label(buf, "Skybox draw", [129, 147, 164], &self.dev);
         self.bind_graphics_pipeline(buf, self.pipelines.skybox);
-        self.bind_descriptor_sets(
-            buf,
-            self.pipeline_layouts.skybox,
-            &self.skybox_descriptor_sets,
-        );
+        self.bind_descriptor_set(buf, self.pipeline_layouts.skybox);
         self.mesh_objects[0].bind_vertex(buf, &self.dev);
         self.mesh_objects[0].draw(1, buf, &self.dev);
         end_label(buf, &self.dev);
@@ -302,12 +281,10 @@ impl Renderer {
         end_label(buf, &self.dev);
     }
 
-    fn update_object_uniforms(&self, world: &World, entity_id: usize, settings: &RendererSettings) {
+    fn update_object_uniforms(&self, world: &World, entity_id: usize) {
         let entity = &world.entities()[entity_id];
         let transform = Transform {
             model: entity.model_matrix(),
-            view: world.view_matrix(),
-            proj: self.projection_matrix(settings),
         };
         let material = Material {
             albedo: entity.albedo(),
@@ -322,24 +299,6 @@ impl Renderer {
         self.entities[entity_id]
             .material
             .write(self.flight_index, &material);
-    }
-
-    fn update_star_uniform(&self, world: &World, settings: &RendererSettings) {
-        let transform = Transform {
-            model: Matrix4::identity(),
-            view: world.view_matrix(),
-            proj: self.projection_matrix(settings),
-        };
-        self.star_transform.write(self.flight_index, &transform);
-    }
-
-    fn update_skybox_uniform(&self, world: &World, settings: &RendererSettings) {
-        let transform = Transform {
-            model: Matrix4::new_scaling(32000.),
-            view: world.view_matrix(),
-            proj: self.projection_matrix(settings),
-        };
-        self.skybox_transform.write(self.flight_index, &transform);
     }
 
     fn update_global_uniform(
@@ -382,7 +341,6 @@ impl Renderer {
                     scatter_point_count: settings.atmosphere_in_scattering_samples as u32,
                     optical_depth_point_count: settings.atmosphere_optical_depth_samples as u32,
                     density_falloff: world.atmosphere.density_falloff,
-                    // TODO
                     planet_position: Vector3::new(
                         world.camera.position().x,
                         world.camera.position().y,
@@ -494,6 +452,19 @@ impl Renderer {
         unsafe {
             self.dev
                 .cmd_bind_pipeline(buf, vk::PipelineBindPoint::COMPUTE, pipeline)
+        };
+    }
+
+    fn bind_descriptor_set(&self, buf: vk::CommandBuffer, layout: vk::PipelineLayout) {
+        unsafe {
+            self.dev.cmd_bind_descriptor_sets(
+                buf,
+                vk::PipelineBindPoint::GRAPHICS,
+                layout,
+                0,
+                &[self.global_descriptor_sets[self.flight_index]],
+                &[],
+            )
         };
     }
 

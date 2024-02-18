@@ -158,7 +158,7 @@ pub fn generate_code(in_path: &str, renderer: &Renderer, mut file: File) {
         file,
         r#"// Code generated from {in_path}.
 
-#![allow(unused_imports)]
+#![allow(unused)]
 
 use crate::renderer::shader::compile_glsl;
 #[rustfmt::skip]

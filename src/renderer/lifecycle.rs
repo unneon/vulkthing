@@ -98,24 +98,16 @@ impl Renderer {
                 descriptors,
             });
         }
-        let star_transform = UniformBuffer::create(&dev);
-        let star_material = UniformBuffer::create(&dev);
         let star_instances = Buffer::create(
             VRAM_VIA_BAR,
             vk::BufferUsageFlags::VERTEX_BUFFER,
             world.stars.len() * std::mem::size_of::<Star>(),
             &dev,
         );
-        let star_descriptor_sets =
-            descriptor_pools.alloc_object(&star_transform, &star_material, &dev);
         star_instances.generate_host_visible(&dev, |i| Star {
             model: world.stars[i].transform.model_matrix(),
             emit: world.stars[i].emit,
         });
-        let skybox_transform = UniformBuffer::create(&dev);
-        let skybox_material = UniformBuffer::create(&dev);
-        let skybox_descriptor_sets =
-            descriptor_pools.alloc_object(&skybox_transform, &skybox_material, &dev);
         let global = UniformBuffer::create(&dev);
         let global_descriptor_sets = descriptor_pools.alloc_global(&global, &dev);
 
@@ -148,13 +140,7 @@ impl Renderer {
             flight_index: 0,
             mesh_objects,
             entities,
-            star_transform,
-            star_material,
             star_instances,
-            star_descriptor_sets,
-            skybox_transform,
-            skybox_material,
-            skybox_descriptor_sets,
             global,
             global_descriptor_sets,
             query_pool,
@@ -262,8 +248,6 @@ impl Drop for Renderer {
             drop(self.interface_renderer.take());
             self.dev.destroy_query_pool(self.query_pool, None);
             self.voxel_buffer.cleanup(&self.dev);
-            self.star_transform.cleanup(&self.dev);
-            self.star_material.cleanup(&self.dev);
             self.star_instances.cleanup(&self.dev);
             for entity in &self.entities {
                 entity.cleanup(&self.dev);
@@ -271,8 +255,6 @@ impl Drop for Renderer {
             for mesh in &self.mesh_objects {
                 mesh.cleanup(&self.dev);
             }
-            self.skybox_transform.cleanup(&self.dev);
-            self.skybox_material.cleanup(&self.dev);
             self.global.cleanup(&self.dev);
             self.sync.cleanup(&self.dev);
             for pool in &self.command_pools {
