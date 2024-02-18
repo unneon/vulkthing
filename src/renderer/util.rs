@@ -1,6 +1,6 @@
 use crate::renderer::FRAMES_IN_FLIGHT;
 use ash::extensions::ext::DebugUtils;
-use ash::extensions::khr::{AccelerationStructure, BufferDeviceAddress, Surface, Swapchain};
+use ash::extensions::khr::{BufferDeviceAddress, Surface, Swapchain};
 use ash::{vk, Device, Instance};
 use std::ffi::CStr;
 use std::mem::MaybeUninit;
@@ -22,8 +22,6 @@ pub struct Dev {
     pub logical: Device,
     pub physical: vk::PhysicalDevice,
     pub instance: Instance,
-    pub acceleration_structure_ext: Option<AccelerationStructure>,
-    pub buffer_device_address_ext: Option<BufferDeviceAddress>,
     pub debug_ext: DebugUtils,
     pub surface_ext: Surface,
     pub swapchain_ext: Swapchain,
@@ -117,6 +115,7 @@ impl Buffer {
         unsafe { std::slice::from_raw_parts_mut(ptr as *mut MaybeUninit<T>, count) }
     }
 
+    #[allow(dead_code)]
     pub fn device_address(&self, buffer_device_address_ext: &BufferDeviceAddress) -> u64 {
         let info = *vk::BufferDeviceAddressInfoKHR::builder().buffer(self.buffer);
         unsafe { buffer_device_address_ext.get_buffer_device_address(&info) }
@@ -129,6 +128,7 @@ impl Buffer {
 }
 
 impl Ctx<'_> {
+    #[allow(dead_code)]
     pub fn execute<R>(&self, f: impl FnOnce(vk::CommandBuffer) -> R) -> R {
         let command_info = vk::CommandBufferAllocateInfo::builder()
             .level(vk::CommandBufferLevel::PRIMARY)

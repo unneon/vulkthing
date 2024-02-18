@@ -8,9 +8,8 @@ use crate::renderer::codegen::{
 };
 use crate::renderer::debug::create_debug_messenger;
 use crate::renderer::device::{select_device, DeviceInfo};
-use crate::renderer::raytracing::{create_blas, create_tlas};
 use crate::renderer::swapchain::create_swapchain;
-use crate::renderer::util::{vulkan_str, Buffer, Ctx, Dev};
+use crate::renderer::util::{vulkan_str, Buffer, Dev};
 use crate::renderer::vertex::{Star, Vertex};
 use crate::renderer::{
     MeshObject, Object, Renderer, Synchronization, UniformBuffer, FRAMES_IN_FLIGHT, VRAM_VIA_BAR,
@@ -19,11 +18,7 @@ use crate::window::Window;
 use crate::world::World;
 use crate::{VULKAN_APP_NAME, VULKAN_APP_VERSION, VULKAN_ENGINE_NAME, VULKAN_ENGINE_VERSION};
 use ash::extensions::ext::DebugUtils;
-use ash::extensions::khr::{
-    AccelerationStructure, BufferDeviceAddress, DeferredHostOperations, Surface,
-    Swapchain as SwapchainKhr,
-};
-use ash::vk::{ExtDescriptorIndexingFn, KhrRayQueryFn, KhrShaderFloatControlsFn, KhrSpirv14Fn};
+use ash::extensions::khr::{Surface, Swapchain as SwapchainKhr};
 use ash::{vk, Device, Entry, Instance};
 use log::{debug, warn};
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
@@ -46,29 +41,14 @@ impl Renderer {
         let DeviceInfo {
             physical_device,
             queue_family,
-            supports_raytracing,
         } = select_device(surface, &instance, &surface_ext);
         let properties = unsafe { instance.get_physical_device_properties(physical_device) };
-        let logical_device = create_logical_device(
-            queue_family,
-            supports_raytracing,
-            &instance,
-            physical_device,
-        );
-        let (acceleration_structure_ext, buffer_device_address_ext) = if supports_raytracing {
-            let as_ext = AccelerationStructure::new(&instance, &logical_device);
-            let bda_ext = BufferDeviceAddress::new(&instance, &logical_device);
-            (Some(as_ext), Some(bda_ext))
-        } else {
-            (None, None)
-        };
+        let logical_device = create_logical_device(queue_family, &instance, physical_device);
         let swapchain_ext = SwapchainKhr::new(&instance, &logical_device);
         let dev = Dev {
             logical: logical_device,
             physical: physical_device,
             instance,
-            acceleration_structure_ext,
-            buffer_device_address_ext,
             debug_ext,
             surface_ext,
             swapchain_ext,
@@ -77,11 +57,6 @@ impl Renderer {
         let command_pools = create_command_pools(queue_family, &dev);
         let command_buffers = create_command_buffers(&command_pools, &dev);
         let sync = create_sync(&dev);
-        let ctx = Ctx {
-            dev: &dev,
-            queue,
-            command_pool: command_pools[0],
-        };
 
         let samplers = create_samplers(&dev);
 
@@ -91,7 +66,7 @@ impl Renderer {
         let swapchain = create_swapchain(surface, window.window.inner_size(), &dev);
         let passes = create_render_passes(&swapchain, vk::SampleCountFlags::TYPE_1, &dev);
         let pipeline_layouts = create_pipeline_layouts(&descriptor_set_layouts, &dev);
-        let shaders = create_shaders(supports_raytracing);
+        let shaders = create_shaders();
         let shader_modules = create_shader_modules(&shaders, &dev);
         let pipelines = create_pipelines(
             vk::SampleCountFlags::TYPE_1,
@@ -105,21 +80,12 @@ impl Renderer {
 
         let mut mesh_objects = Vec::new();
         for mesh in meshes {
-            let vertex = create_vertex_buffer(&mesh.vertices, supports_raytracing, &dev);
+            let vertex = create_vertex_buffer(&mesh.vertices, &dev);
             mesh_objects.push(MeshObject {
                 triangle_count: mesh.vertices.len() / 3,
                 vertex,
             });
         }
-
-        let (tlas, blas) = if supports_raytracing {
-            let blas = create_blas(&mesh_objects[0], &ctx);
-            let tlas = create_tlas(&world.entities()[0].model_matrix(), &blas, &ctx);
-            (Some(tlas), Some(blas))
-        } else {
-            (None, None)
-        };
-        // let (tlas, blas) = (None, None);
 
         let mut entities = Vec::new();
         for _ in world.entities() {
@@ -168,7 +134,6 @@ impl Renderer {
             surface,
             dev,
             queue,
-            supports_raytracing,
             properties,
             samplers,
             descriptor_set_layouts,
@@ -192,8 +157,6 @@ impl Renderer {
             skybox_descriptor_sets,
             global,
             global_descriptor_sets,
-            blas,
-            tlas,
             query_pool,
             frame_index: 0,
             pass_times: None,
@@ -245,7 +208,7 @@ impl Renderer {
     pub fn recreate_pipelines(&mut self) {
         unsafe { self.dev.device_wait_idle() }.unwrap();
         self.pipelines.cleanup(&self.dev);
-        let shaders = create_shaders(self.supports_raytracing);
+        let shaders = create_shaders();
         let shader_modules = create_shader_modules(&shaders, &self.dev);
         self.pipelines = create_pipelines(
             vk::SampleCountFlags::TYPE_1,
@@ -311,12 +274,6 @@ impl Drop for Renderer {
             self.skybox_transform.cleanup(&self.dev);
             self.skybox_material.cleanup(&self.dev);
             self.global.cleanup(&self.dev);
-            if let Some(tlas) = self.tlas.as_ref() {
-                tlas.cleanup(&self.dev);
-            }
-            if let Some(blas) = self.blas.as_ref() {
-                blas.cleanup(&self.dev);
-            }
             self.sync.cleanup(&self.dev);
             for pool in &self.command_pools {
                 self.dev.destroy_command_pool(*pool, None);
@@ -418,7 +375,6 @@ fn create_surface(window: &Window, entry: &Entry, instance: &Instance) -> vk::Su
 
 fn create_logical_device(
     queue_family: u32,
-    supports_raytracing: bool,
     instance: &Instance,
     physical_device: vk::PhysicalDevice,
 ) -> Device {
@@ -430,37 +386,12 @@ fn create_logical_device(
     let physical_device_features =
         vk::PhysicalDeviceFeatures::builder().fragment_stores_and_atomics(true);
 
-    let mut extensions = vec![SwapchainKhr::name().as_ptr()];
+    let extensions = vec![SwapchainKhr::name().as_ptr()];
 
-    let mut create_info = vk::DeviceCreateInfo::builder()
+    let create_info = vk::DeviceCreateInfo::builder()
         .queue_create_infos(&queues)
-        .enabled_features(&physical_device_features);
-
-    let mut bda_features;
-    let mut rq_features;
-    let mut as_features;
-    if supports_raytracing {
-        bda_features = *vk::PhysicalDeviceBufferDeviceAddressFeaturesKHR::builder()
-            .buffer_device_address(true);
-        rq_features = *vk::PhysicalDeviceRayQueryFeaturesKHR::builder().ray_query(true);
-        as_features = *vk::PhysicalDeviceAccelerationStructureFeaturesKHR::builder()
-            .acceleration_structure(true);
-        extensions.extend_from_slice(&[
-            AccelerationStructure::name().as_ptr(),
-            BufferDeviceAddress::name().as_ptr(),
-            DeferredHostOperations::name().as_ptr(),
-            ExtDescriptorIndexingFn::name().as_ptr(),
-            KhrRayQueryFn::name().as_ptr(),
-            KhrShaderFloatControlsFn::name().as_ptr(),
-            KhrSpirv14Fn::name().as_ptr(),
-        ]);
-        create_info = create_info
-            .push_next(&mut bda_features)
-            .push_next(&mut rq_features)
-            .push_next(&mut as_features);
-    }
-
-    let create_info = *create_info.enabled_extension_names(&extensions);
+        .enabled_features(&physical_device_features)
+        .enabled_extension_names(&extensions);
 
     unsafe { instance.create_device(physical_device, &create_info, None) }.unwrap()
 }
@@ -489,24 +420,9 @@ fn create_command_buffers(
     buffers
 }
 
-pub fn create_vertex_buffer(
-    vertex_data: &[Vertex],
-    supports_raytracing: bool,
-    dev: &Dev,
-) -> Buffer {
+pub fn create_vertex_buffer(vertex_data: &[Vertex], dev: &Dev) -> Buffer {
     let size = std::mem::size_of_val(vertex_data);
-    let vertex = Buffer::create(
-        VRAM_VIA_BAR,
-        vk::BufferUsageFlags::VERTEX_BUFFER
-            | if supports_raytracing {
-                vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS
-                    | vk::BufferUsageFlags::ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_KHR
-            } else {
-                vk::BufferUsageFlags::empty()
-            },
-        size,
-        dev,
-    );
+    let vertex = Buffer::create(VRAM_VIA_BAR, vk::BufferUsageFlags::VERTEX_BUFFER, size, dev);
     vertex.fill_from_slice_host_visible(vertex_data, dev);
     vertex
 }

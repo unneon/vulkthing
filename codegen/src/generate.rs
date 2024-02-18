@@ -160,7 +160,6 @@ pub fn generate_code(in_path: &str, renderer: &Renderer, mut file: File) {
 
 #![allow(unused_imports)]
 
-use crate::renderer::raytracing::RaytraceResources;
 use crate::renderer::shader::compile_glsl;
 #[rustfmt::skip]
 use crate::renderer::uniform::{{"#
@@ -1764,14 +1763,14 @@ pub fn create_pipeline_layouts(
 }}
 
 #[rustfmt::skip]
-pub fn create_shaders(supports_raytracing: bool) -> Shaders {{"#
+pub fn create_shaders() -> Shaders {{"#
     )
     .unwrap();
     for (name, typ) in &shaders {
         let typ_lowercase = typ.lowercase();
         let typ_camelcase = typ.camelcase();
         let ext = typ.extension();
-        writeln!(file, r#"    let {name}_{typ_lowercase} = compile_glsl("shaders/{name}.{ext}", shaderc::ShaderKind::{typ_camelcase}, supports_raytracing);"#).unwrap();
+        writeln!(file, r#"    let {name}_{typ_lowercase} = compile_glsl("shaders/{name}.{ext}", shaderc::ShaderKind::{typ_camelcase});"#).unwrap();
     }
     writeln!(file, "    Shaders {{").unwrap();
     for (name, typ) in &shaders {

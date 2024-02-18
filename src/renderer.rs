@@ -3,7 +3,6 @@ pub mod debug;
 mod device;
 mod graph;
 pub mod lifecycle;
-mod raytracing;
 mod shader;
 mod swapchain;
 pub mod uniform;
@@ -15,7 +14,6 @@ use crate::renderer::codegen::{
 };
 use crate::renderer::debug::{begin_label, end_label};
 use crate::renderer::graph::Pass;
-use crate::renderer::raytracing::RaytraceResources;
 use crate::renderer::swapchain::Swapchain;
 use crate::renderer::uniform::{
     Atmosphere, Camera, Gaussian, Global, Material, PostprocessUniform, Tonemapper, Transform,
@@ -40,7 +38,6 @@ pub struct Renderer {
     surface: vk::SurfaceKHR,
     pub dev: Dev,
     queue: vk::Queue,
-    supports_raytracing: bool,
     properties: vk::PhysicalDeviceProperties,
 
     // Parameters of the renderer that are required early for creating more important objects.
@@ -79,9 +76,6 @@ pub struct Renderer {
     skybox_descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
     global: UniformBuffer<Global>,
     global_descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
-
-    tlas: Option<RaytraceResources>,
-    blas: Option<RaytraceResources>,
 
     query_pool: vk::QueryPool,
     frame_index: usize,

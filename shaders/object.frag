@@ -8,9 +8,6 @@
 
 layout(binding = 1) uniform MATERIAL_UNIFORM_TYPE material;
 layout(binding = 0, set = 1) uniform GLOBAL_UNIFORM_TYPE global;
-#ifdef SUPPORTS_RAYTRACING
-layout(binding = 1, set = 1) uniform accelerationStructureEXT tlas;
-#endif
 
 layout(location = 0) in vec3 frag_position;
 layout(location = 1) in vec3 frag_normal;

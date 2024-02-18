@@ -7,7 +7,6 @@ use log::{debug, warn};
 pub struct DeviceInfo {
     pub physical_device: vk::PhysicalDevice,
     pub queue_family: u32,
-    pub supports_raytracing: bool,
 }
 
 pub fn select_device(
@@ -24,7 +23,7 @@ pub fn select_device(
         let queue_families =
             unsafe { instance.get_physical_device_queue_family_properties(device) };
         let name = vulkan_str(&properties.device_name);
-        let extensions = unsafe { instance.enumerate_device_extension_properties(device) }.unwrap();
+        // let extensions = unsafe { instance.enumerate_device_extension_properties(device) }.unwrap();
 
         // The GPU has to have a graphics queue. Otherwise there's no way to do any rendering
         // operations, so this must be some weird compute-only accelerator or something.
@@ -34,18 +33,12 @@ pub fn select_device(
             continue;
         };
 
-        let supports_raytracing = has_extension(&extensions, "VK_KHR_ray_query");
-        if !supports_raytracing {
-            warn!("ray tracing not available");
-        }
-
         // Let's just select the first GPU for now. Linux seems to sort them by itself, I should
         // think more about selection later.
         debug!("physical device selected, \x1B[1mname\x1B[0m: {name}");
         return DeviceInfo {
             physical_device: device,
             queue_family,
-            supports_raytracing,
         };
     }
 
@@ -73,6 +66,7 @@ fn find_graphics_queue(
     None
 }
 
+#[allow(dead_code)]
 fn has_extension(extensions: &[vk::ExtensionProperties], name: &str) -> bool {
     for ext in extensions {
         if vulkan_str(&ext.extension_name) == name {
