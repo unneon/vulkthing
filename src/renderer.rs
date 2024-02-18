@@ -257,15 +257,14 @@ impl Renderer {
         begin_label(buf, "Star draws", [213, 204, 184], &self.dev);
         self.bind_graphics_pipeline(buf, self.pipelines.star);
         self.bind_descriptor_set(buf, self.pipeline_layouts.star);
-        self.mesh_objects[1].bind_vertex_instanced(&self.star_instances, buf, &self.dev);
-        self.mesh_objects[1].draw(world.stars.len(), buf, &self.dev);
+        self.mesh_objects[0].bind_vertex_instanced(&self.star_instances, buf, &self.dev);
+        self.mesh_objects[0].draw(world.stars.len(), buf, &self.dev);
         end_label(buf, &self.dev);
 
         begin_label(buf, "Skybox draw", [129, 147, 164], &self.dev);
         self.bind_graphics_pipeline(buf, self.pipelines.skybox);
         self.bind_descriptor_set(buf, self.pipeline_layouts.skybox);
-        self.mesh_objects[0].bind_vertex(buf, &self.dev);
-        self.mesh_objects[0].draw(1, buf, &self.dev);
+        unsafe { self.dev.cmd_draw(buf, 6, 1, 0, 0) };
         end_label(buf, &self.dev);
 
         // TODO: Fix drawing SRGB interface to linear color space.

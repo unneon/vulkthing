@@ -61,14 +61,13 @@ fn main() {
     initialize_panic_hook();
     let args = Args::parse();
     let window = create_window(&args);
-    let cube_mesh = load_mesh("assets/cube.obj");
     let tetrahedron_mesh = load_mesh("assets/tetrahedron.obj");
     let icosahedron_mesh = load_mesh("assets/icosahedron.obj");
     let mut world = World::new();
     let mut renderer_settings = DEFAULT_RENDERER_SETTINGS;
     let mut renderer = Renderer::new(
         &window,
-        &[&cube_mesh, &tetrahedron_mesh, &icosahedron_mesh],
+        &[&tetrahedron_mesh, &icosahedron_mesh],
         &world,
         &args,
     );

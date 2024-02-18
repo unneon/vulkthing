@@ -92,7 +92,7 @@ impl World {
             metallic: 0.,
             roughness: 1.,
             ao: 0.,
-            mesh_id: 2,
+            mesh_id: 1,
         };
         let entities = vec![sun];
         let mut stars = Vec::new();

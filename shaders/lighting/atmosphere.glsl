@@ -85,15 +85,12 @@ vec3 calculate_light(vec3 ray_origin, vec3 ray_direction, float ray_length, vec3
     return in_scattered_light + original_light;
 }
 
-vec3 compute_atmosphere(vec3 original_color, vec3 position) {
+vec3 compute_atmosphere_impl(vec3 original_color, vec3 ray_direction, float scene_depth) {
     if (!global.atmosphere.enable) {
         return original_color;
     }
 
-    float scene_depth = length(position - global.camera.position);
     vec3 ray_origin = global.camera.position;
-    vec3 ray_direction = normalize(position - global.camera.position);
-
     vec2 hit_info = ray_sphere(global.atmosphere.planet_position, global.atmosphere.scale * global.atmosphere.planet_radius, ray_origin, ray_direction);
     float distance_to_atmosphere = hit_info.x;
     float distance_through_atmosphere = min(hit_info.y, scene_depth - distance_to_atmosphere);
@@ -103,4 +100,15 @@ vec3 compute_atmosphere(vec3 original_color, vec3 position) {
         return calculate_light(point_in_atmosphere, ray_direction, distance_through_atmosphere, original_color);
     }
     return original_color;
+}
+
+vec3 compute_atmosphere(vec3 original_color, vec3 position) {
+    if (!global.atmosphere.enable) {
+        return original_color;
+    }
+
+    vec3 ray_direction = normalize(position - global.camera.position);
+    float scene_depth = length(position - global.camera.position);
+
+    return compute_atmosphere_impl(original_color, ray_direction, scene_depth);
 }

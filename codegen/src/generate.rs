@@ -1068,7 +1068,7 @@ static mut SCRATCH: Scratch = Scratch {{"#
         flags: vk::PipelineDepthStencilStateCreateFlags::empty(),
         depth_test_enable: {depth_bool},
         depth_write_enable: {depth_bool},
-        depth_compare_op: vk::CompareOp::LESS,
+        depth_compare_op: vk::CompareOp::LESS_OR_EQUAL,
         depth_bounds_test_enable: 0,
         stencil_test_enable: 0,
         front: vk::StencilOpState {{
