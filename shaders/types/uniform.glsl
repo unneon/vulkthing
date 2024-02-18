@@ -78,6 +78,10 @@ struct VoxelMaterial {
     float metallic;
 };
 
+struct Star {
+    mat4 model;
+};
+
 const uint TONEMAPPER_RGB_CLAMPING = 0;
 const uint TONEMAPPER_REINHARD = 4;
 const uint TONEMAPPER_NARKOWICZ_ACES = 8;

@@ -91,6 +91,7 @@ impl Buffer {
         });
     }
 
+    #[allow(dead_code)]
     pub fn generate_host_visible<T: Copy>(&self, dev: &Dev, mut f: impl FnMut(usize) -> T) {
         self.with_mapped(dev, |mapped| {
             for (i, mapped) in mapped.iter_mut().enumerate() {

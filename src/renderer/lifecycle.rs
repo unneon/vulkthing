@@ -9,8 +9,9 @@ use crate::renderer::codegen::{
 use crate::renderer::debug::create_debug_messenger;
 use crate::renderer::device::{select_device, DeviceInfo};
 use crate::renderer::swapchain::create_swapchain;
-use crate::renderer::util::{vulkan_str, Buffer, Dev};
-use crate::renderer::vertex::{Star, Vertex};
+use crate::renderer::uniform::Star;
+use crate::renderer::util::{vulkan_str, Buffer, Dev, StorageBuffer};
+use crate::renderer::vertex::Vertex;
 use crate::renderer::{
     MeshObject, Object, Renderer, Synchronization, UniformBuffer, FRAMES_IN_FLIGHT, VRAM_VIA_BAR,
 };
@@ -98,18 +99,12 @@ impl Renderer {
                 descriptors,
             });
         }
-        let star_instances = Buffer::create(
-            VRAM_VIA_BAR,
-            vk::BufferUsageFlags::VERTEX_BUFFER,
-            world.stars.len() * std::mem::size_of::<Star>(),
-            &dev,
-        );
-        star_instances.generate_host_visible(&dev, |i| Star {
+        let mut stars = StorageBuffer::new_array(VRAM_VIA_BAR, world.stars.len(), &dev);
+        stars.generate(|i| Star {
             model: world.stars[i].transform.model_matrix(),
-            emit: world.stars[i].emit,
         });
         let global = UniformBuffer::create(&dev);
-        let global_descriptor_sets = descriptor_pools.alloc_global(&global, &dev);
+        let global_descriptor_sets = descriptor_pools.alloc_global(&global, &stars, &dev);
 
         let query_pool = create_query_pool(&dev);
 
@@ -140,7 +135,7 @@ impl Renderer {
             flight_index: 0,
             mesh_objects,
             entities,
-            star_instances,
+            stars,
             global,
             global_descriptor_sets,
             query_pool,
@@ -248,7 +243,7 @@ impl Drop for Renderer {
             drop(self.interface_renderer.take());
             self.dev.destroy_query_pool(self.query_pool, None);
             self.voxel_buffer.cleanup(&self.dev);
-            self.star_instances.cleanup(&self.dev);
+            self.stars.cleanup(&self.dev);
             for entity in &self.entities {
                 entity.cleanup(&self.dev);
             }

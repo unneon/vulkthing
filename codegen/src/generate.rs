@@ -170,6 +170,15 @@ use crate::renderer::uniform::{{"#
         for binding in &descriptor_set.bindings {
             if let DescriptorBinding::Uniform(uniform) = binding {
                 uniform_types.insert(uniform.typ.as_str());
+            } else if let DescriptorBinding::StorageBuffer(storage) = binding {
+                uniform_types.insert(
+                    storage
+                        .typ
+                        .strip_prefix("[")
+                        .unwrap()
+                        .strip_suffix("]")
+                        .unwrap(),
+                );
             }
         }
     }

@@ -16,10 +16,12 @@ use crate::renderer::debug::{begin_label, end_label};
 use crate::renderer::graph::Pass;
 use crate::renderer::swapchain::Swapchain;
 use crate::renderer::uniform::{
-    Atmosphere, Camera, Gaussian, Global, Material, PostprocessUniform, Tonemapper, Transform,
-    VoxelMaterial,
+    Atmosphere, Camera, Gaussian, Global, Material, PostprocessUniform, Star, Tonemapper,
+    Transform, VoxelMaterial,
 };
-use crate::renderer::util::{timestamp_difference_to_duration, Buffer, Dev, UniformBuffer};
+use crate::renderer::util::{
+    timestamp_difference_to_duration, Buffer, Dev, StorageBuffer, UniformBuffer,
+};
 use crate::world::World;
 use ash::{vk, Entry};
 use imgui::DrawData;
@@ -67,7 +69,7 @@ pub struct Renderer {
     // actually render, their descriptor sets and the like.
     mesh_objects: Vec<MeshObject>,
     entities: Vec<Object>,
-    star_instances: Buffer,
+    stars: StorageBuffer<[Star]>,
     global: UniformBuffer<Global>,
     global_descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
 
@@ -257,7 +259,7 @@ impl Renderer {
         begin_label(buf, "Star draws", [213, 204, 184], &self.dev);
         self.bind_graphics_pipeline(buf, self.pipelines.star);
         self.bind_descriptor_set(buf, self.pipeline_layouts.star);
-        self.mesh_objects[0].bind_vertex_instanced(&self.star_instances, buf, &self.dev);
+        self.mesh_objects[0].bind_vertex(buf, &self.dev);
         self.mesh_objects[0].draw(world.stars.len(), buf, &self.dev);
         end_label(buf, &self.dev);
 
@@ -543,12 +545,6 @@ impl Renderer {
 impl MeshObject {
     fn bind_vertex(&self, buf: vk::CommandBuffer, dev: &Dev) {
         unsafe { dev.cmd_bind_vertex_buffers(buf, 0, &[self.vertex.buffer], &[0]) };
-    }
-
-    fn bind_vertex_instanced(&self, instances: &Buffer, buf: vk::CommandBuffer, dev: &Dev) {
-        unsafe {
-            dev.cmd_bind_vertex_buffers(buf, 0, &[self.vertex.buffer, instances.buffer], &[0, 0])
-        };
     }
 
     fn draw(&self, instance_count: usize, buf: vk::CommandBuffer, dev: &Dev) {

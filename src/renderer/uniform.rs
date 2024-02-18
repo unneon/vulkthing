@@ -122,6 +122,12 @@ pub enum Tonemapper {
     HillAces = 9,
 }
 
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct Star {
+    pub model: Matrix4<f32>,
+}
+
 impl EnumInterface for Tonemapper {
     const VALUES: &'static [Self] = &[
         Tonemapper::RgbClamping,
