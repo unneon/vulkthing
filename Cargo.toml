@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 ash = "0.37"
 ash-window = "0.12"
+bracket-noise = "0.8"
 imgui = "0.11"
 imgui-rs-vulkan-renderer = "1.9"
 log = "0.4"
@@ -19,5 +20,12 @@ shaderc = "0.8"
 tobj = { version = "4.0", default-features = false }
 winit = { version = "0.29", features = ["rwh_05", "wayland", "x11"], default-features = false }
 
+[dev-dependencies]
+criterion = "0.5"
+
 [build-dependencies]
 codegen = { path = "codegen" }
+
+[[bench]]
+name = "voxels"
+harness = false

@@ -5,8 +5,9 @@ mod sparse_octree;
 
 use crate::config::{
     DEFAULT_VOXEL_CHUNK_SIZE, DEFAULT_VOXEL_HEIGHTMAP_AMPLITUDE, DEFAULT_VOXEL_HEIGHTMAP_BIAS,
-    DEFAULT_VOXEL_HEIGHTMAP_FREQUENCY, DEFAULT_VOXEL_MESHING_ALGORITHM,
-    DEFAULT_VOXEL_RENDER_DISTANCE_HORIZONTAL, DEFAULT_VOXEL_RENDER_DISTANCE_VERTICAL,
+    DEFAULT_VOXEL_HEIGHTMAP_FREQUENCY, DEFAULT_VOXEL_HEIGHTMAP_NOISE_IMPLEMENTATION,
+    DEFAULT_VOXEL_MESHING_ALGORITHM, DEFAULT_VOXEL_RENDER_DISTANCE_HORIZONTAL,
+    DEFAULT_VOXEL_RENDER_DISTANCE_VERTICAL,
 };
 use crate::interface::EnumInterface;
 use crate::mesh::MeshData;
@@ -14,6 +15,7 @@ use crate::renderer::vertex::VoxelVertex;
 use crate::voxels::culled_meshing::CulledMeshing;
 use crate::voxels::greedy_meshing::GreedyMeshing;
 use crate::voxels::sparse_octree::SparseOctree;
+use bracket_noise::prelude::*;
 use nalgebra::{DMatrix, Vector2, Vector3};
 use noise::Perlin;
 use noise::{NoiseFn, Seedable};
@@ -38,6 +40,7 @@ pub struct Voxels<'a> {
     config_changed: bool,
     shutdown: Arc<AtomicBool>,
     heightmap_noise: Perlin,
+    heightmap_noise_bracket: FastNoise,
     // TODO: That is really not in the spirit of Rust safety.
     buffer: &'a mut [MaybeUninit<VoxelVertex>],
     vertices: Arc<AtomicU64>,
@@ -52,6 +55,7 @@ pub struct VoxelsConfig {
     pub heightmap_amplitude: f32,
     pub heightmap_frequency: f32,
     pub heightmap_bias: f32,
+    pub heightmap_noise_implementation: NoiseImplementation,
     pub render_distance_horizontal: usize,
     pub render_distance_vertical: usize,
     pub meshing_algorithm: MeshingAlgorithmKind,
@@ -64,6 +68,12 @@ pub enum VoxelKind {
     Stone = 1,
     Dirt = 2,
     Grass = 3,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub enum NoiseImplementation {
+    BracketNoise,
+    Noise,
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -84,12 +94,13 @@ const DIRECTIONS: [Vector3<i64>; 6] = [
 impl<'a> Voxels<'a> {
     pub fn new(buffer: &'a mut [MaybeUninit<VoxelVertex>]) -> (Voxels, mpsc::Sender<VoxelsConfig>) {
         let (new_config_tx, new_config_rx) = mpsc::channel();
-        let voxels = Voxels {
+        let mut voxels = Voxels {
             config: VoxelsConfig {
                 chunk_size: DEFAULT_VOXEL_CHUNK_SIZE,
                 heightmap_amplitude: DEFAULT_VOXEL_HEIGHTMAP_AMPLITUDE,
                 heightmap_frequency: DEFAULT_VOXEL_HEIGHTMAP_FREQUENCY,
                 heightmap_bias: DEFAULT_VOXEL_HEIGHTMAP_BIAS,
+                heightmap_noise_implementation: DEFAULT_VOXEL_HEIGHTMAP_NOISE_IMPLEMENTATION,
                 render_distance_horizontal: DEFAULT_VOXEL_RENDER_DISTANCE_HORIZONTAL,
                 render_distance_vertical: DEFAULT_VOXEL_RENDER_DISTANCE_VERTICAL,
                 meshing_algorithm: DEFAULT_VOXEL_MESHING_ALGORITHM,
@@ -98,12 +109,17 @@ impl<'a> Voxels<'a> {
             config_changed: true,
             shutdown: Arc::new(AtomicBool::new(false)),
             heightmap_noise: Perlin::new(random()),
+            heightmap_noise_bracket: FastNoise::seeded(random()),
             buffer,
             vertices: Arc::new(AtomicU64::new(0)),
             loaded_cpu: HashMap::new(),
             loaded_gpu: HashSet::new(),
             loaded_heightmaps: HashMap::new(),
         };
+        voxels
+            .heightmap_noise_bracket
+            .set_noise_type(NoiseType::Perlin);
+        voxels.heightmap_noise_bracket.set_frequency(1.);
         (voxels, new_config_tx)
     }
 
@@ -156,7 +172,7 @@ impl<'a> Voxels<'a> {
         if self.loaded_cpu.contains_key(&chunk) {
             return;
         }
-        self.generate_chunk_heightmap(chunk);
+        self.load_heightmap(chunk);
         let heightmap = &self.loaded_heightmaps[&chunk.xy()];
         let svo = self.generate_chunk_svo(chunk, heightmap);
         self.loaded_cpu.insert(chunk, svo);
@@ -191,10 +207,15 @@ impl<'a> Voxels<'a> {
         self.loaded_gpu.insert(chunk);
     }
 
-    pub fn generate_chunk_heightmap(&mut self, chunk: Vector3<i64>) {
+    pub fn load_heightmap(&mut self, chunk: Vector3<i64>) {
         if self.loaded_heightmaps.contains_key(&chunk.xy()) {
             return;
         }
+        let heightmap = self.generate_heightmap_bracket_noise(chunk);
+        self.loaded_heightmaps.insert(chunk.xy(), heightmap);
+    }
+
+    pub fn generate_heightmap_noise(&mut self, chunk: Vector3<i64>) -> DMatrix<i64> {
         let chunk_coordinates = chunk.xy() * self.config.chunk_size as i64;
         let mut heightmap =
             DMatrix::from_element(self.config.chunk_size, self.config.chunk_size, 0);
@@ -210,7 +231,27 @@ impl<'a> Voxels<'a> {
                 heightmap[(x, y)] = scaled_noise.round() as i64;
             }
         }
-        self.loaded_heightmaps.insert(chunk.xy(), heightmap);
+        heightmap
+    }
+
+    pub fn generate_heightmap_bracket_noise(&mut self, chunk: Vector3<i64>) -> DMatrix<i64> {
+        let chunk_coordinates = chunk.xy() * self.config.chunk_size as i64;
+        let mut heightmap =
+            DMatrix::from_element(self.config.chunk_size, self.config.chunk_size, 0);
+        for x in 0..self.config.chunk_size {
+            for y in 0..self.config.chunk_size {
+                let column_coordinates = chunk_coordinates + Vector2::new(x as i64, y as i64);
+                let noise_position =
+                    column_coordinates.cast::<f32>() * self.config.heightmap_frequency;
+                let raw_noise = self
+                    .heightmap_noise_bracket
+                    .get_noise(noise_position.x, noise_position.y);
+                let scaled_noise =
+                    (raw_noise + self.config.heightmap_bias) * self.config.heightmap_amplitude;
+                heightmap[(x, y)] = scaled_noise.round() as i64;
+            }
+        }
+        heightmap
     }
 
     pub fn generate_chunk_svo(
@@ -258,6 +299,20 @@ impl<'a> Voxels<'a> {
 impl VoxelKind {
     pub fn is_air(&self) -> bool {
         matches!(self, VoxelKind::Air)
+    }
+}
+
+impl EnumInterface for NoiseImplementation {
+    const VALUES: &'static [Self] = &[
+        NoiseImplementation::Noise,
+        NoiseImplementation::BracketNoise,
+    ];
+
+    fn label(&self) -> Cow<str> {
+        Cow::Borrowed(match self {
+            NoiseImplementation::BracketNoise => "bracket-noise",
+            NoiseImplementation::Noise => "noise",
+        })
     }
 }
 

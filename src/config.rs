@@ -1,7 +1,7 @@
 use crate::camera::first_person::FirstPersonCamera;
 use crate::renderer::uniform::Tonemapper;
 use crate::renderer::{PostprocessSettings, RendererSettings};
-use crate::voxels::MeshingAlgorithmKind;
+use crate::voxels::{MeshingAlgorithmKind, NoiseImplementation};
 use nalgebra::Vector3;
 
 pub const DEFAULT_SUN_POSITION: Vector3<f32> = Vector3::new(0., 0., DEFAULT_SUN_RADIUS);
@@ -50,7 +50,9 @@ pub const DEFAULT_VOXEL_CHUNK_SIZE: usize = 32;
 pub const DEFAULT_VOXEL_HEIGHTMAP_AMPLITUDE: f32 = 32.;
 pub const DEFAULT_VOXEL_HEIGHTMAP_FREQUENCY: f32 = 0.01;
 pub const DEFAULT_VOXEL_HEIGHTMAP_BIAS: f32 = 0.;
+pub const DEFAULT_VOXEL_HEIGHTMAP_NOISE_IMPLEMENTATION: NoiseImplementation =
+    NoiseImplementation::BracketNoise;
 pub const DEFAULT_VOXEL_RENDER_DISTANCE_HORIZONTAL: usize = 1024;
-pub const DEFAULT_VOXEL_RENDER_DISTANCE_VERTICAL: usize = 1024;
+pub const DEFAULT_VOXEL_RENDER_DISTANCE_VERTICAL: usize = 64;
 pub const DEFAULT_VOXEL_MESHING_ALGORITHM: MeshingAlgorithmKind = MeshingAlgorithmKind::Greedy;
 pub const DEFAULT_VOXEL_VERTEX_MEMORY: usize = 2048 * 1024 * 1024;

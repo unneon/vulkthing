@@ -65,6 +65,11 @@ impl Interface {
                         .flags(SliderFlags::LOGARITHMIC)
                         .build(&mut voxels.heightmap_frequency);
                     changed |= ui.slider("Heightmap bias", -1., 1., &mut voxels.heightmap_bias);
+                    changed |= enum_combo(
+                        ui,
+                        "Heightmap noise implementation",
+                        &mut voxels.heightmap_noise_implementation,
+                    );
                     changed |= ui.slider(
                         "Render distance (horizontal)",
                         1,
