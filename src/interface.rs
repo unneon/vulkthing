@@ -37,6 +37,7 @@ impl Interface {
         renderer: &mut RendererSettings,
         voxels: &mut VoxelsConfig,
         pass_times: Option<&[Duration; PASS_COUNT]>,
+        voxel_triangles: Option<u64>,
     ) -> InterfaceEvents {
         let ui = self.ctx.frame();
         let mut events = InterfaceEvents {
@@ -144,6 +145,9 @@ impl Interface {
                     build_postprocess(ui, &mut renderer.postprocess);
                 }
                 if ui.collapsing_header("Performance", TreeNodeFlags::empty()) {
+                    if let Some(voxel_triangles) = voxel_triangles {
+                        ui.label_text("Voxel triangles", voxel_triangles.to_string());
+                    }
                     if let Some(pass_times) = pass_times {
                         let mut total_time = Duration::ZERO;
                         for (name, time) in PASS_NAMES.iter().zip(pass_times.iter()) {

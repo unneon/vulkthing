@@ -179,6 +179,10 @@ pub fn main() {
                     &mut renderer_settings,
                     &mut voxel_config,
                     renderer.pass_times.as_ref(),
+                    renderer
+                        .voxels_shared
+                        .as_ref()
+                        .map(|count| count.load(Ordering::SeqCst)),
                 );
                 assert!(!interface_events.planet_changed);
                 if interface_events.rebuild_swapchain {
