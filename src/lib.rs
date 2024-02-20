@@ -3,6 +3,8 @@
 #![feature(inline_const)]
 #![feature(int_roundings)]
 #![feature(iter_array_chunks)]
+#![feature(maybe_uninit_array_assume_init)]
+#![feature(maybe_uninit_uninit_array)]
 #![feature(maybe_uninit_write_slice)]
 #![feature(panic_info_message)]
 #![feature(ptr_metadata)]

@@ -362,21 +362,21 @@ fn svo_from_heightmap_impl(
         }
         return SparseOctree::Uniform { kind: material };
     }
-    let mut children = Vec::new();
+    let mut children = MaybeUninit::uninit_array();
     for dz in 0..2 {
         for dy in 0..2 {
             for dx in 0..2 {
-                children.push(svo_from_heightmap_impl(
+                children[4 * dz + 2 * dy + dx].write(svo_from_heightmap_impl(
                     x + dx * n / 2,
                     y + dy * n / 2,
-                    z + dz * n as i64 / 2,
+                    z + dz as i64 * n as i64 / 2,
                     n / 2,
                     heightmap,
                 ));
             }
         }
     }
-    let children = std::array::from_fn(|i| Box::new(children[i].clone()));
+    let children = Box::new(unsafe { MaybeUninit::array_assume_init(children) });
     SparseOctree::Mixed { children }
 }
 
