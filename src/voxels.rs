@@ -19,7 +19,6 @@ use bracket_noise::prelude::*;
 use nalgebra::{DMatrix, Vector2, Vector3};
 use noise::Perlin;
 use noise::{NoiseFn, Seedable};
-use rand::random;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::mem::MaybeUninit;
@@ -44,7 +43,7 @@ pub struct Voxels<'a> {
     // TODO: That is really not in the spirit of Rust safety.
     buffer: &'a mut [MaybeUninit<VoxelVertex>],
     vertices: Arc<AtomicU64>,
-    loaded_cpu: HashMap<Vector3<i64>, SparseOctree>,
+    pub loaded_cpu: HashMap<Vector3<i64>, SparseOctree>,
     loaded_gpu: HashSet<Vector3<i64>>,
     loaded_heightmaps: HashMap<Vector2<i64>, DMatrix<i64>>,
 }
@@ -82,7 +81,7 @@ pub enum MeshingAlgorithmKind {
     Greedy,
 }
 
-const DIRECTIONS: [Vector3<i64>; 6] = [
+pub const DIRECTIONS: [Vector3<i64>; 6] = [
     Vector3::new(1, 0, 0),
     Vector3::new(-1, 0, 0),
     Vector3::new(0, 1, 0),
@@ -92,7 +91,10 @@ const DIRECTIONS: [Vector3<i64>; 6] = [
 ];
 
 impl<'a> Voxels<'a> {
-    pub fn new(buffer: &'a mut [MaybeUninit<VoxelVertex>]) -> (Voxels, mpsc::Sender<VoxelsConfig>) {
+    pub fn new(
+        seed: u64,
+        buffer: &'a mut [MaybeUninit<VoxelVertex>],
+    ) -> (Voxels, mpsc::Sender<VoxelsConfig>) {
         let (new_config_tx, new_config_rx) = mpsc::channel();
         let mut voxels = Voxels {
             config: VoxelsConfig {
@@ -108,8 +110,8 @@ impl<'a> Voxels<'a> {
             config_rx: new_config_rx,
             config_changed: true,
             shutdown: Arc::new(AtomicBool::new(false)),
-            heightmap_noise: Perlin::new(random()),
-            heightmap_noise_bracket: FastNoise::seeded(random()),
+            heightmap_noise: Perlin::new(seed as u32),
+            heightmap_noise_bracket: FastNoise::seeded(seed),
             buffer,
             vertices: Arc::new(AtomicU64::new(0)),
             loaded_cpu: HashMap::new(),
@@ -156,48 +158,33 @@ impl<'a> Voxels<'a> {
         }
         to_load.sort_by_key(|chunk| (chunk - camera_chunk).abs().sum());
         for chunk in to_load {
-            self.generate_chunk_cpu(chunk);
+            self.load_svo_cpu(chunk);
             for dir in DIRECTIONS {
                 let neighbour = chunk + dir;
-                self.generate_chunk_cpu(neighbour);
+                self.load_svo_cpu(neighbour);
             }
-            self.generate_chunk_gpu(chunk);
+            self.load_mesh_gpu(chunk);
             if self.check_config_change() || self.shutdown.load(Ordering::SeqCst) {
                 break;
             }
         }
     }
 
-    pub fn generate_chunk_cpu(&mut self, chunk: Vector3<i64>) {
+    pub fn load_svo_cpu(&mut self, chunk: Vector3<i64>) {
         if self.loaded_cpu.contains_key(&chunk) {
             return;
         }
-        self.load_heightmap(chunk);
+        self.load_heightmap_cpu(chunk);
         let heightmap = &self.loaded_heightmaps[&chunk.xy()];
         let svo = self.generate_chunk_svo(chunk, heightmap);
         self.loaded_cpu.insert(chunk, svo);
     }
 
-    pub fn generate_chunk_gpu(&mut self, chunk: Vector3<i64>) {
+    pub fn load_mesh_gpu(&mut self, chunk: Vector3<i64>) {
         assert!(!self.loaded_gpu.contains(&chunk));
         let chunk_svo = &self.loaded_cpu[&chunk];
         let neighbour_svos = std::array::from_fn(|i| &self.loaded_cpu[&(chunk + DIRECTIONS[i])]);
-        if chunk_svo.is_uniform()
-            && neighbour_svos
-                .iter()
-                .all(|neighbour_svo| *neighbour_svo == chunk_svo)
-        {
-            self.loaded_gpu.insert(chunk);
-            return;
-        }
-        let meshing_algorithm = match self.config.meshing_algorithm {
-            MeshingAlgorithmKind::Culled => CulledMeshing::mesh,
-            MeshingAlgorithmKind::Greedy => GreedyMeshing::mesh,
-        };
-        let mut mesh = meshing_algorithm(chunk_svo, neighbour_svos, self.config.chunk_size);
-        for vertex in &mut mesh.vertices {
-            vertex.position += (chunk * self.config.chunk_size as i64).cast::<f32>();
-        }
+        let mesh = self.generate_chunk_mesh(chunk, chunk_svo, neighbour_svos);
         let old_vertex_count = self.vertices.load(Ordering::SeqCst) as usize;
         let new_vertex_count = old_vertex_count + mesh.vertices.len();
         let memory = &mut self.buffer[old_vertex_count..new_vertex_count];
@@ -207,7 +194,7 @@ impl<'a> Voxels<'a> {
         self.loaded_gpu.insert(chunk);
     }
 
-    pub fn load_heightmap(&mut self, chunk: Vector3<i64>) {
+    pub fn load_heightmap_cpu(&mut self, chunk: Vector3<i64>) {
         if self.loaded_heightmaps.contains_key(&chunk.xy()) {
             return;
         }
@@ -268,6 +255,32 @@ impl<'a> Voxels<'a> {
             self.config.chunk_size,
             heightmap,
         )
+    }
+
+    pub fn generate_chunk_mesh(
+        &self,
+        chunk: Vector3<i64>,
+        chunk_svo: &SparseOctree,
+        neighbour_svos: [&SparseOctree; 6],
+    ) -> MeshData<VoxelVertex> {
+        if chunk_svo.is_uniform()
+            && neighbour_svos
+                .iter()
+                .all(|neighbour_svo| *neighbour_svo == chunk_svo)
+        {
+            return MeshData {
+                vertices: Vec::new(),
+            };
+        }
+        let meshing_algorithm = match self.config.meshing_algorithm {
+            MeshingAlgorithmKind::Culled => CulledMeshing::mesh,
+            MeshingAlgorithmKind::Greedy => GreedyMeshing::mesh,
+        };
+        let mut mesh = meshing_algorithm(chunk_svo, neighbour_svos, self.config.chunk_size);
+        for vertex in &mut mesh.vertices {
+            vertex.position += (chunk * self.config.chunk_size as i64).cast::<f32>();
+        }
+        mesh
     }
 
     fn check_config_change(&mut self) -> bool {
