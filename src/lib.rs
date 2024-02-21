@@ -85,13 +85,17 @@ pub fn main() {
 
     renderer.create_interface_renderer(&mut interface.ctx);
 
-    let (mut voxels, voxel_config_tx) =
-        Voxels::new(random(), renderer.voxel_buffer.map_memory(&renderer.dev));
+    let (mut voxels, voxel_config_tx) = Voxels::new(
+        random(),
+        renderer.voxel_vertex_buffer.map_memory(&renderer.dev),
+        renderer.voxel_index_buffer.map_memory(&renderer.dev),
+    );
     let mut voxel_config = voxels.config().clone();
     let voxels_camera = Arc::new(Mutex::new(world.camera.position()));
     let voxels_condvar = Arc::new(Condvar::new());
     let voxels_shutdown = voxels.shutdown();
-    let voxels_shared = voxels.shared();
+    let voxels_shared_vertex_count = voxels.shared_vertex_count();
+    let voxels_shared_index_count = voxels.shared_index_count();
     let voxels_thread = std::thread::spawn({
         let camera = voxels_camera.clone();
         let condvar = voxels_condvar.clone();
@@ -112,7 +116,8 @@ pub fn main() {
             }
         }
     });
-    renderer.voxels_shared = Some(voxels_shared);
+    renderer.voxels_shared_vertex_count = Some(voxels_shared_vertex_count);
+    renderer.voxels_shared_index_count = Some(voxels_shared_index_count);
 
     // Run the event loop. Winit delivers events, like key presses. After it finishes delivering
     // some batch of events, it sends a MainEventsCleared event, which means the application should
@@ -174,15 +179,22 @@ pub fn main() {
                 world.update(delta_time, &input_state, args.benchmark);
                 input_state.reset_after_frame();
                 interface.apply_cursor(input_state.camera_lock, &window.window);
+                let voxel_vertices = renderer
+                    .voxels_shared_vertex_count
+                    .as_ref()
+                    .map(|count| count.load(Ordering::SeqCst));
+                let voxel_indices = renderer
+                    .voxels_shared_index_count
+                    .as_ref()
+                    .map(|count| count.load(Ordering::SeqCst));
                 let interface_events = interface.build(
                     &mut world,
                     &mut renderer_settings,
                     &mut voxel_config,
                     renderer.pass_times.as_ref(),
-                    renderer
-                        .voxels_shared
-                        .as_ref()
-                        .map(|count| count.load(Ordering::SeqCst)),
+                    voxel_indices.map(|n| n / 3),
+                    voxel_indices,
+                    voxel_vertices,
                 );
                 assert!(!interface_events.planet_changed);
                 if interface_events.rebuild_swapchain {

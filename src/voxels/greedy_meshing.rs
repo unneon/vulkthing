@@ -52,6 +52,7 @@ impl MeshingAlgorithm for GreedyMeshing {
         state.mesh_orientation(dx, dz, dy, 2, 3);
         state.mesh_orientation(dy, dz, dx, 0, 1);
         MeshData {
+            indices: (0..state.vertices.len() as u32).collect(),
             vertices: state.vertices,
         }
     }

@@ -38,6 +38,8 @@ impl Interface {
         voxels: &mut VoxelsConfig,
         pass_times: Option<&[Duration; PASS_COUNT]>,
         voxel_triangles: Option<u64>,
+        voxel_indices: Option<u64>,
+        voxel_vertices: Option<u64>,
     ) -> InterfaceEvents {
         let ui = self.ctx.frame();
         let mut events = InterfaceEvents {
@@ -147,6 +149,12 @@ impl Interface {
                 if ui.collapsing_header("Performance", TreeNodeFlags::empty()) {
                     if let Some(voxel_triangles) = voxel_triangles {
                         ui.label_text("Voxel triangles", voxel_triangles.to_string());
+                    }
+                    if let Some(voxel_indices) = voxel_indices {
+                        ui.label_text("Voxel indices", voxel_indices.to_string());
+                    }
+                    if let Some(voxel_vertices) = voxel_vertices {
+                        ui.label_text("Voxel vertices", voxel_vertices.to_string());
                     }
                     if let Some(pass_times) = pass_times {
                         let mut total_time = Duration::ZERO;

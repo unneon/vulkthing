@@ -1,11 +1,34 @@
 use crate::renderer::vertex::Vertex;
 use log::debug;
 use nalgebra::Vector3;
+use std::collections::{hash_map, HashMap};
+use std::hash::Hash;
 use tobj::LoadOptions;
 
 #[derive(Clone, Debug)]
 pub struct MeshData<V> {
     pub vertices: Vec<V>,
+    pub indices: Vec<u32>,
+}
+
+impl<V: Clone + Eq + Hash + PartialEq> MeshData<V> {
+    pub fn remove_duplicate_vertices(self) -> Self {
+        let mut mapping = HashMap::new();
+        let mut counter = 0;
+        let mut vertices = Vec::new();
+        for vertex in &self.vertices {
+            if let hash_map::Entry::Vacant(mapping) = mapping.entry(vertex) {
+                mapping.insert(counter);
+                counter += 1;
+                vertices.push(vertex.clone());
+            }
+        }
+        let mut indices = Vec::new();
+        for index in &self.indices {
+            indices.push(mapping[&self.vertices[*index as usize]]);
+        }
+        MeshData { vertices, indices }
+    }
 }
 
 pub fn load_mesh(obj_path: &str) -> MeshData<Vertex> {
@@ -46,6 +69,7 @@ fn flatten_meshes(models: &[tobj::Model]) -> MeshData<Vertex> {
             vertices.push(vertex);
         }
     }
+    let indices = (0..vertices.len() as u32).collect();
     for [v1, v2, v3] in vertices.array_chunks_mut() {
         let normal = (v2.position - v1.position)
             .cross(&(v3.position - v1.position))
@@ -54,5 +78,5 @@ fn flatten_meshes(models: &[tobj::Model]) -> MeshData<Vertex> {
         v2.normal = normal;
         v3.normal = normal;
     }
-    MeshData { vertices }
+    MeshData { vertices, indices }
 }

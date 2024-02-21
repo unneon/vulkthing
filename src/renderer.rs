@@ -80,8 +80,10 @@ pub struct Renderer {
 
     interface_renderer: Option<imgui_rs_vulkan_renderer::Renderer>,
 
-    pub voxels_shared: Option<Arc<AtomicU64>>,
-    pub voxel_buffer: Buffer,
+    pub voxels_shared_vertex_count: Option<Arc<AtomicU64>>,
+    pub voxels_shared_index_count: Option<Arc<AtomicU64>>,
+    pub voxel_vertex_buffer: Buffer,
+    pub voxel_index_buffer: Buffer,
 }
 
 struct Synchronization {
@@ -93,6 +95,7 @@ struct Synchronization {
 pub struct MeshObject {
     triangle_count: usize,
     vertex: Buffer,
+    index: Buffer,
 }
 
 pub struct Object {
@@ -232,17 +235,23 @@ impl Renderer {
             self.flight_index,
         );
 
-        if let Some(voxel_chunks) = self.voxels_shared.as_ref() {
-            let vertex_count = voxel_chunks.load(Ordering::SeqCst) as u32;
+        if let Some(index_count) = self.voxels_shared_index_count.as_ref() {
+            let index_count = index_count.load(Ordering::SeqCst) as u32;
 
             begin_label(buf, "Voxel draws", [255, 0, 0], &self.dev);
             self.bind_graphics_pipeline(buf, self.pipelines.voxel);
             self.bind_descriptor_set(buf, self.pipeline_layouts.voxel);
             unsafe {
                 self.dev
-                    .cmd_bind_vertex_buffers(buf, 0, &[self.voxel_buffer.buffer], &[0])
-            };
-            unsafe { self.dev.cmd_draw(buf, vertex_count, 1, 0, 0) };
+                    .cmd_bind_vertex_buffers(buf, 0, &[self.voxel_vertex_buffer.buffer], &[0]);
+                self.dev.cmd_bind_index_buffer(
+                    buf,
+                    self.voxel_index_buffer.buffer,
+                    0,
+                    vk::IndexType::UINT32,
+                );
+            }
+            unsafe { self.dev.cmd_draw_indexed(buf, index_count, 1, 0, 0, 0) };
             end_label(buf, &self.dev);
         }
 
@@ -545,14 +554,16 @@ impl Renderer {
 impl MeshObject {
     fn bind_vertex(&self, buf: vk::CommandBuffer, dev: &Dev) {
         unsafe { dev.cmd_bind_vertex_buffers(buf, 0, &[self.vertex.buffer], &[0]) };
+        unsafe { dev.cmd_bind_index_buffer(buf, self.index.buffer, 0, vk::IndexType::UINT32) };
     }
 
     fn draw(&self, instance_count: usize, buf: vk::CommandBuffer, dev: &Dev) {
         unsafe {
-            dev.cmd_draw(
+            dev.cmd_draw_indexed(
                 buf,
                 3 * self.triangle_count as u32,
                 instance_count as u32,
+                0,
                 0,
                 0,
             )

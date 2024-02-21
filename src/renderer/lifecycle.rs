@@ -1,5 +1,5 @@
 use crate::cli::Args;
-use crate::config::DEFAULT_VOXEL_VERTEX_MEMORY;
+use crate::config::{DEFAULT_VOXEL_INDEX_MEMORY, DEFAULT_VOXEL_VERTEX_MEMORY};
 use crate::mesh::MeshData;
 use crate::renderer::codegen::{
     create_descriptor_pools, create_descriptor_set_layouts, create_pipeline_layouts,
@@ -82,9 +82,11 @@ impl Renderer {
         let mut mesh_objects = Vec::new();
         for mesh in meshes {
             let vertex = create_vertex_buffer(&mesh.vertices, &dev);
+            let index = create_index_buffer(&mesh.indices, &dev);
             mesh_objects.push(MeshObject {
                 triangle_count: mesh.vertices.len() / 3,
                 vertex,
+                index,
             });
         }
 
@@ -108,10 +110,16 @@ impl Renderer {
 
         let query_pool = create_query_pool(&dev);
 
-        let voxel_buffer = Buffer::create(
+        let voxel_vertex_buffer = Buffer::create(
             VRAM_VIA_BAR,
             vk::BufferUsageFlags::VERTEX_BUFFER,
             DEFAULT_VOXEL_VERTEX_MEMORY,
+            &dev,
+        );
+        let voxel_index_buffer = Buffer::create(
+            VRAM_VIA_BAR,
+            vk::BufferUsageFlags::INDEX_BUFFER,
+            DEFAULT_VOXEL_INDEX_MEMORY,
             &dev,
         );
 
@@ -143,8 +151,10 @@ impl Renderer {
             pass_times: None,
             just_completed_first_render: false,
             interface_renderer: None,
-            voxels_shared: None,
-            voxel_buffer,
+            voxels_shared_vertex_count: None,
+            voxels_shared_index_count: None,
+            voxel_vertex_buffer,
+            voxel_index_buffer,
         }
     }
 
@@ -225,6 +235,7 @@ impl Synchronization {
 impl MeshObject {
     pub fn cleanup(&self, dev: &Device) {
         self.vertex.cleanup(dev);
+        self.index.cleanup(dev);
     }
 }
 
@@ -242,7 +253,8 @@ impl Drop for Renderer {
 
             drop(self.interface_renderer.take());
             self.dev.destroy_query_pool(self.query_pool, None);
-            self.voxel_buffer.cleanup(&self.dev);
+            self.voxel_vertex_buffer.cleanup(&self.dev);
+            self.voxel_index_buffer.cleanup(&self.dev);
             self.stars.cleanup(&self.dev);
             for entity in &self.entities {
                 entity.cleanup(&self.dev);
@@ -401,6 +413,13 @@ pub fn create_vertex_buffer(vertex_data: &[Vertex], dev: &Dev) -> Buffer {
     let size = std::mem::size_of_val(vertex_data);
     let vertex = Buffer::create(VRAM_VIA_BAR, vk::BufferUsageFlags::VERTEX_BUFFER, size, dev);
     vertex.fill_from_slice_host_visible(vertex_data, dev);
+    vertex
+}
+
+fn create_index_buffer(index_data: &[u32], dev: &Dev) -> Buffer {
+    let size = std::mem::size_of_val(index_data);
+    let vertex = Buffer::create(VRAM_VIA_BAR, vk::BufferUsageFlags::INDEX_BUFFER, size, dev);
+    vertex.fill_from_slice_host_visible(index_data, dev);
     vertex
 }
 

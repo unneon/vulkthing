@@ -29,6 +29,7 @@ impl MeshingAlgorithm for CulledMeshing {
         };
         state.mesh_cube(cube, chunk_svo);
         MeshData {
+            indices: (0..state.vertices.len() as u32).collect(),
             vertices: state.vertices,
         }
     }
