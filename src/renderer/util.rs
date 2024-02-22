@@ -282,10 +282,10 @@ impl<T: Copy> StorageBuffer<[T]> {
             element.write(f(index));
         }
     }
+}
 
-    // TODO: Safety
-    #[allow(clippy::mut_from_ref)]
-    pub fn mapped_memory<'a>(&self) -> &'a mut [MaybeUninit<T>] {
+impl<T> StorageBuffer<[T]> {
+    pub fn mapped(&mut self) -> &mut [MaybeUninit<T>] {
         let count = self.size / std::mem::size_of::<T>();
         unsafe { std::slice::from_raw_parts_mut(self.mapping as *mut MaybeUninit<T>, count) }
     }
@@ -329,6 +329,10 @@ impl<T: ?Sized> AsDescriptor for StorageBuffer<T> {
             .range(self.size as u64)
     }
 }
+
+// TODO: This probably isn't safe because of Buffer methods.
+unsafe impl<T: Send + ?Sized> Send for StorageBuffer<T> {}
+unsafe impl<T: Sync + ?Sized> Sync for StorageBuffer<T> {}
 
 pub fn create_image(
     format: vk::Format,

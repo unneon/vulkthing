@@ -17,18 +17,17 @@ use crate::renderer::graph::Pass;
 use crate::renderer::swapchain::Swapchain;
 use crate::renderer::uniform::{
     Atmosphere, Camera, Gaussian, Global, Material, PostprocessUniform, Star, Tonemapper,
-    Transform, VoxelMaterial, VoxelMeshlet,
+    Transform, VoxelMaterial,
 };
 use crate::renderer::util::{
     timestamp_difference_to_duration, Buffer, Dev, StorageBuffer, UniformBuffer,
 };
-use crate::renderer::vertex::VoxelVertex;
+use crate::voxel::gpu_memory::VoxelGpuMemory;
 use crate::world::World;
 use ash::{vk, Entry};
 use imgui::DrawData;
 use nalgebra::{Matrix4, Vector2, Vector3};
 use std::f32::consts::FRAC_PI_4;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use winit::dpi::PhysicalSize;
@@ -74,19 +73,14 @@ pub struct Renderer {
     global: UniformBuffer<Global>,
     global_descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
 
+    pub voxel_gpu_memory: Arc<VoxelGpuMemory>,
+
     query_pool: vk::QueryPool,
     frame_index: usize,
     pub pass_times: Option<[Duration; PASS_COUNT]>,
     pub just_completed_first_render: bool,
 
     interface_renderer: Option<imgui_rs_vulkan_renderer::Renderer>,
-
-    pub voxels_shared_vertex_count: Option<Arc<AtomicU64>>,
-    pub voxels_shared_index_count: Option<Arc<AtomicU64>>,
-    pub voxels_shared_meshlet_count: Option<Arc<AtomicU64>>,
-    pub voxel_vertex_buffer: StorageBuffer<[VoxelVertex]>,
-    pub voxel_index_buffer: StorageBuffer<[u8]>,
-    pub voxel_meshlet_buffer: StorageBuffer<[VoxelMeshlet]>,
 }
 
 struct Synchronization {
@@ -238,19 +232,16 @@ impl Renderer {
             self.flight_index,
         );
 
-        if let Some(meshlet_count) = self.voxels_shared_meshlet_count.as_ref() {
-            let meshlet_count = meshlet_count.load(Ordering::SeqCst) as u32;
-
-            begin_label(buf, "Voxel draws", [255, 0, 0], &self.dev);
-            self.bind_graphics_pipeline(buf, self.pipelines.voxel);
-            self.bind_descriptor_set(buf, self.pipeline_layouts.voxel);
-            unsafe {
-                self.dev
-                    .mesh_ext
-                    .cmd_draw_mesh_tasks(buf, meshlet_count, 1, 1)
-            };
-            end_label(buf, &self.dev);
-        }
+        let voxel_meshlet_count = self.voxel_gpu_memory.meshlet_count();
+        begin_label(buf, "Voxel draws", [255, 0, 0], &self.dev);
+        self.bind_graphics_pipeline(buf, self.pipelines.voxel);
+        self.bind_descriptor_set(buf, self.pipeline_layouts.voxel);
+        unsafe {
+            self.dev
+                .mesh_ext
+                .cmd_draw_mesh_tasks(buf, voxel_meshlet_count, 1, 1)
+        };
+        end_label(buf, &self.dev);
 
         begin_label(buf, "Entity draws", [57, 65, 62], &self.dev);
         self.bind_graphics_pipeline(buf, self.pipelines.object);

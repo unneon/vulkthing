@@ -1,10 +1,10 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use nalgebra::Vector3;
-use vulkthing::voxels::DIRECTIONS;
+use vulkthing::voxel::DIRECTIONS;
 
 pub fn heightmap_generate(c: &mut Criterion) {
     let mut group = c.benchmark_group("voxel heightmap generate");
-    let mut voxels = vulkthing::voxels::Voxels::new(1234, &mut []).0;
+    let mut voxels = vulkthing::voxel::Voxels::new(1234, &mut [], &mut [], &mut []).0;
     group.significance_level(0.001);
     group.sample_size(5000);
     group.bench_function("noise", |b| {
@@ -36,7 +36,7 @@ pub fn heightmap_generate(c: &mut Criterion) {
 
 pub fn svo_generate(c: &mut Criterion) {
     let mut group = c.benchmark_group("sparse voxel octree generate");
-    let mut voxels = vulkthing::voxels::Voxels::new(929, &mut []).0;
+    let mut voxels = vulkthing::voxel::Voxels::new(929, &mut [], &mut [], &mut []).0;
     let chunk = Vector3::new(0, 0, 0);
     let heightmap = voxels.generate_heightmap_bracket_noise(chunk);
     group.significance_level(0.001);
@@ -54,7 +54,7 @@ pub fn svo_generate(c: &mut Criterion) {
 
 pub fn mesh_generate(c: &mut Criterion) {
     let mut group = c.benchmark_group("voxel mesh generate");
-    let mut voxels = vulkthing::voxels::Voxels::new(919, &mut []).0;
+    let mut voxels = vulkthing::voxel::Voxels::new(919, &mut [], &mut [], &mut []).0;
     let chunk = Vector3::new(0, 0, 0);
     voxels.load_svo_cpu(chunk);
     for direction in DIRECTIONS {

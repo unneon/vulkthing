@@ -1,4 +1,4 @@
-use crate::voxels::DIRECTIONS;
+use crate::voxel::DIRECTIONS;
 use nalgebra::Vector3;
 
 pub struct BinaryCube {

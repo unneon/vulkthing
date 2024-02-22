@@ -1,6 +1,7 @@
 use crate::cli::Args;
 use crate::config::{
-    DEFAULT_VOXEL_INDEX_MEMORY, DEFAULT_VOXEL_MESHLET_MEMORY, DEFAULT_VOXEL_VERTEX_MEMORY,
+    DEFAULT_VOXEL_CHUNK_SIZE, DEFAULT_VOXEL_INDEX_MAX_COUNT, DEFAULT_VOXEL_MESHLET_MAX_COUNT,
+    DEFAULT_VOXEL_VERTEX_MAX_COUNT,
 };
 use crate::mesh::MeshData;
 use crate::renderer::codegen::{
@@ -13,10 +14,11 @@ use crate::renderer::device::{select_device, DeviceInfo};
 use crate::renderer::swapchain::create_swapchain;
 use crate::renderer::uniform::Star;
 use crate::renderer::util::{vulkan_str, Buffer, Dev, StorageBuffer};
-use crate::renderer::vertex::{Vertex, VoxelVertex};
+use crate::renderer::vertex::Vertex;
 use crate::renderer::{
     MeshObject, Object, Renderer, Synchronization, UniformBuffer, FRAMES_IN_FLIGHT, VRAM_VIA_BAR,
 };
+use crate::voxel::gpu_memory::VoxelGpuMemory;
 use crate::window::Window;
 use crate::world::World;
 use crate::{VULKAN_APP_NAME, VULKAN_APP_VERSION, VULKAN_ENGINE_NAME, VULKAN_ENGINE_VERSION};
@@ -27,6 +29,7 @@ use ash::{vk, Device, Entry, Instance};
 use log::{debug, warn};
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use std::ffi::CString;
+use std::sync::Arc;
 use winit::dpi::PhysicalSize;
 
 impl Renderer {
@@ -113,21 +116,12 @@ impl Renderer {
 
         let query_pool = create_query_pool(&dev);
 
-        let voxel_vertex_buffer = StorageBuffer::new_array(
-            VRAM_VIA_BAR,
-            DEFAULT_VOXEL_VERTEX_MEMORY / std::mem::size_of::<VoxelVertex>(),
-            &dev,
-        );
-        let voxel_index_buffer = StorageBuffer::new_array(
-            VRAM_VIA_BAR,
-            DEFAULT_VOXEL_INDEX_MEMORY / std::mem::size_of::<u8>(),
-            &dev,
-        );
-        let voxel_meshlet_buffer = StorageBuffer::new_array(
-            VRAM_VIA_BAR,
-            DEFAULT_VOXEL_MESHLET_MEMORY / std::mem::size_of::<u32>(),
-            &dev,
-        );
+        let voxel_vertex_buffer =
+            StorageBuffer::new_array(VRAM_VIA_BAR, DEFAULT_VOXEL_VERTEX_MAX_COUNT, &dev);
+        let voxel_index_buffer =
+            StorageBuffer::new_array(VRAM_VIA_BAR, DEFAULT_VOXEL_INDEX_MAX_COUNT, &dev);
+        let voxel_meshlet_buffer =
+            StorageBuffer::new_array(VRAM_VIA_BAR, DEFAULT_VOXEL_MESHLET_MAX_COUNT, &dev);
 
         let global = UniformBuffer::create(&dev);
         let global_descriptor_sets = descriptor_pools.alloc_global(
@@ -138,6 +132,13 @@ impl Renderer {
             &voxel_meshlet_buffer,
             &dev,
         );
+
+        let voxel_gpu_memory = Arc::new(VoxelGpuMemory::new(
+            voxel_vertex_buffer,
+            voxel_index_buffer,
+            voxel_meshlet_buffer,
+            DEFAULT_VOXEL_CHUNK_SIZE,
+        ));
 
         Renderer {
             _entry: entry,
@@ -162,17 +163,12 @@ impl Renderer {
             stars,
             global,
             global_descriptor_sets,
+            voxel_gpu_memory,
             query_pool,
             frame_index: 0,
             pass_times: None,
             just_completed_first_render: false,
             interface_renderer: None,
-            voxels_shared_vertex_count: None,
-            voxels_shared_index_count: None,
-            voxels_shared_meshlet_count: None,
-            voxel_vertex_buffer,
-            voxel_index_buffer,
-            voxel_meshlet_buffer,
         }
     }
 
@@ -271,9 +267,7 @@ impl Drop for Renderer {
 
             drop(self.interface_renderer.take());
             self.dev.destroy_query_pool(self.query_pool, None);
-            self.voxel_vertex_buffer.cleanup(&self.dev);
-            self.voxel_index_buffer.cleanup(&self.dev);
-            self.voxel_meshlet_buffer.cleanup(&self.dev);
+            self.voxel_gpu_memory.cleanup(&self.dev);
             self.stars.cleanup(&self.dev);
             for entity in &self.entities {
                 entity.cleanup(&self.dev);

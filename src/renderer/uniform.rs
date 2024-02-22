@@ -1,5 +1,3 @@
-pub use crate::renderer::vertex::VoxelVertex;
-
 use crate::interface::EnumInterface;
 use nalgebra::{Matrix4, Vector2, Vector3};
 use std::borrow::Cow;
@@ -128,15 +126,6 @@ pub enum Tonemapper {
 #[derive(Clone, Copy)]
 pub struct Star {
     pub model: Matrix4<f32>,
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Debug)]
-pub struct VoxelMeshlet {
-    pub vertex_offset: u32,
-    pub vertex_count: u32,
-    pub triangle_offset: u32,
-    pub triangle_count: u32,
 }
 
 impl EnumInterface for Tonemapper {

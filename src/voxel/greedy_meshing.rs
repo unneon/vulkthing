@@ -1,7 +1,7 @@
 use crate::mesh::MeshData;
-use crate::renderer::vertex::VoxelVertex;
-use crate::voxels::sparse_octree::SparseOctree;
-use crate::voxels::{MeshingAlgorithm, VoxelKind, DIRECTIONS};
+use crate::voxel::sparse_octree::SparseOctree;
+use crate::voxel::vertex::VoxelVertex;
+use crate::voxel::{MeshingAlgorithm, VoxelKind, DIRECTIONS};
 use nalgebra::{Vector2, Vector3};
 
 pub struct GreedyMeshing;
@@ -114,34 +114,10 @@ impl State<'_> {
                 };
                 let _normal = Vector3::new(0., 0., 0.);
                 let _material = wall_info.1 as u8 as u16;
-                let v1 = VoxelVertex {
-                    position: top_left,
-                    _pad1: [0.],
-                    // normal,
-                    // material,
-                    // _pad0: [0; 2],
-                };
-                let v2 = VoxelVertex {
-                    position: top_right,
-                    _pad1: [0.],
-                    // normal,
-                    // material,
-                    // _pad0: [0; 2],
-                };
-                let v3 = VoxelVertex {
-                    position: bottom_left,
-                    _pad1: [0.],
-                    // normal,
-                    // material,
-                    // _pad0: [0; 2],
-                };
-                let v4 = VoxelVertex {
-                    position: bottom_right,
-                    _pad1: [0.],
-                    // normal,
-                    // material,
-                    // _pad0: [0; 2],
-                };
+                let v1 = VoxelVertex::new(top_left);
+                let v2 = VoxelVertex::new(top_right);
+                let v3 = VoxelVertex::new(bottom_left);
+                let v4 = VoxelVertex::new(bottom_right);
                 let (v2, v3) = if self.slice_right.cross(&self.slice_down) == normal_i64 {
                     (v2, v3)
                 } else {

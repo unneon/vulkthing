@@ -1,8 +1,8 @@
 use crate::mesh::MeshData;
-use crate::renderer::vertex::VoxelVertex;
-use crate::voxels::binary_cube::BinaryCube;
-use crate::voxels::sparse_octree::SparseOctree;
-use crate::voxels::{MeshingAlgorithm, VoxelKind, DIRECTIONS};
+use crate::voxel::binary_cube::BinaryCube;
+use crate::voxel::sparse_octree::SparseOctree;
+use crate::voxel::vertex::VoxelVertex;
+use crate::voxel::{MeshingAlgorithm, VoxelKind, DIRECTIONS};
 use nalgebra::Vector3;
 
 pub struct CulledMeshing;
@@ -108,22 +108,10 @@ impl State<'_> {
             (rot2, rot1)
         };
         let _material = position_voxel_kind as u8 as u16;
-        let v1 = VoxelVertex {
-            position: base.cast::<f32>(),
-            _pad1: [0.],
-        };
-        let v2 = VoxelVertex {
-            position: (base + rot1).cast::<f32>(),
-            _pad1: [0.],
-        };
-        let v3 = VoxelVertex {
-            position: (base + rot2).cast::<f32>(),
-            _pad1: [0.],
-        };
-        let v4 = VoxelVertex {
-            position: (base + rot1 + rot2).cast::<f32>(),
-            _pad1: [0.],
-        };
+        let v1 = VoxelVertex::new(base.cast::<f32>());
+        let v2 = VoxelVertex::new((base + rot1).cast::<f32>());
+        let v3 = VoxelVertex::new((base + rot2).cast::<f32>());
+        let v4 = VoxelVertex::new((base + rot1 + rot2).cast::<f32>());
         Some([v1, v2, v3, v2, v4, v3])
     }
 }

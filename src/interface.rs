@@ -1,6 +1,6 @@
 use crate::renderer::codegen::{PASS_COUNT, PASS_NAMES};
 use crate::renderer::{PostprocessSettings, RendererSettings};
-use crate::voxels::VoxelsConfig;
+use crate::voxel::VoxelsConfig;
 use crate::world::World;
 use ash::vk;
 use imgui::{Condition, Context, Drag, SliderFlags, TreeNodeFlags, Ui};
@@ -37,9 +37,6 @@ impl Interface {
         renderer: &mut RendererSettings,
         voxels: &mut VoxelsConfig,
         pass_times: Option<&[Duration; PASS_COUNT]>,
-        voxel_triangles: Option<u64>,
-        voxel_indices: Option<u64>,
-        voxel_vertices: Option<u64>,
     ) -> InterfaceEvents {
         let ui = self.ctx.frame();
         let mut events = InterfaceEvents {
@@ -147,15 +144,6 @@ impl Interface {
                     build_postprocess(ui, &mut renderer.postprocess);
                 }
                 if ui.collapsing_header("Performance", TreeNodeFlags::empty()) {
-                    if let Some(voxel_triangles) = voxel_triangles {
-                        ui.label_text("Voxel triangles", voxel_triangles.to_string());
-                    }
-                    if let Some(voxel_indices) = voxel_indices {
-                        ui.label_text("Voxel indices", voxel_indices.to_string());
-                    }
-                    if let Some(voxel_vertices) = voxel_vertices {
-                        ui.label_text("Voxel vertices", voxel_vertices.to_string());
-                    }
                     if let Some(pass_times) = pass_times {
                         let mut total_time = Duration::ZERO;
                         for (name, time) in PASS_NAMES.iter().zip(pass_times.iter()) {

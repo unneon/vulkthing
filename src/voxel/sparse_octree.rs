@@ -1,4 +1,4 @@
-use crate::voxels::VoxelKind;
+use crate::voxel::VoxelKind;
 use nalgebra::Vector3;
 
 #[derive(Clone, Debug, Eq, PartialEq)]

@@ -1,8 +1,10 @@
 mod binary_cube;
 mod culled_meshing;
+pub mod gpu_memory;
 mod greedy_meshing;
-mod meshlet;
+pub mod meshlet;
 mod sparse_octree;
+pub mod vertex;
 
 use crate::config::{
     DEFAULT_VOXEL_CHUNK_SIZE, DEFAULT_VOXEL_HEIGHTMAP_AMPLITUDE, DEFAULT_VOXEL_HEIGHTMAP_BIAS,
@@ -12,11 +14,11 @@ use crate::config::{
 };
 use crate::interface::EnumInterface;
 use crate::mesh::MeshData;
-use crate::renderer::uniform::VoxelMeshlet;
-use crate::renderer::vertex::VoxelVertex;
-use crate::voxels::culled_meshing::CulledMeshing;
-use crate::voxels::greedy_meshing::GreedyMeshing;
-use crate::voxels::sparse_octree::SparseOctree;
+use crate::voxel::culled_meshing::CulledMeshing;
+use crate::voxel::gpu_memory::VoxelGpuMemory;
+use crate::voxel::greedy_meshing::GreedyMeshing;
+use crate::voxel::sparse_octree::SparseOctree;
+use crate::voxel::vertex::VoxelVertex;
 use bracket_noise::prelude::*;
 use nalgebra::{DMatrix, Vector2, Vector3};
 use noise::Perlin;
@@ -24,7 +26,7 @@ use noise::{NoiseFn, Seedable};
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::mem::MaybeUninit;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc};
 
 trait MeshingAlgorithm {
@@ -35,20 +37,34 @@ trait MeshingAlgorithm {
     ) -> MeshData<VoxelVertex>;
 }
 
-pub struct Voxels<'a> {
+/*
+
+   voxel main loop state management from lib.rs
+   - definitely prepare an easier interface
+   voxel main loop state management from thread(s)
+   - required support for multiple threads
+   - cancel further generation early on camera position changes?
+   voxel chunk scanning algorithm
+   - smarter algorithm?
+   voxel meshing
+   - already extracted, almost
+   voxel gpu memory management
+   - definitely extract into separate file
+   - global device variable?
+   voxel renderer synchronization
+   - through Arcs or through main loop?
+   voxel caching
+
+*/
+
+pub struct Voxels {
     config: VoxelsConfig,
     config_rx: mpsc::Receiver<VoxelsConfig>,
     config_changed: bool,
     shutdown: Arc<AtomicBool>,
     heightmap_noise: Perlin,
     heightmap_noise_bracket: FastNoise,
-    // TODO: That is really not in the spirit of Rust safety.
-    vertex_buffer: &'a mut [MaybeUninit<VoxelVertex>],
-    index_buffer: &'a mut [MaybeUninit<u8>],
-    meshlet_buffer: &'a mut [MaybeUninit<VoxelMeshlet>],
-    vertices: Arc<AtomicU64>,
-    triangles: Arc<AtomicU64>,
-    meshlets: Arc<AtomicU64>,
+    gpu_memory: Arc<VoxelGpuMemory>,
     pub loaded_cpu: HashMap<Vector3<i64>, SparseOctree>,
     loaded_gpu: HashSet<Vector3<i64>>,
     loaded_heightmaps: HashMap<Vector2<i64>, DMatrix<i64>>,
@@ -96,13 +112,8 @@ pub const DIRECTIONS: [Vector3<i64>; 6] = [
     Vector3::new(0, 0, -1),
 ];
 
-impl<'a> Voxels<'a> {
-    pub fn new(
-        seed: u64,
-        vertex_buffer: &'a mut [MaybeUninit<VoxelVertex>],
-        index_buffer: &'a mut [MaybeUninit<u8>],
-        meshlet_buffer: &'a mut [MaybeUninit<VoxelMeshlet>],
-    ) -> (Voxels<'a>, mpsc::Sender<VoxelsConfig>) {
+impl Voxels {
+    pub fn new(seed: u64, gpu_memory: Arc<VoxelGpuMemory>) -> (Voxels, mpsc::Sender<VoxelsConfig>) {
         let (new_config_tx, new_config_rx) = mpsc::channel();
         let mut voxels = Voxels {
             config: VoxelsConfig {
@@ -120,12 +131,7 @@ impl<'a> Voxels<'a> {
             shutdown: Arc::new(AtomicBool::new(false)),
             heightmap_noise: Perlin::new(seed as u32),
             heightmap_noise_bracket: FastNoise::seeded(seed),
-            vertex_buffer,
-            index_buffer,
-            meshlet_buffer,
-            vertices: Arc::new(AtomicU64::new(0)),
-            triangles: Arc::new(AtomicU64::new(0)),
-            meshlets: Arc::new(AtomicU64::new(0)),
+            gpu_memory,
             loaded_cpu: HashMap::new(),
             loaded_gpu: HashSet::new(),
             loaded_heightmaps: HashMap::new(),
@@ -141,7 +147,7 @@ impl<'a> Voxels<'a> {
         if self.config_changed {
             self.config_changed = false;
             self.heightmap_noise = Perlin::new(self.heightmap_noise.seed());
-            self.vertices.store(0, Ordering::SeqCst);
+            self.gpu_memory.clear();
             self.loaded_cpu.clear();
             self.loaded_gpu.clear();
             self.loaded_heightmaps.clear();
@@ -197,39 +203,8 @@ impl<'a> Voxels<'a> {
         let chunk_svo = &self.loaded_cpu[&chunk];
         let neighbour_svos = std::array::from_fn(|i| &self.loaded_cpu[&(chunk + DIRECTIONS[i])]);
         let mesh = self.generate_chunk_mesh(chunk_svo, neighbour_svos);
-        let mut mesh = meshlet::from_unclustered_mesh(&mesh);
-
-        let old_vertex_count = self.vertices.load(Ordering::SeqCst) as usize;
-        let old_triangle_count = self.triangles.load(Ordering::SeqCst) as usize;
-        let old_meshlet_count = self.meshlets.load(Ordering::SeqCst) as usize;
-
-        for meshlet in &mut mesh.meshlets {
-            meshlet.vertex_offset += old_vertex_count as u32;
-            meshlet.triangle_offset += old_triangle_count as u32;
-        }
-        for vertex in &mut mesh.vertices {
-            vertex.position += (chunk * self.config.chunk_size as i64).cast::<f32>();
-        }
-        // Triangles are local to the meshlet, so it's unnecessary to fix them.
-
-        let new_vertex_count = old_vertex_count + mesh.vertices.len();
-        let new_triangle_count = old_triangle_count + mesh.triangles.len();
-        let new_meshlet_count = old_meshlet_count + mesh.meshlets.len();
-
-        let vertex_memory = &mut self.vertex_buffer[old_vertex_count..new_vertex_count];
-        let index_memory = &mut self.index_buffer[old_triangle_count..new_triangle_count];
-        let meshlet_memory = &mut self.meshlet_buffer[old_meshlet_count..new_meshlet_count];
-
-        MaybeUninit::write_slice(vertex_memory, &mesh.vertices);
-        MaybeUninit::write_slice(index_memory, &mesh.triangles);
-        MaybeUninit::write_slice(meshlet_memory, &mesh.meshlets);
-
-        self.vertices
-            .store(new_vertex_count as u64, Ordering::SeqCst);
-        self.triangles
-            .store(new_triangle_count as u64, Ordering::SeqCst);
-        self.meshlets
-            .store(new_meshlet_count as u64, Ordering::SeqCst);
+        let mesh = meshlet::from_unclustered_mesh(&mesh);
+        self.gpu_memory.upload_meshlet(chunk, mesh);
         self.loaded_gpu.insert(chunk);
     }
 
@@ -338,18 +313,6 @@ impl<'a> Voxels<'a> {
 
     pub fn shutdown(&self) -> Arc<AtomicBool> {
         self.shutdown.clone()
-    }
-
-    pub fn shared_vertex_count(&self) -> Arc<AtomicU64> {
-        self.vertices.clone()
-    }
-
-    pub fn shared_index_count(&self) -> Arc<AtomicU64> {
-        self.triangles.clone()
-    }
-
-    pub fn shared_meshlet_count(&self) -> Arc<AtomicU64> {
-        self.meshlets.clone()
     }
 }
 
