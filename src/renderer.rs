@@ -236,22 +236,12 @@ impl Renderer {
         );
 
         if let Some(index_count) = self.voxels_shared_index_count.as_ref() {
-            let index_count = index_count.load(Ordering::SeqCst) as u32;
+            let _index_count = index_count.load(Ordering::SeqCst) as u32;
 
             begin_label(buf, "Voxel draws", [255, 0, 0], &self.dev);
             self.bind_graphics_pipeline(buf, self.pipelines.voxel);
             self.bind_descriptor_set(buf, self.pipeline_layouts.voxel);
-            unsafe {
-                self.dev
-                    .cmd_bind_vertex_buffers(buf, 0, &[self.voxel_vertex_buffer.buffer], &[0]);
-                self.dev.cmd_bind_index_buffer(
-                    buf,
-                    self.voxel_index_buffer.buffer,
-                    0,
-                    vk::IndexType::UINT32,
-                );
-            }
-            unsafe { self.dev.cmd_draw_indexed(buf, index_count, 1, 0, 0, 0) };
+            unsafe { self.dev.mesh_ext.cmd_draw_mesh_tasks(buf, 1, 1, 1) };
             end_label(buf, &self.dev);
         }
 

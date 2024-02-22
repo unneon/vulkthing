@@ -1,8 +1,9 @@
-use crate::renderer::vertex::Vertex;
+use crate::renderer::vertex::{Vertex, VoxelVertex};
 use log::debug;
 use nalgebra::Vector3;
 use std::collections::{hash_map, HashMap};
 use std::hash::Hash;
+use std::io::Write;
 use tobj::LoadOptions;
 
 #[derive(Clone, Debug)]
@@ -28,6 +29,22 @@ impl<V: Clone + Eq + Hash + PartialEq> MeshData<V> {
             indices.push(mapping[&self.vertices[*index as usize]]);
         }
         MeshData { vertices, indices }
+    }
+}
+
+impl MeshData<VoxelVertex> {
+    pub fn write_obj(&self, mut f: impl Write) -> std::io::Result<()> {
+        for vertex in &self.vertices {
+            writeln!(
+                f,
+                "v {} {} {}",
+                vertex.position.x, vertex.position.y, vertex.position.z
+            )?;
+        }
+        for [i1, i2, i3] in self.indices.array_chunks() {
+            writeln!(f, "f {} {} {}", i1 + 1, i2 + 1, i3 + 1)?;
+        }
+        Ok(())
     }
 }
 

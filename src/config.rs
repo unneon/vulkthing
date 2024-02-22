@@ -46,7 +46,7 @@ pub const DEFAULT_RENDERER_SETTINGS: RendererSettings = RendererSettings {
     },
 };
 
-pub const DEFAULT_VOXEL_CHUNK_SIZE: usize = 32;
+pub const DEFAULT_VOXEL_CHUNK_SIZE: usize = 64;
 pub const DEFAULT_VOXEL_HEIGHTMAP_AMPLITUDE: f32 = 32.;
 pub const DEFAULT_VOXEL_HEIGHTMAP_FREQUENCY: f32 = 0.01;
 pub const DEFAULT_VOXEL_HEIGHTMAP_BIAS: f32 = 0.;

@@ -4,7 +4,7 @@ use shaderc::{EnvVersion, ResolvedInclude, ShaderKind, TargetEnv};
 pub fn compile_glsl(glsl_path: &str, shader_kind: ShaderKind) -> Vec<u32> {
     let compiler = shaderc::Compiler::new().unwrap();
     let mut options = shaderc::CompileOptions::new().unwrap();
-    options.set_target_env(TargetEnv::Vulkan, EnvVersion::Vulkan1_1 as u32);
+    options.set_target_env(TargetEnv::Vulkan, EnvVersion::Vulkan1_2 as u32);
     options.set_include_callback(|path, _, _, _| {
         Ok(ResolvedInclude {
             resolved_name: path.to_owned(),

@@ -25,12 +25,8 @@ pass "render" {
             clear 1
             transient
         }
-        pipeline "voxel" {
-            vertex-binding {
-                attribute "vertex_position" "R32G32B32_SFLOAT"
-                attribute "vertex_normal" "R32G32B32_SFLOAT"
-                attribute "vertex_material" "R16_UINT"
-            }
+        pipeline "voxel" mesh=true {
+            fragment-shader "debug.frag"
             descriptor-sets "global"
         }
         pipeline "object" {

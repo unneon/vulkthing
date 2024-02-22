@@ -1,5 +1,5 @@
 use crate::renderer::FRAMES_IN_FLIGHT;
-use ash::extensions::ext::DebugUtils;
+use ash::extensions::ext::{DebugUtils, MeshShader};
 use ash::extensions::khr::{BufferDeviceAddress, Surface, Swapchain};
 use ash::{vk, Device, Instance};
 use std::ffi::CStr;
@@ -25,6 +25,7 @@ pub struct Dev {
     pub debug_ext: DebugUtils,
     pub surface_ext: Surface,
     pub swapchain_ext: Swapchain,
+    pub mesh_ext: MeshShader,
 }
 
 pub struct Buffer {

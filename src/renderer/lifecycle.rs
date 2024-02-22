@@ -18,8 +18,9 @@ use crate::renderer::{
 use crate::window::Window;
 use crate::world::World;
 use crate::{VULKAN_APP_NAME, VULKAN_APP_VERSION, VULKAN_ENGINE_NAME, VULKAN_ENGINE_VERSION};
-use ash::extensions::ext::DebugUtils;
+use ash::extensions::ext::{DebugUtils, MeshShader};
 use ash::extensions::khr::{Surface, Swapchain as SwapchainKhr};
+use ash::vk::{KhrShaderFloatControlsFn, KhrSpirv14Fn};
 use ash::{vk, Device, Entry, Instance};
 use log::{debug, warn};
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
@@ -46,6 +47,7 @@ impl Renderer {
         let properties = unsafe { instance.get_physical_device_properties(physical_device) };
         let logical_device = create_logical_device(queue_family, &instance, physical_device);
         let swapchain_ext = SwapchainKhr::new(&instance, &logical_device);
+        let mesh_ext = MeshShader::new(&instance, &logical_device);
         let dev = Dev {
             logical: logical_device,
             physical: physical_device,
@@ -53,6 +55,7 @@ impl Renderer {
             debug_ext,
             surface_ext,
             swapchain_ext,
+            mesh_ext,
         };
         let queue = unsafe { dev.get_device_queue(queue_family, 0) };
         let command_pools = create_command_pools(queue_family, &dev);
@@ -306,7 +309,7 @@ fn create_instance(window: &Window, entry: &Entry, args: &Args) -> Instance {
         .application_version(app_version)
         .engine_name(&engine_name)
         .engine_version(engine_version)
-        .api_version(vk::API_VERSION_1_1);
+        .api_version(vk::API_VERSION_1_2);
 
     let layers = entry.enumerate_instance_layer_properties().unwrap();
     let mut layer_names = Vec::new();
@@ -375,12 +378,20 @@ fn create_logical_device(
     let physical_device_features =
         vk::PhysicalDeviceFeatures::builder().fragment_stores_and_atomics(true);
 
-    let extensions = vec![SwapchainKhr::name().as_ptr()];
+    let extensions = vec![
+        KhrShaderFloatControlsFn::name().as_ptr(),
+        KhrSpirv14Fn::name().as_ptr(),
+        MeshShader::name().as_ptr(),
+        SwapchainKhr::name().as_ptr(),
+    ];
+
+    let mut ms_features = *vk::PhysicalDeviceMeshShaderFeaturesEXT::builder().mesh_shader(true);
 
     let create_info = vk::DeviceCreateInfo::builder()
         .queue_create_infos(&queues)
         .enabled_features(&physical_device_features)
-        .enabled_extension_names(&extensions);
+        .enabled_extension_names(&extensions)
+        .push_next(&mut ms_features);
 
     unsafe { instance.create_device(physical_device, &create_info, None) }.unwrap()
 }

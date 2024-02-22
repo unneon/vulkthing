@@ -118,7 +118,7 @@ impl World {
             time: 0.,
             time_of_day: 0.,
             sun_intensity: 4000000.,
-            sun_pause: false,
+            sun_pause: true,
             sun_radius: DEFAULT_SUN_RADIUS,
             sun_speed: DEFAULT_SUN_SPEED,
             atmosphere: Atmosphere {

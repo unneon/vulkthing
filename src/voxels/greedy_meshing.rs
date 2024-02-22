@@ -112,7 +112,7 @@ impl State<'_> {
                     WallNormal::AlongSliceNormal => self.slice_normal,
                     WallNormal::AlongMinusSliceNormal => -self.slice_normal,
                 };
-                let normal = normal_i64.cast::<f32>();
+                let normal = Vector3::new(0., 0., 0.);
                 let material = wall_info.1 as u8 as u16;
                 let v1 = VoxelVertex {
                     position: top_left,

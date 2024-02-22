@@ -145,9 +145,9 @@ impl<'a> Voxels<'a> {
             (camera.z / self.config.chunk_size as f32).floor() as i64,
         );
         let distance_horizontal =
-            (self.config.render_distance_horizontal / self.config.chunk_size) as i64;
+            (self.config.render_distance_horizontal / self.config.chunk_size) as i64 + 1;
         let distance_vertical =
-            (self.config.render_distance_vertical / self.config.chunk_size) as i64;
+            (self.config.render_distance_vertical / self.config.chunk_size) as i64 + 1;
         let range_horizontal = -distance_horizontal..=distance_horizontal;
         let range_vertical = -distance_vertical..=distance_vertical;
         let mut to_load = Vec::new();
