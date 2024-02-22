@@ -187,7 +187,7 @@ use crate::renderer::uniform::{{"#
         }
     }
     for typ in &uniform_types {
-        if *typ == "u32" {
+        if *typ == "u8" || *typ == "u32" {
             continue;
         }
         write!(file, "{typ},").unwrap();

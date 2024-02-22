@@ -7,7 +7,7 @@ use meshopt::{build_meshlets, typed_to_bytes, VertexDataAdapter};
 pub struct VoxelMesh {
     pub meshlets: Vec<VoxelMeshlet>,
     pub vertices: Vec<VoxelVertex>,
-    pub triangles: Vec<u32>,
+    pub triangles: Vec<u8>,
 }
 
 pub fn from_unclustered_mesh(mesh: &MeshData<VoxelVertex>) -> VoxelMesh {
@@ -30,7 +30,7 @@ pub fn from_unclustered_mesh(mesh: &MeshData<VoxelVertex>) -> VoxelMesh {
             vertices.push(mesh.vertices[vertex as usize]);
         }
         for &triangle_index in meshlet.triangles {
-            triangles.push(triangle_index as u32);
+            triangles.push(triangle_index);
         }
         meshlets.push(VoxelMeshlet {
             vertex_offset,

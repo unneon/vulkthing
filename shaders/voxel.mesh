@@ -1,6 +1,7 @@
 #version 460
 
 #extension GL_EXT_mesh_shader : require
+#extension GL_EXT_shader_8bit_storage : require
 
 #include "types/uniform.glsl"
 
@@ -9,7 +10,7 @@ layout(binding = 2) readonly buffer Vertices {
     VoxelVertex vertices[];
 } vertices;
 layout(binding = 3) readonly buffer Indices {
-    uint indices[];
+    uint8_t indices[];
 } indices;
 layout(binding = 4) readonly buffer Meshlets {
     VoxelMeshlet meshlets[];

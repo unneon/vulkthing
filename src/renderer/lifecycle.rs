@@ -120,7 +120,7 @@ impl Renderer {
         );
         let voxel_index_buffer = StorageBuffer::new_array(
             VRAM_VIA_BAR,
-            DEFAULT_VOXEL_INDEX_MEMORY / std::mem::size_of::<u32>(),
+            DEFAULT_VOXEL_INDEX_MEMORY / std::mem::size_of::<u8>(),
             &dev,
         );
         let voxel_meshlet_buffer = StorageBuffer::new_array(
@@ -401,12 +401,15 @@ fn create_logical_device(
         SwapchainKhr::name().as_ptr(),
     ];
 
+    let mut vk12_features =
+        *vk::PhysicalDeviceVulkan12Features::builder().storage_buffer8_bit_access(true);
     let mut ms_features = *vk::PhysicalDeviceMeshShaderFeaturesEXT::builder().mesh_shader(true);
 
     let create_info = vk::DeviceCreateInfo::builder()
         .queue_create_infos(&queues)
         .enabled_features(&physical_device_features)
         .enabled_extension_names(&extensions)
+        .push_next(&mut vk12_features)
         .push_next(&mut ms_features);
 
     unsafe { instance.create_device(physical_device, &create_info, None) }.unwrap()

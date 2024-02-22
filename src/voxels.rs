@@ -44,7 +44,7 @@ pub struct Voxels<'a> {
     heightmap_noise_bracket: FastNoise,
     // TODO: That is really not in the spirit of Rust safety.
     vertex_buffer: &'a mut [MaybeUninit<VoxelVertex>],
-    index_buffer: &'a mut [MaybeUninit<u32>],
+    index_buffer: &'a mut [MaybeUninit<u8>],
     meshlet_buffer: &'a mut [MaybeUninit<VoxelMeshlet>],
     vertices: Arc<AtomicU64>,
     triangles: Arc<AtomicU64>,
@@ -100,7 +100,7 @@ impl<'a> Voxels<'a> {
     pub fn new(
         seed: u64,
         vertex_buffer: &'a mut [MaybeUninit<VoxelVertex>],
-        index_buffer: &'a mut [MaybeUninit<u32>],
+        index_buffer: &'a mut [MaybeUninit<u8>],
         meshlet_buffer: &'a mut [MaybeUninit<VoxelMeshlet>],
     ) -> (Voxels<'a>, mpsc::Sender<VoxelsConfig>) {
         let (new_config_tx, new_config_rx) = mpsc::channel();

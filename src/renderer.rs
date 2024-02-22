@@ -85,7 +85,7 @@ pub struct Renderer {
     pub voxels_shared_index_count: Option<Arc<AtomicU64>>,
     pub voxels_shared_meshlet_count: Option<Arc<AtomicU64>>,
     pub voxel_vertex_buffer: StorageBuffer<[VoxelVertex]>,
-    pub voxel_index_buffer: StorageBuffer<[u32]>,
+    pub voxel_index_buffer: StorageBuffer<[u8]>,
     pub voxel_meshlet_buffer: StorageBuffer<[VoxelMeshlet]>,
 }
 
