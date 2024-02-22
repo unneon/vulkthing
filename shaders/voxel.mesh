@@ -44,7 +44,7 @@ void main() {
         );
         vec3 work_group_color = color_from_index(gl_WorkGroupID.x);
         vec3 local_invocation_color = color_from_index(gl_LocalInvocationID.x);
-        vec3 color = 0.9 * work_group_color + 0.1 * local_invocation_color;
+        vec3 color = 0.95 * work_group_color + 0.05 * local_invocation_color;
         frag_color[primitive] = color;
     }
 
