@@ -16,7 +16,7 @@ use crate::renderer::uniform::Star;
 use crate::renderer::util::{vulkan_str, Buffer, Dev, StorageBuffer};
 use crate::renderer::vertex::Vertex;
 use crate::renderer::{
-    MeshObject, Object, Renderer, Synchronization, UniformBuffer, FRAMES_IN_FLIGHT, VRAM_VIA_BAR,
+    MeshObject, Renderer, Synchronization, UniformBuffer, FRAMES_IN_FLIGHT, VRAM_VIA_BAR,
 };
 use crate::voxel::gpu_memory::VoxelGpuMemory;
 use crate::window::Window;
@@ -98,17 +98,6 @@ impl Renderer {
             });
         }
 
-        let mut entities = Vec::new();
-        for _ in world.entities() {
-            let transform = UniformBuffer::create(&dev);
-            let material = UniformBuffer::create(&dev);
-            let descriptors = descriptor_pools.alloc_object(&transform, &material, &dev);
-            entities.push(Object {
-                transform,
-                material,
-                descriptors,
-            });
-        }
         let mut stars = StorageBuffer::new_array(VRAM_VIA_BAR, world.stars.len(), &dev);
         stars.generate(|i| Star {
             model: world.stars[i].transform.model_matrix(),
@@ -159,7 +148,6 @@ impl Renderer {
             sync,
             flight_index: 0,
             mesh_objects,
-            entities,
             stars,
             global,
             global_descriptor_sets,
@@ -253,13 +241,6 @@ impl MeshObject {
     }
 }
 
-impl Object {
-    pub fn cleanup(&self, dev: &Device) {
-        self.transform.cleanup(dev);
-        self.material.cleanup(dev);
-    }
-}
-
 impl Drop for Renderer {
     fn drop(&mut self) {
         unsafe {
@@ -269,9 +250,6 @@ impl Drop for Renderer {
             self.dev.destroy_query_pool(self.query_pool, None);
             self.voxel_gpu_memory.cleanup(&self.dev);
             self.stars.cleanup(&self.dev);
-            for entity in &self.entities {
-                entity.cleanup(&self.dev);
-            }
             for mesh in &self.mesh_objects {
                 mesh.cleanup(&self.dev);
             }

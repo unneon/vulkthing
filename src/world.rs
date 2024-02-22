@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 mod benchmark;
 
 use crate::camera::Camera;

@@ -16,8 +16,7 @@ use crate::renderer::debug::{begin_label, end_label};
 use crate::renderer::graph::Pass;
 use crate::renderer::swapchain::Swapchain;
 use crate::renderer::uniform::{
-    Atmosphere, Camera, Gaussian, Global, Material, PostprocessUniform, Star, Tonemapper,
-    Transform, VoxelMaterial,
+    Atmosphere, Camera, Gaussian, Global, PostprocessUniform, Star, Tonemapper, VoxelMaterial,
 };
 use crate::renderer::util::{
     timestamp_difference_to_duration, Buffer, Dev, StorageBuffer, UniformBuffer,
@@ -68,7 +67,6 @@ pub struct Renderer {
     // And finally resources specific to this renderer. So various buffers related to objects we
     // actually render, their descriptor sets and the like.
     mesh_objects: Vec<MeshObject>,
-    entities: Vec<Object>,
     stars: StorageBuffer<[Star]>,
     global: UniformBuffer<Global>,
     global_descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
@@ -93,12 +91,6 @@ pub struct MeshObject {
     triangle_count: usize,
     vertex: Buffer,
     index: Buffer,
-}
-
-pub struct Object {
-    transform: UniformBuffer<Transform>,
-    material: UniformBuffer<Material>,
-    descriptors: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
 }
 
 pub struct RendererSettings {
@@ -156,9 +148,6 @@ impl Renderer {
         };
         unsafe { self.record_command_buffer(image_index, world, ui_draw) };
         self.pass_times = self.query_timestamps();
-        for entity_id in 0..world.entities().len() {
-            self.update_object_uniforms(world, entity_id);
-        }
         self.update_global_uniform(world, settings, window_size);
         self.submit_graphics();
         self.submit_present(image_index);
@@ -243,14 +232,11 @@ impl Renderer {
         };
         end_label(buf, &self.dev);
 
-        begin_label(buf, "Entity draws", [57, 65, 62], &self.dev);
-        self.bind_graphics_pipeline(buf, self.pipelines.object);
-        for (entity, gpu_entity) in world.entities().iter().zip(&self.entities) {
-            let mesh = &self.mesh_objects[entity.mesh_id()];
-            self.bind_descriptor_sets(buf, self.pipeline_layouts.object, &gpu_entity.descriptors);
-            mesh.bind_vertex(buf, &self.dev);
-            mesh.draw(1, buf, &self.dev);
-        }
+        begin_label(buf, "Sun draw", [156, 85, 35], &self.dev);
+        self.bind_graphics_pipeline(buf, self.pipelines.sun);
+        self.bind_descriptor_set(buf, self.pipeline_layouts.sun);
+        self.mesh_objects[1].bind_vertex(buf, &self.dev);
+        self.mesh_objects[1].draw(1, buf, &self.dev);
         end_label(buf, &self.dev);
 
         begin_label(buf, "Star draws", [213, 204, 184], &self.dev);
@@ -277,26 +263,6 @@ impl Renderer {
 
         self.dev.cmd_end_render_pass(buf);
         end_label(buf, &self.dev);
-    }
-
-    fn update_object_uniforms(&self, world: &World, entity_id: usize) {
-        let entity = &world.entities()[entity_id];
-        let transform = Transform {
-            model: entity.model_matrix(),
-        };
-        let material = Material {
-            albedo: entity.albedo(),
-            metallic: entity.metallic(),
-            emit: entity.emit(),
-            roughness: entity.roughness(),
-            ao: entity.ao(),
-        };
-        self.entities[entity_id]
-            .transform
-            .write(self.flight_index, &transform);
-        self.entities[entity_id]
-            .material
-            .write(self.flight_index, &material);
     }
 
     fn update_global_uniform(
@@ -461,27 +427,6 @@ impl Renderer {
                 layout,
                 0,
                 &[self.global_descriptor_sets[self.flight_index]],
-                &[],
-            )
-        };
-    }
-
-    fn bind_descriptor_sets(
-        &self,
-        buf: vk::CommandBuffer,
-        layout: vk::PipelineLayout,
-        sets: &[vk::DescriptorSet; FRAMES_IN_FLIGHT],
-    ) {
-        unsafe {
-            self.dev.cmd_bind_descriptor_sets(
-                buf,
-                vk::PipelineBindPoint::GRAPHICS,
-                layout,
-                0,
-                &[
-                    sets[self.flight_index],
-                    self.global_descriptor_sets[self.flight_index],
-                ],
                 &[],
             )
         };
