@@ -1,5 +1,7 @@
 use crate::cli::Args;
-use crate::config::{DEFAULT_VOXEL_INDEX_MEMORY, DEFAULT_VOXEL_VERTEX_MEMORY};
+use crate::config::{
+    DEFAULT_VOXEL_INDEX_MEMORY, DEFAULT_VOXEL_MESHLET_MEMORY, DEFAULT_VOXEL_VERTEX_MEMORY,
+};
 use crate::mesh::MeshData;
 use crate::renderer::codegen::{
     create_descriptor_pools, create_descriptor_set_layouts, create_pipeline_layouts,
@@ -121,6 +123,11 @@ impl Renderer {
             DEFAULT_VOXEL_INDEX_MEMORY / std::mem::size_of::<u32>(),
             &dev,
         );
+        let voxel_meshlet_buffer = StorageBuffer::new_array(
+            VRAM_VIA_BAR,
+            DEFAULT_VOXEL_MESHLET_MEMORY / std::mem::size_of::<u32>(),
+            &dev,
+        );
 
         let global = UniformBuffer::create(&dev);
         let global_descriptor_sets = descriptor_pools.alloc_global(
@@ -128,6 +135,7 @@ impl Renderer {
             &stars,
             &voxel_vertex_buffer,
             &voxel_index_buffer,
+            &voxel_meshlet_buffer,
             &dev,
         );
 
@@ -161,8 +169,10 @@ impl Renderer {
             interface_renderer: None,
             voxels_shared_vertex_count: None,
             voxels_shared_index_count: None,
+            voxels_shared_meshlet_count: None,
             voxel_vertex_buffer,
             voxel_index_buffer,
+            voxel_meshlet_buffer,
         }
     }
 
@@ -263,6 +273,7 @@ impl Drop for Renderer {
             self.dev.destroy_query_pool(self.query_pool, None);
             self.voxel_vertex_buffer.cleanup(&self.dev);
             self.voxel_index_buffer.cleanup(&self.dev);
+            self.voxel_meshlet_buffer.cleanup(&self.dev);
             self.stars.cleanup(&self.dev);
             for entity in &self.entities {
                 entity.cleanup(&self.dev);

@@ -89,6 +89,7 @@ pub fn main() {
         random(),
         renderer.voxel_vertex_buffer.mapped_memory(),
         renderer.voxel_index_buffer.mapped_memory(),
+        renderer.voxel_meshlet_buffer.mapped_memory(),
     );
     let mut voxel_config = voxels.config().clone();
     let voxels_camera = Arc::new(Mutex::new(world.camera.position()));
@@ -96,6 +97,7 @@ pub fn main() {
     let voxels_shutdown = voxels.shutdown();
     let voxels_shared_vertex_count = voxels.shared_vertex_count();
     let voxels_shared_index_count = voxels.shared_index_count();
+    let voxels_shared_meshlet_count = voxels.shared_meshlet_count();
     let voxels_thread = std::thread::spawn({
         let camera = voxels_camera.clone();
         let condvar = voxels_condvar.clone();
@@ -118,6 +120,7 @@ pub fn main() {
     });
     renderer.voxels_shared_vertex_count = Some(voxels_shared_vertex_count);
     renderer.voxels_shared_index_count = Some(voxels_shared_index_count);
+    renderer.voxels_shared_meshlet_count = Some(voxels_shared_meshlet_count);
 
     // Run the event loop. Winit delivers events, like key presses. After it finishes delivering
     // some batch of events, it sends a MainEventsCleared event, which means the application should

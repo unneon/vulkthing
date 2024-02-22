@@ -130,6 +130,15 @@ pub struct Star {
     pub model: Matrix4<f32>,
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct VoxelMeshlet {
+    pub vertex_offset: u32,
+    pub vertex_count: u32,
+    pub triangle_offset: u32,
+    pub triangle_count: u32,
+}
+
 impl EnumInterface for Tonemapper {
     const VALUES: &'static [Self] = &[
         Tonemapper::RgbClamping,

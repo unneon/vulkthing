@@ -5,32 +5,53 @@
 #include "types/uniform.glsl"
 
 layout(binding = 0) uniform GLOBAL_UNIFORM_TYPE global;
-layout(binding = 2, std430) readonly buffer Vertices {
+layout(binding = 2) readonly buffer Vertices {
     VoxelVertex vertices[];
 } vertices;
-layout(binding = 3, std430) readonly buffer Indices {
+layout(binding = 3) readonly buffer Indices {
     uint indices[];
 } indices;
+layout(binding = 4) readonly buffer Meshlets {
+    VoxelMeshlet meshlets[];
+} meshlets;
 
-layout(local_size_x = 120, local_size_y = 1, local_size_z = 1) in;
-layout(triangles, max_vertices = 120, max_primitives = 40) out;
+// TODO: local_size_x 256 should be allowed on AMD according to vulkaninfo, but the GLSL compiler complains.
+layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
+layout(triangles, max_vertices = 128, max_primitives = 256) out;
 
-layout(location = 0) out vec3 fragPosition[];
-layout(location = 1) out vec3 fragNormal[];
+layout(location = 0) out vec3 frag_position[];
+layout(location = 1) perprimitiveEXT out vec3 frag_color[];
+
+vec3 color_from_index(uint index) {
+    return vec3(
+        index * 907 % 256 / 255.0,
+        index * 1933 % 256 / 255.0,
+        index * 2971 % 256 / 255.0
+    );
+}
 
 void main() {
-    SetMeshOutputsEXT(120, 40);
-    uint index = indices.indices[gl_GlobalInvocationID.x];
-    VoxelVertex vertex = vertices.vertices[index];
-    vec4 world_space = vec4(vertex.position.xyz, 1);
-    gl_MeshVerticesEXT[gl_LocalInvocationID.x].gl_Position = global.camera.projection_matrix * global.camera.view_matrix * world_space;
-    fragPosition[gl_LocalInvocationID.x] = world_space.xyz;
-    fragNormal[gl_LocalInvocationID.x] = vec3(0, 0, 1);
-    if (gl_LocalInvocationID.x < 40) {
-        gl_PrimitiveTriangleIndicesEXT[gl_LocalInvocationID.x] = uvec3(
-            3 * gl_LocalInvocationID.x,
-            3 * gl_LocalInvocationID.x + 1,
-            3 * gl_LocalInvocationID.x + 2
+    VoxelMeshlet meshlet = meshlets.meshlets[gl_WorkGroupID.x];
+    uint triangle_count = meshlet.triangle_count / 3;
+    SetMeshOutputsEXT(meshlet.vertex_count, triangle_count);
+
+    for (uint primitive = gl_LocalInvocationID.x; primitive < triangle_count; primitive += 128) {
+        gl_PrimitiveTriangleIndicesEXT[primitive] = uvec3(
+            indices.indices[meshlet.triangle_offset + 3 * primitive],
+            indices.indices[meshlet.triangle_offset + 3 * primitive + 1],
+            indices.indices[meshlet.triangle_offset + 3 * primitive + 2]
         );
+        vec3 work_group_color = color_from_index(gl_WorkGroupID.x);
+        vec3 local_invocation_color = color_from_index(gl_LocalInvocationID.x);
+        vec3 color = 0.9 * work_group_color + 0.1 * local_invocation_color;
+        frag_color[primitive] = color;
+    }
+
+    if (gl_LocalInvocationID.x < meshlet.vertex_count) {
+        VoxelVertex vertex = vertices.vertices[meshlet.vertex_offset + gl_LocalInvocationID.x];
+        vec4 world_space = vec4(vertex.position.xyz, 1);
+        vec4 clip_space = global.camera.projection_matrix * global.camera.view_matrix * world_space;
+        gl_MeshVerticesEXT[gl_LocalInvocationID.x].gl_Position = clip_space;
+        frag_position[gl_LocalInvocationID.x] = world_space.xyz;
     }
 }

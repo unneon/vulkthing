@@ -17,7 +17,7 @@ use crate::renderer::graph::Pass;
 use crate::renderer::swapchain::Swapchain;
 use crate::renderer::uniform::{
     Atmosphere, Camera, Gaussian, Global, Material, PostprocessUniform, Star, Tonemapper,
-    Transform, VoxelMaterial,
+    Transform, VoxelMaterial, VoxelMeshlet,
 };
 use crate::renderer::util::{
     timestamp_difference_to_duration, Buffer, Dev, StorageBuffer, UniformBuffer,
@@ -83,8 +83,10 @@ pub struct Renderer {
 
     pub voxels_shared_vertex_count: Option<Arc<AtomicU64>>,
     pub voxels_shared_index_count: Option<Arc<AtomicU64>>,
+    pub voxels_shared_meshlet_count: Option<Arc<AtomicU64>>,
     pub voxel_vertex_buffer: StorageBuffer<[VoxelVertex]>,
     pub voxel_index_buffer: StorageBuffer<[u32]>,
+    pub voxel_meshlet_buffer: StorageBuffer<[VoxelMeshlet]>,
 }
 
 struct Synchronization {
@@ -236,8 +238,8 @@ impl Renderer {
             self.flight_index,
         );
 
-        if let Some(index_count) = self.voxels_shared_index_count.as_ref() {
-            let index_count = index_count.load(Ordering::SeqCst) as u32;
+        if let Some(meshlet_count) = self.voxels_shared_meshlet_count.as_ref() {
+            let meshlet_count = meshlet_count.load(Ordering::SeqCst) as u32;
 
             begin_label(buf, "Voxel draws", [255, 0, 0], &self.dev);
             self.bind_graphics_pipeline(buf, self.pipelines.voxel);
@@ -245,7 +247,7 @@ impl Renderer {
             unsafe {
                 self.dev
                     .mesh_ext
-                    .cmd_draw_mesh_tasks(buf, index_count.div_floor(120), 1, 1)
+                    .cmd_draw_mesh_tasks(buf, meshlet_count, 1, 1)
             };
             end_label(buf, &self.dev);
         }

@@ -1,6 +1,7 @@
 mod binary_cube;
 mod culled_meshing;
 mod greedy_meshing;
+mod meshlet;
 mod sparse_octree;
 
 use crate::config::{
@@ -11,6 +12,7 @@ use crate::config::{
 };
 use crate::interface::EnumInterface;
 use crate::mesh::MeshData;
+use crate::renderer::uniform::VoxelMeshlet;
 use crate::renderer::vertex::VoxelVertex;
 use crate::voxels::culled_meshing::CulledMeshing;
 use crate::voxels::greedy_meshing::GreedyMeshing;
@@ -43,8 +45,10 @@ pub struct Voxels<'a> {
     // TODO: That is really not in the spirit of Rust safety.
     vertex_buffer: &'a mut [MaybeUninit<VoxelVertex>],
     index_buffer: &'a mut [MaybeUninit<u32>],
+    meshlet_buffer: &'a mut [MaybeUninit<VoxelMeshlet>],
     vertices: Arc<AtomicU64>,
-    indices: Arc<AtomicU64>,
+    triangles: Arc<AtomicU64>,
+    meshlets: Arc<AtomicU64>,
     pub loaded_cpu: HashMap<Vector3<i64>, SparseOctree>,
     loaded_gpu: HashSet<Vector3<i64>>,
     loaded_heightmaps: HashMap<Vector2<i64>, DMatrix<i64>>,
@@ -97,6 +101,7 @@ impl<'a> Voxels<'a> {
         seed: u64,
         vertex_buffer: &'a mut [MaybeUninit<VoxelVertex>],
         index_buffer: &'a mut [MaybeUninit<u32>],
+        meshlet_buffer: &'a mut [MaybeUninit<VoxelMeshlet>],
     ) -> (Voxels<'a>, mpsc::Sender<VoxelsConfig>) {
         let (new_config_tx, new_config_rx) = mpsc::channel();
         let mut voxels = Voxels {
@@ -117,8 +122,10 @@ impl<'a> Voxels<'a> {
             heightmap_noise_bracket: FastNoise::seeded(seed),
             vertex_buffer,
             index_buffer,
+            meshlet_buffer,
             vertices: Arc::new(AtomicU64::new(0)),
-            indices: Arc::new(AtomicU64::new(0)),
+            triangles: Arc::new(AtomicU64::new(0)),
+            meshlets: Arc::new(AtomicU64::new(0)),
             loaded_cpu: HashMap::new(),
             loaded_gpu: HashSet::new(),
             loaded_heightmaps: HashMap::new(),
@@ -189,18 +196,40 @@ impl<'a> Voxels<'a> {
         assert!(!self.loaded_gpu.contains(&chunk));
         let chunk_svo = &self.loaded_cpu[&chunk];
         let neighbour_svos = std::array::from_fn(|i| &self.loaded_cpu[&(chunk + DIRECTIONS[i])]);
-        let mesh = self.generate_chunk_mesh(chunk, chunk_svo, neighbour_svos);
+        let mesh = self.generate_chunk_mesh(chunk_svo, neighbour_svos);
+        let mut mesh = meshlet::from_unclustered_mesh(&mesh);
+
         let old_vertex_count = self.vertices.load(Ordering::SeqCst) as usize;
-        let old_index_count = self.indices.load(Ordering::SeqCst) as usize;
+        let old_triangle_count = self.triangles.load(Ordering::SeqCst) as usize;
+        let old_meshlet_count = self.meshlets.load(Ordering::SeqCst) as usize;
+
+        for meshlet in &mut mesh.meshlets {
+            meshlet.vertex_offset += old_vertex_count as u32;
+            meshlet.triangle_offset += old_triangle_count as u32;
+        }
+        for vertex in &mut mesh.vertices {
+            vertex.position += (chunk * self.config.chunk_size as i64).cast::<f32>();
+        }
+        // Triangles are local to the meshlet, so it's unnecessary to fix them.
+
         let new_vertex_count = old_vertex_count + mesh.vertices.len();
-        let new_index_count = old_index_count + mesh.indices.len();
+        let new_triangle_count = old_triangle_count + mesh.triangles.len();
+        let new_meshlet_count = old_meshlet_count + mesh.meshlets.len();
+
         let vertex_memory = &mut self.vertex_buffer[old_vertex_count..new_vertex_count];
-        let index_memory = &mut self.index_buffer[old_index_count..new_index_count];
+        let index_memory = &mut self.index_buffer[old_triangle_count..new_triangle_count];
+        let meshlet_memory = &mut self.meshlet_buffer[old_meshlet_count..new_meshlet_count];
+
         MaybeUninit::write_slice(vertex_memory, &mesh.vertices);
-        MaybeUninit::write_slice(index_memory, &mesh.indices);
+        MaybeUninit::write_slice(index_memory, &mesh.triangles);
+        MaybeUninit::write_slice(meshlet_memory, &mesh.meshlets);
+
         self.vertices
             .store(new_vertex_count as u64, Ordering::SeqCst);
-        self.indices.store(new_index_count as u64, Ordering::SeqCst);
+        self.triangles
+            .store(new_triangle_count as u64, Ordering::SeqCst);
+        self.meshlets
+            .store(new_meshlet_count as u64, Ordering::SeqCst);
         self.loaded_gpu.insert(chunk);
     }
 
@@ -269,7 +298,6 @@ impl<'a> Voxels<'a> {
 
     pub fn generate_chunk_mesh(
         &self,
-        chunk: Vector3<i64>,
         chunk_svo: &SparseOctree,
         neighbour_svos: [&SparseOctree; 6],
     ) -> MeshData<VoxelVertex> {
@@ -287,16 +315,8 @@ impl<'a> Voxels<'a> {
             MeshingAlgorithmKind::Culled => CulledMeshing::mesh,
             MeshingAlgorithmKind::Greedy => GreedyMeshing::mesh,
         };
-        let mut mesh = meshing_algorithm(chunk_svo, neighbour_svos, self.config.chunk_size);
-        mesh = mesh.remove_duplicate_vertices();
-        for vertex in &mut mesh.vertices {
-            vertex.position += (chunk * self.config.chunk_size as i64).cast::<f32>();
-        }
-        let old_vertex_count = self.vertices.load(Ordering::SeqCst) as u32;
-        for index in &mut mesh.indices {
-            *index += old_vertex_count;
-        }
-        mesh
+        let mesh = meshing_algorithm(chunk_svo, neighbour_svos, self.config.chunk_size);
+        mesh.remove_duplicate_vertices()
     }
 
     fn check_config_change(&mut self) -> bool {
@@ -325,7 +345,11 @@ impl<'a> Voxels<'a> {
     }
 
     pub fn shared_index_count(&self) -> Arc<AtomicU64> {
-        self.indices.clone()
+        self.triangles.clone()
+    }
+
+    pub fn shared_meshlet_count(&self) -> Arc<AtomicU64> {
+        self.meshlets.clone()
     }
 }
 

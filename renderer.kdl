@@ -10,6 +10,7 @@ descriptor-set "global" 1 {
     storage-buffer "stars" "ALL" "[Star]"
     storage-buffer "voxel_vertices" "ALL" "[VoxelVertex]"
     storage-buffer "voxel_indices" "ALL" "[u32]"
+    storage-buffer "voxel_meshlets" "ALL" "[VoxelMeshlet]"
 }
 
 pass "render" {

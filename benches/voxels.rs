@@ -66,7 +66,7 @@ pub fn mesh_generate(c: &mut Criterion) {
     group.sample_size(5000);
     group.bench_function("classic", |b| {
         b.iter(|| {
-            black_box(voxels.generate_chunk_mesh(chunk, chunk_svo, neighbour_svos));
+            black_box(voxels.generate_chunk_mesh(chunk_svo, neighbour_svos));
         })
     });
     group.finish();
