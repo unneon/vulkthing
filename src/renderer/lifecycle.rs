@@ -11,7 +11,7 @@ use crate::renderer::device::{select_device, DeviceInfo};
 use crate::renderer::swapchain::create_swapchain;
 use crate::renderer::uniform::Star;
 use crate::renderer::util::{vulkan_str, Buffer, Dev, StorageBuffer};
-use crate::renderer::vertex::Vertex;
+use crate::renderer::vertex::{Vertex, VoxelVertex};
 use crate::renderer::{
     MeshObject, Object, Renderer, Synchronization, UniformBuffer, FRAMES_IN_FLIGHT, VRAM_VIA_BAR,
 };
@@ -108,21 +108,26 @@ impl Renderer {
         stars.generate(|i| Star {
             model: world.stars[i].transform.model_matrix(),
         });
-        let global = UniformBuffer::create(&dev);
-        let global_descriptor_sets = descriptor_pools.alloc_global(&global, &stars, &dev);
 
         let query_pool = create_query_pool(&dev);
 
-        let voxel_vertex_buffer = Buffer::create(
+        let voxel_vertex_buffer = StorageBuffer::new_array(
             VRAM_VIA_BAR,
-            vk::BufferUsageFlags::VERTEX_BUFFER,
-            DEFAULT_VOXEL_VERTEX_MEMORY,
+            DEFAULT_VOXEL_VERTEX_MEMORY / std::mem::size_of::<VoxelVertex>(),
             &dev,
         );
-        let voxel_index_buffer = Buffer::create(
+        let voxel_index_buffer = StorageBuffer::new_array(
             VRAM_VIA_BAR,
-            vk::BufferUsageFlags::INDEX_BUFFER,
-            DEFAULT_VOXEL_INDEX_MEMORY,
+            DEFAULT_VOXEL_INDEX_MEMORY / std::mem::size_of::<u32>(),
+            &dev,
+        );
+
+        let global = UniformBuffer::create(&dev);
+        let global_descriptor_sets = descriptor_pools.alloc_global(
+            &global,
+            &stars,
+            &voxel_vertex_buffer,
+            &voxel_index_buffer,
             &dev,
         );
 

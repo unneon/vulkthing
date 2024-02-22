@@ -1,3 +1,5 @@
+pub use crate::renderer::vertex::VoxelVertex;
+
 use crate::interface::EnumInterface;
 use nalgebra::{Matrix4, Vector2, Vector3};
 use std::borrow::Cow;

@@ -87,8 +87,8 @@ pub fn main() {
 
     let (mut voxels, voxel_config_tx) = Voxels::new(
         random(),
-        renderer.voxel_vertex_buffer.map_memory(&renderer.dev),
-        renderer.voxel_index_buffer.map_memory(&renderer.dev),
+        renderer.voxel_vertex_buffer.mapped_memory(),
+        renderer.voxel_index_buffer.mapped_memory(),
     );
     let mut voxel_config = voxels.config().clone();
     let voxels_camera = Arc::new(Mutex::new(world.camera.position()));

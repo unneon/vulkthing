@@ -186,11 +186,11 @@ use crate::renderer::uniform::{{"#
             }
         }
     }
-    for (i, typ) in uniform_types.iter().enumerate() {
-        write!(file, "{typ}").unwrap();
-        if i != uniform_types.len() - 1 {
-            write!(file, ", ").unwrap();
+    for typ in &uniform_types {
+        if *typ == "u32" {
+            continue;
         }
+        write!(file, "{typ},").unwrap();
     }
     writeln!(
         file,

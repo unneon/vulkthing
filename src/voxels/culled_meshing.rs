@@ -107,30 +107,22 @@ impl State<'_> {
         } else {
             (rot2, rot1)
         };
-        let material = position_voxel_kind as u8 as u16;
+        let _material = position_voxel_kind as u8 as u16;
         let v1 = VoxelVertex {
             position: base.cast::<f32>(),
-            normal: normal.cast::<f32>(),
-            material,
-            _pad0: [0; 2],
+            _pad1: [0.],
         };
         let v2 = VoxelVertex {
             position: (base + rot1).cast::<f32>(),
-            normal: normal.cast::<f32>(),
-            material,
-            _pad0: [0; 2],
+            _pad1: [0.],
         };
         let v3 = VoxelVertex {
             position: (base + rot2).cast::<f32>(),
-            normal: normal.cast::<f32>(),
-            material,
-            _pad0: [0; 2],
+            _pad1: [0.],
         };
         let v4 = VoxelVertex {
             position: (base + rot1 + rot2).cast::<f32>(),
-            normal: normal.cast::<f32>(),
-            material,
-            _pad0: [0; 2],
+            _pad1: [0.],
         };
         Some([v1, v2, v3, v2, v4, v3])
     }

@@ -8,6 +8,8 @@ descriptor-set "object" 1 {
 descriptor-set "global" 1 {
     uniform "global" "ALL" "Global"
     storage-buffer "stars" "ALL" "[Star]"
+    storage-buffer "voxel_vertices" "ALL" "[VoxelVertex]"
+    storage-buffer "voxel_indices" "ALL" "[u32]"
 }
 
 pass "render" {
@@ -26,7 +28,6 @@ pass "render" {
             transient
         }
         pipeline "voxel" mesh=true {
-            fragment-shader "debug.frag"
             descriptor-sets "global"
         }
         pipeline "object" {

@@ -2,19 +2,35 @@
 
 #extension GL_EXT_mesh_shader : require
 
-layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
-layout(triangles, max_vertices = 3, max_primitives = 1) out;
+#include "types/uniform.glsl"
 
-const vec2 POSITIONS[3] = vec2[](
-    vec2(1, 1),
-    vec2(1, -1),
-    vec2(-1, -1)
-);
+layout(binding = 0) uniform GLOBAL_UNIFORM_TYPE global;
+layout(binding = 2, std430) readonly buffer Vertices {
+    VoxelVertex vertices[];
+} vertices;
+layout(binding = 3, std430) readonly buffer Indices {
+    uint indices[];
+} indices;
+
+layout(local_size_x = 120, local_size_y = 1, local_size_z = 1) in;
+layout(triangles, max_vertices = 120, max_primitives = 40) out;
+
+layout(location = 0) out vec3 fragPosition[];
+layout(location = 1) out vec3 fragNormal[];
 
 void main() {
-    SetMeshOutputsEXT(3, 1);
-    gl_MeshVerticesEXT[0].gl_Position = vec4(POSITIONS[0], 0, 1);
-    gl_MeshVerticesEXT[1].gl_Position = vec4(POSITIONS[1], 0, 1);
-    gl_MeshVerticesEXT[2].gl_Position = vec4(POSITIONS[2], 0, 1);
-    gl_PrimitiveTriangleIndicesEXT[0] = uvec3(0, 1, 2);
+    SetMeshOutputsEXT(120, 40);
+    uint index = indices.indices[gl_GlobalInvocationID.x];
+    VoxelVertex vertex = vertices.vertices[index];
+    vec4 world_space = vec4(vertex.position.xyz, 1);
+    gl_MeshVerticesEXT[gl_LocalInvocationID.x].gl_Position = global.camera.projection_matrix * global.camera.view_matrix * world_space;
+    fragPosition[gl_LocalInvocationID.x] = world_space.xyz;
+    fragNormal[gl_LocalInvocationID.x] = vec3(0, 0, 1);
+    if (gl_LocalInvocationID.x < 40) {
+        gl_PrimitiveTriangleIndicesEXT[gl_LocalInvocationID.x] = uvec3(
+            3 * gl_LocalInvocationID.x,
+            3 * gl_LocalInvocationID.x + 1,
+            3 * gl_LocalInvocationID.x + 2
+        );
+    }
 }

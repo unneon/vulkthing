@@ -48,7 +48,7 @@ pub struct UniformBuffer<T> {
 
 pub struct StorageBuffer<T: ?Sized> {
     buffer: Buffer,
-    mapping: *mut T,
+    pub mapping: *mut T,
     size: usize,
 }
 
@@ -281,6 +281,13 @@ impl<T: Copy> StorageBuffer<[T]> {
         for (index, element) in slice.iter_mut().enumerate() {
             element.write(f(index));
         }
+    }
+
+    // TODO: Safety
+    #[allow(clippy::mut_from_ref)]
+    pub fn mapped_memory<'a>(&self) -> &'a mut [MaybeUninit<T>] {
+        let count = self.size / std::mem::size_of::<T>();
+        unsafe { std::slice::from_raw_parts_mut(self.mapping as *mut MaybeUninit<T>, count) }
     }
 }
 

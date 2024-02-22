@@ -13,9 +13,11 @@ pub struct Vertex {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct VoxelVertex {
     pub position: Vector3<f32>,
-    pub normal: Vector3<f32>,
-    pub material: u16,
-    pub _pad0: [u8; 2],
+    pub _pad1: [f32; 1],
+    // pub normal: Vector3<f32>,
+    // pub _pad2: [f32; 1],
+    // pub material: u16,
+    // pub _pad0: [u8; 2],
 }
 
 impl Eq for VoxelVertex {}

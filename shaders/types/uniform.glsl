@@ -71,6 +71,10 @@ struct Camera {
     vec3 position;
 };
 
+struct VoxelVertex {
+    vec4 position;
+};
+
 struct VoxelMaterial {
     vec3 albedo;
     float roughness;

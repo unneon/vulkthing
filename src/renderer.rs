@@ -22,6 +22,7 @@ use crate::renderer::uniform::{
 use crate::renderer::util::{
     timestamp_difference_to_duration, Buffer, Dev, StorageBuffer, UniformBuffer,
 };
+use crate::renderer::vertex::VoxelVertex;
 use crate::world::World;
 use ash::{vk, Entry};
 use imgui::DrawData;
@@ -82,8 +83,8 @@ pub struct Renderer {
 
     pub voxels_shared_vertex_count: Option<Arc<AtomicU64>>,
     pub voxels_shared_index_count: Option<Arc<AtomicU64>>,
-    pub voxel_vertex_buffer: Buffer,
-    pub voxel_index_buffer: Buffer,
+    pub voxel_vertex_buffer: StorageBuffer<[VoxelVertex]>,
+    pub voxel_index_buffer: StorageBuffer<[u32]>,
 }
 
 struct Synchronization {
@@ -236,12 +237,16 @@ impl Renderer {
         );
 
         if let Some(index_count) = self.voxels_shared_index_count.as_ref() {
-            let _index_count = index_count.load(Ordering::SeqCst) as u32;
+            let index_count = index_count.load(Ordering::SeqCst) as u32;
 
             begin_label(buf, "Voxel draws", [255, 0, 0], &self.dev);
             self.bind_graphics_pipeline(buf, self.pipelines.voxel);
             self.bind_descriptor_set(buf, self.pipeline_layouts.voxel);
-            unsafe { self.dev.mesh_ext.cmd_draw_mesh_tasks(buf, 1, 1, 1) };
+            unsafe {
+                self.dev
+                    .mesh_ext
+                    .cmd_draw_mesh_tasks(buf, index_count.div_floor(120), 1, 1)
+            };
             end_label(buf, &self.dev);
         }
 
