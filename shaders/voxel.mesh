@@ -16,8 +16,7 @@ layout(binding = 4) readonly buffer Meshlets {
     VoxelMeshlet meshlets[];
 } meshlets;
 
-// TODO: local_size_x 256 should be allowed on AMD according to vulkaninfo, but the GLSL compiler complains.
-layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 layout(triangles, max_vertices = 128, max_primitives = 256) out;
 
 layout(location = 0) out vec3 frag_position[];
@@ -36,16 +35,16 @@ void main() {
     uint triangle_count = meshlet.triangle_count / 3;
     SetMeshOutputsEXT(meshlet.vertex_count, triangle_count);
 
-    for (uint primitive = gl_LocalInvocationID.x; primitive < triangle_count; primitive += 128) {
-        gl_PrimitiveTriangleIndicesEXT[primitive] = uvec3(
-            indices.indices[meshlet.triangle_offset + 3 * primitive],
-            indices.indices[meshlet.triangle_offset + 3 * primitive + 1],
-            indices.indices[meshlet.triangle_offset + 3 * primitive + 2]
+    if (gl_LocalInvocationID.x < triangle_count) {
+        gl_PrimitiveTriangleIndicesEXT[gl_LocalInvocationID.x] = uvec3(
+            indices.indices[meshlet.triangle_offset + 3 * gl_LocalInvocationID.x],
+            indices.indices[meshlet.triangle_offset + 3 * gl_LocalInvocationID.x + 1],
+            indices.indices[meshlet.triangle_offset + 3 * gl_LocalInvocationID.x + 2]
         );
         vec3 work_group_color = color_from_index(gl_WorkGroupID.x);
         vec3 local_invocation_color = color_from_index(gl_LocalInvocationID.x);
         vec3 color = 0.95 * work_group_color + 0.05 * local_invocation_color;
-        frag_color[primitive] = color;
+        frag_color[gl_LocalInvocationID.x] = color;
     }
 
     if (gl_LocalInvocationID.x < meshlet.vertex_count) {
