@@ -22,12 +22,13 @@ layout(triangles, max_vertices = 128, max_primitives = 256) out;
 layout(location = 0) out vec3 frag_position[];
 layout(location = 1) perprimitiveEXT out vec3 frag_color[];
 
+#include "util/oklab.glsl"
+
 vec3 color_from_index(uint index) {
-    return vec3(
-        index * 907 % 256 / 255.0,
-        index * 1933 % 256 / 255.0,
-        index * 2971 % 256 / 255.0
-    );
+    float lightness = 0.6 + 0.4 * (index * 2971 % 256) / 255.0;
+    float chroma = 0.6 + 0.4 * (index * 1933 % 256) / 255.0;
+    float hue = 2 * acos(-1) * (index * 907 % 256) / 255.0;
+    return srgb_from_oklab(oklab_from_oklch(vec3(lightness, chroma, hue)));
 }
 
 void main() {
@@ -43,7 +44,7 @@ void main() {
         );
         vec3 work_group_color = color_from_index(gl_WorkGroupID.x);
         vec3 local_invocation_color = color_from_index(gl_LocalInvocationID.x);
-        vec3 color = 0.95 * work_group_color + 0.05 * local_invocation_color;
+        vec3 color = 0.97 * work_group_color + 0.03 * local_invocation_color;
         frag_color[gl_LocalInvocationID.x] = color;
     }
 
