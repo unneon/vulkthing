@@ -8,13 +8,13 @@
 layout(binding = 0) uniform GLOBAL_UNIFORM_TYPE global;
 layout(binding = 2) readonly buffer Vertices {
     VoxelVertex vertices[];
-} vertices;
+};
 layout(binding = 3) readonly buffer Indices {
     uint8_t indices[];
-} indices;
+};
 layout(binding = 4) readonly buffer Meshlets {
     VoxelMeshlet meshlets[];
-} meshlets;
+};
 
 layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 layout(triangles, max_vertices = 128, max_primitives = 256) out;
@@ -32,15 +32,15 @@ vec3 color_from_index(uint index) {
 }
 
 void main() {
-    VoxelMeshlet meshlet = meshlets.meshlets[gl_WorkGroupID.x];
+    VoxelMeshlet meshlet = meshlets[gl_WorkGroupID.x];
     uint triangle_count = meshlet.triangle_count / 3;
     SetMeshOutputsEXT(meshlet.vertex_count, triangle_count);
 
     if (gl_LocalInvocationID.x < triangle_count) {
         gl_PrimitiveTriangleIndicesEXT[gl_LocalInvocationID.x] = uvec3(
-            indices.indices[meshlet.triangle_offset + 3 * gl_LocalInvocationID.x],
-            indices.indices[meshlet.triangle_offset + 3 * gl_LocalInvocationID.x + 1],
-            indices.indices[meshlet.triangle_offset + 3 * gl_LocalInvocationID.x + 2]
+            indices[meshlet.triangle_offset + 3 * gl_LocalInvocationID.x],
+            indices[meshlet.triangle_offset + 3 * gl_LocalInvocationID.x + 1],
+            indices[meshlet.triangle_offset + 3 * gl_LocalInvocationID.x + 2]
         );
         vec3 work_group_color = color_from_index(gl_WorkGroupID.x);
         vec3 local_invocation_color = color_from_index(gl_LocalInvocationID.x);
@@ -49,7 +49,7 @@ void main() {
     }
 
     if (gl_LocalInvocationID.x < meshlet.vertex_count) {
-        VoxelVertex vertex = vertices.vertices[meshlet.vertex_offset + gl_LocalInvocationID.x];
+        VoxelVertex vertex = vertices[meshlet.vertex_offset + gl_LocalInvocationID.x];
         vec4 world_space = vec4(vertex.position.xyz, 1);
         vec4 clip_space = global.camera.projection_matrix * global.camera.view_matrix * world_space;
         gl_MeshVerticesEXT[gl_LocalInvocationID.x].gl_Position = clip_space;
