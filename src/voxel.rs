@@ -4,6 +4,7 @@ pub mod gpu_memory;
 mod greedy_meshing;
 pub mod meshlet;
 mod sparse_octree;
+mod square_invariant;
 pub mod vertex;
 
 use crate::config::{
@@ -18,6 +19,7 @@ use crate::voxel::culled_meshing::CulledMeshing;
 use crate::voxel::gpu_memory::VoxelGpuMemory;
 use crate::voxel::greedy_meshing::GreedyMeshing;
 use crate::voxel::sparse_octree::SparseOctree;
+use crate::voxel::square_invariant::SquareInvariant;
 use crate::voxel::vertex::VoxelVertex;
 use bracket_noise::prelude::*;
 use nalgebra::{DMatrix, Vector2, Vector3};
@@ -35,6 +37,19 @@ trait MeshingAlgorithm {
         neighbour_svos: [&SparseOctree; 6],
         chunk_size: usize,
     ) -> MeshData<VoxelVertex>;
+}
+
+trait ChunkPriorityAlgorithm {
+    fn select(&mut self) -> Option<Vector3<i64>>;
+
+    fn update_camera(&mut self, camera: Vector3<i64>);
+
+    fn clear(
+        &mut self,
+        camera: Vector3<i64>,
+        render_distance_horizontal: usize,
+        render_distance_vertical: usize,
+    );
 }
 
 /*
@@ -62,6 +77,7 @@ pub struct Voxels {
     config_rx: mpsc::Receiver<VoxelsConfig>,
     config_changed: bool,
     shutdown: Arc<AtomicBool>,
+    chunk_priority: SquareInvariant,
     heightmap_noise: Perlin,
     heightmap_noise_bracket: FastNoise,
     gpu_memory: Arc<VoxelGpuMemory>,
@@ -113,7 +129,11 @@ pub const DIRECTIONS: [Vector3<i64>; 6] = [
 ];
 
 impl Voxels {
-    pub fn new(seed: u64, gpu_memory: Arc<VoxelGpuMemory>) -> (Voxels, mpsc::Sender<VoxelsConfig>) {
+    pub fn new(
+        seed: u64,
+        camera: Vector3<f32>,
+        gpu_memory: Arc<VoxelGpuMemory>,
+    ) -> (Voxels, mpsc::Sender<VoxelsConfig>) {
         let (new_config_tx, new_config_rx) = mpsc::channel();
         let mut voxels = Voxels {
             config: VoxelsConfig {
@@ -129,6 +149,11 @@ impl Voxels {
             config_rx: new_config_rx,
             config_changed: true,
             shutdown: Arc::new(AtomicBool::new(false)),
+            chunk_priority: SquareInvariant::new(
+                chunk_from_position(camera, DEFAULT_VOXEL_CHUNK_SIZE),
+                DEFAULT_VOXEL_RENDER_DISTANCE_HORIZONTAL.div_ceil(DEFAULT_VOXEL_CHUNK_SIZE),
+                DEFAULT_VOXEL_RENDER_DISTANCE_VERTICAL.div_ceil(DEFAULT_VOXEL_CHUNK_SIZE),
+            ),
             heightmap_noise: Perlin::new(seed as u32),
             heightmap_noise_bracket: FastNoise::seeded(seed),
             gpu_memory,
@@ -146,36 +171,24 @@ impl Voxels {
     pub fn update_camera(&mut self, camera: Vector3<f32>) {
         if self.config_changed {
             self.config_changed = false;
+            self.chunk_priority.clear(
+                chunk_from_position(camera, self.config.chunk_size),
+                self.config
+                    .render_distance_horizontal
+                    .div_ceil(self.config.chunk_size),
+                self.config
+                    .render_distance_vertical
+                    .div_ceil(self.config.chunk_size),
+            );
             self.heightmap_noise = Perlin::new(self.heightmap_noise.seed());
             self.gpu_memory.clear();
             self.loaded_cpu.clear();
             self.loaded_gpu.clear();
             self.loaded_heightmaps.clear();
         }
-        let camera_chunk = Vector3::new(
-            (camera.x / self.config.chunk_size as f32).floor() as i64,
-            (camera.y / self.config.chunk_size as f32).floor() as i64,
-            (camera.z / self.config.chunk_size as f32).floor() as i64,
-        );
-        let distance_horizontal =
-            (self.config.render_distance_horizontal / self.config.chunk_size) as i64 + 1;
-        let distance_vertical =
-            (self.config.render_distance_vertical / self.config.chunk_size) as i64 + 1;
-        let range_horizontal = -distance_horizontal..=distance_horizontal;
-        let range_vertical = -distance_vertical..=distance_vertical;
-        let mut to_load = Vec::new();
-        for dx in range_horizontal.clone() {
-            for dy in range_horizontal.clone() {
-                for dz in range_vertical.clone() {
-                    let chunk = camera_chunk + Vector3::new(dx, dy, dz);
-                    if !self.loaded_gpu.contains(&chunk) {
-                        to_load.push(chunk);
-                    }
-                }
-            }
-        }
-        to_load.sort_by_key(|chunk| (chunk - camera_chunk).abs().sum());
-        for chunk in to_load {
+        self.chunk_priority
+            .update_camera(chunk_from_position(camera, self.config.chunk_size));
+        while let Some(chunk) = self.chunk_priority.select() {
             self.load_svo_cpu(chunk);
             for dir in DIRECTIONS {
                 let neighbour = chunk + dir;
@@ -397,4 +410,8 @@ fn material_from_height(height: i64, z: i64) -> VoxelKind {
     } else {
         VoxelKind::Stone
     }
+}
+
+fn chunk_from_position(position: Vector3<f32>, chunk_size: usize) -> Vector3<i64> {
+    position.map(|coord| coord.div_euclid(chunk_size as f32) as i64)
 }

@@ -85,7 +85,11 @@ pub fn main() {
 
     renderer.create_interface_renderer(&mut interface.ctx);
 
-    let (mut voxels, voxel_config_tx) = Voxels::new(random(), renderer.voxel_gpu_memory.clone());
+    let (mut voxels, voxel_config_tx) = Voxels::new(
+        random(),
+        world.camera.position(),
+        renderer.voxel_gpu_memory.clone(),
+    );
     let mut voxel_config = voxels.config().clone();
     let voxels_camera = Arc::new(Mutex::new(world.camera.position()));
     let voxels_condvar = Arc::new(Condvar::new());
