@@ -1,4 +1,5 @@
 mod binary_cube;
+pub mod coordinates;
 mod culled_meshing;
 pub mod gpu_memory;
 mod greedy_meshing;
@@ -77,6 +78,7 @@ pub struct Voxels {
     config_rx: mpsc::Receiver<VoxelsConfig>,
     config_changed: bool,
     shutdown: Arc<AtomicBool>,
+    camera_update: Arc<AtomicBool>,
     chunk_priority: SquareInvariant,
     heightmap_noise: Perlin,
     heightmap_noise_bracket: FastNoise,
@@ -149,6 +151,7 @@ impl Voxels {
             config_rx: new_config_rx,
             config_changed: true,
             shutdown: Arc::new(AtomicBool::new(false)),
+            camera_update: Arc::new(AtomicBool::new(false)),
             chunk_priority: SquareInvariant::new(
                 chunk_from_position(camera, DEFAULT_VOXEL_CHUNK_SIZE),
                 DEFAULT_VOXEL_RENDER_DISTANCE_HORIZONTAL.div_ceil(DEFAULT_VOXEL_CHUNK_SIZE),
@@ -195,7 +198,10 @@ impl Voxels {
                 self.load_svo_cpu(neighbour);
             }
             self.load_mesh_gpu(chunk);
-            if self.check_config_change() || self.shutdown.load(Ordering::SeqCst) {
+            if self.check_config_change()
+                || self.shutdown.load(Ordering::SeqCst)
+                || self.camera_update.load(Ordering::SeqCst)
+            {
                 break;
             }
         }
@@ -326,6 +332,10 @@ impl Voxels {
 
     pub fn shutdown(&self) -> Arc<AtomicBool> {
         self.shutdown.clone()
+    }
+
+    pub fn camera_update(&self) -> Arc<AtomicBool> {
+        self.camera_update.clone()
     }
 }
 

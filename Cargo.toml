@@ -13,6 +13,7 @@ log = "0.4"
 meshopt = "0.2"
 nalgebra = { version = "0.32", features = ["std"], default-features = false }
 noise = "0.8"
+num-traits = "0.2"
 rand = { version = "0.8", features = ["small_rng"] }
 rapier3d = "0.17"
 # TODO: Upgrade to raw-window-handle 0.6 once ash-window is compatible.

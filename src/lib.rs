@@ -94,19 +94,22 @@ pub fn main() {
     let voxels_camera = Arc::new(Mutex::new(world.camera.position()));
     let voxels_condvar = Arc::new(Condvar::new());
     let voxels_shutdown = voxels.shutdown();
+    let voxels_camera_update = voxels.camera_update();
     let voxels_thread = std::thread::spawn({
         let camera = voxels_camera.clone();
         let condvar = voxels_condvar.clone();
+        let camera_update = voxels_camera_update.clone();
         move || {
             let mut camera_lock = camera.lock().unwrap();
             while !voxels.shutdown().load(Ordering::SeqCst) {
                 let camera_position = *camera_lock;
+                camera_update.store(false, Ordering::SeqCst);
                 drop(camera_lock);
                 voxels.update_camera(camera_position);
                 if voxels.shutdown().load(Ordering::SeqCst) {
                     break;
                 }
-                camera_lock = if !voxels.config_changed() {
+                camera_lock = if !voxels.config_changed() && !camera_update.load(Ordering::SeqCst) {
                     condvar.wait(camera.lock().unwrap()).unwrap()
                 } else {
                     camera.lock().unwrap()
@@ -191,7 +194,10 @@ pub fn main() {
                     let _ = voxel_config_tx.send(voxel_config.clone());
                 }
 
-                *voxels_camera.lock().unwrap() = world.camera.position();
+                let mut voxels_lock = voxels_camera.lock().unwrap();
+                *voxels_lock = world.camera.position();
+                voxels_camera_update.store(true, Ordering::SeqCst);
+                drop(voxels_lock);
                 voxels_condvar.notify_one();
 
                 renderer.draw_frame(

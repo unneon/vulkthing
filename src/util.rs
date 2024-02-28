@@ -1,3 +1,5 @@
+pub mod geometry;
+
 use nalgebra::{UnitQuaternion, Vector3};
 use rand::distributions::Distribution;
 use rand::Rng;

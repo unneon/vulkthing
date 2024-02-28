@@ -1966,6 +1966,7 @@ dependencies = [
  "meshopt",
  "nalgebra",
  "noise",
+ "num-traits",
  "rand 0.8.5",
  "rapier3d",
  "raw-window-handle 0.5.2",
