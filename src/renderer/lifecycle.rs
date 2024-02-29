@@ -108,7 +108,7 @@ impl Renderer {
 
         let voxel_vertex_buffer =
             StorageBuffer::new_array(VRAM_VIA_BAR, DEFAULT_VOXEL_VERTEX_MAX_COUNT, &dev);
-        let voxel_index_buffer =
+        let voxel_triangle_buffer =
             StorageBuffer::new_array(VRAM_VIA_BAR, DEFAULT_VOXEL_INDEX_MAX_COUNT, &dev);
         let voxel_meshlet_buffer =
             StorageBuffer::new_array(VRAM_VIA_BAR, DEFAULT_VOXEL_MESHLET_MAX_COUNT, &dev);
@@ -118,7 +118,7 @@ impl Renderer {
             &global,
             &stars,
             &voxel_vertex_buffer,
-            &voxel_index_buffer,
+            &voxel_triangle_buffer,
             &voxel_meshlet_buffer,
             &dev,
         );
@@ -127,7 +127,7 @@ impl Renderer {
         let voxel_gpu_memory = Some(VoxelGpuMemory::new(
             voxel_meshlet_count.clone(),
             voxel_vertex_buffer,
-            voxel_index_buffer,
+            voxel_triangle_buffer,
             voxel_meshlet_buffer,
             DEFAULT_VOXEL_CHUNK_SIZE,
             dev.clone(),
@@ -377,8 +377,9 @@ fn create_logical_device(
         SwapchainKhr::name().as_ptr(),
     ];
 
-    let mut vk12_features =
-        *vk::PhysicalDeviceVulkan12Features::builder().storage_buffer8_bit_access(true);
+    let mut vk12_features = *vk::PhysicalDeviceVulkan12Features::builder()
+        .shader_int8(true)
+        .storage_buffer8_bit_access(true);
     let mut ms_features = *vk::PhysicalDeviceMeshShaderFeaturesEXT::builder().mesh_shader(true);
 
     let create_info = vk::DeviceCreateInfo::builder()

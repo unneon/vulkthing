@@ -2,6 +2,7 @@
 
 #extension GL_EXT_mesh_shader : require
 #extension GL_EXT_shader_8bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types : require
 
 #include "types/uniform.glsl"
 
@@ -9,18 +10,20 @@ layout(binding = 0) uniform GLOBAL_UNIFORM_TYPE global;
 layout(binding = 2) readonly buffer Vertices {
     VoxelVertex vertices[];
 };
-layout(binding = 3) readonly buffer Indices {
-    uint8_t indices[];
+layout(binding = 3) readonly buffer Triangles {
+    VoxelTriangle triangles[];
 };
 layout(binding = 4) readonly buffer Meshlets {
     VoxelMeshlet meshlets[];
 };
 
+// TODO: Mesa advertises 128 maxPreferredMeshWorkGroupInvocations contradicting their presentation and official drivers.
 layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 layout(triangles, max_vertices = 128, max_primitives = 256) out;
 
 layout(location = 0) out vec3 frag_position[];
-layout(location = 1) perprimitiveEXT out vec3 frag_color[];
+layout(location = 1) perprimitiveEXT out uint frag_data[];
+layout(location = 2) perprimitiveEXT out vec3 frag_color[];
 
 #include "util/oklab.glsl"
 
@@ -33,15 +36,12 @@ vec3 color_from_index(uint index) {
 
 void main() {
     VoxelMeshlet meshlet = meshlets[gl_WorkGroupID.x];
-    uint triangle_count = meshlet.triangle_count / 3;
-    SetMeshOutputsEXT(meshlet.vertex_count, triangle_count);
+    SetMeshOutputsEXT(meshlet.vertex_count, meshlet.triangle_count);
 
-    if (gl_LocalInvocationID.x < triangle_count) {
-        gl_PrimitiveTriangleIndicesEXT[gl_LocalInvocationID.x] = uvec3(
-            indices[meshlet.triangle_offset + 3 * gl_LocalInvocationID.x],
-            indices[meshlet.triangle_offset + 3 * gl_LocalInvocationID.x + 1],
-            indices[meshlet.triangle_offset + 3 * gl_LocalInvocationID.x + 2]
-        );
+    if (gl_LocalInvocationID.x < meshlet.triangle_count) {
+        VoxelTriangle triangle = triangles[meshlet.triangle_offset + gl_LocalInvocationID.x];
+        gl_PrimitiveTriangleIndicesEXT[gl_LocalInvocationID.x] = uvec3(triangle.index0, triangle.index1, triangle.index2 );
+        frag_data[gl_LocalInvocationID.x] = triangle.data;
         vec3 work_group_color = color_from_index(gl_WorkGroupID.x);
         vec3 local_invocation_color = color_from_index(gl_LocalInvocationID.x);
         vec3 color = 0.97 * work_group_color + 0.03 * local_invocation_color;

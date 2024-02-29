@@ -1,5 +1,7 @@
 #version 460
 
+#extension GL_EXT_shader_8bit_storage : require
+
 #include "types/uniform.glsl"
 
 layout(binding = 0) uniform GLOBAL_UNIFORM_TYPE global;

@@ -75,6 +75,15 @@ struct VoxelVertex {
     vec4 position;
 };
 
+struct VoxelTriangle {
+    uint8_t index0;
+    uint8_t index1;
+    uint8_t index2;
+    // Three lowest bits encode a normal matching the convention of the DIRECTION array, five highest bits are used for
+    // material ID. Subject to heavy changes later.
+    uint8_t data;
+};
+
 struct VoxelMeshlet {
     uint vertex_offset;
     uint vertex_count;

@@ -5,7 +5,7 @@ descriptor-set "global" 1 {
     uniform "global" "ALL" "Global"
     storage-buffer "stars" "ALL" "[Star]"
     storage-buffer "voxel_vertices" "ALL" "[crate::voxel::vertex::VoxelVertex]"
-    storage-buffer "voxel_indices" "ALL" "[u8]"
+    storage-buffer "voxel_triangles" "ALL" "[crate::voxel::meshlet::VoxelTriangle]"
     storage-buffer "voxel_meshlets" "ALL" "[crate::voxel::meshlet::VoxelMeshlet]"
 }
 
