@@ -263,7 +263,7 @@ pub struct Shaders {{"#
     let mut pipeline_mesh_shaders = HashMap::new();
     let mut shaders = BTreeSet::new();
     for_pipelines(renderer, |_, _, _, pipeline| {
-        if pipeline.mesh {
+        if pipeline.mesh_shaders {
             let mesh_shader = match &pipeline.mesh_shader {
                 Some(path) => path.strip_suffix(".mesh").unwrap(),
                 None => pipeline.name.as_str(),
@@ -486,7 +486,7 @@ struct Scratch {{"#
             r#"    {pipeline}_shader_stages: [vk::PipelineShaderStageCreateInfo; 2],"#
         )
         .unwrap();
-        if pipeline.mesh {
+        if pipeline.mesh_shaders {
         } else {
             writeln!(file, r#"    {pipeline}_vertex_bindings: [vk::VertexInputBindingDescription; {binding_count}],
     {pipeline}_vertex_attributes: [vk::VertexInputAttributeDescription; {attribute_count}],
@@ -916,7 +916,7 @@ static mut SCRATCH: Scratch = Scratch {{"#
         } else {
             "std::ptr::null()".to_owned()
         };
-        let vertex_stage_type = if pipeline.mesh { "MESH_EXT" } else { "VERTEX" };
+        let vertex_stage_type = if pipeline.mesh_shaders { "MESH_EXT" } else { "VERTEX" };
         writeln!(
             file,
             r#"    {pipeline}_pipeline_layout: vk::PipelineLayoutCreateInfo {{
@@ -950,7 +950,7 @@ static mut SCRATCH: Scratch = Scratch {{"#
     ],"#
         )
         .unwrap();
-        if pipeline.mesh {
+        if pipeline.mesh_shaders {
         } else {
             writeln!(file, r#"    {pipeline}_vertex_bindings: ["#).unwrap();
             for (binding_index, binding) in pipeline.vertex_bindings.iter().enumerate() {
@@ -1087,7 +1087,7 @@ static mut SCRATCH: Scratch = Scratch {{"#
             0
         };
         let color_attachment_count = subpass.color_attachments.len();
-        let vertex_input_state = if pipeline.mesh {
+        let vertex_input_state = if pipeline.mesh_shaders {
             "std::ptr::null()".to_owned()
         } else {
             format!("unsafe {{ &SCRATCH.{pipeline}_vertex_state }}")
@@ -1901,7 +1901,7 @@ pub fn create_pipelines(
                 writeln!(file, "    unsafe {{ SCRATCH.{pipeline}_fragment_specialization_scratch.{spec} = {value} }};").unwrap();
             }
         }
-        if pipeline.mesh {
+        if pipeline.mesh_shaders {
             let mesh_shader = pipeline_mesh_shaders[pipeline.name.as_str()];
             writeln!(
                 file,
