@@ -11,20 +11,20 @@ pub struct VoxelMesh {
     pub triangles: Vec<VoxelTriangle>,
 }
 
-#[repr(C)]
+#[repr(C, align(8))]
 #[derive(Clone, Copy, Debug)]
 pub struct VoxelMeshlet {
     pub vertex_offset: u32,
     pub vertex_count: u32,
     pub triangle_offset: u32,
     pub triangle_count: u32,
+    pub chunk: Vector3<i16>,
 }
 
-#[repr(C)]
+#[repr(C, align(4))]
 #[derive(Clone, Copy, Debug)]
 pub struct VoxelVertex {
-    pub position: Vector3<f32>,
-    _pad0: f32,
+    pub position: Vector3<u8>,
 }
 
 #[repr(C)]
@@ -41,15 +41,6 @@ pub struct VoxelTriangle {
 struct MeshoptVertex {
     #[allow(dead_code)]
     position: Vector3<f32>,
-}
-
-impl VoxelVertex {
-    pub fn new(position: Vector3<f32>) -> VoxelVertex {
-        VoxelVertex {
-            position,
-            _pad0: 0.,
-        }
-    }
 }
 
 impl VoxelTriangle {
@@ -92,7 +83,9 @@ pub fn from_unclustered_mesh(mesh: &LocalMesh) -> VoxelMesh {
         let triangle_offset = triangles.len() as u32;
         for &vertex in meshlet.vertices {
             let vertex = &mesh.vertices[vertex as usize];
-            vertices.push(VoxelVertex::new(vertex.position.cast::<f32>()));
+            vertices.push(VoxelVertex {
+                position: vertex.position,
+            });
         }
         for &[mi0, mi1, mi2] in meshlet.triangles.array_chunks() {
             let i0 = meshlet.vertices[mi0 as usize];
@@ -111,6 +104,7 @@ pub fn from_unclustered_mesh(mesh: &LocalMesh) -> VoxelMesh {
             vertex_count: meshlet.vertices.len() as u32,
             triangle_offset,
             triangle_count: meshlet.triangles.len() as u32 / 3,
+            chunk: Vector3::zeros(),
         });
     }
     VoxelMesh {

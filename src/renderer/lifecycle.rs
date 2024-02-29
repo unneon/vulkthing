@@ -365,9 +365,6 @@ fn create_logical_device(
         .queue_priorities(&[1.]);
     let queues = [queue_create];
 
-    let physical_device_features =
-        vk::PhysicalDeviceFeatures::builder().fragment_stores_and_atomics(true);
-
     let extensions = vec![
         KhrShaderFloatControlsFn::name().as_ptr(),
         KhrSpirv14Fn::name().as_ptr(),
@@ -375,6 +372,11 @@ fn create_logical_device(
         SwapchainKhr::name().as_ptr(),
     ];
 
+    let features = *vk::PhysicalDeviceFeatures::builder()
+        .fragment_stores_and_atomics(true)
+        .shader_int16(true);
+    let mut vk11_features =
+        *vk::PhysicalDeviceVulkan11Features::builder().storage_buffer16_bit_access(true);
     let mut vk12_features = *vk::PhysicalDeviceVulkan12Features::builder()
         .shader_int8(true)
         .storage_buffer8_bit_access(true);
@@ -382,8 +384,9 @@ fn create_logical_device(
 
     let create_info = vk::DeviceCreateInfo::builder()
         .queue_create_infos(&queues)
-        .enabled_features(&physical_device_features)
+        .enabled_features(&features)
         .enabled_extension_names(&extensions)
+        .push_next(&mut vk11_features)
         .push_next(&mut vk12_features)
         .push_next(&mut ms_features);
 

@@ -55,13 +55,14 @@ pub fn voxel_thread(shared: &VoxelsShared) {
         let chunk_svo = &all_svos[0];
         let neighbour_svos = std::array::from_fn(|i| &*all_svos[i + 1]);
         let raw_mesh = generate_mesh(chunk_svo, neighbour_svos, &config);
-        let mesh = meshlet::from_unclustered_mesh(&raw_mesh);
+        let mut mesh = meshlet::from_unclustered_mesh(&raw_mesh);
+        for meshlet in &mut mesh.meshlets {
+            meshlet.chunk = chunk.try_cast::<i16>().unwrap();
+        }
         state = shared.state.lock().unwrap();
         if config_generation != state.config_generation {
             continue;
         }
-        state
-            .gpu_memory
-            .upload_meshlet(chunk, mesh, config.chunk_size);
+        state.gpu_memory.upload_meshlet(mesh);
     }
 }

@@ -9,7 +9,7 @@ pub struct LocalMesh {
 
 #[derive(Clone, Eq, Hash, PartialEq)]
 pub struct LocalVertex {
-    pub position: Vector3<u16>,
+    pub position: Vector3<u8>,
 }
 
 #[derive(Clone)]

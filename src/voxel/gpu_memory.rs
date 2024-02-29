@@ -1,6 +1,5 @@
 use crate::renderer::util::{Dev, StorageBuffer};
 use crate::voxel::meshlet::{VoxelMesh, VoxelMeshlet, VoxelTriangle, VoxelVertex};
-use nalgebra::Vector3;
 use std::mem::MaybeUninit;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
@@ -34,7 +33,7 @@ impl VoxelGpuMemory {
         }
     }
 
-    pub fn upload_meshlet(&mut self, chunk: Vector3<i64>, mut mesh: VoxelMesh, chunk_size: usize) {
+    pub fn upload_meshlet(&mut self, mut mesh: VoxelMesh) {
         let old_meshlet_count = self.meshlet_count.load(Ordering::SeqCst) as usize;
         let new_vertex_count = self.vertex_count + mesh.vertices.len();
         let new_triangle_count = self.triangle_count + mesh.triangles.len();
@@ -48,9 +47,6 @@ impl VoxelGpuMemory {
         for meshlet in &mut mesh.meshlets {
             meshlet.vertex_offset += self.vertex_count as u32;
             meshlet.triangle_offset += self.triangle_count as u32;
-        }
-        for vertex in &mut mesh.vertices {
-            vertex.position += (chunk * chunk_size as i64).cast::<f32>();
         }
 
         let vertex_memory = &mut self.vertex_buffer.mapped()[self.vertex_count..new_vertex_count];

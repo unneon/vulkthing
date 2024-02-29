@@ -109,19 +109,19 @@ impl State<'_> {
 
                 let top_left = self
                     .convert_2d_to_3d(Vector2::new(x1, y1))
-                    .try_cast::<u16>()
+                    .try_cast::<u8>()
                     .unwrap();
                 let top_right = self
                     .convert_2d_to_3d(Vector2::new(x2, y1))
-                    .try_cast::<u16>()
+                    .try_cast::<u8>()
                     .unwrap();
                 let bottom_left = self
                     .convert_2d_to_3d(Vector2::new(x1, y2))
-                    .try_cast::<u16>()
+                    .try_cast::<u8>()
                     .unwrap();
                 let bottom_right = self
                     .convert_2d_to_3d(Vector2::new(x2, y2))
-                    .try_cast::<u16>()
+                    .try_cast::<u8>()
                     .unwrap();
                 let normal_i64 = match wall_info.0 {
                     WallNormal::AlongSliceNormal => self.slice_normal,

@@ -2,7 +2,9 @@
 
 #extension GL_EXT_mesh_shader : require
 #extension GL_EXT_shader_8bit_storage : require
-#extension GL_EXT_shader_explicit_arithmetic_types : require
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int16 : require
 
 #include "types/uniform.glsl"
 
@@ -40,7 +42,7 @@ void main() {
 
     if (gl_LocalInvocationID.x < meshlet.triangle_count) {
         VoxelTriangle triangle = triangles[meshlet.triangle_offset + gl_LocalInvocationID.x];
-        gl_PrimitiveTriangleIndicesEXT[gl_LocalInvocationID.x] = uvec3(triangle.index0, triangle.index1, triangle.index2);
+        gl_PrimitiveTriangleIndicesEXT[gl_LocalInvocationID.x] = triangle.indices;
         frag_data[gl_LocalInvocationID.x] = triangle.data;
         vec3 work_group_color = color_from_index(gl_WorkGroupID.x);
         vec3 local_invocation_color = color_from_index(gl_LocalInvocationID.x);
@@ -50,8 +52,8 @@ void main() {
 
     if (gl_LocalInvocationID.x < meshlet.vertex_count) {
         VoxelVertex vertex = vertices[meshlet.vertex_offset + gl_LocalInvocationID.x];
-        vec4 world_space = vec4(vertex.position.xyz, 1);
-        vec4 clip_space = global.camera.projection_matrix * global.camera.view_matrix * world_space;
+        vec3 world_space = vertex.position.xyz + 64 * vec3(meshlet.chunk);
+        vec4 clip_space = global.camera.projection_matrix * global.camera.view_matrix * vec4(world_space, 1);
         gl_MeshVerticesEXT[gl_LocalInvocationID.x].gl_Position = clip_space;
         frag_position[gl_LocalInvocationID.x] = world_space.xyz;
     }

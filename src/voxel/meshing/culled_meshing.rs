@@ -112,16 +112,16 @@ impl State<'_> {
         let i4 = base_index + 3;
         let indices = [i1, i2, i3, i4];
         let v1 = LocalVertex {
-            position: base.try_cast::<u16>().unwrap(),
+            position: base.try_cast::<u8>().unwrap(),
         };
         let v2 = LocalVertex {
-            position: (base + rot1).try_cast::<u16>().unwrap(),
+            position: (base + rot1).try_cast::<u8>().unwrap(),
         };
         let v3 = LocalVertex {
-            position: (base + rot2).try_cast::<u16>().unwrap(),
+            position: (base + rot2).try_cast::<u8>().unwrap(),
         };
         let v4 = LocalVertex {
-            position: (base + rot1 + rot2).try_cast::<u16>().unwrap(),
+            position: (base + rot1 + rot2).try_cast::<u8>().unwrap(),
         };
         self.vertices.push(v1);
         self.vertices.push(v2);
