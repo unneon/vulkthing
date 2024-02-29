@@ -1,7 +1,8 @@
-use crate::mesh::MeshData;
+use crate::voxel::local_mesh::LocalMesh;
 use crate::voxel::vertex::VoxelVertex;
-use crate::voxel::DIRECTIONS;
 use meshopt::{build_meshlets, typed_to_bytes, VertexDataAdapter};
+use nalgebra::Vector3;
+use std::collections::HashMap;
 
 #[derive(Debug)]
 pub struct VoxelMesh {
@@ -28,6 +29,13 @@ pub struct VoxelMeshlet {
     pub triangle_count: u32,
 }
 
+// Data format expected by the meshoptimizer library. I'll be writing my own meshlet construction
+// algorithm later anyway, so the inefficiency doesn't matter for now.
+struct MeshoptVertex {
+    #[allow(dead_code)]
+    position: Vector3<f32>,
+}
+
 impl VoxelTriangle {
     fn new(indices: [u8; 3], normal: u8, material: u8) -> VoxelTriangle {
         assert!(normal < 1 << 3);
@@ -41,18 +49,26 @@ impl VoxelTriangle {
     }
 }
 
-pub fn from_unclustered_mesh(mesh: &MeshData<VoxelVertex>) -> VoxelMesh {
-    if mesh.indices.is_empty() {
+pub fn from_unclustered_mesh(mesh: &LocalMesh) -> VoxelMesh {
+    if mesh.faces.is_empty() {
         return VoxelMesh {
             meshlets: Vec::new(),
             vertices: Vec::new(),
             triangles: Vec::new(),
         };
     }
-    let vertices = VertexDataAdapter::new(typed_to_bytes(&mesh.vertices), 16, 0).unwrap();
-    let raw_meshlets = build_meshlets(&mesh.indices, &vertices, 128, 256, 0.);
-    // The naming of output fields is confusing, the triangles array is an unpacked index buffer for triangles. We
-    // change the name to indices, to stuff like "index count" is valid and not even worse.
+    let mut triangle_to_face = HashMap::new();
+    for (face_index, face) in mesh.faces.iter().enumerate() {
+        triangle_to_face.insert(
+            [face.indices[0], face.indices[1], face.indices[2]],
+            face_index,
+        );
+        triangle_to_face.insert(
+            [face.indices[1], face.indices[3], face.indices[2]],
+            face_index,
+        );
+    }
+    let raw_meshlets = build_raw_meshlets(mesh);
     let mut meshlets = Vec::new();
     let mut vertices = Vec::new();
     let mut triangles = Vec::new();
@@ -60,22 +76,20 @@ pub fn from_unclustered_mesh(mesh: &MeshData<VoxelVertex>) -> VoxelMesh {
         let vertex_offset = vertices.len() as u32;
         let triangle_offset = triangles.len() as u32;
         for &vertex in meshlet.vertices {
-            vertices.push(mesh.vertices[vertex as usize]);
+            let vertex = &mesh.vertices[vertex as usize];
+            vertices.push(VoxelVertex::new(vertex.position.cast::<f32>()));
         }
-        for &indices in meshlet.triangles.array_chunks() {
-            let v0 = mesh.vertices[meshlet.vertices[indices[0] as usize] as usize];
-            let v1 = mesh.vertices[meshlet.vertices[indices[1] as usize] as usize];
-            let v2 = mesh.vertices[meshlet.vertices[indices[2] as usize] as usize];
-            let normal_approx = (v1.position - v0.position)
-                .cross(&(v2.position - v0.position))
-                .normalize();
-            let normal_index = DIRECTIONS
-                .iter()
-                .enumerate()
-                .find(|(_, direction)| (direction.cast::<f32>() - normal_approx).norm() < 0.001)
-                .unwrap()
-                .0;
-            triangles.push(VoxelTriangle::new(indices, normal_index as u8, 3));
+        for &[mi0, mi1, mi2] in meshlet.triangles.array_chunks() {
+            let i0 = meshlet.vertices[mi0 as usize];
+            let i1 = meshlet.vertices[mi1 as usize];
+            let i2 = meshlet.vertices[mi2 as usize];
+            let face_index = triangle_to_face[&[i0, i1, i2]];
+            let face = &mesh.faces[face_index];
+            triangles.push(VoxelTriangle::new(
+                [mi0, mi1, mi2],
+                face.normal_index,
+                face.material,
+            ));
         }
         meshlets.push(VoxelMeshlet {
             vertex_offset,
@@ -89,4 +103,31 @@ pub fn from_unclustered_mesh(mesh: &MeshData<VoxelVertex>) -> VoxelMesh {
         vertices,
         triangles,
     }
+}
+
+fn build_raw_meshlets(mesh: &LocalMesh) -> meshopt::Meshlets {
+    let mut meshopt_indices = Vec::new();
+    for face in &mesh.faces {
+        meshopt_indices.extend_from_slice(&[
+            face.indices[0],
+            face.indices[1],
+            face.indices[2],
+            face.indices[1],
+            face.indices[3],
+            face.indices[2],
+        ]);
+    }
+    let mut meshopt_vertices = Vec::new();
+    for vertex in &mesh.vertices {
+        meshopt_vertices.push(MeshoptVertex {
+            position: vertex.position.cast::<f32>(),
+        });
+    }
+    let vertices = VertexDataAdapter::new(
+        typed_to_bytes(&meshopt_vertices),
+        std::mem::size_of::<MeshoptVertex>(),
+        0,
+    )
+    .unwrap();
+    build_meshlets(&meshopt_indices, &vertices, 128, 256, 0.)
 }

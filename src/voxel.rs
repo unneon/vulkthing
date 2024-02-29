@@ -3,6 +3,7 @@ pub mod coordinates;
 mod culled_meshing;
 pub mod gpu_memory;
 mod greedy_meshing;
+mod local_mesh;
 pub mod meshlet;
 mod sparse_octree;
 mod square_invariant;
@@ -13,13 +14,12 @@ use crate::config::{
     DEFAULT_VOXEL_RENDER_DISTANCE_VERTICAL,
 };
 use crate::interface::EnumInterface;
-use crate::mesh::MeshData;
 use crate::voxel::culled_meshing::CulledMeshing;
 use crate::voxel::gpu_memory::VoxelGpuMemory;
 use crate::voxel::greedy_meshing::GreedyMeshing;
+use crate::voxel::local_mesh::LocalMesh;
 use crate::voxel::sparse_octree::SparseOctree;
 use crate::voxel::square_invariant::SquareInvariant;
-use crate::voxel::vertex::VoxelVertex;
 use bracket_noise::prelude::*;
 use nalgebra::{DMatrix, Vector2, Vector3};
 use std::borrow::Cow;
@@ -33,7 +33,7 @@ trait MeshingAlgorithm {
         chunk_svo: &SparseOctree,
         neighbour_svos: [&SparseOctree; 6],
         chunk_size: usize,
-    ) -> MeshData<VoxelVertex>;
+    ) -> LocalMesh;
 }
 
 trait ChunkPriorityAlgorithm {
@@ -366,15 +366,15 @@ fn generate_mesh(
     chunk_svo: &SparseOctree,
     neighbour_svos: [&SparseOctree; 6],
     config: &VoxelsConfig,
-) -> MeshData<VoxelVertex> {
+) -> LocalMesh {
     if chunk_svo.is_uniform()
         && neighbour_svos
             .iter()
             .all(|neighbour_svo| *neighbour_svo == chunk_svo)
     {
-        return MeshData {
+        return LocalMesh {
             vertices: Vec::new(),
-            indices: Vec::new(),
+            faces: Vec::new(),
         };
     }
     let meshing_algorithm = match config.meshing_algorithm {

@@ -1,6 +1,5 @@
-use crate::mesh::MeshData;
+use crate::voxel::local_mesh::{LocalFace, LocalMesh, LocalVertex};
 use crate::voxel::sparse_octree::SparseOctree;
-use crate::voxel::vertex::VoxelVertex;
 use crate::voxel::{MeshingAlgorithm, VoxelKind, DIRECTIONS};
 use nalgebra::{Vector2, Vector3};
 
@@ -17,7 +16,8 @@ struct State<'a> {
     slice_minus_normal_index: usize,
     slice_offset: i64,
     slice_used: Vec<bool>,
-    vertices: Vec<VoxelVertex>,
+    vertices: Vec<LocalVertex>,
+    faces: Vec<LocalFace>,
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -31,7 +31,7 @@ impl MeshingAlgorithm for GreedyMeshing {
         chunk_svo: &SparseOctree,
         neighbour_svos: [&SparseOctree; 6],
         chunk_size: usize,
-    ) -> MeshData<VoxelVertex> {
+    ) -> LocalMesh {
         let mut state = State {
             chunk_size,
             chunk_svo,
@@ -44,6 +44,7 @@ impl MeshingAlgorithm for GreedyMeshing {
             slice_offset: 0,
             slice_used: vec![false; chunk_size * chunk_size],
             vertices: Vec::new(),
+            faces: Vec::new(),
         };
         let dx = Vector3::new(1, 0, 0);
         let dy = Vector3::new(0, 1, 0);
@@ -51,9 +52,9 @@ impl MeshingAlgorithm for GreedyMeshing {
         state.mesh_orientation(dx, dy, dz, 4, 5);
         state.mesh_orientation(dx, dz, dy, 2, 3);
         state.mesh_orientation(dy, dz, dx, 0, 1);
-        MeshData {
-            indices: (0..state.vertices.len() as u32).collect(),
+        LocalMesh {
             vertices: state.vertices,
+            faces: state.faces,
         }
     }
 }
@@ -104,26 +105,58 @@ impl State<'_> {
                     }
                 }
 
-                let top_left = self.convert_2d_to_3d(Vector2::new(x1, y1)).cast::<f32>();
-                let top_right = self.convert_2d_to_3d(Vector2::new(x2, y1)).cast::<f32>();
-                let bottom_left = self.convert_2d_to_3d(Vector2::new(x1, y2)).cast::<f32>();
-                let bottom_right = self.convert_2d_to_3d(Vector2::new(x2, y2)).cast::<f32>();
+                let top_left = self
+                    .convert_2d_to_3d(Vector2::new(x1, y1))
+                    .try_cast::<u16>()
+                    .unwrap();
+                let top_right = self
+                    .convert_2d_to_3d(Vector2::new(x2, y1))
+                    .try_cast::<u16>()
+                    .unwrap();
+                let bottom_left = self
+                    .convert_2d_to_3d(Vector2::new(x1, y2))
+                    .try_cast::<u16>()
+                    .unwrap();
+                let bottom_right = self
+                    .convert_2d_to_3d(Vector2::new(x2, y2))
+                    .try_cast::<u16>()
+                    .unwrap();
                 let normal_i64 = match wall_info.0 {
                     WallNormal::AlongSliceNormal => self.slice_normal,
                     WallNormal::AlongMinusSliceNormal => -self.slice_normal,
                 };
-                let _normal = Vector3::new(0., 0., 0.);
-                let _material = wall_info.1 as u8 as u16;
-                let v1 = VoxelVertex::new(top_left);
-                let v2 = VoxelVertex::new(top_right);
-                let v3 = VoxelVertex::new(bottom_left);
-                let v4 = VoxelVertex::new(bottom_right);
-                let (v2, v3) = if self.slice_right.cross(&self.slice_down) == normal_i64 {
-                    (v2, v3)
-                } else {
-                    (v3, v2)
+                let v1 = LocalVertex { position: top_left };
+                let v2 = LocalVertex {
+                    position: top_right,
                 };
-                self.vertices.extend_from_slice(&[v1, v2, v3, v2, v4, v3]);
+                let v3 = LocalVertex {
+                    position: bottom_left,
+                };
+                let v4 = LocalVertex {
+                    position: bottom_right,
+                };
+                let base_index = self.vertices.len() as u32;
+                let (io2, io3) = if self.slice_right.cross(&self.slice_down) == normal_i64 {
+                    (1, 2)
+                } else {
+                    (2, 1)
+                };
+                let i1 = base_index;
+                let i2 = base_index + io2;
+                let i3 = base_index + io3;
+                let i4 = base_index + 3;
+                self.vertices.push(v1);
+                self.vertices.push(v2);
+                self.vertices.push(v3);
+                self.vertices.push(v4);
+                self.faces.push(LocalFace {
+                    indices: [i1, i2, i3, i4],
+                    normal_index: match wall_info.0 {
+                        WallNormal::AlongSliceNormal => self.slice_normal_index as u8,
+                        WallNormal::AlongMinusSliceNormal => self.slice_minus_normal_index as u8,
+                    },
+                    material: wall_info.1 as u8,
+                });
             }
         }
     }

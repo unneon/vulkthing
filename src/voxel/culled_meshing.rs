@@ -1,8 +1,7 @@
-use crate::mesh::MeshData;
 use crate::voxel::binary_cube::BinaryCube;
+use crate::voxel::local_mesh::{LocalFace, LocalMesh, LocalVertex};
 use crate::voxel::sparse_octree::SparseOctree;
-use crate::voxel::vertex::VoxelVertex;
-use crate::voxel::{MeshingAlgorithm, VoxelKind, DIRECTIONS};
+use crate::voxel::{MeshingAlgorithm, DIRECTIONS};
 use nalgebra::Vector3;
 
 pub struct CulledMeshing;
@@ -11,7 +10,8 @@ struct State<'a> {
     chunk_size: usize,
     chunk_svo: &'a SparseOctree,
     neighbour_svos: [&'a SparseOctree; 6],
-    vertices: Vec<VoxelVertex>,
+    vertices: Vec<LocalVertex>,
+    faces: Vec<LocalFace>,
 }
 
 impl MeshingAlgorithm for CulledMeshing {
@@ -19,18 +19,19 @@ impl MeshingAlgorithm for CulledMeshing {
         chunk_svo: &SparseOctree,
         neighbour_svos: [&SparseOctree; 6],
         chunk_size: usize,
-    ) -> MeshData<VoxelVertex> {
+    ) -> LocalMesh {
         let cube = BinaryCube::new_at_zero(chunk_size);
         let mut state = State {
             chunk_size,
             chunk_svo,
             neighbour_svos,
             vertices: Vec::new(),
+            faces: Vec::new(),
         };
         state.mesh_cube(cube, chunk_svo);
-        MeshData {
-            indices: (0..state.vertices.len() as u32).collect(),
+        LocalMesh {
             vertices: state.vertices,
+            faces: state.faces,
         }
     }
 }
@@ -57,22 +58,15 @@ impl State<'_> {
 
     fn mesh_voxel(&mut self, position: Vector3<i64>) {
         for direction_index in 0..DIRECTIONS.len() {
-            let side = self.mesh_voxel_side(position, direction_index);
-            if let Some(side) = side {
-                self.vertices.extend_from_slice(&side);
-            }
+            self.mesh_voxel_side(position, direction_index);
         }
     }
 
-    fn mesh_voxel_side(
-        &mut self,
-        position: Vector3<i64>,
-        normal_index: usize,
-    ) -> Option<[VoxelVertex; 6]> {
+    fn mesh_voxel_side(&mut self, position: Vector3<i64>, normal_index: usize) {
         let chunk_size = self.chunk_size as i64;
-        let position_voxel_kind = self.chunk_svo.at(position, chunk_size);
-        if position_voxel_kind == VoxelKind::Air {
-            return None;
+        let material = self.chunk_svo.at(position, chunk_size);
+        if material.is_air() {
+            return;
         }
         let normal = DIRECTIONS[normal_index];
         let neighbour_in_chunk = position + normal;
@@ -89,11 +83,14 @@ impl State<'_> {
                 (neighbour_in_chunk.y + chunk_size) % chunk_size,
                 (neighbour_in_chunk.z + chunk_size) % chunk_size,
             );
-            if neighbour_svo.at(neighbour_in_neighbour, chunk_size) == VoxelKind::Stone {
-                return None;
+            if !neighbour_svo
+                .at(neighbour_in_neighbour, chunk_size)
+                .is_air()
+            {
+                return;
             }
-        } else if self.chunk_svo.at(neighbour_in_chunk, chunk_size) == VoxelKind::Stone {
-            return None;
+        } else if !self.chunk_svo.at(neighbour_in_chunk, chunk_size).is_air() {
+            return;
         }
         let rot1 = Vector3::new(normal.z.abs(), normal.x.abs(), normal.y.abs());
         let rot2 = Vector3::new(normal.y.abs(), normal.z.abs(), normal.x.abs());
@@ -107,11 +104,32 @@ impl State<'_> {
         } else {
             (rot2, rot1)
         };
-        let _material = position_voxel_kind as u8 as u16;
-        let v1 = VoxelVertex::new(base.cast::<f32>());
-        let v2 = VoxelVertex::new((base + rot1).cast::<f32>());
-        let v3 = VoxelVertex::new((base + rot2).cast::<f32>());
-        let v4 = VoxelVertex::new((base + rot1 + rot2).cast::<f32>());
-        Some([v1, v2, v3, v2, v4, v3])
+        let base_index = self.vertices.len() as u32;
+        let i1 = base_index;
+        let i2 = base_index + 1;
+        let i3 = base_index + 2;
+        let i4 = base_index + 3;
+        let indices = [i1, i2, i3, i4];
+        let v1 = LocalVertex {
+            position: base.try_cast::<u16>().unwrap(),
+        };
+        let v2 = LocalVertex {
+            position: (base + rot1).try_cast::<u16>().unwrap(),
+        };
+        let v3 = LocalVertex {
+            position: (base + rot2).try_cast::<u16>().unwrap(),
+        };
+        let v4 = LocalVertex {
+            position: (base + rot1 + rot2).try_cast::<u16>().unwrap(),
+        };
+        self.vertices.push(v1);
+        self.vertices.push(v2);
+        self.vertices.push(v3);
+        self.vertices.push(v4);
+        self.faces.push(LocalFace {
+            indices,
+            normal_index: normal_index as u8,
+            material: material as u8,
+        });
     }
 }

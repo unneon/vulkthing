@@ -1,34 +1,12 @@
 use crate::renderer::vertex::Vertex;
 use log::debug;
 use nalgebra::Vector3;
-use std::collections::{hash_map, HashMap};
-use std::hash::Hash;
 use tobj::LoadOptions;
 
 #[derive(Clone, Debug)]
 pub struct MeshData<V> {
     pub vertices: Vec<V>,
     pub indices: Vec<u32>,
-}
-
-impl<V: Clone + Eq + Hash + PartialEq> MeshData<V> {
-    pub fn remove_duplicate_vertices(self) -> Self {
-        let mut mapping = HashMap::new();
-        let mut counter = 0;
-        let mut vertices = Vec::new();
-        for vertex in &self.vertices {
-            if let hash_map::Entry::Vacant(mapping) = mapping.entry(vertex) {
-                mapping.insert(counter);
-                counter += 1;
-                vertices.push(vertex.clone());
-            }
-        }
-        let mut indices = Vec::new();
-        for index in &self.indices {
-            indices.push(mapping[&self.vertices[*index as usize]]);
-        }
-        MeshData { vertices, indices }
-    }
 }
 
 pub fn load_mesh(obj_path: &str) -> MeshData<Vertex> {
