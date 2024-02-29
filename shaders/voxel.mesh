@@ -40,7 +40,7 @@ void main() {
 
     if (gl_LocalInvocationID.x < meshlet.triangle_count) {
         VoxelTriangle triangle = triangles[meshlet.triangle_offset + gl_LocalInvocationID.x];
-        gl_PrimitiveTriangleIndicesEXT[gl_LocalInvocationID.x] = uvec3(triangle.index0, triangle.index1, triangle.index2 );
+        gl_PrimitiveTriangleIndicesEXT[gl_LocalInvocationID.x] = uvec3(triangle.index0, triangle.index1, triangle.index2);
         frag_data[gl_LocalInvocationID.x] = triangle.data;
         vec3 work_group_color = color_from_index(gl_WorkGroupID.x);
         vec3 local_invocation_color = color_from_index(gl_LocalInvocationID.x);

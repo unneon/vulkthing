@@ -1,53 +1,28 @@
 mod binary_cube;
-pub mod coordinates;
-mod culled_meshing;
+mod chunk_priority;
 pub mod gpu_memory;
-mod greedy_meshing;
 mod local_mesh;
+pub mod material;
+pub mod meshing;
 pub mod meshlet;
 mod sparse_octree;
-mod square_invariant;
-pub mod vertex;
+mod thread;
+mod world_generation;
 
 use crate::config::{
     DEFAULT_VOXEL_CHUNK_SIZE, DEFAULT_VOXEL_RENDER_DISTANCE_HORIZONTAL,
     DEFAULT_VOXEL_RENDER_DISTANCE_VERTICAL,
 };
-use crate::interface::EnumInterface;
-use crate::voxel::culled_meshing::CulledMeshing;
+use crate::voxel::chunk_priority::{ChunkPriority, ChunkPriorityAlgorithm};
 use crate::voxel::gpu_memory::VoxelGpuMemory;
-use crate::voxel::greedy_meshing::GreedyMeshing;
-use crate::voxel::local_mesh::LocalMesh;
+use crate::voxel::meshing::MeshingAlgorithmKind;
 use crate::voxel::sparse_octree::SparseOctree;
-use crate::voxel::square_invariant::SquareInvariant;
-use bracket_noise::prelude::*;
+use crate::voxel::thread::voxel_thread;
+use bracket_noise::prelude::{FastNoise, NoiseType};
 use nalgebra::{DMatrix, Vector2, Vector3};
-use std::borrow::Cow;
 use std::collections::HashMap;
-use std::mem::MaybeUninit;
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
-
-trait MeshingAlgorithm {
-    fn mesh(
-        chunk_svo: &SparseOctree,
-        neighbour_svos: [&SparseOctree; 6],
-        chunk_size: usize,
-    ) -> LocalMesh;
-}
-
-trait ChunkPriorityAlgorithm {
-    fn select(&mut self) -> Option<Vector3<i64>>;
-
-    fn update_camera(&mut self, camera: Vector3<i64>);
-
-    fn clear(
-        &mut self,
-        camera: Vector3<i64>,
-        render_distance_horizontal: i64,
-        render_distance_vertical: i64,
-    );
-}
 
 pub struct Voxels {
     shared: Arc<VoxelsShared>,
@@ -64,7 +39,7 @@ pub struct VoxelsShared {
 }
 
 pub struct VoxelsState {
-    chunk_priority: SquareInvariant,
+    chunk_priority: ChunkPriority,
     heightmap_noise: Arc<FastNoise>,
     loaded_svos: HashMap<Vector3<i64>, Arc<SparseOctree>>,
     loaded_heightmaps: HashMap<Vector2<i64>, Arc<DMatrix<i64>>>,
@@ -84,21 +59,6 @@ pub struct VoxelsConfig {
     pub render_distance_horizontal: usize,
     pub render_distance_vertical: usize,
     pub meshing_algorithm: MeshingAlgorithmKind,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[repr(u8)]
-pub enum VoxelKind {
-    Air = 0,
-    Stone = 1,
-    Dirt = 2,
-    Grass = 3,
-}
-
-#[derive(Clone, Copy, Eq, PartialEq)]
-pub enum MeshingAlgorithmKind {
-    Culled,
-    Greedy,
 }
 
 pub const DIRECTIONS: [Vector3<i64>; 6] = [
@@ -124,7 +84,7 @@ impl Voxels {
         let shared = Arc::new(VoxelsShared {
             camera: Mutex::new(camera),
             state: Mutex::new(VoxelsState {
-                chunk_priority: SquareInvariant::new(
+                chunk_priority: ChunkPriority::new(
                     camera,
                     DEFAULT_VOXEL_RENDER_DISTANCE_HORIZONTAL.div_ceil(DEFAULT_VOXEL_CHUNK_SIZE)
                         as i64,
@@ -197,192 +157,6 @@ impl Voxels {
         }
         self.shared.state.lock().unwrap().gpu_memory.cleanup();
     }
-}
-
-impl VoxelKind {
-    pub fn is_air(&self) -> bool {
-        matches!(self, VoxelKind::Air)
-    }
-}
-
-impl EnumInterface for MeshingAlgorithmKind {
-    const VALUES: &'static [MeshingAlgorithmKind] =
-        &[MeshingAlgorithmKind::Culled, MeshingAlgorithmKind::Greedy];
-
-    fn label(&self) -> Cow<str> {
-        match self {
-            MeshingAlgorithmKind::Culled => Cow::Borrowed("Culled Meshing"),
-            MeshingAlgorithmKind::Greedy => Cow::Borrowed("Greedy Meshing"),
-        }
-    }
-}
-
-fn voxel_thread(shared: &VoxelsShared) {
-    let mut state = shared.state.lock().unwrap();
-    loop {
-        if state.shutdown {
-            break;
-        }
-
-        let config = state.config.clone();
-        let config_generation = state.config_generation;
-        let noise = state.heightmap_noise.clone();
-
-        state
-            .chunk_priority
-            .update_camera(*shared.camera.lock().unwrap());
-        let Some(chunk) = state.chunk_priority.select() else {
-            state = shared.wake.wait(state).unwrap();
-            continue;
-        };
-
-        let mut offsets = vec![Vector3::zeros()];
-        offsets.extend_from_slice(&DIRECTIONS);
-        let mut all_svos = Vec::new();
-        for offset in offsets {
-            let chunk = chunk + offset;
-            let svo = if let Some(svo) = state.loaded_svos.get(&chunk) {
-                svo.clone()
-            } else {
-                let heightmap = if let Some(heightmap) = state.loaded_heightmaps.get(&chunk.xy()) {
-                    heightmap.clone()
-                } else {
-                    drop(state);
-                    let heightmap = Arc::new(generate_heightmap(chunk, &noise, &config));
-                    state = shared.state.lock().unwrap();
-                    state
-                        .loaded_heightmaps
-                        .insert(chunk.xy(), heightmap.clone());
-                    heightmap
-                };
-                drop(state);
-                let chunk_svo = Arc::new(generate_svo(chunk, &heightmap, &config));
-                state = shared.state.lock().unwrap();
-                state.loaded_svos.insert(chunk, chunk_svo.clone());
-                chunk_svo
-            };
-            all_svos.push(svo);
-        }
-        drop(state);
-        let chunk_svo = &all_svos[0];
-        let neighbour_svos = std::array::from_fn(|i| &*all_svos[i + 1]);
-        let raw_mesh = generate_mesh(chunk_svo, neighbour_svos, &config);
-        let mesh = meshlet::from_unclustered_mesh(&raw_mesh);
-        state = shared.state.lock().unwrap();
-        if config_generation != state.config_generation {
-            continue;
-        }
-        state.gpu_memory.upload_meshlet(chunk, mesh);
-    }
-}
-
-fn generate_heightmap(
-    chunk: Vector3<i64>,
-    noise: &FastNoise,
-    config: &VoxelsConfig,
-) -> DMatrix<i64> {
-    let chunk_coordinates = chunk.xy() * config.chunk_size as i64;
-    let mut heightmap = DMatrix::from_element(config.chunk_size, config.chunk_size, 0);
-    for x in 0..config.chunk_size {
-        for y in 0..config.chunk_size {
-            let column_coordinates = chunk_coordinates + Vector2::new(x as i64, y as i64);
-            let noise_position = column_coordinates.cast::<f32>() * config.heightmap_frequency;
-            let raw_noise = noise.get_noise(noise_position.x, noise_position.y);
-            let scaled_noise = (raw_noise + config.heightmap_bias) * config.heightmap_amplitude;
-            heightmap[(x, y)] = scaled_noise.round() as i64;
-        }
-    }
-    heightmap
-}
-
-fn generate_svo(
-    chunk: Vector3<i64>,
-    heightmap: &DMatrix<i64>,
-    config: &VoxelsConfig,
-) -> SparseOctree {
-    assert_eq!(heightmap.nrows(), config.chunk_size);
-    assert_eq!(heightmap.ncols(), config.chunk_size);
-    svo_from_heightmap_impl(
-        0,
-        0,
-        chunk.z * config.chunk_size as i64,
-        config.chunk_size,
-        heightmap,
-    )
-}
-
-fn svo_from_heightmap_impl(
-    x: usize,
-    y: usize,
-    z: i64,
-    n: usize,
-    heightmap: &DMatrix<i64>,
-) -> SparseOctree {
-    'check_all_same: {
-        let material = material_from_height(heightmap[(x, y)], z);
-        for ly in y..y + n {
-            for lx in x..x + n {
-                let height = heightmap[(lx, ly)];
-                let low_material = material_from_height(height, z);
-                let high_material = material_from_height(height, z + n as i64 - 1);
-                if low_material != material || high_material != material {
-                    break 'check_all_same;
-                }
-            }
-        }
-        return SparseOctree::Uniform { kind: material };
-    }
-    let mut children = MaybeUninit::uninit_array();
-    for dz in 0..2 {
-        for dy in 0..2 {
-            for dx in 0..2 {
-                children[4 * dz + 2 * dy + dx].write(svo_from_heightmap_impl(
-                    x + dx * n / 2,
-                    y + dy * n / 2,
-                    z + dz as i64 * n as i64 / 2,
-                    n / 2,
-                    heightmap,
-                ));
-            }
-        }
-    }
-    let children = Box::new(unsafe { MaybeUninit::array_assume_init(children) });
-    SparseOctree::Mixed { children }
-}
-
-fn material_from_height(height: i64, z: i64) -> VoxelKind {
-    if height <= z {
-        VoxelKind::Air
-    } else if height <= z + 1 {
-        VoxelKind::Grass
-    } else if height <= z + 5 {
-        VoxelKind::Dirt
-    } else {
-        VoxelKind::Stone
-    }
-}
-
-fn generate_mesh(
-    chunk_svo: &SparseOctree,
-    neighbour_svos: [&SparseOctree; 6],
-    config: &VoxelsConfig,
-) -> LocalMesh {
-    if chunk_svo.is_uniform()
-        && neighbour_svos
-            .iter()
-            .all(|neighbour_svo| *neighbour_svo == chunk_svo)
-    {
-        return LocalMesh {
-            vertices: Vec::new(),
-            faces: Vec::new(),
-        };
-    }
-    let meshing_algorithm = match config.meshing_algorithm {
-        MeshingAlgorithmKind::Culled => CulledMeshing::mesh,
-        MeshingAlgorithmKind::Greedy => GreedyMeshing::mesh,
-    };
-    let mesh = meshing_algorithm(chunk_svo, neighbour_svos, config.chunk_size);
-    mesh.remove_duplicate_vertices()
 }
 
 fn chunk_from_position(position: Vector3<f32>, chunk_size: usize) -> Vector3<i64> {

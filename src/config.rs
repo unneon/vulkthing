@@ -1,7 +1,7 @@
 use crate::camera::first_person::FirstPersonCamera;
 use crate::renderer::uniform::Tonemapper;
 use crate::renderer::{PostprocessSettings, RendererSettings};
-use crate::voxel::MeshingAlgorithmKind;
+use crate::voxel::meshing::MeshingAlgorithmKind;
 use nalgebra::Vector3;
 
 pub const DEFAULT_SUN_POSITION: Vector3<f32> = Vector3::new(0., 0., DEFAULT_SUN_RADIUS);

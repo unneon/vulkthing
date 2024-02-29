@@ -1,3 +1,4 @@
+use crate::voxel::material::Material;
 use nalgebra::Vector3;
 use std::collections::{hash_map, HashMap};
 
@@ -15,10 +16,17 @@ pub struct LocalVertex {
 pub struct LocalFace {
     pub indices: [u32; 4],
     pub normal_index: u8,
-    pub material: u8,
+    pub material: Material,
 }
 
 impl LocalMesh {
+    pub fn new_empty() -> LocalMesh {
+        LocalMesh {
+            vertices: Vec::new(),
+            faces: Vec::new(),
+        }
+    }
+
     pub fn remove_duplicate_vertices(self) -> Self {
         let mut mapping = HashMap::new();
         let mut counter = 0;

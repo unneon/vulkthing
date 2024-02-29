@@ -1,14 +1,14 @@
-use crate::voxel::VoxelKind;
+use crate::voxel::material::Material;
 use nalgebra::Vector3;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SparseOctree {
-    Uniform { kind: VoxelKind },
+    Uniform { kind: Material },
     Mixed { children: Box<[SparseOctree; 8]> },
 }
 
 impl SparseOctree {
-    pub fn at(&self, point: Vector3<i64>, local_size: i64) -> VoxelKind {
+    pub fn at(&self, point: Vector3<i64>, local_size: i64) -> Material {
         match self {
             SparseOctree::Uniform { kind } => *kind,
             SparseOctree::Mixed { children } => {
@@ -31,9 +31,5 @@ impl SparseOctree {
                 children[index].at(child_coordinates, child_size)
             }
         }
-    }
-
-    pub fn is_uniform(&self) -> bool {
-        matches!(self, SparseOctree::Uniform { .. })
     }
 }

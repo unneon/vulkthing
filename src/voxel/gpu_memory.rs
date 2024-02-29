@@ -1,6 +1,5 @@
 use crate::renderer::util::{Dev, StorageBuffer};
-use crate::voxel::meshlet::{VoxelMesh, VoxelMeshlet, VoxelTriangle};
-use crate::voxel::vertex::VoxelVertex;
+use crate::voxel::meshlet::{VoxelMesh, VoxelMeshlet, VoxelTriangle, VoxelVertex};
 use nalgebra::Vector3;
 use std::mem::MaybeUninit;
 use std::sync::atomic::{AtomicU32, Ordering};

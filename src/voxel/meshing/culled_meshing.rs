@@ -1,7 +1,8 @@
 use crate::voxel::binary_cube::BinaryCube;
 use crate::voxel::local_mesh::{LocalFace, LocalMesh, LocalVertex};
+use crate::voxel::meshing::MeshingAlgorithm;
 use crate::voxel::sparse_octree::SparseOctree;
-use crate::voxel::{MeshingAlgorithm, DIRECTIONS};
+use crate::voxel::DIRECTIONS;
 use nalgebra::Vector3;
 
 pub struct CulledMeshing;
@@ -129,7 +130,7 @@ impl State<'_> {
         self.faces.push(LocalFace {
             indices,
             normal_index: normal_index as u8,
-            material: material as u8,
+            material,
         });
     }
 }

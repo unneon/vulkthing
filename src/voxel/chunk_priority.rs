@@ -1,33 +1,46 @@
 use crate::util::geometry::Cuboid;
-use crate::voxel::{ChunkPriorityAlgorithm, DIRECTIONS};
+use crate::voxel::DIRECTIONS;
 use nalgebra::Vector3;
 use std::collections::HashSet;
 
-pub struct SquareInvariant {
+pub trait ChunkPriorityAlgorithm {
+    fn select(&mut self) -> Option<Vector3<i64>>;
+
+    fn update_camera(&mut self, camera: Vector3<i64>);
+
+    fn clear(
+        &mut self,
+        camera: Vector3<i64>,
+        render_distance_horizontal: i64,
+        render_distance_vertical: i64,
+    );
+}
+
+pub struct ChunkPriority {
     camera: Vector3<i64>,
     loaded: HashSet<Vector3<i64>>,
     stable: Cuboid<i64>,
     queue: Vec<Vector3<i64>>,
-    config: SquareInvariantConfig,
+    config: Config,
 }
 
-struct SquareInvariantConfig {
+struct Config {
     render_distance_horizontal: i64,
     render_distance_vertical: i64,
 }
 
-impl SquareInvariant {
+impl ChunkPriority {
     pub fn new(
         camera: Vector3<i64>,
         render_distance_horizontal: i64,
         render_distance_vertical: i64,
-    ) -> SquareInvariant {
-        SquareInvariant {
+    ) -> ChunkPriority {
+        ChunkPriority {
             camera,
             loaded: HashSet::new(),
             stable: Cuboid::new_empty(),
             queue: Vec::new(),
-            config: SquareInvariantConfig {
+            config: Config {
                 render_distance_horizontal,
                 render_distance_vertical,
             },
@@ -52,7 +65,7 @@ impl SquareInvariant {
     }
 }
 
-impl ChunkPriorityAlgorithm for SquareInvariant {
+impl ChunkPriorityAlgorithm for ChunkPriority {
     fn select(&mut self) -> Option<Vector3<i64>> {
         if let Some(chunk) = self.queue.pop() {
             self.loaded.insert(chunk);

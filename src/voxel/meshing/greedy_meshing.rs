@@ -1,6 +1,8 @@
 use crate::voxel::local_mesh::{LocalFace, LocalMesh, LocalVertex};
+use crate::voxel::material::Material;
+use crate::voxel::meshing::MeshingAlgorithm;
 use crate::voxel::sparse_octree::SparseOctree;
-use crate::voxel::{MeshingAlgorithm, VoxelKind, DIRECTIONS};
+use crate::voxel::DIRECTIONS;
 use nalgebra::{Vector2, Vector3};
 
 pub struct GreedyMeshing;
@@ -155,7 +157,7 @@ impl State<'_> {
                         WallNormal::AlongSliceNormal => self.slice_normal_index as u8,
                         WallNormal::AlongMinusSliceNormal => self.slice_minus_normal_index as u8,
                     },
-                    material: wall_info.1 as u8,
+                    material: wall_info.1,
                 });
             }
         }
@@ -163,7 +165,7 @@ impl State<'_> {
 
     /// Checks whether a wall should be placed between a voxel position and a voxel a minus normal apart from it. Also
     /// checks the desired orientation of the wall, and the material the wall should be made of.
-    fn wall(&self, voxel_2d: Vector2<i64>) -> Option<(WallNormal, VoxelKind)> {
+    fn wall(&self, voxel_2d: Vector2<i64>) -> Option<(WallNormal, Material)> {
         // Note this assert and the following condition refer to 2D coordinates, not 3D. The out of bounds checks later
         // are related only to the normal axis, so the only reason 2D coordinates would be out of bounds is because of
         // the closed-open interval convention used in mesh_slice function.
@@ -240,10 +242,10 @@ impl State<'_> {
 fn single_voxel_air_around_air() {
     let actual = GreedyMeshing::mesh(
         &SparseOctree::Uniform {
-            kind: VoxelKind::Air,
+            kind: Material::Air,
         },
         [&SparseOctree::Uniform {
-            kind: VoxelKind::Air,
+            kind: Material::Air,
         }; 6],
         1,
     );
@@ -254,10 +256,10 @@ fn single_voxel_air_around_air() {
 fn single_voxel_stone_around_stone() {
     let actual = GreedyMeshing::mesh(
         &SparseOctree::Uniform {
-            kind: VoxelKind::Stone,
+            kind: Material::Stone,
         },
         [&SparseOctree::Uniform {
-            kind: VoxelKind::Stone,
+            kind: Material::Stone,
         }; 6],
         1,
     );
@@ -268,10 +270,10 @@ fn single_voxel_stone_around_stone() {
 fn chunk16_air_around_air() {
     let actual = GreedyMeshing::mesh(
         &SparseOctree::Uniform {
-            kind: VoxelKind::Air,
+            kind: Material::Air,
         },
         [&SparseOctree::Uniform {
-            kind: VoxelKind::Air,
+            kind: Material::Air,
         }; 6],
         16,
     );
@@ -282,10 +284,10 @@ fn chunk16_air_around_air() {
 fn chunk16_stone_around_stone() {
     let actual = GreedyMeshing::mesh(
         &SparseOctree::Uniform {
-            kind: VoxelKind::Stone,
+            kind: Material::Stone,
         },
         [&SparseOctree::Uniform {
-            kind: VoxelKind::Stone,
+            kind: Material::Stone,
         }; 6],
         16,
     );

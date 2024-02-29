@@ -1,5 +1,5 @@
 use crate::voxel::local_mesh::LocalMesh;
-use crate::voxel::vertex::VoxelVertex;
+use crate::voxel::material::Material;
 use meshopt::{build_meshlets, typed_to_bytes, VertexDataAdapter};
 use nalgebra::Vector3;
 use std::collections::HashMap;
@@ -13,20 +13,27 @@ pub struct VoxelMesh {
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
-pub struct VoxelTriangle {
-    index0: u8,
-    index1: u8,
-    index2: u8,
-    data: u8,
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Debug)]
 pub struct VoxelMeshlet {
     pub vertex_offset: u32,
     pub vertex_count: u32,
     pub triangle_offset: u32,
     pub triangle_count: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct VoxelVertex {
+    pub position: Vector3<f32>,
+    _pad0: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct VoxelTriangle {
+    index0: u8,
+    index1: u8,
+    index2: u8,
+    data: u8,
 }
 
 // Data format expected by the meshoptimizer library. I'll be writing my own meshlet construction
@@ -36,15 +43,23 @@ struct MeshoptVertex {
     position: Vector3<f32>,
 }
 
+impl VoxelVertex {
+    pub fn new(position: Vector3<f32>) -> VoxelVertex {
+        VoxelVertex {
+            position,
+            _pad0: 0.,
+        }
+    }
+}
+
 impl VoxelTriangle {
-    fn new(indices: [u8; 3], normal: u8, material: u8) -> VoxelTriangle {
+    fn new(indices: [u8; 3], normal: u8, material: Material) -> VoxelTriangle {
         assert!(normal < 1 << 3);
-        assert!(material < 1 << 5);
         VoxelTriangle {
             index0: indices[0],
             index1: indices[1],
             index2: indices[2],
-            data: normal | (material << 3),
+            data: normal | ((material as u8) << 3),
         }
     }
 }
