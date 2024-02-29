@@ -12,15 +12,15 @@ pub struct SquareInvariant {
 }
 
 struct SquareInvariantConfig {
-    render_distance_horizontal: usize,
-    render_distance_vertical: usize,
+    render_distance_horizontal: i64,
+    render_distance_vertical: i64,
 }
 
 impl SquareInvariant {
     pub fn new(
         camera: Vector3<i64>,
-        render_distance_horizontal: usize,
-        render_distance_vertical: usize,
+        render_distance_horizontal: i64,
+        render_distance_vertical: i64,
     ) -> SquareInvariant {
         SquareInvariant {
             camera,
@@ -32,6 +32,23 @@ impl SquareInvariant {
                 render_distance_vertical,
             },
         }
+    }
+
+    fn closest_side(&self) -> Option<Vector3<i64>> {
+        DIRECTIONS
+            .iter()
+            .filter_map(|&direction| {
+                let distance = self.stable.distance_from_inside(self.camera, direction);
+                if direction.z == 0 && distance > self.config.render_distance_horizontal {
+                    return None;
+                }
+                if direction.z != 0 && distance > self.config.render_distance_vertical {
+                    return None;
+                }
+                Some((distance, direction))
+            })
+            .min_by_key(|(distance, _)| *distance)
+            .map(|(_, normal)| normal)
     }
 }
 
@@ -51,7 +68,9 @@ impl ChunkPriorityAlgorithm for SquareInvariant {
 
         assert!(self.stable.contains(self.camera));
         loop {
-            let normal = closest_side(self.camera, self.stable);
+            let Some(normal) = self.closest_side() else {
+                break None;
+            };
             self.stable = self.stable.extend_in_direction(normal);
             for voxel in self.stable.side_voxels(normal) {
                 if !self.loaded.contains(&voxel) {
@@ -76,8 +95,8 @@ impl ChunkPriorityAlgorithm for SquareInvariant {
     fn clear(
         &mut self,
         camera: Vector3<i64>,
-        render_distance_horizontal: usize,
-        render_distance_vertical: usize,
+        render_distance_horizontal: i64,
+        render_distance_vertical: i64,
     ) {
         self.camera = camera;
         self.loaded.clear();
@@ -86,16 +105,4 @@ impl ChunkPriorityAlgorithm for SquareInvariant {
         self.config.render_distance_horizontal = render_distance_horizontal;
         self.config.render_distance_vertical = render_distance_vertical;
     }
-}
-
-fn closest_side(camera: Vector3<i64>, stable: Cuboid<i64>) -> Vector3<i64> {
-    DIRECTIONS
-        .iter()
-        .map(|&direction| {
-            let distance = stable.distance_from_inside(camera, direction);
-            (distance, direction)
-        })
-        .min_by_key(|(distance, _)| *distance)
-        .unwrap()
-        .1
 }

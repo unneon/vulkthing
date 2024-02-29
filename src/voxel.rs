@@ -44,8 +44,8 @@ trait ChunkPriorityAlgorithm {
     fn clear(
         &mut self,
         camera: Vector3<i64>,
-        render_distance_horizontal: usize,
-        render_distance_vertical: usize,
+        render_distance_horizontal: i64,
+        render_distance_vertical: i64,
     );
 }
 
@@ -126,8 +126,10 @@ impl Voxels {
             state: Mutex::new(VoxelsState {
                 chunk_priority: SquareInvariant::new(
                     camera,
-                    DEFAULT_VOXEL_RENDER_DISTANCE_HORIZONTAL.div_ceil(DEFAULT_VOXEL_CHUNK_SIZE),
-                    DEFAULT_VOXEL_RENDER_DISTANCE_VERTICAL.div_ceil(DEFAULT_VOXEL_CHUNK_SIZE),
+                    DEFAULT_VOXEL_RENDER_DISTANCE_HORIZONTAL.div_ceil(DEFAULT_VOXEL_CHUNK_SIZE)
+                        as i64,
+                    DEFAULT_VOXEL_RENDER_DISTANCE_VERTICAL.div_ceil(DEFAULT_VOXEL_CHUNK_SIZE)
+                        as i64,
                 ),
                 heightmap_noise: Arc::new(noise),
                 loaded_svos: HashMap::new(),
@@ -169,10 +171,10 @@ impl Voxels {
             self.camera,
             new_config
                 .render_distance_horizontal
-                .div_ceil(new_config.chunk_size),
+                .div_ceil(new_config.chunk_size) as i64,
             new_config
                 .render_distance_vertical
-                .div_ceil(new_config.chunk_size),
+                .div_ceil(new_config.chunk_size) as i64,
         );
         let mut noise = FastNoise::seeded(new_config.seed);
         noise.set_noise_type(NoiseType::Perlin);
