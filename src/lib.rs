@@ -17,19 +17,22 @@
 #![allow(clippy::type_complexity)]
 
 use crate::cli::Args;
-use crate::config::DEFAULT_RENDERER_SETTINGS;
+use crate::config::{
+    DEFAULT_RENDERER_SETTINGS, DEFAULT_VOXEL_CHUNK_SIZE, DEFAULT_VOXEL_HEIGHTMAP_AMPLITUDE,
+    DEFAULT_VOXEL_HEIGHTMAP_BIAS, DEFAULT_VOXEL_HEIGHTMAP_FREQUENCY,
+    DEFAULT_VOXEL_MESHING_ALGORITHM, DEFAULT_VOXEL_RENDER_DISTANCE_HORIZONTAL,
+    DEFAULT_VOXEL_RENDER_DISTANCE_VERTICAL,
+};
 use crate::input::InputState;
 use crate::interface::Interface;
 use crate::logger::{initialize_logger, initialize_panic_hook};
 use crate::mesh::load_mesh;
 use crate::renderer::Renderer;
-use crate::voxel::Voxels;
+use crate::voxel::{Voxels, VoxelsConfig};
 use crate::window::create_window;
 use crate::world::World;
 use log::debug;
 use rand::random;
-use std::sync::atomic::Ordering;
-use std::sync::{Arc, Condvar, Mutex};
 use std::time::Instant;
 use winit::event::{DeviceEvent, Event, StartCause, WindowEvent};
 use winit::event_loop::ControlFlow;
@@ -85,38 +88,22 @@ pub fn main() {
 
     renderer.create_interface_renderer(&mut interface.ctx);
 
-    let (mut voxels, voxel_config_tx) = Voxels::new(
-        random(),
+    let mut voxel_config = VoxelsConfig {
+        seed: random(),
+        chunk_size: DEFAULT_VOXEL_CHUNK_SIZE,
+        heightmap_amplitude: DEFAULT_VOXEL_HEIGHTMAP_AMPLITUDE,
+        heightmap_frequency: DEFAULT_VOXEL_HEIGHTMAP_FREQUENCY,
+        heightmap_bias: DEFAULT_VOXEL_HEIGHTMAP_BIAS,
+        render_distance_horizontal: DEFAULT_VOXEL_RENDER_DISTANCE_HORIZONTAL,
+        render_distance_vertical: DEFAULT_VOXEL_RENDER_DISTANCE_VERTICAL,
+        meshing_algorithm: DEFAULT_VOXEL_MESHING_ALGORITHM,
+    };
+    let voxels = Voxels::new(
+        voxel_config.clone(),
         world.camera.position(),
-        renderer.voxel_gpu_memory.clone(),
+        renderer.voxel_gpu_memory.take().unwrap(),
+        std::thread::available_parallelism().unwrap().get() - 1,
     );
-    let mut voxel_config = voxels.config().clone();
-    let voxels_camera = Arc::new(Mutex::new(world.camera.position()));
-    let voxels_condvar = Arc::new(Condvar::new());
-    let voxels_shutdown = voxels.shutdown();
-    let voxels_camera_update = voxels.camera_update();
-    let voxels_thread = std::thread::spawn({
-        let camera = voxels_camera.clone();
-        let condvar = voxels_condvar.clone();
-        let camera_update = voxels_camera_update.clone();
-        move || {
-            let mut camera_lock = camera.lock().unwrap();
-            while !voxels.shutdown().load(Ordering::SeqCst) {
-                let camera_position = *camera_lock;
-                camera_update.store(false, Ordering::SeqCst);
-                drop(camera_lock);
-                voxels.update_camera(camera_position);
-                if voxels.shutdown().load(Ordering::SeqCst) {
-                    break;
-                }
-                camera_lock = if !voxels.config_changed() && !camera_update.load(Ordering::SeqCst) {
-                    condvar.wait(camera.lock().unwrap()).unwrap()
-                } else {
-                    camera.lock().unwrap()
-                };
-            }
-        }
-    });
 
     // Run the event loop. Winit delivers events, like key presses. After it finishes delivering
     // some batch of events, it sends a MainEventsCleared event, which means the application should
@@ -176,6 +163,8 @@ pub fn main() {
                     world.update_benchmark(frame_index);
                 }
                 world.update(delta_time, &input_state, args.benchmark);
+                voxels.update_camera(world.camera.position());
+
                 input_state.reset_after_frame();
                 interface.apply_cursor(input_state.camera_lock, &window.window);
                 let interface_events = interface.build(
@@ -191,14 +180,8 @@ pub fn main() {
                     renderer.recreate_pipelines();
                 }
                 if interface_events.rebuild_voxels {
-                    let _ = voxel_config_tx.send(voxel_config.clone());
+                    voxels.update_config(voxel_config.clone());
                 }
-
-                let mut voxels_lock = voxels_camera.lock().unwrap();
-                *voxels_lock = world.camera.position();
-                voxels_camera_update.store(true, Ordering::SeqCst);
-                drop(voxels_lock);
-                voxels_condvar.notify_one();
 
                 renderer.draw_frame(
                     &world,
@@ -221,8 +204,7 @@ pub fn main() {
             _ => (),
         }
     });
-    voxels_shutdown.store(true, Ordering::SeqCst);
-    voxels_condvar.notify_one();
-    voxels_thread.join().unwrap();
+    renderer.wait_idle();
+    voxels.shutdown();
     loop_result.unwrap();
 }

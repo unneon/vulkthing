@@ -29,6 +29,7 @@ use ash::{vk, Device, Entry, Instance};
 use log::{debug, warn};
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use std::ffi::CString;
+use std::sync::atomic::AtomicU32;
 use std::sync::Arc;
 use winit::dpi::PhysicalSize;
 
@@ -122,11 +123,14 @@ impl Renderer {
             &dev,
         );
 
-        let voxel_gpu_memory = Arc::new(VoxelGpuMemory::new(
+        let voxel_meshlet_count = Arc::new(AtomicU32::new(0));
+        let voxel_gpu_memory = Some(VoxelGpuMemory::new(
+            voxel_meshlet_count.clone(),
             voxel_vertex_buffer,
             voxel_index_buffer,
             voxel_meshlet_buffer,
             DEFAULT_VOXEL_CHUNK_SIZE,
+            dev.clone(),
         ));
 
         Renderer {
@@ -151,6 +155,7 @@ impl Renderer {
             stars,
             global,
             global_descriptor_sets,
+            voxel_meshlet_count,
             voxel_gpu_memory,
             query_pool,
             frame_index: 0,
@@ -248,7 +253,6 @@ impl Drop for Renderer {
 
             drop(self.interface_renderer.take());
             self.dev.destroy_query_pool(self.query_pool, None);
-            self.voxel_gpu_memory.cleanup(&self.dev);
             self.stars.cleanup(&self.dev);
             for mesh in &self.mesh_objects {
                 mesh.cleanup(&self.dev);

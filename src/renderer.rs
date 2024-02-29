@@ -27,6 +27,7 @@ use ash::{vk, Entry};
 use imgui::DrawData;
 use nalgebra::{Matrix4, Vector2, Vector3};
 use std::f32::consts::FRAC_PI_4;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use winit::dpi::PhysicalSize;
@@ -71,7 +72,8 @@ pub struct Renderer {
     global: UniformBuffer<Global>,
     global_descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
 
-    pub voxel_gpu_memory: Arc<VoxelGpuMemory>,
+    voxel_meshlet_count: Arc<AtomicU32>,
+    pub voxel_gpu_memory: Option<VoxelGpuMemory>,
 
     query_pool: vk::QueryPool,
     frame_index: usize,
@@ -221,7 +223,7 @@ impl Renderer {
             self.flight_index,
         );
 
-        let voxel_meshlet_count = self.voxel_gpu_memory.meshlet_count();
+        let voxel_meshlet_count = self.voxel_meshlet_count.load(Ordering::SeqCst);
         begin_label(buf, "Voxel draws", [255, 0, 0], &self.dev);
         self.bind_graphics_pipeline(buf, self.pipelines.voxel);
         self.bind_descriptor_set(buf, self.pipeline_layouts.voxel);
@@ -390,6 +392,12 @@ impl Renderer {
                 .queue_present(self.queue, &present_info)
         }
         .unwrap();
+    }
+
+    pub fn wait_idle(&self) {
+        unsafe {
+            self.dev.device_wait_idle().unwrap();
+        };
     }
 
     fn projection_matrix(&self, settings: &RendererSettings) -> Matrix4<f32> {
