@@ -33,16 +33,17 @@ vec3 fresnel_schlick(float cos_theta, vec3 f0) {
     return f0 + (1 - f0) * pow(clamp(1 - cos_theta, 0, 1), 5);
 }
 
-vec3 pbr(vec3 normal, vec3 albedo, float metallic, float roughness, float ao) {
+vec3 pbr(vec3 normal, vec3 albedo, float metallic, float roughness) {
     vec3 view = normalize(global.camera.position - frag_position);
 
     vec3 f0 = mix(vec3(0.04), albedo, metallic);
 
     vec3 light = normalize(global.light.position - frag_position);
     vec3 halfway = normalize(view + light);
-    float distance = length(global.light.position - frag_position);
-    float attenuation = 1. / (distance * distance);
-    vec3 radiance = global.light.color * global.light.intensity * attenuation;
+    vec3 radiance = global.light.color * global.light.intensity;
+    if (dot(light, vec3(0, 0, 1)) <= 0) {
+        radiance = vec3(0);
+    }
 
     float ndf = distribution_ggx(normal, halfway, roughness);
     float g = geometry_smith(normal, view, light, roughness);
@@ -57,7 +58,6 @@ vec3 pbr(vec3 normal, vec3 albedo, float metallic, float roughness, float ao) {
 
     float ndotl = max(dot(normal, light), 0);
 
-//    vec3 ambient = vec3(0.03) * albedo * ao;
     vec3 radiance_out = (kd * albedo / PI + specular) * radiance * ndotl;
 
     return radiance_out;

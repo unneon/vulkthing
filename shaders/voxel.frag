@@ -28,7 +28,7 @@ const vec3 NORMALS[6] = vec3[](
 void main() {
     vec3 normal = NORMALS[uint(frag_data) & 7u];
     VoxelMaterial material = global.materials[uint(frag_data) >> 3];
-    vec3 reflected_color = pbr(normal, material.albedo, material.metallic, material.roughness, 0);
+    vec3 reflected_color = pbr(normal, material.albedo, material.metallic, material.roughness);
     vec3 color_at_object = reflected_color + material.emit;
     vec3 color_at_camera = compute_atmosphere(color_at_object, frag_position);
     out_color = vec4(color_at_camera, 1);
