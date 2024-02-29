@@ -21,7 +21,6 @@ pub struct Material {
     pub metallic: f32,
     pub emit: Vector3<f32>,
     pub roughness: f32,
-    pub ao: f32,
 }
 
 #[repr(C)]
@@ -29,7 +28,6 @@ pub struct Material {
 pub struct Global {
     pub light: Light,
     pub atmosphere: Atmosphere,
-    pub gaussian: Gaussian,
     pub postprocessing: PostprocessUniform,
     pub camera: Camera,
     pub materials: [VoxelMaterial; 256],
@@ -41,7 +39,6 @@ pub struct Light {
     pub color: Vector3<f32>,
     pub intensity: f32,
     pub position: Vector3<f32>,
-    pub shadow_sample_seed: f32,
     pub scale: f32,
 }
 
@@ -64,23 +61,8 @@ pub struct Atmosphere {
 
 #[repr(C, align(4))]
 #[derive(Clone, Copy)]
-pub struct Gaussian {
-    pub threshold: f32,
-    pub radius: i32,
-    pub exponent_coefficient: f32,
-}
-
-#[repr(C, align(16))]
-#[derive(Clone, Copy)]
 pub struct PostprocessUniform {
-    pub color_filter: Vector3<f32>,
-    pub bloom_constant: f32,
     pub exposure: f32,
-    pub temperature: f32,
-    pub tint: f32,
-    pub contrast: f32,
-    pub brightness: f32,
-    pub saturation: f32,
     pub tonemapper: Tonemapper,
     pub gamma: f32,
 }

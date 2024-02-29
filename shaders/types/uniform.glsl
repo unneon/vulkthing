@@ -6,7 +6,6 @@
     Global { \
         Light light; \
         Atmosphere atmosphere; \
-        Gaussian gaussian; \
         Postprocessing postprocessing; \
         Camera camera; \
         VoxelMaterial materials[256]; \
@@ -18,14 +17,12 @@
         float metallic; \
         vec3 emit; \
         float roughness; \
-        float ao; \
     }
 
 struct Light {
     vec3 color;
     float intensity;
     vec3 position;
-    float shadow_sample_seed;
     float scale;
 };
 
@@ -43,21 +40,8 @@ struct Atmosphere {
     float henyey_greenstein_g;
 };
 
-struct Gaussian {
-    float threshold;
-    int radius;
-    float exponent_coefficient;
-};
-
 struct Postprocessing {
-    vec3 color_filter;
-    float bloom;
     float exposure;
-    float temperature;
-    float tint;
-    float contrast;
-    float brightness;
-    float saturation;
     uint tonemapper;
     float gamma;
 };

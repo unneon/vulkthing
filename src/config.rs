@@ -2,6 +2,7 @@ use crate::camera::first_person::FirstPersonCamera;
 use crate::renderer::uniform::Tonemapper;
 use crate::renderer::{PostprocessSettings, RendererSettings};
 use crate::voxel::meshing::MeshingAlgorithmKind;
+use crate::voxel::VoxelsConfig;
 use nalgebra::Vector3;
 
 pub const DEFAULT_SUN_POSITION: Vector3<f32> = Vector3::new(0., 0., DEFAULT_SUN_RADIUS);
@@ -31,28 +32,21 @@ pub const DEFAULT_RENDERER_SETTINGS: RendererSettings = RendererSettings {
     enable_atmosphere: true,
     postprocess: PostprocessSettings {
         exposure: 1.,
-        bloom_exponent_coefficient: 0.25,
-        bloom_radius: 3,
-        bloom_strength: 0.01,
-        bloom_threshold: 1.,
-        temperature: 0.,
-        tint: 0.,
-        contrast: 1.,
-        brightness: 0.,
-        color_filter: Vector3::new(1., 1., 1.),
-        saturation: 1.,
         tonemapper: Tonemapper::HillAces,
         gamma: 1.,
     },
 };
 
-pub const DEFAULT_VOXEL_CHUNK_SIZE: usize = 64;
-pub const DEFAULT_VOXEL_HEIGHTMAP_AMPLITUDE: f32 = 32.;
-pub const DEFAULT_VOXEL_HEIGHTMAP_FREQUENCY: f32 = 0.01;
-pub const DEFAULT_VOXEL_HEIGHTMAP_BIAS: f32 = 0.;
-pub const DEFAULT_VOXEL_RENDER_DISTANCE_HORIZONTAL: usize = 1024;
-pub const DEFAULT_VOXEL_RENDER_DISTANCE_VERTICAL: usize = 64;
-pub const DEFAULT_VOXEL_MESHING_ALGORITHM: MeshingAlgorithmKind = MeshingAlgorithmKind::Greedy;
+pub const DEFAULT_VOXEL_CONFIG: VoxelsConfig = VoxelsConfig {
+    seed: 907,
+    chunk_size: 64,
+    heightmap_amplitude: 32.,
+    heightmap_frequency: 0.01,
+    heightmap_bias: 0.,
+    render_distance_horizontal: 1024,
+    render_distance_vertical: 64,
+    meshing_algorithm: MeshingAlgorithmKind::Greedy,
+};
 pub const DEFAULT_VOXEL_INDEX_MAX_COUNT: usize = 3 * 256 * DEFAULT_VOXEL_MESHLET_MAX_COUNT;
 pub const DEFAULT_VOXEL_MESHLET_MAX_COUNT: usize = 1024 * 1024;
 pub const DEFAULT_VOXEL_VERTEX_MAX_COUNT: usize = 128 * DEFAULT_VOXEL_MESHLET_MAX_COUNT;

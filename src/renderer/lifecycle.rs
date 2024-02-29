@@ -1,7 +1,6 @@
 use crate::cli::Args;
 use crate::config::{
-    DEFAULT_VOXEL_CHUNK_SIZE, DEFAULT_VOXEL_INDEX_MAX_COUNT, DEFAULT_VOXEL_MESHLET_MAX_COUNT,
-    DEFAULT_VOXEL_VERTEX_MAX_COUNT,
+    DEFAULT_VOXEL_INDEX_MAX_COUNT, DEFAULT_VOXEL_MESHLET_MAX_COUNT, DEFAULT_VOXEL_VERTEX_MAX_COUNT,
 };
 use crate::mesh::MeshData;
 use crate::renderer::codegen::{
@@ -129,7 +128,6 @@ impl Renderer {
             voxel_vertex_buffer,
             voxel_triangle_buffer,
             voxel_meshlet_buffer,
-            DEFAULT_VOXEL_CHUNK_SIZE,
             dev.clone(),
         ));
 

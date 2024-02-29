@@ -16,7 +16,7 @@ use crate::renderer::debug::{begin_label, end_label};
 use crate::renderer::graph::Pass;
 use crate::renderer::swapchain::Swapchain;
 use crate::renderer::uniform::{
-    Atmosphere, Camera, Gaussian, Global, PostprocessUniform, Star, Tonemapper, VoxelMaterial,
+    Atmosphere, Camera, Global, PostprocessUniform, Star, Tonemapper, VoxelMaterial,
 };
 use crate::renderer::util::{
     timestamp_difference_to_duration, Buffer, Dev, StorageBuffer, UniformBuffer,
@@ -106,17 +106,7 @@ pub struct RendererSettings {
 }
 
 pub struct PostprocessSettings {
-    pub color_filter: Vector3<f32>,
-    pub bloom_exponent_coefficient: f32,
-    pub bloom_radius: usize,
-    pub bloom_strength: f32,
-    pub bloom_threshold: f32,
     pub exposure: f32,
-    pub temperature: f32,
-    pub tint: f32,
-    pub contrast: f32,
-    pub brightness: f32,
-    pub saturation: f32,
     pub tonemapper: Tonemapper,
     pub gamma: f32,
 }
@@ -319,20 +309,8 @@ impl Renderer {
                     scattering_strength: world.atmosphere.scattering_strength,
                     henyey_greenstein_g: world.atmosphere.henyey_greenstein_g,
                 },
-                gaussian: Gaussian {
-                    threshold: settings.postprocess.bloom_threshold,
-                    radius: settings.postprocess.bloom_radius as i32,
-                    exponent_coefficient: settings.postprocess.bloom_exponent_coefficient,
-                },
                 postprocessing: PostprocessUniform {
-                    color_filter: settings.postprocess.color_filter,
-                    bloom_constant: settings.postprocess.bloom_strength,
                     exposure: settings.postprocess.exposure,
-                    temperature: settings.postprocess.temperature,
-                    tint: settings.postprocess.tint,
-                    contrast: settings.postprocess.contrast,
-                    brightness: settings.postprocess.brightness,
-                    saturation: settings.postprocess.saturation,
                     tonemapper: settings.postprocess.tonemapper,
                     gamma: settings.postprocess.gamma,
                 },

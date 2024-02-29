@@ -9,10 +9,6 @@ mod sparse_octree;
 mod thread;
 mod world_generation;
 
-use crate::config::{
-    DEFAULT_VOXEL_CHUNK_SIZE, DEFAULT_VOXEL_RENDER_DISTANCE_HORIZONTAL,
-    DEFAULT_VOXEL_RENDER_DISTANCE_VERTICAL,
-};
 use crate::voxel::chunk_priority::{ChunkPriority, ChunkPriorityAlgorithm};
 use crate::voxel::gpu_memory::VoxelGpuMemory;
 use crate::voxel::meshing::MeshingAlgorithmKind;
@@ -77,7 +73,7 @@ impl Voxels {
         gpu_memory: VoxelGpuMemory,
         thread_count: usize,
     ) -> Voxels {
-        let camera = chunk_from_position(camera, DEFAULT_VOXEL_CHUNK_SIZE);
+        let camera = chunk_from_position(camera, config.chunk_size);
         let mut noise = FastNoise::seeded(config.seed);
         noise.set_noise_type(NoiseType::Perlin);
         noise.set_frequency(1.);
@@ -86,10 +82,10 @@ impl Voxels {
             state: Mutex::new(VoxelsState {
                 chunk_priority: ChunkPriority::new(
                     camera,
-                    DEFAULT_VOXEL_RENDER_DISTANCE_HORIZONTAL.div_ceil(DEFAULT_VOXEL_CHUNK_SIZE)
-                        as i64,
-                    DEFAULT_VOXEL_RENDER_DISTANCE_VERTICAL.div_ceil(DEFAULT_VOXEL_CHUNK_SIZE)
-                        as i64,
+                    config
+                        .render_distance_horizontal
+                        .div_ceil(config.chunk_size) as i64,
+                    config.render_distance_vertical.div_ceil(config.chunk_size) as i64,
                 ),
                 heightmap_noise: Arc::new(noise),
                 loaded_svos: HashMap::new(),

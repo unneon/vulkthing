@@ -17,22 +17,16 @@
 #![allow(clippy::type_complexity)]
 
 use crate::cli::Args;
-use crate::config::{
-    DEFAULT_RENDERER_SETTINGS, DEFAULT_VOXEL_CHUNK_SIZE, DEFAULT_VOXEL_HEIGHTMAP_AMPLITUDE,
-    DEFAULT_VOXEL_HEIGHTMAP_BIAS, DEFAULT_VOXEL_HEIGHTMAP_FREQUENCY,
-    DEFAULT_VOXEL_MESHING_ALGORITHM, DEFAULT_VOXEL_RENDER_DISTANCE_HORIZONTAL,
-    DEFAULT_VOXEL_RENDER_DISTANCE_VERTICAL,
-};
+use crate::config::{DEFAULT_RENDERER_SETTINGS, DEFAULT_VOXEL_CONFIG};
 use crate::input::InputState;
 use crate::interface::Interface;
 use crate::logger::{initialize_logger, initialize_panic_hook};
 use crate::mesh::load_mesh;
 use crate::renderer::Renderer;
-use crate::voxel::{Voxels, VoxelsConfig};
+use crate::voxel::Voxels;
 use crate::window::create_window;
 use crate::world::World;
 use log::debug;
-use rand::random;
 use std::time::Instant;
 use winit::event::{DeviceEvent, Event, StartCause, WindowEvent};
 use winit::event_loop::ControlFlow;
@@ -88,16 +82,7 @@ pub fn main() {
 
     renderer.create_interface_renderer(&mut interface.ctx);
 
-    let mut voxel_config = VoxelsConfig {
-        seed: random(),
-        chunk_size: DEFAULT_VOXEL_CHUNK_SIZE,
-        heightmap_amplitude: DEFAULT_VOXEL_HEIGHTMAP_AMPLITUDE,
-        heightmap_frequency: DEFAULT_VOXEL_HEIGHTMAP_FREQUENCY,
-        heightmap_bias: DEFAULT_VOXEL_HEIGHTMAP_BIAS,
-        render_distance_horizontal: DEFAULT_VOXEL_RENDER_DISTANCE_HORIZONTAL,
-        render_distance_vertical: DEFAULT_VOXEL_RENDER_DISTANCE_VERTICAL,
-        meshing_algorithm: DEFAULT_VOXEL_MESHING_ALGORITHM,
-    };
+    let mut voxel_config = DEFAULT_VOXEL_CONFIG;
     let voxels = Voxels::new(
         voxel_config.clone(),
         world.camera.position(),

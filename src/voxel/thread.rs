@@ -60,6 +60,8 @@ pub fn voxel_thread(shared: &VoxelsShared) {
         if config_generation != state.config_generation {
             continue;
         }
-        state.gpu_memory.upload_meshlet(chunk, mesh);
+        state
+            .gpu_memory
+            .upload_meshlet(chunk, mesh, config.chunk_size);
     }
 }

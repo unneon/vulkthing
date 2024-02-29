@@ -12,7 +12,6 @@ pub struct VoxelGpuMemory {
     triangle_buffer: StorageBuffer<[VoxelTriangle]>,
     triangle_count: usize,
     meshlet_buffer: StorageBuffer<[VoxelMeshlet]>,
-    chunk_size: usize,
     dev: Dev,
 }
 
@@ -22,7 +21,6 @@ impl VoxelGpuMemory {
         vertex_buffer: StorageBuffer<[VoxelVertex]>,
         triangle_buffer: StorageBuffer<[VoxelTriangle]>,
         meshlet_buffer: StorageBuffer<[VoxelMeshlet]>,
-        chunk_size: usize,
         dev: Dev,
     ) -> VoxelGpuMemory {
         VoxelGpuMemory {
@@ -32,12 +30,11 @@ impl VoxelGpuMemory {
             triangle_buffer,
             triangle_count: 0,
             meshlet_buffer,
-            chunk_size,
             dev,
         }
     }
 
-    pub fn upload_meshlet(&mut self, chunk: Vector3<i64>, mut mesh: VoxelMesh) {
+    pub fn upload_meshlet(&mut self, chunk: Vector3<i64>, mut mesh: VoxelMesh, chunk_size: usize) {
         let old_meshlet_count = self.meshlet_count.load(Ordering::SeqCst) as usize;
         let new_vertex_count = self.vertex_count + mesh.vertices.len();
         let new_triangle_count = self.triangle_count + mesh.triangles.len();
@@ -53,7 +50,7 @@ impl VoxelGpuMemory {
             meshlet.triangle_offset += self.triangle_count as u32;
         }
         for vertex in &mut mesh.vertices {
-            vertex.position += (chunk * self.chunk_size as i64).cast::<f32>();
+            vertex.position += (chunk * chunk_size as i64).cast::<f32>();
         }
 
         let vertex_memory = &mut self.vertex_buffer.mapped()[self.vertex_count..new_vertex_count];

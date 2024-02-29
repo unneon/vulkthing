@@ -4,7 +4,6 @@ use crate::voxel::VoxelsConfig;
 use crate::world::World;
 use ash::vk;
 use imgui::{Condition, Context, Drag, SliderFlags, TreeNodeFlags, Ui};
-use nalgebra::Vector3;
 use std::borrow::Cow;
 use std::f32::consts::PI;
 use std::time::Duration;
@@ -183,42 +182,11 @@ fn build_postprocess(ui: &Ui, postprocess: &mut PostprocessSettings) {
     ui.slider_config("Exposure", 0.001, 100.)
         .flags(SliderFlags::LOGARITHMIC)
         .build(&mut postprocess.exposure);
-    ui.slider_config("Bloom exponent coefficient", 0.001, 100.)
-        .flags(SliderFlags::LOGARITHMIC)
-        .build(&mut postprocess.bloom_exponent_coefficient);
-    ui.slider("Bloom radius", 0, 64, &mut postprocess.bloom_radius);
-    ui.slider_config("Bloom strength", 0.001, 10.)
-        .flags(SliderFlags::LOGARITHMIC)
-        .build(&mut postprocess.bloom_strength);
-    ui.slider_config("Bloom threshold", 0.001, 12.)
-        .flags(SliderFlags::LOGARITHMIC)
-        .build(&mut postprocess.bloom_threshold);
-    ui.slider("Temperature", -1.67, 1.67, &mut postprocess.temperature);
-    ui.slider("Tint", -1.67, 1.67, &mut postprocess.tint);
-    Drag::new("Contrast")
-        .range(0., f32::INFINITY)
-        .speed(0.01)
-        .build(ui, &mut postprocess.contrast);
-    Drag::new("Brightness")
-        .range(0., f32::INFINITY)
-        .speed(0.01)
-        .build(ui, &mut postprocess.brightness);
-    enum_color(ui, "Color filter", &mut postprocess.color_filter);
-    Drag::new("Saturation")
-        .range(0., f32::INFINITY)
-        .speed(0.01)
-        .build(ui, &mut postprocess.saturation);
     enum_combo(ui, "Tonemapper", &mut postprocess.tonemapper);
     Drag::new("Gamma")
         .range(0., f32::INFINITY)
         .speed(0.01)
         .build(ui, &mut postprocess.gamma);
-}
-
-fn enum_color(ui: &Ui, label: &str, value: &mut Vector3<f32>) {
-    let mut array = [value.x, value.y, value.z];
-    ui.color_edit3(label, &mut array);
-    *value = Vector3::from_column_slice(&array);
 }
 
 fn enum_combo<T: Copy + EnumInterface + PartialEq>(ui: &Ui, label: &str, value: &mut T) -> bool {
