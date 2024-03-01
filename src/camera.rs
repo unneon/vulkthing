@@ -14,6 +14,8 @@ pub trait Camera {
     fn view_matrix(&self) -> Matrix4<f32>;
 
     fn walk_direction(&self) -> Vector3<f32>;
+
+    fn view_direction(&self) -> Vector3<f32>;
 }
 
 fn normalize_or_zero(vec: Vector3<f32>) -> Vector3<f32> {

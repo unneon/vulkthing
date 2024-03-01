@@ -59,4 +59,8 @@ impl Camera for FirstPersonCamera {
     fn walk_direction(&self) -> Vector3<f32> {
         self.walk_direction
     }
+
+    fn view_direction(&self) -> Vector3<f32> {
+        self.front_camera_direction()
+    }
 }

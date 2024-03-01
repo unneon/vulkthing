@@ -1,0 +1,50 @@
+#version 460
+
+#extension GL_EXT_mesh_shader : require
+#extension GL_EXT_shader_8bit_storage : require
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int16 : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+
+#include "types/uniform.glsl"
+#include "types/voxel.glsl"
+
+layout(binding = 0) uniform GLOBAL_UNIFORM_TYPE global;
+layout(binding = 4) readonly buffer Meshlets {
+    VoxelMeshlet meshlets[];
+};
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+taskPayloadSharedEXT VoxelPayload payload;
+
+// TODO: Replace this with proper frustum culling.
+bool back_cull(VoxelMeshlet meshlet) {
+    for (int dx = 0; dx < 2; ++dx) {
+        for (int dy = 0; dy < 2; ++dy) {
+            for (int dz = 0; dz < 2; ++dz) {
+                vec3 world_space = global.voxels.chunk_size * (vec3(meshlet.chunk) + vec3(dx, dy, dz));
+                if (dot(world_space - global.camera.position, global.camera.direction) > 0) {
+                    return false;
+                }
+            }
+        }
+    }
+    return true;
+}
+
+void main() {
+    uint meshlet_index = 64 * gl_WorkGroupID.x + gl_LocalInvocationID.x;
+
+    bool cull = meshlet_index >= global.voxels.meshlet_count;
+    cull = cull || back_cull(meshlets[meshlet_index]);
+
+    uint task_count = subgroupAdd(cull ? 0 : 1);
+    uint task_index = subgroupExclusiveAdd(cull ? 0 : 1);
+
+    if (!cull) {
+        payload.meshlet_ids[task_index] = meshlet_index;
+    }
+    EmitMeshTasksEXT(task_count, 1, 1);
+}

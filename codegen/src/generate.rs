@@ -23,6 +23,7 @@ enum BindingType {
 enum ShaderType {
     Compute,
     Mesh,
+    Task,
     Vertex,
     Fragment,
 }
@@ -46,6 +47,7 @@ impl ShaderType {
             ShaderType::Compute => "compute",
             ShaderType::Fragment => "fragment",
             ShaderType::Mesh => "mesh",
+            ShaderType::Task => "task",
             ShaderType::Vertex => "vertex",
         }
     }
@@ -55,6 +57,7 @@ impl ShaderType {
             ShaderType::Compute => "Compute",
             ShaderType::Fragment => "Fragment",
             ShaderType::Mesh => "Mesh",
+            ShaderType::Task => "Task",
             ShaderType::Vertex => "Vertex",
         }
     }
@@ -64,6 +67,7 @@ impl ShaderType {
             ShaderType::Compute => "comp",
             ShaderType::Fragment => "frag",
             ShaderType::Mesh => "mesh",
+            ShaderType::Task => "task",
             ShaderType::Vertex => "vert",
         }
     }
@@ -260,9 +264,18 @@ pub struct Shaders {{"#
     .unwrap();
     let mut pipeline_vertex_shaders = HashMap::new();
     let mut pipeline_fragment_shaders = HashMap::new();
+    let mut pipeline_task_shaders = HashMap::new();
     let mut pipeline_mesh_shaders = HashMap::new();
     let mut shaders = BTreeSet::new();
     for_pipelines(renderer, |_, _, _, pipeline| {
+        if pipeline.task_shaders {
+            let task_shader = match &pipeline.task_shader {
+                Some(path) => path.strip_suffix(".task").unwrap(),
+                None => pipeline.name.as_str(),
+            };
+            pipeline_task_shaders.insert(pipeline.name.as_str(), task_shader);
+            shaders.insert((task_shader, ShaderType::Task));
+        }
         if pipeline.mesh_shaders {
             let mesh_shader = match &pipeline.mesh_shader {
                 Some(path) => path.strip_suffix(".mesh").unwrap(),
@@ -479,13 +492,14 @@ struct Scratch {{"#
     {pipeline}_fragment_specialization_info: vk::SpecializationInfo,
     {pipeline}_fragment_specialization_scratch: {pipeline_camelcase}Specialization,"#
             )
-            .unwrap();
+                .unwrap();
         }
+        let shader_stage_count = if pipeline.task_shaders { 3 } else { 2 };
         writeln!(
             file,
-            r#"    {pipeline}_shader_stages: [vk::PipelineShaderStageCreateInfo; 2],"#
+            r#"    {pipeline}_shader_stages: [vk::PipelineShaderStageCreateInfo; {shader_stage_count}],"#
         )
-        .unwrap();
+            .unwrap();
         if pipeline.mesh_shaders {
         } else {
             writeln!(file, r#"    {pipeline}_vertex_bindings: [vk::VertexInputBindingDescription; {binding_count}],
@@ -906,7 +920,7 @@ static mut SCRATCH: Scratch = Scratch {{"#
     }},
     {pipeline}_fragment_specialization_scratch: {pipeline_camelcase}Specialization {{"#
             )
-            .unwrap();
+                .unwrap();
             for spec in fragment_specialization {
                 let default = renderer.find_specialization(spec).type_default();
                 writeln!(file, "        {spec}: {default},").unwrap();
@@ -916,7 +930,11 @@ static mut SCRATCH: Scratch = Scratch {{"#
         } else {
             "std::ptr::null()".to_owned()
         };
-        let vertex_stage_type = if pipeline.mesh_shaders { "MESH_EXT" } else { "VERTEX" };
+        let vertex_stage_type = if pipeline.mesh_shaders {
+            "MESH_EXT"
+        } else {
+            "VERTEX"
+        };
         writeln!(
             file,
             r#"    {pipeline}_pipeline_layout: vk::PipelineLayoutCreateInfo {{
@@ -928,8 +946,27 @@ static mut SCRATCH: Scratch = Scratch {{"#
         push_constant_range_count: 0,
         p_push_constant_ranges: std::ptr::null(),
     }},
-    {pipeline}_shader_stages: [
-        vk::PipelineShaderStageCreateInfo {{
+    {pipeline}_shader_stages: ["#
+        )
+        .unwrap();
+        if pipeline.task_shaders {
+            writeln!(
+                file,
+                r#"        vk::PipelineShaderStageCreateInfo {{
+            s_type: vk::StructureType::PIPELINE_SHADER_STAGE_CREATE_INFO,
+            p_next: std::ptr::null(),
+            flags: vk::PipelineShaderStageCreateFlags::empty(),
+            stage: vk::ShaderStageFlags::TASK_EXT,
+            module: vk::ShaderModule::null(),
+            p_name: unsafe {{ CStr::from_bytes_with_nul_unchecked(b"main\0") }}.as_ptr(),
+            p_specialization_info: std::ptr::null(),
+        }},"#
+            )
+            .unwrap();
+        }
+        writeln!(
+            file,
+            r#"        vk::PipelineShaderStageCreateInfo {{
             s_type: vk::StructureType::PIPELINE_SHADER_STAGE_CREATE_INFO,
             p_next: std::ptr::null(),
             flags: vk::PipelineShaderStageCreateFlags::empty(),
@@ -1092,6 +1129,7 @@ static mut SCRATCH: Scratch = Scratch {{"#
         } else {
             format!("unsafe {{ &SCRATCH.{pipeline}_vertex_state }}")
         };
+        let shader_stage_count = if pipeline.task_shaders { 3 } else { 2 };
         writeln!(
             file,
             r#"    ],
@@ -1139,7 +1177,7 @@ static mut SCRATCH: Scratch = Scratch {{"#
         s_type: vk::StructureType::GRAPHICS_PIPELINE_CREATE_INFO,
         p_next: std::ptr::null(),
         flags: vk::PipelineCreateFlags::empty(),
-        stage_count: 2,
+        stage_count: {shader_stage_count},
         p_stages: unsafe {{ SCRATCH.{pipeline}_shader_stages.as_ptr() }},
         p_vertex_input_state: {vertex_input_state},
         p_input_assembly_state: unsafe {{ &SCRATCH.assembly }},
@@ -1336,7 +1374,7 @@ impl DescriptorPools {{"#
                 .image_view({binding_name});"#
                     )
                         .unwrap()
-                },
+                }
                 DescriptorBinding::InputAttachment(_) => writeln!(
                     file,
                     r#"            let {binding_name}_image = *vk::DescriptorImageInfo::builder()
@@ -1346,7 +1384,7 @@ impl DescriptorPools {{"#
                     .unwrap(),
                 DescriptorBinding::StorageBuffer(_) => writeln!(file, r#"            let {binding_name}_buffer = {binding_name}.descriptor(_flight_index);"#).unwrap(),
                 DescriptorBinding::StorageImage(_) => writeln!(file,
-                    r#"            let {binding_name}_image = *vk::DescriptorImageInfo::builder()
+                                                               r#"            let {binding_name}_image = *vk::DescriptorImageInfo::builder()
                 .image_layout(vk::ImageLayout::GENERAL)
                 .image_view({binding_name});"#
                 ).unwrap(),
@@ -1354,7 +1392,7 @@ impl DescriptorPools {{"#
                     file,
                     r#"            let {binding_name}_buffer = {binding_name}.descriptor(_flight_index);"#
                 )
-                .unwrap(),
+                    .unwrap(),
             }
             writeln!(
                 file,
@@ -1363,7 +1401,7 @@ impl DescriptorPools {{"#
                 .dst_binding({binding_index})
                 .descriptor_type(vk::DescriptorType::{binding_type})"#
             )
-            .unwrap();
+                .unwrap();
             match binding {
                 DescriptorBinding::AccelerationStructure(_) => writeln!(
                     file,
@@ -1543,7 +1581,7 @@ pub fn create_descriptor_set_layouts(_samplers: &Samplers, dev: &Dev) -> Descrip
                     "    unsafe {{ SCRATCH.{}_bindings[{binding_index}].p_immutable_samplers = &_samplers.{} }};",
                     descriptor_set.name, image.sampler,
                 )
-                .unwrap();
+                    .unwrap();
             }
         }
     }
@@ -1901,23 +1939,33 @@ pub fn create_pipelines(
                 writeln!(file, "    unsafe {{ SCRATCH.{pipeline}_fragment_specialization_scratch.{spec} = {value} }};").unwrap();
             }
         }
+        if pipeline.task_shaders {
+            let task_shader = pipeline_task_shaders[pipeline.name.as_str()];
+            writeln!(
+                file,
+                r#"    unsafe {{ SCRATCH.{pipeline}_shader_stages[0].module = shader_modules.{task_shader}_task }};"#
+            ).unwrap();
+        }
         if pipeline.mesh_shaders {
+            let mesh_stage_index = if pipeline.task_shaders { 1 } else { 0 };
             let mesh_shader = pipeline_mesh_shaders[pipeline.name.as_str()];
             writeln!(
                 file,
-                r#"    unsafe {{ SCRATCH.{pipeline}_shader_stages[0].module = shader_modules.{mesh_shader}_mesh }};"#
+                r#"    unsafe {{ SCRATCH.{pipeline}_shader_stages[{mesh_stage_index}].module = shader_modules.{mesh_shader}_mesh }};"#
             ).unwrap();
         } else {
+            let vertex_stage_index = if pipeline.task_shaders { 1 } else { 0 };
             let vertex_shader = pipeline_vertex_shaders[pipeline.name.as_str()];
             writeln!(
                 file,
-                r#"    unsafe {{ SCRATCH.{pipeline}_shader_stages[0].module = shader_modules.{vertex_shader}_vertex }};"#
+                r#"    unsafe {{ SCRATCH.{pipeline}_shader_stages[{vertex_stage_index}].module = shader_modules.{vertex_shader}_vertex }};"#
             ).unwrap();
         }
+        let fragment_stage_index = if pipeline.task_shaders { 2 } else { 1 };
         let fragment_shader = pipeline_fragment_shaders[pipeline.name.as_str()];
         writeln!(
             file,
-            r#"    unsafe {{ SCRATCH.{pipeline}_shader_stages[1].module = shader_modules.{fragment_shader}_fragment }};
+            r#"    unsafe {{ SCRATCH.{pipeline}_shader_stages[{fragment_stage_index}].module = shader_modules.{fragment_shader}_fragment }};
     unsafe {{ SCRATCH.{pipeline}_viewport.width = (swapchain.extent.width / {downscale}) as f32 }};
     unsafe {{ SCRATCH.{pipeline}_viewport.height = (swapchain.extent.height / {downscale}) as f32 }};
     unsafe {{ SCRATCH.{pipeline}_scissor.extent.width = swapchain.extent.width / {downscale} }};

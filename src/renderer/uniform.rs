@@ -32,6 +32,7 @@ pub struct Global {
 #[derive(Clone, Copy)]
 pub struct Voxels {
     pub chunk_size: u32,
+    pub meshlet_count: u32,
 }
 
 #[repr(C, align(16))]
@@ -78,6 +79,8 @@ pub struct Camera {
     pub resolution: Vector2<f32>,
     pub _pad0: [f32; 2],
     pub position: Vector3<f32>,
+    pub _pad1: f32,
+    pub direction: Vector3<f32>,
 }
 
 #[repr(C, align(16))]

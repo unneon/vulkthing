@@ -57,4 +57,8 @@ impl Camera for SpaceCamera {
     fn walk_direction(&self) -> Vector3<f32> {
         Vector3::zeros()
     }
+
+    fn view_direction(&self) -> Vector3<f32> {
+        self.front_direction()
+    }
 }

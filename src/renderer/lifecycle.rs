@@ -380,7 +380,9 @@ fn create_logical_device(
     let mut vk12_features = *vk::PhysicalDeviceVulkan12Features::builder()
         .shader_int8(true)
         .storage_buffer8_bit_access(true);
-    let mut ms_features = *vk::PhysicalDeviceMeshShaderFeaturesEXT::builder().mesh_shader(true);
+    let mut ms_features = *vk::PhysicalDeviceMeshShaderFeaturesEXT::builder()
+        .mesh_shader(true)
+        .task_shader(true);
 
     let create_info = vk::DeviceCreateInfo::builder()
         .queue_create_infos(&queues)

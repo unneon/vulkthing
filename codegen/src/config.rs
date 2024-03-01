@@ -193,11 +193,15 @@ pub struct Pipeline {
     #[knuffel(argument)]
     pub name: String,
     #[knuffel(property, default = false)]
+    pub task_shaders: bool,
+    #[knuffel(property, default = false)]
     pub mesh_shaders: bool,
     #[knuffel(child, unwrap(argument))]
     pub vertex_shader: Option<String>,
     #[knuffel(children(name = "vertex-binding"))]
     pub vertex_bindings: Vec<VertexBinding>,
+    #[knuffel(child, unwrap(argument))]
+    pub task_shader: Option<String>,
     #[knuffel(child, unwrap(argument))]
     pub mesh_shader: Option<String>,
     #[knuffel(child, unwrap(argument))]

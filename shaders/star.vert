@@ -3,6 +3,7 @@
 #extension GL_EXT_shader_8bit_storage : require
 #extension GL_EXT_shader_16bit_storage : require
 
+#include "types/star.glsl"
 #include "types/uniform.glsl"
 
 layout(binding = 0) uniform GLOBAL_UNIFORM_TYPE global;

@@ -24,7 +24,7 @@ pass "render" {
             clear 1
             transient
         }
-        pipeline "voxel" mesh-shaders=true {
+        pipeline "voxel" task-shaders=true mesh-shaders=true {
             descriptor-sets "global"
         }
         pipeline "sun" {

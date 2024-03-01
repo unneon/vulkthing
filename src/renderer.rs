@@ -142,7 +142,13 @@ impl Renderer {
         };
         unsafe { self.record_command_buffer(image_index, world, ui_draw) };
         self.pass_times = self.query_timestamps();
-        self.update_global_uniform(world, voxels, settings, window_size);
+        self.update_global_uniform(
+            world,
+            voxels,
+            self.voxel_meshlet_count.load(Ordering::SeqCst),
+            settings,
+            window_size,
+        );
         self.submit_graphics();
         self.submit_present(image_index);
 
@@ -222,7 +228,7 @@ impl Renderer {
         unsafe {
             self.dev
                 .mesh_ext
-                .cmd_draw_mesh_tasks(buf, voxel_meshlet_count, 1, 1)
+                .cmd_draw_mesh_tasks(buf, voxel_meshlet_count.div_ceil(64), 1, 1)
         };
         end_label(buf, &self.dev);
 
@@ -263,6 +269,7 @@ impl Renderer {
         &self,
         world: &World,
         voxels: &VoxelsConfig,
+        voxel_meshlet_count: u32,
         settings: &RendererSettings,
         window_size: PhysicalSize<u32>,
     ) {
@@ -295,6 +302,7 @@ impl Renderer {
             &Global {
                 voxels: Voxels {
                     chunk_size: voxels.chunk_size as u32,
+                    meshlet_count: voxel_meshlet_count,
                 },
                 light: world.light(),
                 atmosphere: Atmosphere {
@@ -331,6 +339,8 @@ impl Renderer {
                     resolution: Vector2::new(window_size.width as f32, window_size.height as f32),
                     _pad0: [0., 0.],
                     position: world.camera.position(),
+                    _pad1: 0.,
+                    direction: world.camera.view_direction(),
                 },
                 materials,
             },
