@@ -24,20 +24,9 @@ layout(binding = 4) readonly buffer Meshlets {
 layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 layout(triangles, max_vertices = 128, max_primitives = 256) out;
 
-layout(location = 0) out vec3 frag_position[];
-layout(location = 1) perprimitiveEXT out uint frag_data[];
-layout(location = 2) perprimitiveEXT out vec3 frag_color[];
+layout(location = 0) perprimitiveEXT out uint frag_data[];
 
 taskPayloadSharedEXT VoxelPayload payload;
-
-#include "util/oklab.glsl"
-
-vec3 color_from_index(uint index) {
-    float lightness = 0.6 + 0.4 * (index * 2971 % 256) / 255.0;
-    float chroma = 0.6 + 0.4 * (index * 1933 % 256) / 255.0;
-    float hue = 2 * acos(-1) * (index * 907 % 256) / 255.0;
-    return srgb_from_oklab(oklab_from_oklch(vec3(lightness, chroma, hue)));
-}
 
 void main() {
     VoxelMeshlet meshlet = meshlets[payload.meshlet_ids[gl_WorkGroupID.x]];
@@ -47,10 +36,6 @@ void main() {
         VoxelTriangle triangle = triangles[meshlet.triangle_offset + gl_LocalInvocationID.x];
         gl_PrimitiveTriangleIndicesEXT[gl_LocalInvocationID.x] = triangle.indices;
         frag_data[gl_LocalInvocationID.x] = triangle.data;
-        vec3 work_group_color = color_from_index(gl_WorkGroupID.x);
-        vec3 local_invocation_color = color_from_index(gl_LocalInvocationID.x);
-        vec3 color = 0.97 * work_group_color + 0.03 * local_invocation_color;
-        frag_color[gl_LocalInvocationID.x] = color;
     }
 
     if (gl_LocalInvocationID.x < meshlet.vertex_count) {
@@ -58,6 +43,5 @@ void main() {
         vec3 world_space = vertex.position + global.voxels.chunk_size * vec3(meshlet.chunk);
         vec4 clip_space = global.camera.projection_matrix * global.camera.view_matrix * vec4(world_space, 1);
         gl_MeshVerticesEXT[gl_LocalInvocationID.x].gl_Position = clip_space;
-        frag_position[gl_LocalInvocationID.x] = world_space.xyz;
     }
 }

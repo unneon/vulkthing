@@ -8,14 +8,13 @@
 
 layout(binding = 0, set = 0) uniform GLOBAL_UNIFORM_TYPE global;
 
-layout(location = 0) in vec3 frag_position;
-layout(location = 1) perprimitiveEXT flat in uint frag_data;
-layout(location = 2) perprimitiveEXT flat in vec3 frag_color;
+layout(location = 0) perprimitiveEXT flat in uint frag_data;
 
 layout(location = 0) out vec4 out_color;
 
 #include "lighting/atmosphere.glsl"
 #include "lighting/pbr.glsl"
+#include "util/camera.glsl"
 
 const vec3 NORMALS[6] = vec3[](
     vec3(1, 0, 0),
@@ -27,10 +26,11 @@ const vec3 NORMALS[6] = vec3[](
 );
 
 void main() {
+    vec3 position = world_space_from_depth(gl_FragCoord.z);
     vec3 normal = NORMALS[uint(frag_data) & 7u];
     VoxelMaterial material = global.materials[uint(frag_data) >> 3];
-    vec3 reflected_color = pbr(normal, material.albedo, material.metallic, material.roughness);
+    vec3 reflected_color = pbr(position, normal, material.albedo, material.metallic, material.roughness);
     vec3 color_at_object = reflected_color + material.emit;
-    vec3 color_at_camera = compute_atmosphere(color_at_object, frag_position);
+    vec3 color_at_camera = compute_atmosphere(color_at_object, position);
     out_color = vec4(color_at_camera, 1);
 }

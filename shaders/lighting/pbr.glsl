@@ -33,12 +33,12 @@ vec3 fresnel_schlick(float cos_theta, vec3 f0) {
     return f0 + (1 - f0) * pow(clamp(1 - cos_theta, 0, 1), 5);
 }
 
-vec3 pbr(vec3 normal, vec3 albedo, float metallic, float roughness) {
-    vec3 view = normalize(global.camera.position - frag_position);
+vec3 pbr(vec3 position, vec3 normal, vec3 albedo, float metallic, float roughness) {
+    vec3 view = normalize(global.camera.position - position);
 
     vec3 f0 = mix(vec3(0.04), albedo, metallic);
 
-    vec3 light = normalize(global.light.position - frag_position);
+    vec3 light = normalize(global.light.position - position);
     vec3 halfway = normalize(view + light);
     vec3 radiance = global.light.color * global.light.intensity;
     if (dot(light, vec3(0, 0, 1)) <= 0) {
