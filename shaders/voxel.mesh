@@ -52,7 +52,7 @@ void main() {
 
     if (gl_LocalInvocationID.x < meshlet.vertex_count) {
         VoxelVertex vertex = vertices[meshlet.vertex_offset + gl_LocalInvocationID.x];
-        vec3 world_space = vertex.position.xyz + 64 * vec3(meshlet.chunk);
+        vec3 world_space = vertex.position + global.voxels.chunk_size * vec3(meshlet.chunk);
         vec4 clip_space = global.camera.projection_matrix * global.camera.view_matrix * vec4(world_space, 1);
         gl_MeshVerticesEXT[gl_LocalInvocationID.x].gl_Position = clip_space;
         frag_position[gl_LocalInvocationID.x] = world_space.xyz;

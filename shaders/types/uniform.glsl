@@ -4,6 +4,7 @@
 
 #define GLOBAL_UNIFORM_TYPE \
     Global { \
+        Voxels voxels; \
         Light light; \
         Atmosphere atmosphere; \
         Postprocessing postprocessing; \
@@ -18,6 +19,10 @@
         vec3 emit; \
         float roughness; \
     }
+
+struct Voxels {
+    uint chunk_size;
+};
 
 struct Light {
     vec3 color;

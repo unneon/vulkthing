@@ -4,12 +4,6 @@ use std::borrow::Cow;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct ComputeParams {
-    pub count: u32,
-}
-
-#[repr(C)]
-#[derive(Clone, Copy)]
 pub struct Transform {
     pub model: Matrix4<f32>,
 }
@@ -26,11 +20,18 @@ pub struct Material {
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct Global {
+    pub voxels: Voxels,
     pub light: Light,
     pub atmosphere: Atmosphere,
     pub postprocessing: PostprocessUniform,
     pub camera: Camera,
     pub materials: [VoxelMaterial; 256],
+}
+
+#[repr(C, align(4))]
+#[derive(Clone, Copy)]
+pub struct Voxels {
+    pub chunk_size: u32,
 }
 
 #[repr(C, align(16))]

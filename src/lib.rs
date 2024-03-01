@@ -170,6 +170,7 @@ pub fn main() {
 
                 renderer.draw_frame(
                     &world,
+                    &voxel_config,
                     &renderer_settings,
                     window.window.inner_size(),
                     interface.draw_data(),

@@ -16,12 +16,13 @@ use crate::renderer::debug::{begin_label, end_label};
 use crate::renderer::graph::Pass;
 use crate::renderer::swapchain::Swapchain;
 use crate::renderer::uniform::{
-    Atmosphere, Camera, Global, PostprocessUniform, Star, Tonemapper, VoxelMaterial,
+    Atmosphere, Camera, Global, PostprocessUniform, Star, Tonemapper, VoxelMaterial, Voxels,
 };
 use crate::renderer::util::{
     timestamp_difference_to_duration, Buffer, Dev, StorageBuffer, UniformBuffer,
 };
 use crate::voxel::gpu_memory::VoxelGpuMemory;
+use crate::voxel::VoxelsConfig;
 use crate::world::World;
 use ash::{vk, Entry};
 use imgui::DrawData;
@@ -131,6 +132,7 @@ impl Renderer {
     pub fn draw_frame(
         &mut self,
         world: &World,
+        voxels: &VoxelsConfig,
         settings: &RendererSettings,
         window_size: PhysicalSize<u32>,
         ui_draw: &DrawData,
@@ -140,7 +142,7 @@ impl Renderer {
         };
         unsafe { self.record_command_buffer(image_index, world, ui_draw) };
         self.pass_times = self.query_timestamps();
-        self.update_global_uniform(world, settings, window_size);
+        self.update_global_uniform(world, voxels, settings, window_size);
         self.submit_graphics();
         self.submit_present(image_index);
 
@@ -260,6 +262,7 @@ impl Renderer {
     fn update_global_uniform(
         &self,
         world: &World,
+        voxels: &VoxelsConfig,
         settings: &RendererSettings,
         window_size: PhysicalSize<u32>,
     ) {
@@ -290,6 +293,9 @@ impl Renderer {
         self.global.write(
             self.flight_index,
             &Global {
+                voxels: Voxels {
+                    chunk_size: voxels.chunk_size as u32,
+                },
                 light: world.light(),
                 atmosphere: Atmosphere {
                     enable: settings.enable_atmosphere,
