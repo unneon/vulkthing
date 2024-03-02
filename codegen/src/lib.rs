@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 mod config;
 mod generate;
 mod helper;

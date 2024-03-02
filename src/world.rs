@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 mod benchmark;
 
 use crate::camera::Camera;
@@ -33,23 +31,16 @@ pub struct World {
 
 pub struct Entity {
     pub transform: Transform,
-    albedo: Vector3<f32>,
-    emit: Vector3<f32>,
-    metallic: f32,
-    roughness: f32,
-    ao: f32,
-    mesh_id: usize,
 }
 
 pub struct Transform {
     pub translation: Vector3<f32>,
-    pub rotation: UnitQuaternion<f32>,
-    pub scale: Vector3<f32>,
+    rotation: UnitQuaternion<f32>,
+    scale: Vector3<f32>,
 }
 
 pub struct Star {
     pub transform: Transform,
-    pub emit: Vector3<f32>,
 }
 
 pub struct Atmosphere {
@@ -89,12 +80,6 @@ impl World {
                 rotation: UnitQuaternion::identity(),
                 scale: Vector3::from_element(50.),
             },
-            albedo: Vector3::zeros(),
-            emit: Vector3::from_element(100.),
-            metallic: 0.,
-            roughness: 1.,
-            ao: 0.,
-            mesh_id: 1,
         };
         let entities = vec![sun];
         let mut stars = Vec::new();
@@ -108,7 +93,6 @@ impl World {
                         rng.gen_range(DEFAULT_STAR_MIN_SCALE..DEFAULT_STAR_MAX_SCALE),
                     ),
                 },
-                emit: Vector3::from_element(10.),
             });
         }
         World {
@@ -186,42 +170,8 @@ impl World {
         self.camera.view_matrix()
     }
 
-    pub fn entities(&self) -> &[Entity] {
-        &self.entities
-    }
-
     pub fn sun(&self) -> &Entity {
         &self.entities[0]
-    }
-}
-
-impl Entity {
-    pub fn model_matrix(&self) -> Matrix4<f32> {
-        self.transform.model_matrix()
-    }
-
-    pub fn albedo(&self) -> Vector3<f32> {
-        self.albedo
-    }
-
-    pub fn emit(&self) -> Vector3<f32> {
-        self.emit
-    }
-
-    pub fn metallic(&self) -> f32 {
-        self.metallic
-    }
-
-    pub fn roughness(&self) -> f32 {
-        self.roughness
-    }
-
-    pub fn ao(&self) -> f32 {
-        self.ao
-    }
-
-    pub fn mesh_id(&self) -> usize {
-        self.mesh_id
     }
 }
 

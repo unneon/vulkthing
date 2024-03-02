@@ -47,6 +47,6 @@ pub const DEFAULT_VOXEL_CONFIG: VoxelsConfig = VoxelsConfig {
     render_distance_vertical: 64,
     meshing_algorithm: MeshingAlgorithmKind::Greedy,
 };
-pub const DEFAULT_VOXEL_INDEX_MAX_COUNT: usize = 3 * 256 * DEFAULT_VOXEL_MESHLET_MAX_COUNT;
+pub const DEFAULT_VOXEL_TRIANGLE_MAX_COUNT: usize = 3 * 256 * DEFAULT_VOXEL_MESHLET_MAX_COUNT;
 pub const DEFAULT_VOXEL_MESHLET_MAX_COUNT: usize = 1024 * 1024;
 pub const DEFAULT_VOXEL_VERTEX_MAX_COUNT: usize = 128 * DEFAULT_VOXEL_MESHLET_MAX_COUNT;

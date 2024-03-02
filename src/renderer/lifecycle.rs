@@ -1,6 +1,7 @@
 use crate::cli::Args;
 use crate::config::{
-    DEFAULT_VOXEL_INDEX_MAX_COUNT, DEFAULT_VOXEL_MESHLET_MAX_COUNT, DEFAULT_VOXEL_VERTEX_MAX_COUNT,
+    DEFAULT_VOXEL_MESHLET_MAX_COUNT, DEFAULT_VOXEL_TRIANGLE_MAX_COUNT,
+    DEFAULT_VOXEL_VERTEX_MAX_COUNT,
 };
 use crate::mesh::MeshData;
 use crate::renderer::codegen::{
@@ -108,7 +109,7 @@ impl Renderer {
         let voxel_vertex_buffer =
             StorageBuffer::new_array(VRAM_VIA_BAR, DEFAULT_VOXEL_VERTEX_MAX_COUNT, &dev);
         let voxel_triangle_buffer =
-            StorageBuffer::new_array(VRAM_VIA_BAR, DEFAULT_VOXEL_INDEX_MAX_COUNT, &dev);
+            StorageBuffer::new_array(VRAM_VIA_BAR, DEFAULT_VOXEL_TRIANGLE_MAX_COUNT, &dev);
         let voxel_meshlet_buffer =
             StorageBuffer::new_array(VRAM_VIA_BAR, DEFAULT_VOXEL_MESHLET_MAX_COUNT, &dev);
 
