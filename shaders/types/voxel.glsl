@@ -8,6 +8,8 @@ struct VoxelMeshlet {
 
 struct VoxelVertex {
     u8vec3 position;
+    // Two lowest bits encode an ambient occlusion value (00 => 0, 11 => 3/4), the other bits are unused.
+    uint8_t data;
 };
 
 struct VoxelTriangle {

@@ -10,6 +10,7 @@ pub struct LocalMesh {
 #[derive(Clone, Eq, Hash, PartialEq)]
 pub struct LocalVertex {
     pub position: Vector3<u8>,
+    pub ambient_occlusion: u8,
 }
 
 #[derive(Clone)]

@@ -8,7 +8,8 @@
 
 layout(binding = 0, set = 0) uniform GLOBAL_UNIFORM_TYPE global;
 
-layout(location = 0) perprimitiveEXT flat in uint frag_data;
+layout(location = 0) in float ambient_occlusion;
+layout(location = 1) perprimitiveEXT flat in uint triangle_data;
 
 layout(location = 0) out vec4 out_color;
 
@@ -27,10 +28,10 @@ const vec3 NORMALS[6] = vec3[](
 
 void main() {
     vec3 position = world_space_from_depth(gl_FragCoord.z);
-    vec3 normal = NORMALS[uint(frag_data) & 7u];
-    VoxelMaterial material = global.materials[uint(frag_data) >> 3];
+    vec3 normal = NORMALS[uint(triangle_data) & 7u];
+    VoxelMaterial material = global.materials[uint(triangle_data) >> 3];
     vec3 reflected_color = pbr(position, normal, material.albedo, material.metallic, material.roughness);
-    vec3 color_at_object = reflected_color + material.emit;
+    vec3 color_at_object = (1 - ambient_occlusion) * reflected_color + material.emit;
     vec3 color_at_camera = compute_atmosphere(color_at_object, position);
     out_color = vec4(color_at_camera, 1);
 }

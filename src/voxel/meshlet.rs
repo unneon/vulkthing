@@ -24,7 +24,8 @@ pub struct VoxelMeshlet {
 #[repr(C, align(4))]
 #[derive(Clone, Copy, Debug)]
 pub struct VoxelVertex {
-    pub position: Vector3<u8>,
+    position: Vector3<u8>,
+    data: u8,
 }
 
 #[repr(C)]
@@ -43,9 +44,19 @@ struct MeshoptVertex {
     position: Vector3<f32>,
 }
 
+impl VoxelVertex {
+    fn new(position: Vector3<u8>, ambient_occlusion: u8) -> VoxelVertex {
+        assert!(ambient_occlusion < 4);
+        VoxelVertex {
+            position,
+            data: ambient_occlusion,
+        }
+    }
+}
+
 impl VoxelTriangle {
     fn new(indices: [u8; 3], normal: u8, material: Material) -> VoxelTriangle {
-        assert!(normal < 1 << 3);
+        assert!(normal < 6);
         VoxelTriangle {
             index0: indices[0],
             index1: indices[1],
@@ -83,9 +94,7 @@ pub fn from_unclustered_mesh(mesh: &LocalMesh) -> VoxelMesh {
         let triangle_offset = triangles.len() as u32;
         for &vertex in meshlet.vertices {
             let vertex = &mesh.vertices[vertex as usize];
-            vertices.push(VoxelVertex {
-                position: vertex.position,
-            });
+            vertices.push(VoxelVertex::new(vertex.position, vertex.ambient_occlusion));
         }
         for &[mi0, mi1, mi2] in meshlet.triangles.array_chunks() {
             let i0 = meshlet.vertices[mi0 as usize];

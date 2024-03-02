@@ -1,7 +1,7 @@
 use crate::voxel::local_mesh::{LocalFace, LocalMesh, LocalVertex};
 use crate::voxel::material::Material;
 use crate::voxel::meshing::MeshingAlgorithm;
-use crate::voxel::sparse_octree::SparseOctree;
+use crate::voxel::neighbourhood::Neighbourhood;
 use crate::voxel::DIRECTIONS;
 use nalgebra::{Vector2, Vector3};
 
@@ -9,8 +9,7 @@ pub struct GreedyMeshing;
 
 struct State<'a> {
     chunk_size: usize,
-    chunk_svo: &'a SparseOctree,
-    neighbour_svos: [&'a SparseOctree; 6],
+    svos: Neighbourhood<'a>,
     slice_right: Vector3<i64>,
     slice_down: Vector3<i64>,
     slice_normal: Vector3<i64>,
@@ -29,15 +28,10 @@ enum WallNormal {
 }
 
 impl MeshingAlgorithm for GreedyMeshing {
-    fn mesh(
-        chunk_svo: &SparseOctree,
-        neighbour_svos: [&SparseOctree; 6],
-        chunk_size: usize,
-    ) -> LocalMesh {
+    fn mesh(svos: Neighbourhood, chunk_size: usize) -> LocalMesh {
         let mut state = State {
             chunk_size,
-            chunk_svo,
-            neighbour_svos,
+            svos,
             slice_right: Vector3::zeros(),
             slice_down: Vector3::zeros(),
             slice_normal: Vector3::zeros(),
@@ -127,15 +121,22 @@ impl State<'_> {
                     WallNormal::AlongSliceNormal => self.slice_normal,
                     WallNormal::AlongMinusSliceNormal => -self.slice_normal,
                 };
-                let v1 = LocalVertex { position: top_left };
+                // TODO: Compute ambient occlusion value.
+                let v1 = LocalVertex {
+                    position: top_left,
+                    ambient_occlusion: 0,
+                };
                 let v2 = LocalVertex {
                     position: top_right,
+                    ambient_occlusion: 0,
                 };
                 let v3 = LocalVertex {
                     position: bottom_left,
+                    ambient_occlusion: 0,
                 };
                 let v4 = LocalVertex {
                     position: bottom_right,
+                    ambient_occlusion: 0,
                 };
                 let base_index = self.vertices.len() as u32;
                 let (io2, io3) = if self.slice_right.cross(&self.slice_down) == normal_i64 {
@@ -181,19 +182,19 @@ impl State<'_> {
         // neighbours and normal leading into negative neighbours are handled in the if statements below.
         let voxel_3d = self.convert_2d_to_3d(voxel_2d);
         let voxel_kind = if !self.out_of_bounds_positive(voxel_3d) {
-            self.chunk_svo.at(voxel_3d, self.chunk_size as i64)
+            self.svos.chunk().at(voxel_3d, self.chunk_size as i64)
         } else {
             let voxel_3d_in_neighbour = self.wrap_out_of_bounds(voxel_3d);
-            self.neighbour_svos[self.slice_normal_index]
+            self.svos.neighbour_chunks_manhattan()[self.slice_normal_index]
                 .at(voxel_3d_in_neighbour, self.chunk_size as i64)
         };
 
         let neighbour_3d = voxel_3d - self.slice_normal;
         let neighbour_kind = if !self.out_of_bounds_negative(neighbour_3d) {
-            self.chunk_svo.at(neighbour_3d, self.chunk_size as i64)
+            self.svos.chunk().at(neighbour_3d, self.chunk_size as i64)
         } else {
             let neighbour_3d_in_neighbour = self.wrap_out_of_bounds(neighbour_3d);
-            self.neighbour_svos[self.slice_minus_normal_index]
+            self.svos.neighbour_chunks_manhattan()[self.slice_minus_normal_index]
                 .at(neighbour_3d_in_neighbour, self.chunk_size as i64)
         };
         // If the checked voxel is outside the chunk, the wall shouldn't be generated along the minus slice normal,

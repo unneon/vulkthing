@@ -1,6 +1,7 @@
 use crate::voxel::binary_cube::BinaryCube;
 use crate::voxel::local_mesh::{LocalFace, LocalMesh, LocalVertex};
 use crate::voxel::meshing::MeshingAlgorithm;
+use crate::voxel::neighbourhood::Neighbourhood;
 use crate::voxel::sparse_octree::SparseOctree;
 use crate::voxel::DIRECTIONS;
 use nalgebra::Vector3;
@@ -9,27 +10,22 @@ pub struct CulledMeshing;
 
 struct State<'a> {
     chunk_size: usize,
-    chunk_svo: &'a SparseOctree,
-    neighbour_svos: [&'a SparseOctree; 6],
+    svos: Neighbourhood<'a>,
     vertices: Vec<LocalVertex>,
     faces: Vec<LocalFace>,
 }
 
 impl MeshingAlgorithm for CulledMeshing {
-    fn mesh(
-        chunk_svo: &SparseOctree,
-        neighbour_svos: [&SparseOctree; 6],
-        chunk_size: usize,
-    ) -> LocalMesh {
+    fn mesh(svos: Neighbourhood, chunk_size: usize) -> LocalMesh {
         let cube = BinaryCube::new_at_zero(chunk_size);
+        let chunk = svos.chunk();
         let mut state = State {
             chunk_size,
-            chunk_svo,
-            neighbour_svos,
+            svos,
             vertices: Vec::new(),
             faces: Vec::new(),
         };
-        state.mesh_cube(cube, chunk_svo);
+        state.mesh_cube(cube, chunk);
         LocalMesh {
             vertices: state.vertices,
             faces: state.faces,
@@ -65,32 +61,12 @@ impl State<'_> {
 
     fn mesh_voxel_side(&mut self, position: Vector3<i64>, normal_index: usize) {
         let chunk_size = self.chunk_size as i64;
-        let material = self.chunk_svo.at(position, chunk_size);
+        let material = self.svos.chunk().at(position, chunk_size);
         if material.is_air() {
             return;
         }
         let normal = DIRECTIONS[normal_index];
-        let neighbour_in_chunk = position + normal;
-        let is_neighbour_outside_chunk = neighbour_in_chunk.x < 0
-            || neighbour_in_chunk.x >= chunk_size
-            || neighbour_in_chunk.y < 0
-            || neighbour_in_chunk.y >= chunk_size
-            || neighbour_in_chunk.z < 0
-            || neighbour_in_chunk.z >= chunk_size;
-        if is_neighbour_outside_chunk {
-            let neighbour_svo = &self.neighbour_svos[normal_index];
-            let neighbour_in_neighbour = Vector3::new(
-                (neighbour_in_chunk.x + chunk_size) % chunk_size,
-                (neighbour_in_chunk.y + chunk_size) % chunk_size,
-                (neighbour_in_chunk.z + chunk_size) % chunk_size,
-            );
-            if !neighbour_svo
-                .at(neighbour_in_neighbour, chunk_size)
-                .is_air()
-            {
-                return;
-            }
-        } else if !self.chunk_svo.at(neighbour_in_chunk, chunk_size).is_air() {
+        if !self.svos.at(position + normal).is_air() {
             return;
         }
         let rot1 = Vector3::new(normal.z.abs(), normal.x.abs(), normal.y.abs());
@@ -110,18 +86,16 @@ impl State<'_> {
         let i2 = base_index + 1;
         let i3 = base_index + 2;
         let i4 = base_index + 3;
-        let indices = [i1, i2, i3, i4];
-        let v1 = LocalVertex {
-            position: base.try_cast::<u8>().unwrap(),
-        };
-        let v2 = LocalVertex {
-            position: (base + rot1).try_cast::<u8>().unwrap(),
-        };
-        let v3 = LocalVertex {
-            position: (base + rot2).try_cast::<u8>().unwrap(),
-        };
-        let v4 = LocalVertex {
-            position: (base + rot1 + rot2).try_cast::<u8>().unwrap(),
+        let v1 = self.make_vertex(base, normal);
+        let v2 = self.make_vertex(base + rot1, normal);
+        let v3 = self.make_vertex(base + rot2, normal);
+        let v4 = self.make_vertex(base + rot1 + rot2, normal);
+        let indices = if v1.ambient_occlusion + v4.ambient_occlusion
+            >= v2.ambient_occlusion + v3.ambient_occlusion
+        {
+            [i1, i2, i3, i4]
+        } else {
+            [i2, i4, i1, i3]
         };
         self.vertices.push(v1);
         self.vertices.push(v2);
@@ -132,5 +106,29 @@ impl State<'_> {
             normal_index: normal_index as u8,
             material,
         });
+    }
+
+    fn make_vertex(&self, position: Vector3<i64>, normal: Vector3<i64>) -> LocalVertex {
+        // TODO: Not sure if correct for other normals than 0,0,1.
+        let occluder_base = if normal.sum() < 0 {
+            position + normal
+        } else {
+            position
+        };
+        let u = normal.zxy().abs();
+        let v = normal.yzx().abs();
+        let side1 = !self.svos.at(occluder_base - u).is_air();
+        let side2 = !self.svos.at(occluder_base - v).is_air();
+        let corner = (!self.svos.at(occluder_base).is_air())
+            || (!self.svos.at(occluder_base - u - v).is_air());
+        let ambient_occlusion = if side1 && side2 {
+            3
+        } else {
+            (if side1 { 1 } else { 0 }) + (if side2 { 1 } else { 0 }) + (if corner { 1 } else { 0 })
+        };
+        LocalVertex {
+            position: position.try_cast::<u8>().unwrap(),
+            ambient_occlusion,
+        }
     }
 }

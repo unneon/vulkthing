@@ -5,6 +5,7 @@ mod local_mesh;
 pub mod material;
 pub mod meshing;
 pub mod meshlet;
+pub mod neighbourhood;
 mod sparse_octree;
 mod thread;
 mod world_generation;
