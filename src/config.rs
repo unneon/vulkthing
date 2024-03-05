@@ -43,7 +43,7 @@ pub const DEFAULT_VOXEL_CONFIG: VoxelsConfig = VoxelsConfig {
     heightmap_amplitude: 32.,
     heightmap_frequency: 0.01,
     heightmap_bias: 0.,
-    render_distance_horizontal: 256,
+    render_distance_horizontal: 1024,
     render_distance_vertical: 64,
     meshing_algorithm: MeshingAlgorithmKind::Culled,
 };

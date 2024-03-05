@@ -19,7 +19,6 @@ pub fn compile_glsl(glsl_path: &str, shader_kind: ShaderKind) -> Vec<u32> {
     let spirv_data = match compile_result {
         Err(shaderc::Error::CompilationError(_, output)) => {
             for message in output.trim().split('\n') {
-                eprintln!("{message:?}");
                 let (file, message) = message.split_once(':').unwrap();
                 let (line, message) = message.split_once(':').unwrap();
                 let message = message.strip_prefix(" error: '").unwrap();
@@ -32,7 +31,7 @@ pub fn compile_glsl(glsl_path: &str, shader_kind: ShaderKind) -> Vec<u32> {
                 let message = message.trim();
                 error!("shader compilation error, {token_format}{message}, \x1B[1mfile\x1B[0m: {file}, \x1B[1mline\x1B[0m: {line}");
             }
-            panic!("shader compilation error");
+            std::process::exit(1);
         }
         result => result.unwrap(),
     };
