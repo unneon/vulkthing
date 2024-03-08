@@ -9,6 +9,7 @@
 
 #include "types/uniform.glsl"
 #include "types/voxel.glsl"
+#include "util/geometry.glsl"
 
 layout(binding = 0) uniform GLOBAL_UNIFORM_TYPE global;
 layout(binding = 4) readonly buffer Meshlets {
@@ -19,7 +20,6 @@ layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
 taskPayloadSharedEXT VoxelPayload payload;
 
-// TODO: Replace this with proper frustum culling.
 bool back_cull(VoxelMeshlet meshlet) {
     for (int dx = 0; dx < 2; ++dx) {
         for (int dy = 0; dy < 2; ++dy) {
@@ -34,11 +34,23 @@ bool back_cull(VoxelMeshlet meshlet) {
     return true;
 }
 
+bool frustum_cull(VoxelMeshlet meshlet) {
+    vec3 world_space_min = global.voxels.chunk_size * vec3(meshlet.chunk) + meshlet.bound_base;
+    vec3 world_space_max = world_space_min + meshlet.bound_size;
+    vec4 screen_aabb;
+    if (!screen_aabb_projection(world_space_min, world_space_max, global.camera.depth_near, global.camera.projection_matrix * global.camera.view_matrix, screen_aabb)) {
+        return false;
+    }
+    return screen_aabb.x > 1 || screen_aabb.y > 1 || screen_aabb.z < -1 || screen_aabb.w < -1;
+}
+
 void main() {
     uint meshlet_index = 64 * gl_WorkGroupID.x + gl_LocalInvocationID.x;
+    VoxelMeshlet meshlet = meshlets[meshlet_index];
 
     bool cull = meshlet_index >= global.voxels.meshlet_count;
-    cull = cull || back_cull(meshlets[meshlet_index]);
+    cull = cull || back_cull(meshlet);
+    cull = cull || frustum_cull(meshlet);
 
     uint task_count = subgroupAdd(cull ? 0 : 1);
     uint task_index = subgroupExclusiveAdd(cull ? 0 : 1);
