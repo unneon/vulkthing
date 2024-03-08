@@ -11,7 +11,6 @@ use crate::renderer::uniform::Light;
 use crate::util::{RandomDirection, RandomRotation};
 use nalgebra::{Matrix4, UnitQuaternion, Vector3};
 use rand::Rng;
-use rapier3d::dynamics::RigidBodyHandle;
 use rapier3d::prelude::*;
 
 pub struct World {

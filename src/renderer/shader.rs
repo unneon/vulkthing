@@ -1,5 +1,5 @@
 use log::{debug, error};
-use shaderc::{EnvVersion, ResolvedInclude, ShaderKind, TargetEnv};
+use shaderc::{EnvVersion, Limit, ResolvedInclude, ShaderKind, TargetEnv};
 
 pub fn compile_glsl(glsl_path: &str, shader_kind: ShaderKind) -> Vec<u32> {
     let compiler = shaderc::Compiler::new().unwrap();
@@ -11,8 +11,7 @@ pub fn compile_glsl(glsl_path: &str, shader_kind: ShaderKind) -> Vec<u32> {
             content: std::fs::read_to_string(format!("shaders/{}", path)).unwrap(),
         })
     });
-    // TODO: Send a PR to shaderc-rs adding all new enum variants.
-    options.set_limit(unsafe { std::mem::transmute(94u32) }, 256);
+    options.set_limit(Limit::MaxMeshWorkGroupSizeXExt, 256);
     let glsl_text = std::fs::read_to_string(glsl_path).unwrap();
     let compile_result =
         compiler.compile_into_spirv(&glsl_text, shader_kind, glsl_path, "main", Some(&options));

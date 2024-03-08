@@ -4,21 +4,6 @@ use std::borrow::Cow;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct Transform {
-    pub model: Matrix4<f32>,
-}
-
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub struct Material {
-    pub albedo: Vector3<f32>,
-    pub metallic: f32,
-    pub emit: Vector3<f32>,
-    pub roughness: f32,
-}
-
-#[repr(C)]
-#[derive(Clone, Copy)]
 pub struct Global {
     pub voxels: Voxels,
     pub light: Light,

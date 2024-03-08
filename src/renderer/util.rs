@@ -88,7 +88,7 @@ impl Buffer {
 
     pub fn fill_from_slice_host_visible<T: Copy>(&self, data: &[T], dev: &Dev) {
         self.with_mapped(dev, |mapped| {
-            MaybeUninit::write_slice(mapped, data);
+            MaybeUninit::copy_from_slice(mapped, data);
         });
     }
 

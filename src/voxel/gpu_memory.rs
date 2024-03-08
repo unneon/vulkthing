@@ -50,15 +50,15 @@ impl VoxelGpuMemory {
         }
 
         let vertex_memory = &mut self.vertex_buffer.mapped()[self.vertex_count..new_vertex_count];
-        MaybeUninit::write_slice(vertex_memory, &mesh.vertices);
+        MaybeUninit::copy_from_slice(vertex_memory, &mesh.vertices);
 
         let triangle_memory =
             &mut self.triangle_buffer.mapped()[self.triangle_count..new_triangle_count];
-        MaybeUninit::write_slice(triangle_memory, &mesh.triangles);
+        MaybeUninit::copy_from_slice(triangle_memory, &mesh.triangles);
 
         let meshlet_memory =
             &mut self.meshlet_buffer.mapped()[old_meshlet_count..new_meshlet_count];
-        MaybeUninit::write_slice(meshlet_memory, &mesh.meshlets);
+        MaybeUninit::copy_from_slice(meshlet_memory, &mesh.meshlets);
 
         self.vertex_count = new_vertex_count;
         self.triangle_count = new_triangle_count;
