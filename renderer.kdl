@@ -27,6 +27,14 @@ pass "render" {
         pipeline "voxel" task-shaders=true mesh-shaders=true {
             descriptor-sets "global"
         }
+        pipeline "debug_voxel_triangle" mesh-shaders=true {
+            cull-mode "NONE"
+            polygon-mode "LINE"
+            descriptor-sets "global"
+        }
+        pipeline "debug_voxel_world_bound" mesh-shaders=true {
+            descriptor-sets "global"
+        }
         pipeline "sun" {
             vertex-binding {
                 attribute "vertex_position" "R32G32B32_SFLOAT"

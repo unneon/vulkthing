@@ -374,6 +374,7 @@ fn create_logical_device(
     ];
 
     let features = *vk::PhysicalDeviceFeatures::builder()
+        .fill_mode_non_solid(true)
         .fragment_stores_and_atomics(true)
         .shader_int16(true);
     let mut vk11_features =

@@ -16,7 +16,7 @@ use crate::renderer::debug::{begin_label, end_label};
 use crate::renderer::graph::Pass;
 use crate::renderer::swapchain::Swapchain;
 use crate::renderer::uniform::{
-    Atmosphere, Camera, Global, PostprocessUniform, Star, Tonemapper, VoxelMaterial, Voxels,
+    Atmosphere, Camera, Debug, Global, PostprocessUniform, Star, Tonemapper, VoxelMaterial, Voxels,
 };
 use crate::renderer::util::{
     timestamp_difference_to_duration, Buffer, Dev, StorageBuffer, UniformBuffer,
@@ -232,6 +232,20 @@ impl Renderer {
         };
         end_label(buf, &self.dev);
 
+        if voxel_meshlet_count > 0 {
+            begin_label(buf, "Debug voxel triangle draw", [238, 186, 11], &self.dev);
+            self.bind_graphics_pipeline(buf, self.pipelines.debug_voxel_triangle);
+            self.bind_descriptor_set(buf, self.pipeline_layouts.debug_voxel_triangle);
+            unsafe { self.dev.mesh_ext.cmd_draw_mesh_tasks(buf, 1, 1, 1) };
+            end_label(buf, &self.dev);
+
+            begin_label(buf, "Debug voxel world bound draw", [255, 78, 0], &self.dev);
+            self.bind_graphics_pipeline(buf, self.pipelines.debug_voxel_world_bound);
+            self.bind_descriptor_set(buf, self.pipeline_layouts.debug_voxel_world_bound);
+            unsafe { self.dev.mesh_ext.cmd_draw_mesh_tasks(buf, 1, 1, 1) };
+            end_label(buf, &self.dev);
+        }
+
         begin_label(buf, "Sun draw", [156, 85, 35], &self.dev);
         self.bind_graphics_pipeline(buf, self.pipelines.sun);
         self.bind_descriptor_set(buf, self.pipeline_layouts.sun);
@@ -343,6 +357,7 @@ impl Renderer {
                     direction: world.camera.view_direction(),
                 },
                 materials,
+                debug: Debug { meshlet_id: 0 },
             },
         );
     }

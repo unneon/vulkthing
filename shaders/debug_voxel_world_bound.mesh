@@ -1,0 +1,57 @@
+#version 460
+
+#extension GL_EXT_mesh_shader : require
+#extension GL_EXT_shader_8bit_storage : require
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int16 : require
+
+#include "types/uniform.glsl"
+#include "types/voxel.glsl"
+
+layout(binding = 0) uniform GLOBAL_UNIFORM_TYPE global;
+layout(binding = 4) readonly buffer Meshlets {
+    VoxelMeshlet meshlets[];
+};
+
+layout(local_size_x = 12, local_size_y = 1, local_size_z = 1) in;
+layout(lines, max_vertices = 8, max_primitives = 12) out;
+
+const uvec2 INDICES[12] = uvec2[](
+    uvec2(0, 1),
+    uvec2(0, 2),
+    uvec2(1, 3),
+    uvec2(2, 3),
+    uvec2(0, 4),
+    uvec2(1, 5),
+    uvec2(2, 6),
+    uvec2(3, 7),
+    uvec2(4, 5),
+    uvec2(4, 6),
+    uvec2(5, 7),
+    uvec2(6, 7)
+);
+
+const vec3 VERTICES[8] = vec3[](
+    vec3(0, 0, 0),
+    vec3(0, 1, 0),
+    vec3(1, 0, 0),
+    vec3(1, 1, 0),
+    vec3(0, 0, 1),
+    vec3(0, 1, 1),
+    vec3(1, 0, 1),
+    vec3(1, 1, 1)
+);
+
+void main() {
+    SetMeshOutputsEXT(8, 12);
+    VoxelMeshlet meshlet = meshlets[global.debug.meshlet_id];
+
+    gl_PrimitiveLineIndicesEXT[gl_LocalInvocationID.x] = INDICES[gl_LocalInvocationID.x];
+
+    if (gl_LocalInvocationID.x < 8) {
+        vec3 world_space = global.voxels.chunk_size * (vec3(meshlet.chunk) + VERTICES[gl_LocalInvocationID.x]);
+        vec4 clip_space = global.camera.projection_matrix * global.camera.view_matrix * vec4(world_space, 1);
+        gl_MeshVerticesEXT[gl_LocalInvocationID.x].gl_Position = clip_space;
+    }
+}

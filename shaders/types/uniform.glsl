@@ -10,6 +10,7 @@
         Postprocessing postprocessing; \
         Camera camera; \
         VoxelMaterial materials[256]; \
+        Debug debug; \
     }
 
 #define MATERIAL_UNIFORM_TYPE \
@@ -67,6 +68,10 @@ struct VoxelMaterial {
     float roughness;
     vec3 emit;
     float metallic;
+};
+
+struct Debug {
+    uint meshlet_id;
 };
 
 const uint TONEMAPPER_RGB_CLAMPING = 0;
