@@ -4,6 +4,11 @@ struct VoxelMeshlet {
     uint triangle_offset;
     uint triangle_count;
     i16vec3 chunk;
+    int16_t _pad0;
+    u8vec3 bound_base;
+    uint8_t _pad1;
+    u8vec3 bound_size;
+    uint8_t _pad2;
 };
 
 struct VoxelVertex {

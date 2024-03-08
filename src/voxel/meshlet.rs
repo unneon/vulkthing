@@ -19,6 +19,11 @@ pub struct VoxelMeshlet {
     pub triangle_offset: u32,
     pub triangle_count: u32,
     pub chunk: Vector3<i16>,
+    pub _pad0: i16,
+    pub bound_base: Vector3<u8>,
+    pub _pad1: u8,
+    pub bound_size: Vector3<u8>,
+    pub _pad2: u8,
 }
 
 #[repr(C, align(4))]
@@ -92,10 +97,20 @@ pub fn from_unclustered_mesh(mesh: &LocalMesh) -> VoxelMesh {
     for meshlet in raw_meshlets.iter() {
         let vertex_offset = vertices.len() as u32;
         let triangle_offset = triangles.len() as u32;
+        let mut min_coords = Vector3::from_element(255);
+        let mut max_coords = Vector3::from_element(0);
         for &vertex in meshlet.vertices {
             let vertex = &mesh.vertices[vertex as usize];
             vertices.push(VoxelVertex::new(vertex.position, vertex.ambient_occlusion));
+            min_coords.x = min_coords.x.min(vertex.position.x);
+            min_coords.y = min_coords.y.min(vertex.position.y);
+            min_coords.z = min_coords.z.min(vertex.position.z);
+            max_coords.x = max_coords.x.max(vertex.position.x);
+            max_coords.y = max_coords.y.max(vertex.position.y);
+            max_coords.z = max_coords.z.max(vertex.position.z);
         }
+        let bound_base = min_coords;
+        let bound_size = max_coords - min_coords;
         for &[mi0, mi1, mi2] in meshlet.triangles.array_chunks() {
             let i0 = meshlet.vertices[mi0 as usize];
             let i1 = meshlet.vertices[mi1 as usize];
@@ -114,6 +129,11 @@ pub fn from_unclustered_mesh(mesh: &LocalMesh) -> VoxelMesh {
             triangle_offset,
             triangle_count: meshlet.triangles.len() as u32 / 3,
             chunk: Vector3::zeros(),
+            _pad0: 0,
+            bound_base,
+            _pad1: 0,
+            bound_size,
+            _pad2: 0,
         });
     }
     VoxelMesh {

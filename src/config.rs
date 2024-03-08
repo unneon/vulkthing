@@ -29,7 +29,7 @@ pub const DEFAULT_RENDERER_SETTINGS: RendererSettings = RendererSettings {
     atmosphere_wavelengths: Vector3::new(700., 530., 440.),
     depth_near: 0.2,
     depth_far: 65536.,
-    enable_atmosphere: true,
+    enable_atmosphere: false,
     postprocess: PostprocessSettings {
         exposure: 1.,
         tonemapper: Tonemapper::HillAces,

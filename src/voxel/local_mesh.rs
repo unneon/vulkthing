@@ -7,7 +7,7 @@ pub struct LocalMesh {
     pub faces: Vec<LocalFace>,
 }
 
-#[derive(Clone, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct LocalVertex {
     pub position: Vector3<u8>,
     pub ambient_occlusion: u8,
