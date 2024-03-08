@@ -244,6 +244,12 @@ impl Renderer {
             self.bind_descriptor_set(buf, self.pipeline_layouts.debug_voxel_world_bound);
             unsafe { self.dev.mesh_ext.cmd_draw_mesh_tasks(buf, 1, 1, 1) };
             end_label(buf, &self.dev);
+
+            begin_label(buf, "Debug voxel screen bound draw", [113, 0, 0], &self.dev);
+            self.bind_graphics_pipeline(buf, self.pipelines.debug_voxel_screen_bound);
+            self.bind_descriptor_set(buf, self.pipeline_layouts.debug_voxel_screen_bound);
+            unsafe { self.dev.mesh_ext.cmd_draw_mesh_tasks(buf, 1, 1, 1) };
+            end_label(buf, &self.dev);
         }
 
         begin_label(buf, "Sun draw", [156, 85, 35], &self.dev);
@@ -351,7 +357,8 @@ impl Renderer {
                         .try_inverse()
                         .unwrap(),
                     resolution: Vector2::new(window_size.width as f32, window_size.height as f32),
-                    _pad0: [0., 0.],
+                    depth_near: settings.depth_near,
+                    depth_far: settings.depth_far,
                     position: world.camera.position(),
                     _pad1: 0.,
                     direction: world.camera.view_direction(),

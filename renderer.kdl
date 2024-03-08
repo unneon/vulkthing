@@ -35,6 +35,9 @@ pass "render" {
         pipeline "debug_voxel_world_bound" mesh-shaders=true {
             descriptor-sets "global"
         }
+        pipeline "debug_voxel_screen_bound" mesh-shaders=true {
+            descriptor-sets "global"
+        }
         pipeline "sun" {
             vertex-binding {
                 attribute "vertex_position" "R32G32B32_SFLOAT"

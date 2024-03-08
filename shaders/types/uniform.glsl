@@ -59,6 +59,8 @@ struct Camera {
     mat4 inverse_view_matrix;
     mat4 inverse_projection_matrix;
     vec2 resolution;
+    float depth_near;
+    float depth_far;
     vec3 position;
     vec3 direction;
 };
