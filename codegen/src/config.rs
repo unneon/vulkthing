@@ -6,8 +6,8 @@ pub struct Renderer {
     pub meshes: Vec<Mesh>,
     #[knuffel(children(name = "sampler"))]
     pub samplers: Vec<Sampler>,
-    #[knuffel(children(name = "descriptor-set"))]
-    pub descriptor_sets: Vec<DescriptorSet>,
+    #[knuffel(child)]
+    pub descriptor_set: DescriptorSet,
     #[knuffel(children(name = "pass"))]
     pub passes: Vec<Pass>,
     #[knuffel(children(name = "compute"))]
@@ -38,10 +38,6 @@ pub struct Sampler {
 
 #[derive(Debug, Decode)]
 pub struct DescriptorSet {
-    #[knuffel(argument)]
-    pub name: String,
-    #[knuffel(argument)]
-    pub pool_size: usize,
     #[knuffel(children)]
     pub bindings: Vec<DescriptorBinding>,
 }
@@ -160,8 +156,6 @@ pub struct Pipeline {
     pub fragment_shader: Option<String>,
     #[knuffel(child, unwrap(arguments))]
     pub fragment_specialization: Option<Vec<String>>,
-    #[knuffel(child, unwrap(arguments))]
-    pub descriptor_sets: Vec<String>,
     #[knuffel(child, unwrap(argument), default = "FILL".into())]
     pub polygon_mode: String,
     #[knuffel(child, unwrap(argument), default = "BACK".into())]

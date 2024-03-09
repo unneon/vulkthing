@@ -1,7 +1,7 @@
 mesh "icosahedron"
 mesh "tetrahedron"
 
-descriptor-set "global" 1 {
+descriptor-set {
     uniform "global" "ALL" "Global"
     storage-buffer "stars" "ALL" "[Star]"
     storage-buffer "voxel_vertices" "ALL" "[crate::voxel::meshlet::VoxelVertex]"
@@ -12,35 +12,24 @@ descriptor-set "global" 1 {
 pass "render" {
     debug-name "Forward rendering pass"
     debug-color 160 167 161
-    pipeline "voxel" task-shaders=true mesh-shaders=true {
-        descriptor-sets "global"
-    }
+    pipeline "voxel" task-shaders=true mesh-shaders=true
     pipeline "debug_voxel_triangle" mesh-shaders=true {
         cull-mode "NONE"
         polygon-mode "LINE"
-        descriptor-sets "global"
     }
-    pipeline "debug_voxel_world_bound" mesh-shaders=true {
-        descriptor-sets "global"
-    }
-    pipeline "debug_voxel_screen_bound" mesh-shaders=true {
-        descriptor-sets "global"
-    }
+    pipeline "debug_voxel_world_bound" mesh-shaders=true
+    pipeline "debug_voxel_screen_bound" mesh-shaders=true
     pipeline "sun" {
         vertex-binding {
             attribute "vertex_position" "R32G32B32_SFLOAT"
             attribute "vertex_normal" "R32G32B32_SFLOAT"
         }
-        descriptor-sets "global"
     }
     pipeline "star" {
         vertex-binding {
             attribute "vertex_position" "R32G32B32_SFLOAT"
             attribute "vertex_normal" "R32G32B32_SFLOAT" unused=true
         }
-        descriptor-sets "global"
     }
-    pipeline "skybox" {
-        descriptor-sets "global"
-    }
+    pipeline "skybox"
 }

@@ -1,5 +1,5 @@
 use crate::config::{
-    Compute, DescriptorBinding, DescriptorSet, Pass, Pipeline, Renderer, Sampler, VertexAttribute,
+    Compute, DescriptorBinding, Pass, Pipeline, Renderer, Sampler, VertexAttribute,
 };
 use crate::helper::to_camelcase;
 use std::borrow::Cow;
@@ -124,12 +124,6 @@ impl DescriptorBinding {
     }
 }
 
-impl Display for DescriptorSet {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        self.name.fmt(f)
-    }
-}
-
 impl Display for Compute {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.name.fmt(f)
@@ -167,20 +161,18 @@ use crate::renderer::uniform::{{"#
     )
     .unwrap();
     let mut uniform_types = BTreeSet::new();
-    for descriptor_set in &renderer.descriptor_sets {
-        for binding in &descriptor_set.bindings {
-            if let DescriptorBinding::Uniform(uniform) = binding {
-                uniform_types.insert(uniform.typ.as_str());
-            } else if let DescriptorBinding::StorageBuffer(storage) = binding {
-                uniform_types.insert(
-                    storage
-                        .typ
-                        .strip_prefix("[")
-                        .unwrap()
-                        .strip_suffix("]")
-                        .unwrap(),
-                );
-            }
+    for binding in &renderer.descriptor_set.bindings {
+        if let DescriptorBinding::Uniform(uniform) = binding {
+            uniform_types.insert(uniform.typ.as_str());
+        } else if let DescriptorBinding::StorageBuffer(storage) = binding {
+            uniform_types.insert(
+                storage
+                    .typ
+                    .strip_prefix("[")
+                    .unwrap()
+                    .strip_suffix("]")
+                    .unwrap(),
+            );
         }
     }
     for typ in &uniform_types {
@@ -204,49 +196,6 @@ pub struct Samplers {{"#
     .unwrap();
     for sampler in &renderer.samplers {
         writeln!(file, "    pub {}: vk::Sampler,", sampler.name).unwrap();
-    }
-    writeln!(
-        file,
-        r#"}}
-
-pub struct DescriptorSetLayouts {{"#
-    )
-    .unwrap();
-    for descriptor_set in &renderer.descriptor_sets {
-        writeln!(
-            file,
-            "    pub {}: vk::DescriptorSetLayout,",
-            descriptor_set.name
-        )
-        .unwrap();
-    }
-    writeln!(
-        file,
-        r#"}}
-
-pub struct DescriptorPools {{"#
-    )
-    .unwrap();
-    for descriptor_set in &renderer.descriptor_sets {
-        writeln!(file, "    pub {descriptor_set}: vk::DescriptorPool,").unwrap();
-        writeln!(
-            file,
-            "    pub {descriptor_set}_layout: vk::DescriptorSetLayout,"
-        )
-        .unwrap();
-    }
-    writeln!(
-        file,
-        r#"}}
-
-pub struct PipelineLayouts {{"#
-    )
-    .unwrap();
-    for_pipelines(renderer, |_, pipeline| {
-        writeln!(file, "    pub {pipeline}: vk::PipelineLayout,").unwrap();
-    });
-    for compute in &renderer.computes {
-        writeln!(file, "    pub {compute}: vk::PipelineLayout,").unwrap();
     }
     writeln!(
         file,
@@ -362,34 +311,28 @@ struct Scratch {{"#
     for sampler in &renderer.samplers {
         writeln!(file, "    {}_sampler: vk::SamplerCreateInfo,", sampler.name).unwrap();
     }
-    let mut all_pool_sizes: Vec<Vec<(BindingType, usize)>> =
-        vec![Vec::new(); renderer.descriptor_sets.len()];
-    for (descriptor_set_index, descriptor_set) in renderer.descriptor_sets.iter().enumerate() {
-        let pool_sizes = &mut all_pool_sizes[descriptor_set_index];
-        for binding in &descriptor_set.bindings {
-            let binding_type = binding.descriptor_type();
-            let pool_size = match pool_sizes.iter_mut().find(|(ty, _)| *ty == binding_type) {
-                Some(pool_size) => pool_size,
-                None => {
-                    pool_sizes.push((binding_type, 0));
-                    pool_sizes.last_mut().unwrap()
-                }
-            };
-            pool_size.1 += descriptor_set.pool_size * 2;
-        }
+    let mut pool_sizes = Vec::new();
+    for binding in &renderer.descriptor_set.bindings {
+        let binding_type = binding.descriptor_type();
+        let pool_size = match pool_sizes.iter_mut().find(|(ty, _)| *ty == binding_type) {
+            Some(pool_size) => pool_size,
+            None => {
+                pool_sizes.push((binding_type, 0));
+                pool_sizes.last_mut().unwrap()
+            }
+        };
+        pool_size.1 += 2;
     }
-    for (descriptor_set_index, descriptor_set) in renderer.descriptor_sets.iter().enumerate() {
-        let binding_count = descriptor_set.bindings.len();
-        let pool_size_count = all_pool_sizes[descriptor_set_index].len();
-        writeln!(
-            file,
-            r#"    {descriptor_set}_bindings: [vk::DescriptorSetLayoutBinding; {binding_count}],
-    {descriptor_set}_layout: vk::DescriptorSetLayoutCreateInfo,
-    {descriptor_set}_pool_sizes: [vk::DescriptorPoolSize; {pool_size_count}],
-    {descriptor_set}_pool: vk::DescriptorPoolCreateInfo,"#
-        )
-        .unwrap();
-    }
+    let binding_count = renderer.descriptor_set.bindings.len();
+    let pool_size_count = pool_sizes.len();
+    writeln!(
+        file,
+        r#"    descriptor_set_bindings: [vk::DescriptorSetLayoutBinding; {binding_count}],
+    descriptor_set_layout: vk::DescriptorSetLayoutCreateInfo,
+    descriptor_pool_sizes: [vk::DescriptorPoolSize; {pool_size_count}],
+    descriptor_pool: vk::DescriptorPoolCreateInfo,"#
+    )
+    .unwrap();
     writeln!(
         file,
         r#"    assembly: vk::PipelineInputAssemblyStateCreateInfo,
@@ -404,36 +347,7 @@ struct Scratch {{"#
         )
         .unwrap();
     }
-    for_pipelines(renderer, |_, pipeline| {
-        let layout_count = pipeline.descriptor_sets.len();
-        if layout_count > 1 {
-            writeln!(
-                file,
-                "    {pipeline}_layouts: [vk::DescriptorSetLayout; {layout_count}],"
-            )
-            .unwrap();
-        }
-        writeln!(
-            file,
-            "    {pipeline}_pipeline_layout: vk::PipelineLayoutCreateInfo,"
-        )
-        .unwrap();
-    });
-    for compute in &renderer.computes {
-        let layout_count = compute.descriptor_sets.len();
-        if layout_count > 1 {
-            writeln!(
-                file,
-                "    {compute}_layouts: [vk::DescriptorSetLayout; {layout_count}],"
-            )
-            .unwrap();
-        }
-        writeln!(
-            file,
-            "    {compute}_pipeline_layout: vk::PipelineLayoutCreateInfo,"
-        )
-        .unwrap();
-    }
+    writeln!(file, "    pipeline_layout: vk::PipelineLayoutCreateInfo,").unwrap();
     for_pipelines(renderer, |_, pipeline| {
         let binding_count = pipeline.vertex_bindings.len();
         let attribute_count = pipeline
@@ -535,67 +449,71 @@ static mut SCRATCH: Scratch = Scratch {{"#
         )
         .unwrap();
     }
-    for (descriptor_set_index, descriptor_set) in renderer.descriptor_sets.iter().enumerate() {
-        writeln!(file, "    {}_bindings: [", descriptor_set.name).unwrap();
-        for (binding_index, binding) in descriptor_set.bindings.iter().enumerate() {
-            let typ = binding.descriptor_type().name();
-            let stage = binding.stage();
-            writeln!(
-                file,
-                r#"        vk::DescriptorSetLayoutBinding {{
+
+    writeln!(file, "    descriptor_set_bindings: [").unwrap();
+    for (binding_index, binding) in renderer.descriptor_set.bindings.iter().enumerate() {
+        let typ = binding.descriptor_type().name();
+        let stage = binding.stage();
+        writeln!(
+            file,
+            r#"        vk::DescriptorSetLayoutBinding {{
             binding: {binding_index},
             descriptor_type: vk::DescriptorType::{typ},
             descriptor_count: 1,
             stage_flags: vk::ShaderStageFlags::{stage},
             p_immutable_samplers: std::ptr::null(),
         }},"#,
-            )
-            .unwrap();
-        }
-        let binding_count = descriptor_set.bindings.len();
-        writeln!(
-            file,
-            r"    ],
-    {descriptor_set}_layout: vk::DescriptorSetLayoutCreateInfo {{
+        )
+        .unwrap();
+    }
+    let binding_count = renderer.descriptor_set.bindings.len();
+    writeln!(
+        file,
+        r"    ],
+    descriptor_set_layout: vk::DescriptorSetLayoutCreateInfo {{
         s_type: vk::StructureType::DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
         p_next: std::ptr::null(),
         flags: vk::DescriptorSetLayoutCreateFlags::empty(),
         binding_count: {binding_count},
-        p_bindings: unsafe {{ SCRATCH.{descriptor_set}_bindings.as_ptr() }},
+        p_bindings: unsafe {{ SCRATCH.descriptor_set_bindings.as_ptr() }},
     }},
-    {descriptor_set}_pool_sizes: [",
-        )
-        .unwrap();
-        for (binding_type, size) in &all_pool_sizes[descriptor_set_index] {
-            let binding_type_name = binding_type.name();
-            writeln!(
-                file,
-                r"        vk::DescriptorPoolSize {{
+    descriptor_pool_sizes: [",
+    )
+    .unwrap();
+    for (binding_type, size) in &pool_sizes {
+        let binding_type_name = binding_type.name();
+        writeln!(
+            file,
+            r"        vk::DescriptorPoolSize {{
             ty: vk::DescriptorType::{binding_type_name},
             descriptor_count: {size},
         }},"
-            )
-            .unwrap();
-        }
-        let max_sets = descriptor_set.pool_size * 2;
-        let pool_size_count = all_pool_sizes[descriptor_set_index].len();
-        writeln!(
-            file,
-            "    ],
-    {descriptor_set}_pool: vk::DescriptorPoolCreateInfo {{
+        )
+        .unwrap();
+    }
+    let max_sets = 2;
+    let pool_size_count = pool_sizes.len();
+    writeln!(
+        file,
+        r#"    ],
+    descriptor_pool: vk::DescriptorPoolCreateInfo {{
         s_type: vk::StructureType::DESCRIPTOR_POOL_CREATE_INFO,
         p_next: std::ptr::null(),
         flags: vk::DescriptorPoolCreateFlags::empty(),
         max_sets: {max_sets},
         pool_size_count: {pool_size_count},
-        p_pool_sizes: unsafe {{ SCRATCH.{descriptor_set}_pool_sizes.as_ptr() }},
-    }},"
-        )
-        .unwrap();
-    }
-    writeln!(
-        file,
-        r#"    assembly: vk::PipelineInputAssemblyStateCreateInfo {{
+        p_pool_sizes: unsafe {{ SCRATCH.descriptor_pool_sizes.as_ptr() }},
+    }},
+    pipeline_layout: vk::PipelineLayoutCreateInfo {{
+        s_type: vk::StructureType::PIPELINE_LAYOUT_CREATE_INFO,
+        p_next: std::ptr::null(),
+        flags: vk::PipelineLayoutCreateFlags::empty(),
+        set_layout_count: 1,
+        p_set_layouts: std::ptr::null(),
+        push_constant_range_count: 0,
+        p_push_constant_ranges: std::ptr::null(),
+    }},
+    assembly: vk::PipelineInputAssemblyStateCreateInfo {{
         s_type: vk::StructureType::PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
         p_next: std::ptr::null(),
         flags: vk::PipelineInputAssemblyStateCreateFlags::empty(),
@@ -626,25 +544,12 @@ static mut SCRATCH: Scratch = Scratch {{"#
         .unwrap();
     }
     for_pipelines(renderer, |pass, pipeline| {
-        let descriptor_count = pipeline.descriptor_sets.len();
         let attribute_count = pipeline
             .vertex_bindings
             .iter()
             .flat_map(|binding| binding.attributes.iter())
             .filter(|attribute| !attribute.unused)
             .count();
-        let set_layouts_ptr = if descriptor_count > 1 {
-            format!("unsafe {{ SCRATCH.{pipeline}_layouts.as_ptr() }}")
-        } else {
-            "std::ptr::null()".to_owned()
-        };
-        if descriptor_count > 1 {
-            writeln!(
-                file,
-                r"    {pipeline}_layouts: [vk::DescriptorSetLayout::null(); {descriptor_count}],"
-            )
-            .unwrap();
-        }
         let fragment_specialization_info = if let Some(fragment_specialization) =
             &pipeline.fragment_specialization
         {
@@ -691,20 +596,7 @@ static mut SCRATCH: Scratch = Scratch {{"#
         } else {
             "VERTEX"
         };
-        writeln!(
-            file,
-            r#"    {pipeline}_pipeline_layout: vk::PipelineLayoutCreateInfo {{
-        s_type: vk::StructureType::PIPELINE_LAYOUT_CREATE_INFO,
-        p_next: std::ptr::null(),
-        flags: vk::PipelineLayoutCreateFlags::empty(),
-        set_layout_count: {descriptor_count},
-        p_set_layouts: {set_layouts_ptr},
-        push_constant_range_count: 0,
-        p_push_constant_ranges: std::ptr::null(),
-    }},
-    {pipeline}_shader_stages: ["#
-        )
-        .unwrap();
+        writeln!(file, r#"    {pipeline}_shader_stages: ["#).unwrap();
         if pipeline.task_shaders {
             writeln!(
                 file,
@@ -960,24 +852,9 @@ static mut SCRATCH: Scratch = Scratch {{"#
         .unwrap();
     });
     for compute in &renderer.computes {
-        let descriptor_count = compute.descriptor_sets.len();
-        let set_layouts_ptr = if descriptor_count > 1 {
-            format!("unsafe {{ SCRATCH.{compute}_layouts.as_ptr() }}")
-        } else {
-            "std::ptr::null()".to_owned()
-        };
         writeln!(
             file,
-            r#"    {compute}_pipeline_layout: vk::PipelineLayoutCreateInfo {{
-        s_type: vk::StructureType::PIPELINE_LAYOUT_CREATE_INFO,
-        p_next: std::ptr::null(),
-        flags: vk::PipelineLayoutCreateFlags::empty(),
-        set_layout_count: {descriptor_count},
-        p_set_layouts: {set_layouts_ptr},
-        push_constant_range_count: 0,
-        p_push_constant_ranges: std::ptr::null(),
-    }},
-    {compute}_pipeline: vk::ComputePipelineCreateInfo {{
+            r#"    {compute}_pipeline: vk::ComputePipelineCreateInfo {{
         s_type: vk::StructureType::COMPUTE_PIPELINE_CREATE_INFO,
         p_next: std::ptr::null(),
         flags: vk::PipelineCreateFlags::empty(),
@@ -1018,249 +895,183 @@ impl Samplers {{
         r#"    }}
 }}
 
-impl DescriptorSetLayouts {{
-    pub fn cleanup(&self, dev: &Dev) {{"#
-    )
-    .unwrap();
-    for descriptor_set in &renderer.descriptor_sets {
-        writeln!(
-            file,
-            "        unsafe {{ dev.destroy_descriptor_set_layout(self.{}, None) }};",
-            descriptor_set.name
-        )
-        .unwrap();
-    }
-    writeln!(
-        file,
-        r#"    }}
-}}
-
 #[rustfmt::skip]
-impl DescriptorPools {{"#
+pub fn alloc_descriptor_set("#
     )
     .unwrap();
-    for descriptor_set in &renderer.descriptor_sets {
-        writeln!(
-            file,
-            r#"    pub fn alloc_{descriptor_set}(
-        &self,"#
-        )
-        .unwrap();
-        for binding in &descriptor_set.bindings {
-            let name = binding.name();
-            let typ = binding.value_type();
-            writeln!(file, "        {name}: {typ},").unwrap();
-        }
-        write!(
-            file,
-            r#"        dev: &Dev,
-    ) -> [vk::DescriptorSet; FRAMES_IN_FLIGHT] {{
-        let layouts = [self.{descriptor_set}_layout; FRAMES_IN_FLIGHT];
-        let descriptor_set_alloc_info = vk::DescriptorSetAllocateInfo::builder()
-            .descriptor_pool(self.{descriptor_set})
-            .set_layouts(&layouts);
-        let descriptors: [vk::DescriptorSet; FRAMES_IN_FLIGHT] =
-            unsafe {{ dev.allocate_descriptor_sets(&descriptor_set_alloc_info) }}
-                .unwrap()
-                .try_into()
-                .unwrap();
-        self.update_{descriptor_set}(&descriptors"#
-        )
-        .unwrap();
-        for binding in &descriptor_set.bindings {
-            let name = binding.name();
-            write!(file, ", {name}").unwrap();
-        }
-
-        writeln!(
-            file,
-            r#", dev);
-        descriptors
-    }}
-
-    #[allow(clippy::unused_enumerate_index)]
-    pub fn update_{descriptor_set}(
-        &self,
-        descriptors: &[vk::DescriptorSet; FRAMES_IN_FLIGHT],"#
-        )
-        .unwrap();
-        let mut only_tlas = None;
-        for (binding_index, binding) in descriptor_set.bindings.iter().enumerate() {
-            let name = binding.name();
-            let typ = binding.value_type();
-            writeln!(file, "        {name}: {typ},").unwrap();
-            if binding.descriptor_type() == BindingType::AccelerationStructure {
-                assert!(only_tlas.is_none());
-                assert_eq!(binding_index, descriptor_set.bindings.len() - 1);
-                only_tlas = Some(name);
-            }
-        }
-        writeln!(
-            file,
-            r#"        dev: &Dev,
-    ) {{"#
-        )
-        .unwrap();
-        if let Some(tlas) = only_tlas.as_ref() {
-            writeln!(
-                file,
-                r#"        let supports_raytracing = {tlas}.is_some();"#
-            )
-            .unwrap();
-        }
-        writeln!(
-            file,
-            r#"        for (_flight_index, descriptor) in descriptors.iter().enumerate() {{"#
-        )
-        .unwrap();
-        for (binding_index, binding) in descriptor_set.bindings.iter().enumerate() {
-            let binding_name = binding.name();
-            let binding_type = binding.descriptor_type().name();
-            let write_mutable = match binding {
-                DescriptorBinding::AccelerationStructure(_) => "mut ",
-                _ => "",
-            };
-            match binding {
-                DescriptorBinding::AccelerationStructure(_) => writeln!(
-                    file,
-                    r#"            let mut {binding_name}_acceleration_structure = *vk::WriteDescriptorSetAccelerationStructureKHR::builder()
-                .acceleration_structures({binding_name}.as_ref().map(|as_| std::slice::from_ref(&as_.acceleration_structure)).unwrap_or_default());"#
-                )
-                    .unwrap(),
-                DescriptorBinding::Image(image) => {
-                    let layout = &image.layout;
-                    writeln!(
-                        file,
-                        r#"            let {binding_name}_image = *vk::DescriptorImageInfo::builder()
-                .image_layout(vk::ImageLayout::{layout})
-                .image_view({binding_name});"#
-                    )
-                        .unwrap()
-                }
-                DescriptorBinding::InputAttachment(_) => writeln!(
-                    file,
-                    r#"            let {binding_name}_image = *vk::DescriptorImageInfo::builder()
-                .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-                .image_view({binding_name});"#
-                )
-                    .unwrap(),
-                DescriptorBinding::StorageBuffer(_) => writeln!(file, r#"            let {binding_name}_buffer = {binding_name}.descriptor(_flight_index);"#).unwrap(),
-                DescriptorBinding::StorageImage(_) => writeln!(file,
-                                                               r#"            let {binding_name}_image = *vk::DescriptorImageInfo::builder()
-                .image_layout(vk::ImageLayout::GENERAL)
-                .image_view({binding_name});"#
-                ).unwrap(),
-                DescriptorBinding::Uniform(_) => writeln!(
-                    file,
-                    r#"            let {binding_name}_buffer = {binding_name}.descriptor(_flight_index);"#
-                )
-                    .unwrap(),
-            }
-            writeln!(
-                file,
-                r#"            let {write_mutable}{binding_name} = *vk::WriteDescriptorSet::builder()
-                .dst_set(*descriptor)
-                .dst_binding({binding_index})
-                .descriptor_type(vk::DescriptorType::{binding_type})"#
-            )
-                .unwrap();
-            match binding {
-                DescriptorBinding::AccelerationStructure(_) => writeln!(
-                    file,
-                    r#"                .push_next(&mut {binding_name}_acceleration_structure);
-            {binding_name}.descriptor_count = 1;"#
-                )
-                .unwrap(),
-                DescriptorBinding::Image(_)
-                | DescriptorBinding::InputAttachment(_)
-                | DescriptorBinding::StorageImage(_) => writeln!(
-                    file,
-                    r#"                .image_info(std::slice::from_ref(&{binding_name}_image));"#
-                )
-                .unwrap(),
-                DescriptorBinding::StorageBuffer(_) => writeln!(
-                    file,
-                    r#"                .buffer_info(std::slice::from_ref(&{binding_name}_buffer));"#
-                )
-                .unwrap(),
-                DescriptorBinding::Uniform(_) => writeln!(
-                    file,
-                    r#"                .buffer_info(std::slice::from_ref(&{binding_name}_buffer));"#
-                )
-                .unwrap(),
-            }
-        }
-        let write_writes = |file: &mut File, bindings: &[DescriptorBinding]| {
-            write!(file, r"[").unwrap();
-            for (binding_index, binding) in bindings.iter().enumerate() {
-                let binding_name = binding.name();
-                write!(file, "{binding_name}").unwrap();
-                if binding_index != bindings.len() - 1 {
-                    write!(file, ", ").unwrap();
-                }
-            }
-            write!(file, "]").unwrap();
-        };
-        write!(file, r#"            let writes = "#).unwrap();
-        write_writes(&mut file, &descriptor_set.bindings);
-        writeln!(file, r#";"#).unwrap();
-        if only_tlas.is_some() {
-            let count_without_raytracing = descriptor_set.bindings.len() - 1;
-            writeln!(
-                file,
-                r#"            let writes = if supports_raytracing {{
-                &writes
-            }} else {{
-                &writes[..{count_without_raytracing}]
-            }};"#
-            )
-            .unwrap();
-        } else {
-            writeln!(file, "            let writes = &writes;").unwrap();
-        }
-        writeln!(
-            file,
-            r#"            unsafe {{ dev.update_descriptor_sets(writes, &[]) }};
-        }}
-    }}
-"#
-        )
-        .unwrap();
+    for binding in &renderer.descriptor_set.bindings {
+        let name = binding.name();
+        let typ = binding.value_type();
+        writeln!(file, "    {name}: {typ},").unwrap();
     }
-    writeln!(file, r#"    pub fn cleanup(&self, dev: &Dev) {{"#).unwrap();
-    for descriptor_set in &renderer.descriptor_sets {
-        writeln!(
-            file,
-            "        unsafe {{ dev.destroy_descriptor_pool(self.{descriptor_set}, None) }};"
-        )
-        .unwrap();
+    write!(
+        file,
+        r#"    dev: &Dev,
+    layout: vk::DescriptorSetLayout,
+    pool: vk::DescriptorPool,
+) -> [vk::DescriptorSet; FRAMES_IN_FLIGHT] {{
+    let layouts = [layout; FRAMES_IN_FLIGHT];
+    let descriptor_set_alloc_info = vk::DescriptorSetAllocateInfo::builder()
+        .descriptor_pool(pool)
+        .set_layouts(&layouts);
+    let descriptors: [vk::DescriptorSet; FRAMES_IN_FLIGHT] =
+        unsafe {{ dev.allocate_descriptor_sets(&descriptor_set_alloc_info) }}
+            .unwrap()
+            .try_into()
+            .unwrap();
+    update_descriptor_set(&descriptors"#
+    )
+    .unwrap();
+    for binding in &renderer.descriptor_set.bindings {
+        let name = binding.name();
+        write!(file, ", {name}").unwrap();
     }
+
     writeln!(
         file,
-        r#"    }}
+        r#", dev);
+    descriptors
 }}
 
-impl PipelineLayouts {{
-    pub fn cleanup(&self, dev: &Dev) {{"#
+#[allow(clippy::unused_enumerate_index)]
+pub fn update_descriptor_set(
+    descriptors: &[vk::DescriptorSet; FRAMES_IN_FLIGHT],"#
     )
     .unwrap();
-    for_pipelines(renderer, |_, pipeline| {
-        writeln!(
-            file,
-            "        unsafe {{ dev.destroy_pipeline_layout(self.{pipeline}, None) }};"
-        )
-        .unwrap();
-    });
-    for compute in &renderer.computes {
-        writeln!(
-            file,
-            "        unsafe {{ dev.destroy_pipeline_layout(self.{compute}, None) }};"
-        )
-        .unwrap();
+    let mut only_tlas = None;
+    for (binding_index, binding) in renderer.descriptor_set.bindings.iter().enumerate() {
+        let name = binding.name();
+        let typ = binding.value_type();
+        writeln!(file, "        {name}: {typ},").unwrap();
+        if binding.descriptor_type() == BindingType::AccelerationStructure {
+            assert!(only_tlas.is_none());
+            assert_eq!(binding_index, renderer.descriptor_set.bindings.len() - 1);
+            only_tlas = Some(name);
+        }
     }
     writeln!(
         file,
-        r#"    }}
+        r#"    dev: &Dev,
+    ) {{"#
+    )
+    .unwrap();
+    if let Some(tlas) = only_tlas.as_ref() {
+        writeln!(file, r#"    let supports_raytracing = {tlas}.is_some();"#).unwrap();
+    }
+    writeln!(
+        file,
+        r#"    for (_flight_index, descriptor) in descriptors.iter().enumerate() {{"#
+    )
+    .unwrap();
+    for (binding_index, binding) in renderer.descriptor_set.bindings.iter().enumerate() {
+        let binding_name = binding.name();
+        let binding_type = binding.descriptor_type().name();
+        let write_mutable = match binding {
+            DescriptorBinding::AccelerationStructure(_) => "mut ",
+            _ => "",
+        };
+        match binding {
+            DescriptorBinding::AccelerationStructure(_) => writeln!(
+                file,
+                r#"        let mut {binding_name}_acceleration_structure = *vk::WriteDescriptorSetAccelerationStructureKHR::builder()
+            .acceleration_structures({binding_name}.as_ref().map(|as_| std::slice::from_ref(&as_.acceleration_structure)).unwrap_or_default());"#
+            )
+                .unwrap(),
+            DescriptorBinding::Image(image) => {
+                let layout = &image.layout;
+                writeln!(
+                    file,
+                    r#"        let {binding_name}_image = *vk::DescriptorImageInfo::builder()
+            .image_layout(vk::ImageLayout::{layout})
+            .image_view({binding_name});"#
+                )
+                    .unwrap()
+            }
+            DescriptorBinding::InputAttachment(_) => writeln!(
+                file,
+                r#"        let {binding_name}_image = *vk::DescriptorImageInfo::builder()
+            .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+            .image_view({binding_name});"#
+            )
+                .unwrap(),
+            DescriptorBinding::StorageBuffer(_) => writeln!(file, r#"        let {binding_name}_buffer = {binding_name}.descriptor(_flight_index);"#).unwrap(),
+            DescriptorBinding::StorageImage(_) => writeln!(file,
+                                                           r#"        let {binding_name}_image = *vk::DescriptorImageInfo::builder()
+            .image_layout(vk::ImageLayout::GENERAL)
+            .image_view({binding_name});"#
+            ).unwrap(),
+            DescriptorBinding::Uniform(_) => writeln!(
+                file,
+                r#"        let {binding_name}_buffer = {binding_name}.descriptor(_flight_index);"#
+            )
+                .unwrap(),
+        }
+        writeln!(
+            file,
+            r#"        let {write_mutable}{binding_name} = *vk::WriteDescriptorSet::builder()
+            .dst_set(*descriptor)
+            .dst_binding({binding_index})
+            .descriptor_type(vk::DescriptorType::{binding_type})"#
+        )
+        .unwrap();
+        match binding {
+            DescriptorBinding::AccelerationStructure(_) => writeln!(
+                file,
+                r#"            .push_next(&mut {binding_name}_acceleration_structure);
+        {binding_name}.descriptor_count = 1;"#
+            )
+            .unwrap(),
+            DescriptorBinding::Image(_)
+            | DescriptorBinding::InputAttachment(_)
+            | DescriptorBinding::StorageImage(_) => writeln!(
+                file,
+                r#"            .image_info(std::slice::from_ref(&{binding_name}_image));"#
+            )
+            .unwrap(),
+            DescriptorBinding::StorageBuffer(_) => writeln!(
+                file,
+                r#"            .buffer_info(std::slice::from_ref(&{binding_name}_buffer));"#
+            )
+            .unwrap(),
+            DescriptorBinding::Uniform(_) => writeln!(
+                file,
+                r#"            .buffer_info(std::slice::from_ref(&{binding_name}_buffer));"#
+            )
+            .unwrap(),
+        }
+    }
+    let write_writes = |file: &mut File, bindings: &[DescriptorBinding]| {
+        write!(file, r"[").unwrap();
+        for (binding_index, binding) in bindings.iter().enumerate() {
+            let binding_name = binding.name();
+            write!(file, "{binding_name}").unwrap();
+            if binding_index != bindings.len() - 1 {
+                write!(file, ", ").unwrap();
+            }
+        }
+        write!(file, "]").unwrap();
+    };
+    write!(file, r#"        let writes = "#).unwrap();
+    write_writes(&mut file, &renderer.descriptor_set.bindings);
+    writeln!(file, r#";"#).unwrap();
+    if only_tlas.is_some() {
+        let count_without_raytracing = renderer.descriptor_set.bindings.len() - 1;
+        writeln!(
+            file,
+            r#"        let writes = if supports_raytracing {{
+            &writes
+        }} else {{
+            &writes[..{count_without_raytracing}]
+        }};"#
+        )
+        .unwrap();
+    } else {
+        writeln!(file, "        let writes = &writes;").unwrap();
+    }
+    writeln!(
+        file,
+        r#"        unsafe {{ dev.update_descriptor_sets(writes, &[]) }};
+    }}
 }}
 
 impl ShaderModules {{
@@ -1320,53 +1131,27 @@ pub fn create_samplers(dev: &Dev) -> Samplers {{"#
 }}
 
 #[rustfmt::skip]
-pub fn create_descriptor_set_layouts(_samplers: &Samplers, dev: &Dev) -> DescriptorSetLayouts {{"#
+pub fn create_descriptor_set_layout(_samplers: &Samplers, dev: &Dev) -> vk::DescriptorSetLayout {{"#
     )
     .unwrap();
-    for descriptor_set in &renderer.descriptor_sets {
-        for (binding_index, binding) in descriptor_set.bindings.iter().enumerate() {
-            if let DescriptorBinding::Image(image) = binding {
-                writeln!(
-                    file,
-                    "    unsafe {{ SCRATCH.{}_bindings[{binding_index}].p_immutable_samplers = &_samplers.{} }};",
-                    descriptor_set.name, image.sampler,
-                )
-                    .unwrap();
-            }
+    for (binding_index, binding) in renderer.descriptor_set.bindings.iter().enumerate() {
+        if let DescriptorBinding::Image(image) = binding {
+            writeln!(
+                file,
+                "    unsafe {{ SCRATCH.descriptor_set_bindings[{binding_index}].p_immutable_samplers = &_samplers.{} }};",
+                image.sampler,
+            )
+                .unwrap();
         }
     }
-
-    for descriptor_set in &renderer.descriptor_sets {
-        writeln!(file, "    let {} = unsafe {{ dev.create_descriptor_set_layout(&SCRATCH.{}_layout, None).unwrap_unchecked() }};", descriptor_set.name, descriptor_set.name).unwrap();
-    }
-    writeln!(file, "    DescriptorSetLayouts {{").unwrap();
-    for descriptor_set in &renderer.descriptor_sets {
-        writeln!(file, "        {},", descriptor_set.name).unwrap();
-    }
+    writeln!(file, "    unsafe {{ dev.create_descriptor_set_layout(&SCRATCH.descriptor_set_layout, None).unwrap_unchecked() }}").unwrap();
     writeln!(
         file,
-        r#"    }}
-}}
+        r#"}}
 
 #[rustfmt::skip]
-pub fn create_descriptor_pools(layouts: &DescriptorSetLayouts, dev: &Dev) -> DescriptorPools {{"#
-    )
-    .unwrap();
-    for descriptor_set in &renderer.descriptor_sets {
-        writeln!(file, "    let {descriptor_set} = unsafe {{ dev.create_descriptor_pool(&SCRATCH.{descriptor_set}_pool, None).unwrap_unchecked() }};").unwrap();
-    }
-    writeln!(file, "    DescriptorPools {{").unwrap();
-    for descriptor_set in &renderer.descriptor_sets {
-        writeln!(file, "        {descriptor_set},").unwrap();
-        writeln!(
-            file,
-            "        {descriptor_set}_layout: layouts.{descriptor_set},"
-        )
-        .unwrap();
-    }
-    writeln!(
-        file,
-        r#"    }}
+pub fn create_descriptor_pool(layout: vk::DescriptorSetLayout, dev: &Dev) -> vk::DescriptorPool {{
+    unsafe {{ dev.create_descriptor_pool(&SCRATCH.descriptor_pool, None).unwrap_unchecked() }}
 }}
 
 #[allow(unused_mut)]
@@ -1403,54 +1188,6 @@ pub fn create_render_passes(
     writeln!(file, "    Passes {{").unwrap();
     for pass in &renderer.passes {
         writeln!(file, "        {pass},").unwrap();
-    }
-    writeln!(
-        file,
-        r#"    }}
-}}
-
-#[rustfmt::skip]
-pub fn create_pipeline_layouts(
-    descriptor_set_layouts: &DescriptorSetLayouts,
-    dev: &Dev,
-) -> PipelineLayouts {{"#
-    )
-    .unwrap();
-    for_pipelines(renderer, |_, pipeline| {
-        if pipeline.descriptor_sets.len() > 1 {
-            for (descriptor_set_index, descriptor_set) in
-                pipeline.descriptor_sets.iter().enumerate()
-            {
-                writeln!(file, "    unsafe {{ SCRATCH.{pipeline}_layouts[{descriptor_set_index}] = descriptor_set_layouts.{descriptor_set} }};").unwrap();
-            }
-        } else {
-            let descriptor_set = &pipeline.descriptor_sets[0];
-            writeln!(file, "    unsafe {{ SCRATCH.{pipeline}_pipeline_layout.p_set_layouts = &descriptor_set_layouts.{descriptor_set} }};").unwrap();
-        }
-    });
-    for compute in &renderer.computes {
-        if compute.descriptor_sets.len() > 1 {
-            for (descriptor_set_index, descriptor_set) in compute.descriptor_sets.iter().enumerate()
-            {
-                writeln!(file, "    unsafe {{ SCRATCH.{compute}_layouts[{descriptor_set_index}] = descriptor_set_layouts.{descriptor_set} }};").unwrap();
-            }
-        } else {
-            let descriptor_set = &compute.descriptor_sets[0];
-            writeln!(file, "    unsafe {{ SCRATCH.{compute}_pipeline_layout.p_set_layouts = &descriptor_set_layouts.{descriptor_set} }};").unwrap();
-        }
-    }
-    for_pipelines(renderer, |_, pipeline| {
-        writeln!(file, r#"    let {pipeline} = unsafe {{ dev.create_pipeline_layout(&SCRATCH.{pipeline}_pipeline_layout, None).unwrap_unchecked() }};"#).unwrap();
-    });
-    for compute in &renderer.computes {
-        writeln!(file, r#"    let {compute} = unsafe {{ dev.create_pipeline_layout(&SCRATCH.{compute}_pipeline_layout, None).unwrap_unchecked() }};"#).unwrap();
-    }
-    writeln!(file, "    PipelineLayouts {{").unwrap();
-    for_pipelines(renderer, |_, pipeline| {
-        writeln!(file, "        {pipeline},").unwrap();
-    });
-    for compute in &renderer.computes {
-        writeln!(file, "        {compute},").unwrap();
     }
     writeln!(
         file,
@@ -1532,7 +1269,7 @@ pub fn create_pipelines(
         file,
         r#"    swapchain: &Swapchain,
     shader_modules: &ShaderModules,
-    layouts: &PipelineLayouts,
+    layout: vk::PipelineLayout,
     dev: &Dev,
 ) -> Pipelines {{"#
     )
@@ -1594,14 +1331,14 @@ pub fn create_pipelines(
     for_pipelines(renderer, |_, pipeline| {
         writeln!(
             file,
-            r#"    unsafe {{ SCRATCH.{pipeline}_pipeline.layout = layouts.{pipeline} }};"#
+            r#"    unsafe {{ SCRATCH.{pipeline}_pipeline.layout = layout }};"#
         )
         .unwrap();
     });
     for compute in &renderer.computes {
         writeln!(
             file,
-            r#"    unsafe {{ SCRATCH.{compute}_pipeline.layout = layouts.{compute} }};
+            r#"    unsafe {{ SCRATCH.{compute}_pipeline.layout = layout }};
     unsafe {{ SCRATCH.{compute}_pipeline.stage.module = shader_modules.{compute}_compute }};"#
         )
         .unwrap();

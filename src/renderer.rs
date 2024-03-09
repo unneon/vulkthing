@@ -10,9 +10,7 @@ pub mod uniform;
 pub mod util;
 pub mod vertex;
 
-use crate::renderer::codegen::{
-    DescriptorPools, DescriptorSetLayouts, Passes, PipelineLayouts, Pipelines, Samplers,
-};
+use crate::renderer::codegen::{Passes, Pipelines, Samplers};
 use crate::renderer::debug::{begin_label, end_label};
 use crate::renderer::pass::Pass;
 use crate::renderer::swapchain::Swapchain;
@@ -49,9 +47,9 @@ pub struct Renderer {
 
     // Description of the main render pass. Doesn't contain any information about the objects yet,
     // only low-level data format descriptions.
-    descriptor_set_layouts: DescriptorSetLayouts,
-    descriptor_pools: DescriptorPools,
-    pipeline_layouts: PipelineLayouts,
+    descriptor_set_layout: vk::DescriptorSetLayout,
+    descriptor_pool: vk::DescriptorPool,
+    pipeline_layout: vk::PipelineLayout,
     passes: Passes,
 
     // All resources that depend on swapchain extent (window size). So swapchain description, memory
@@ -73,7 +71,7 @@ pub struct Renderer {
     mesh_objects: Vec<MeshObject>,
     stars: StorageBuffer<[Star]>,
     global: UniformBuffer<Global>,
-    global_descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
+    descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
 
     voxel_meshlet_count: Arc<AtomicU32>,
     pub voxel_gpu_memory: Option<VoxelGpuMemory>,
@@ -231,54 +229,45 @@ impl Renderer {
             .render
             .begin(buf, color, depth, self.swapchain.extent, &self.dev);
 
+        self.bind_descriptor_set(buf);
+
         let voxel_meshlet_count = self.voxel_meshlet_count.load(Ordering::SeqCst);
         begin_label(buf, "Voxel draws", [255, 0, 0], &self.dev);
         self.bind_graphics_pipeline(buf, self.pipelines.voxel);
-        self.bind_descriptor_set(buf, self.pipeline_layouts.voxel);
-        unsafe {
-            self.dev
-                .mesh_ext
-                .cmd_draw_mesh_tasks(buf, voxel_meshlet_count.div_ceil(64), 1, 1)
-        };
+        self.draw_mesh_shaders(buf, voxel_meshlet_count.div_ceil(64));
         end_label(buf, &self.dev);
 
         if voxel_meshlet_count > 0 {
             begin_label(buf, "Debug voxel triangle draw", [238, 186, 11], &self.dev);
             self.bind_graphics_pipeline(buf, self.pipelines.debug_voxel_triangle);
-            self.bind_descriptor_set(buf, self.pipeline_layouts.debug_voxel_triangle);
-            unsafe { self.dev.mesh_ext.cmd_draw_mesh_tasks(buf, 1, 1, 1) };
+            self.draw_mesh_shaders(buf, 1);
             end_label(buf, &self.dev);
 
             begin_label(buf, "Debug voxel world bound draw", [255, 78, 0], &self.dev);
             self.bind_graphics_pipeline(buf, self.pipelines.debug_voxel_world_bound);
-            self.bind_descriptor_set(buf, self.pipeline_layouts.debug_voxel_world_bound);
-            unsafe { self.dev.mesh_ext.cmd_draw_mesh_tasks(buf, 1, 1, 1) };
+            self.draw_mesh_shaders(buf, 1);
             end_label(buf, &self.dev);
 
             begin_label(buf, "Debug voxel screen bound draw", [113, 0, 0], &self.dev);
             self.bind_graphics_pipeline(buf, self.pipelines.debug_voxel_screen_bound);
-            self.bind_descriptor_set(buf, self.pipeline_layouts.debug_voxel_screen_bound);
-            unsafe { self.dev.mesh_ext.cmd_draw_mesh_tasks(buf, 1, 1, 1) };
+            self.draw_mesh_shaders(buf, 1);
             end_label(buf, &self.dev);
         }
 
         begin_label(buf, "Sun draw", [156, 85, 35], &self.dev);
         self.bind_graphics_pipeline(buf, self.pipelines.sun);
-        self.bind_descriptor_set(buf, self.pipeline_layouts.sun);
         self.mesh_objects[1].bind_vertex(buf, &self.dev);
         self.mesh_objects[1].draw(1, buf, &self.dev);
         end_label(buf, &self.dev);
 
         begin_label(buf, "Star draws", [213, 204, 184], &self.dev);
         self.bind_graphics_pipeline(buf, self.pipelines.star);
-        self.bind_descriptor_set(buf, self.pipeline_layouts.star);
         self.mesh_objects[0].bind_vertex(buf, &self.dev);
         self.mesh_objects[0].draw(world.stars.len(), buf, &self.dev);
         end_label(buf, &self.dev);
 
         begin_label(buf, "Skybox draw", [129, 147, 164], &self.dev);
         self.bind_graphics_pipeline(buf, self.pipelines.skybox);
-        self.bind_descriptor_set(buf, self.pipeline_layouts.skybox);
         unsafe { self.dev.cmd_draw(buf, 6, 1, 0, 0) };
         end_label(buf, &self.dev);
 
@@ -454,17 +443,21 @@ impl Renderer {
         };
     }
 
-    fn bind_descriptor_set(&self, buf: vk::CommandBuffer, layout: vk::PipelineLayout) {
+    fn bind_descriptor_set(&self, buf: vk::CommandBuffer) {
         unsafe {
             self.dev.cmd_bind_descriptor_sets(
                 buf,
                 vk::PipelineBindPoint::GRAPHICS,
-                layout,
+                self.pipeline_layout,
                 0,
-                &[self.global_descriptor_sets[self.flight_index]],
+                &[self.descriptor_sets[self.flight_index]],
                 &[],
             )
         };
+    }
+
+    fn draw_mesh_shaders(&self, buf: vk::CommandBuffer, count: u32) {
+        unsafe { self.dev.mesh_ext.cmd_draw_mesh_tasks(buf, count, 1, 1) };
     }
 
     fn barriers(&self, buf: vk::CommandBuffer, barriers: &[vk::ImageMemoryBarrier2]) {

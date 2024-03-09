@@ -5,8 +5,8 @@ use crate::config::{
 };
 use crate::mesh::MeshData;
 use crate::renderer::codegen::{
-    create_descriptor_pools, create_descriptor_set_layouts, create_pipeline_layouts,
-    create_pipelines, create_render_passes, create_samplers, create_shader_modules, create_shaders,
+    alloc_descriptor_set, create_descriptor_pool, create_descriptor_set_layout, create_pipelines,
+    create_render_passes, create_samplers, create_shader_modules, create_shaders,
 };
 use crate::renderer::debug::create_debug_messenger;
 use crate::renderer::device::{select_device, DeviceInfo};
@@ -70,13 +70,13 @@ impl Renderer {
 
         let samplers = create_samplers(&dev);
 
-        let descriptor_set_layouts = create_descriptor_set_layouts(&samplers, &dev);
-        let descriptor_pools = create_descriptor_pools(&descriptor_set_layouts, &dev);
+        let descriptor_set_layout = create_descriptor_set_layout(&samplers, &dev);
+        let descriptor_pool = create_descriptor_pool(descriptor_set_layout, &dev);
 
         let swapchain = create_swapchain(surface, window.window.inner_size(), &dev);
         let depth = create_depth(swapchain.extent, &dev);
         let passes = create_render_passes(&swapchain, vk::SampleCountFlags::TYPE_1, &dev);
-        let pipeline_layouts = create_pipeline_layouts(&descriptor_set_layouts, &dev);
+        let pipeline_layout = create_pipeline_layout(descriptor_set_layout, &dev);
         let shaders = create_shaders();
         let shader_modules = create_shader_modules(&shaders, &dev);
         let pipelines = create_pipelines(
@@ -84,7 +84,7 @@ impl Renderer {
             &passes,
             &swapchain,
             &shader_modules,
-            &pipeline_layouts,
+            pipeline_layout,
             &dev,
         );
         shader_modules.cleanup(&dev);
@@ -115,13 +115,15 @@ impl Renderer {
             StorageBuffer::new_array(VRAM_VIA_BAR, DEFAULT_VOXEL_MESHLET_MAX_COUNT, &dev);
 
         let global = UniformBuffer::create(&dev);
-        let global_descriptor_sets = descriptor_pools.alloc_global(
+        let global_descriptor_sets = alloc_descriptor_set(
             &global,
             &stars,
             &voxel_vertex_buffer,
             &voxel_triangle_buffer,
             &voxel_meshlet_buffer,
             &dev,
+            descriptor_set_layout,
+            descriptor_pool,
         );
 
         let voxel_meshlet_count = Arc::new(AtomicU32::new(0));
@@ -141,9 +143,9 @@ impl Renderer {
             queue,
             properties,
             samplers,
-            descriptor_set_layouts,
-            descriptor_pools,
-            pipeline_layouts,
+            descriptor_set_layout,
+            descriptor_pool,
+            pipeline_layout,
             passes,
             swapchain,
             pipelines,
@@ -155,7 +157,7 @@ impl Renderer {
             mesh_objects,
             stars,
             global,
-            global_descriptor_sets,
+            descriptor_sets: global_descriptor_sets,
             voxel_meshlet_count,
             voxel_gpu_memory,
             query_pool,
@@ -218,7 +220,7 @@ impl Renderer {
             &self.passes,
             &self.swapchain,
             &shader_modules,
-            &self.pipeline_layouts,
+            self.pipeline_layout,
             &self.dev,
         );
         shader_modules.cleanup(&self.dev);
@@ -269,9 +271,10 @@ impl Drop for Renderer {
             }
             self.cleanup_swapchain();
             self.pipelines.cleanup(&self.dev);
-            self.pipeline_layouts.cleanup(&self.dev);
-            self.descriptor_pools.cleanup(&self.dev);
-            self.descriptor_set_layouts.cleanup(&self.dev);
+            self.dev.destroy_pipeline_layout(self.pipeline_layout, None);
+            self.dev.destroy_descriptor_pool(self.descriptor_pool, None);
+            self.dev
+                .destroy_descriptor_set_layout(self.descriptor_set_layout, None);
             self.samplers.cleanup(&self.dev);
             self.dev.destroy_device(None);
             self.dev.surface_ext.destroy_surface(self.surface, None);
@@ -420,6 +423,12 @@ fn create_logical_device(
         .push_next(&mut ms_features);
 
     unsafe { instance.create_device(physical_device, &create_info, None) }.unwrap()
+}
+
+fn create_pipeline_layout(layout: vk::DescriptorSetLayout, dev: &Dev) -> vk::PipelineLayout {
+    let create_info =
+        vk::PipelineLayoutCreateInfo::builder().set_layouts(std::array::from_ref(&layout));
+    unsafe { dev.create_pipeline_layout(&create_info, None).unwrap() }
 }
 
 fn create_depth(extent: vk::Extent2D, dev: &Dev) -> ImageResources {
