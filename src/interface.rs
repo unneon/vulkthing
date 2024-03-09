@@ -1,4 +1,3 @@
-use crate::renderer::codegen::{PASS_COUNT, PASS_NAMES};
 use crate::renderer::{PostprocessSettings, RendererSettings};
 use crate::voxel::VoxelsConfig;
 use crate::world::World;
@@ -35,7 +34,7 @@ impl Interface {
         world: &mut World,
         renderer: &mut RendererSettings,
         voxels: &mut VoxelsConfig,
-        pass_times: Option<&[Duration; PASS_COUNT]>,
+        frametime: Option<Duration>,
     ) -> InterfaceEvents {
         let ui = self.ctx.frame();
         let mut events = InterfaceEvents {
@@ -138,18 +137,10 @@ impl Interface {
                     build_postprocess(ui, &mut renderer.postprocess);
                 }
                 if ui.collapsing_header("Performance", TreeNodeFlags::empty()) {
-                    if let Some(pass_times) = pass_times {
-                        let mut total_time = Duration::ZERO;
-                        for (name, time) in PASS_NAMES.iter().zip(pass_times.iter()) {
-                            ui.label_text(
-                                format!("{name} pass"),
-                                format!("{:.2}ms", time.as_secs_f64() * 1000.),
-                            );
-                            total_time += *time;
-                        }
+                    if let Some(frametime) = frametime {
                         ui.label_text(
-                            "Total",
-                            format!("{:.2}ms", total_time.as_secs_f64() * 1000.),
+                            "Frametime",
+                            format!("{:.2}ms", frametime.as_secs_f64() * 1000.),
                         );
                     }
                 }

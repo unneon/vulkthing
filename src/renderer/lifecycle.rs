@@ -7,16 +7,16 @@ use crate::mesh::MeshData;
 use crate::renderer::codegen::{
     create_descriptor_pools, create_descriptor_set_layouts, create_pipeline_layouts,
     create_pipelines, create_render_passes, create_samplers, create_shader_modules, create_shaders,
-    PASS_COUNT,
 };
 use crate::renderer::debug::create_debug_messenger;
 use crate::renderer::device::{select_device, DeviceInfo};
 use crate::renderer::swapchain::create_swapchain;
 use crate::renderer::uniform::Star;
-use crate::renderer::util::{vulkan_str, Buffer, Dev, StorageBuffer};
+use crate::renderer::util::{vulkan_str, Buffer, Dev, ImageResources, StorageBuffer};
 use crate::renderer::vertex::Vertex;
 use crate::renderer::{
-    MeshObject, Renderer, Synchronization, UniformBuffer, FRAMES_IN_FLIGHT, VRAM_VIA_BAR,
+    MeshObject, Renderer, Synchronization, UniformBuffer, DEPTH_FORMAT, FRAMES_IN_FLIGHT,
+    VRAM_VIA_BAR,
 };
 use crate::voxel::gpu_memory::VoxelGpuMemory;
 use crate::window::Window;
@@ -74,6 +74,7 @@ impl Renderer {
         let descriptor_pools = create_descriptor_pools(&descriptor_set_layouts, &dev);
 
         let swapchain = create_swapchain(surface, window.window.inner_size(), &dev);
+        let depth = create_depth(swapchain.extent, &dev);
         let passes = create_render_passes(&swapchain, vk::SampleCountFlags::TYPE_1, &dev);
         let pipeline_layouts = create_pipeline_layouts(&descriptor_set_layouts, &dev);
         let shaders = create_shaders();
@@ -146,6 +147,7 @@ impl Renderer {
             passes,
             swapchain,
             pipelines,
+            depth,
             command_pools,
             command_buffers,
             sync,
@@ -158,7 +160,7 @@ impl Renderer {
             voxel_gpu_memory,
             query_pool,
             frame_index: 0,
-            pass_times: None,
+            frametime: None,
             just_completed_first_render: false,
             interface_renderer: None,
         }
@@ -172,7 +174,10 @@ impl Renderer {
                 self.dev.logical.clone(),
                 self.queue,
                 self.command_pools[0],
-                self.passes.render.pass,
+                imgui_rs_vulkan_renderer::DynamicRendering {
+                    color_attachment_format: self.swapchain.format.format,
+                    depth_attachment_format: Some(DEPTH_FORMAT),
+                },
                 imgui,
                 Some(imgui_rs_vulkan_renderer::Options {
                     in_flight_frames: FRAMES_IN_FLIGHT,
@@ -198,6 +203,7 @@ impl Renderer {
         self.swapchain = create_swapchain(self.surface, window_size, &self.dev);
         self.passes =
             create_render_passes(&self.swapchain, vk::SampleCountFlags::TYPE_1, &self.dev);
+        self.depth = create_depth(self.swapchain.extent, &self.dev);
 
         self.recreate_pipelines();
     }
@@ -220,7 +226,7 @@ impl Renderer {
 
     fn cleanup_swapchain(&mut self) {
         self.swapchain.cleanup(&self.dev);
-        self.passes.cleanup(&self.dev);
+        self.depth.cleanup(&self.dev);
     }
 }
 
@@ -396,7 +402,10 @@ fn create_logical_device(
         .shader_int8(true)
         .storage_buffer8_bit_access(true);
     // TODO: Something in the task shader requires maintenance4, why?
-    let mut vk13_features = *vk::PhysicalDeviceVulkan13Features::builder().maintenance4(true);
+    let mut vk13_features = *vk::PhysicalDeviceVulkan13Features::builder()
+        .dynamic_rendering(true)
+        .maintenance4(true)
+        .synchronization2(true);
     let mut ms_features = *vk::PhysicalDeviceMeshShaderFeaturesEXT::builder()
         .mesh_shader(true)
         .task_shader(true);
@@ -411,6 +420,19 @@ fn create_logical_device(
         .push_next(&mut ms_features);
 
     unsafe { instance.create_device(physical_device, &create_info, None) }.unwrap()
+}
+
+fn create_depth(extent: vk::Extent2D, dev: &Dev) -> ImageResources {
+    ImageResources::create(
+        DEPTH_FORMAT,
+        vk::MemoryPropertyFlags::DEVICE_LOCAL,
+        vk::ImageTiling::OPTIMAL,
+        vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT | vk::ImageUsageFlags::TRANSIENT_ATTACHMENT,
+        vk::ImageAspectFlags::DEPTH,
+        extent,
+        vk::SampleCountFlags::TYPE_1,
+        dev,
+    )
 }
 
 fn create_command_pools(queue_family: u32, dev: &Dev) -> [vk::CommandPool; FRAMES_IN_FLIGHT] {
@@ -472,6 +494,6 @@ fn create_sync(dev: &Dev) -> Synchronization {
 fn create_query_pool(dev: &Dev) -> vk::QueryPool {
     let create_info = *vk::QueryPoolCreateInfo::builder()
         .query_type(vk::QueryType::TIMESTAMP)
-        .query_count(((PASS_COUNT + 1) * FRAMES_IN_FLIGHT) as u32);
+        .query_count((2 * FRAMES_IN_FLIGHT) as u32);
     unsafe { dev.create_query_pool(&create_info, None) }.unwrap()
 }

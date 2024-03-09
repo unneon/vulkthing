@@ -125,11 +125,9 @@ pub struct Pass {
     #[knuffel(child)]
     pub debug_color: SdrColor,
     #[knuffel(child)]
-    pub resolution: Option<Resolution>,
-    #[knuffel(children(name = "subpass"))]
-    pub subpasses: Vec<Subpass>,
-    #[knuffel(children(name = "dependency"))]
-    pub dependencies: Vec<Dependency>,
+    pub msaa: bool,
+    #[knuffel(children(name = "pipeline"))]
+    pub pipelines: Vec<Pipeline>,
 }
 
 #[derive(Debug, Decode)]
@@ -140,52 +138,6 @@ pub struct SdrColor {
     pub green: u8,
     #[knuffel(argument)]
     pub blue: u8,
-}
-
-#[derive(Debug, Decode)]
-pub struct Resolution {
-    #[knuffel(property)]
-    pub downscaled: i32,
-}
-
-#[derive(Debug, Decode)]
-pub struct Subpass {
-    #[knuffel(argument)]
-    pub name: String,
-    #[knuffel(child)]
-    pub msaa: bool,
-    #[knuffel(children(name = "input-attachment"), unwrap(argument))]
-    pub input_attachment: Vec<String>,
-    #[knuffel(children(name = "color-attachment"))]
-    pub color_attachments: Vec<Attachment>,
-    #[knuffel(child)]
-    pub depth_attachment: Option<Attachment>,
-    #[knuffel(children(name = "pipeline"))]
-    pub pipelines: Vec<Pipeline>,
-}
-
-#[derive(Debug, Decode)]
-pub struct Attachment {
-    #[knuffel(argument)]
-    pub name: String,
-    #[knuffel(child, unwrap(argument))]
-    pub format: Option<String>,
-    #[knuffel(child, unwrap(argument))]
-    pub layout: String,
-    #[knuffel(child, unwrap(argument))]
-    pub layout_final: Option<String>,
-    #[knuffel(child, unwrap(arguments))]
-    pub clear: Option<Vec<i32>>,
-    #[knuffel(child)]
-    pub input_attachment: bool,
-    #[knuffel(child)]
-    pub sampled: bool,
-    #[knuffel(child)]
-    pub store: bool,
-    #[knuffel(child)]
-    pub swapchain: bool,
-    #[knuffel(child)]
-    pub transient: bool,
 }
 
 #[derive(Debug, Decode)]

@@ -1,8 +1,9 @@
+mod barrier;
 pub mod codegen;
 pub mod debug;
 mod device;
-mod graph;
 pub mod lifecycle;
+mod pass;
 mod shader;
 mod swapchain;
 pub mod uniform;
@@ -10,16 +11,16 @@ pub mod util;
 pub mod vertex;
 
 use crate::renderer::codegen::{
-    DescriptorPools, DescriptorSetLayouts, Passes, PipelineLayouts, Pipelines, Samplers, PASS_COUNT,
+    DescriptorPools, DescriptorSetLayouts, Passes, PipelineLayouts, Pipelines, Samplers,
 };
 use crate::renderer::debug::{begin_label, end_label};
-use crate::renderer::graph::Pass;
+use crate::renderer::pass::Pass;
 use crate::renderer::swapchain::Swapchain;
 use crate::renderer::uniform::{
     Atmosphere, Camera, Debug, Global, PostprocessUniform, Star, Tonemapper, VoxelMaterial, Voxels,
 };
 use crate::renderer::util::{
-    timestamp_difference_to_duration, Buffer, Dev, StorageBuffer, UniformBuffer,
+    timestamp_difference_to_duration, Buffer, Dev, ImageResources, StorageBuffer, UniformBuffer,
 };
 use crate::voxel::gpu_memory::VoxelGpuMemory;
 use crate::voxel::VoxelsConfig;
@@ -58,6 +59,7 @@ pub struct Renderer {
     // set. Projection matrix depends on the monitor aspect ratio, so it's included too.
     pub swapchain: Swapchain,
     pipelines: Pipelines,
+    depth: ImageResources,
 
     // Vulkan objects actually used for command recording and synchronization. Also internal
     // renderer state for keeping track of concurrent frames.
@@ -78,7 +80,7 @@ pub struct Renderer {
 
     query_pool: vk::QueryPool,
     frame_index: usize,
-    pub pass_times: Option<[Duration; PASS_COUNT]>,
+    pub frametime: Option<Duration>,
     pub just_completed_first_render: bool,
 
     interface_renderer: Option<imgui_rs_vulkan_renderer::Renderer>,
@@ -141,7 +143,7 @@ impl Renderer {
             return;
         };
         unsafe { self.record_command_buffer(image_index, world, ui_draw) };
-        self.pass_times = self.query_timestamps();
+        self.frametime = self.query_timestamp();
         self.update_global_uniform(
             world,
             voxels,
@@ -201,8 +203,9 @@ impl Renderer {
             .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
         self.dev.begin_command_buffer(buf, &begin_info).unwrap();
         self.reset_timestamps(buf);
+        self.write_timestamp(buf, 0, vk::PipelineStageFlags::ALL_COMMANDS);
         self.record_render_pass(image_index, buf, world, ui_draw);
-        self.write_timestamp(buf, PASS_COUNT, vk::PipelineStageFlags::ALL_COMMANDS);
+        self.write_timestamp(buf, 1, vk::PipelineStageFlags::ALL_COMMANDS);
         self.dev.end_command_buffer(buf).unwrap();
     }
 
@@ -213,13 +216,20 @@ impl Renderer {
         world: &World,
         ui_draw: &DrawData,
     ) {
-        self.passes.render.begin_to_swapchain(
+        let color = &self.swapchain.images[image_index];
+        let depth = &self.depth;
+
+        self.barriers(
             buf,
-            image_index,
-            &self.dev,
-            self.query_pool,
-            self.flight_index,
+            &[
+                color.from_undefined().to_color_write(),
+                depth.from_undefined().to_depth(),
+            ],
         );
+
+        self.passes
+            .render
+            .begin(buf, color, depth, self.swapchain.extent, &self.dev);
 
         let voxel_meshlet_count = self.voxel_meshlet_count.load(Ordering::SeqCst);
         begin_label(buf, "Voxel draws", [255, 0, 0], &self.dev);
@@ -281,8 +291,9 @@ impl Renderer {
             .unwrap();
         end_label(buf, &self.dev);
 
-        self.dev.cmd_end_render_pass(buf);
-        end_label(buf, &self.dev);
+        self.passes.render.end(buf, &self.dev);
+
+        self.barriers(buf, &[color.from_color_write().to_present()]);
     }
 
     fn update_global_uniform(
@@ -456,14 +467,15 @@ impl Renderer {
         };
     }
 
+    fn barriers(&self, buf: vk::CommandBuffer, barriers: &[vk::ImageMemoryBarrier2]) {
+        let dependency_info = vk::DependencyInfo::builder().image_memory_barriers(barriers);
+        unsafe { self.dev.cmd_pipeline_barrier2(buf, &dependency_info) }
+    }
+
     fn reset_timestamps(&self, buf: vk::CommandBuffer) {
         unsafe {
-            self.dev.cmd_reset_query_pool(
-                buf,
-                self.query_pool,
-                (self.flight_index * (PASS_COUNT + 1)) as u32,
-                (PASS_COUNT + 1) as u32,
-            )
+            self.dev
+                .cmd_reset_query_pool(buf, self.query_pool, (2 * self.flight_index) as u32, 2)
         };
     }
 
@@ -473,38 +485,34 @@ impl Renderer {
                 buf,
                 stage,
                 self.query_pool,
-                (self.flight_index * (PASS_COUNT + 1) + index) as u32,
+                (2 * self.flight_index + index) as u32,
             )
         };
     }
 
-    fn query_timestamps(&self) -> Option<[Duration; PASS_COUNT]> {
+    fn query_timestamp(&self) -> Option<Duration> {
         // CPU can't wait for current frame metrics because it has to prepare command buffers for
         // the next frame, the query results are delayed by FRAMES_IN_FLIGHT frames.
         if self.frame_index < FRAMES_IN_FLIGHT {
             return None;
         }
 
-        let mut timestamps = [0; PASS_COUNT + 1];
+        let mut timestamps = [0; 2];
         unsafe {
             self.dev.get_query_pool_results(
                 self.query_pool,
-                (self.flight_index * (PASS_COUNT + 1)) as u32,
-                (PASS_COUNT + 1) as u32,
+                (2 * self.flight_index) as u32,
+                2,
                 &mut timestamps,
                 vk::QueryResultFlags::TYPE_64,
             )
         }
         .unwrap();
 
-        let mut pass_times = [Duration::ZERO; PASS_COUNT];
-        for i in 0..PASS_COUNT {
-            pass_times[i] = timestamp_difference_to_duration(
-                timestamps[i + 1] - timestamps[i],
-                &self.properties,
-            );
-        }
-        Some(pass_times)
+        Some(timestamp_difference_to_duration(
+            timestamps[1] - timestamps[0],
+            &self.properties,
+        ))
     }
 }
 

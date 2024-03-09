@@ -1,8 +1,7 @@
 use crate::config::{
-    Compute, DescriptorBinding, DescriptorSet, Pass, Pipeline, Renderer, Sampler, Subpass,
-    VertexAttribute,
+    Compute, DescriptorBinding, DescriptorSet, Pass, Pipeline, Renderer, Sampler, VertexAttribute,
 };
-use crate::helper::{to_camelcase, AttachmentType};
+use crate::helper::to_camelcase;
 use std::borrow::Cow;
 use std::collections::{BTreeSet, HashMap};
 use std::fmt::{Display, Formatter};
@@ -155,12 +154,6 @@ impl Display for Sampler {
     }
 }
 
-impl Display for Subpass {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        self.name.fmt(f)
-    }
-}
-
 pub fn generate_code(in_path: &str, renderer: &Renderer, mut file: File) {
     write!(
         file,
@@ -249,7 +242,7 @@ pub struct DescriptorPools {{"#
 pub struct PipelineLayouts {{"#
     )
     .unwrap();
-    for_pipelines(renderer, |_, _, _, pipeline| {
+    for_pipelines(renderer, |_, pipeline| {
         writeln!(file, "    pub {pipeline}: vk::PipelineLayout,").unwrap();
     });
     for compute in &renderer.computes {
@@ -267,7 +260,7 @@ pub struct Shaders {{"#
     let mut pipeline_task_shaders = HashMap::new();
     let mut pipeline_mesh_shaders = HashMap::new();
     let mut shaders = BTreeSet::new();
-    for_pipelines(renderer, |_, _, _, pipeline| {
+    for_pipelines(renderer, |_, pipeline| {
         if pipeline.task_shaders {
             let task_shader = match &pipeline.task_shader {
                 Some(path) => path.strip_suffix(".task").unwrap(),
@@ -335,7 +328,7 @@ pub struct Passes {{"#
 pub struct Pipelines {{"#
     )
     .unwrap();
-    for_pipelines(renderer, |_, _, _, pipeline| {
+    for_pipelines(renderer, |_, pipeline| {
         writeln!(file, "    pub {pipeline}: vk::Pipeline,").unwrap();
     });
     for compute in &renderer.computes {
@@ -348,7 +341,7 @@ pub struct Pipelines {{"#
 "#
     )
     .unwrap();
-    for_pipelines(renderer, |_, _, _, pipeline| {
+    for_pipelines(renderer, |_, pipeline| {
         if let Some(specs) = &pipeline.fragment_specialization {
             let pipeline_camelcase = to_camelcase(&pipeline.to_string());
             writeln!(file, "struct {pipeline_camelcase}Specialization {{").unwrap();
@@ -368,40 +361,6 @@ struct Scratch {{"#
     .unwrap();
     for sampler in &renderer.samplers {
         writeln!(file, "    {}_sampler: vk::SamplerCreateInfo,", sampler.name).unwrap();
-    }
-    for pass in &renderer.passes {
-        let attachment_count: usize = pass.subpasses.iter().map(Subpass::attachment_count).sum();
-        let subpass_count = pass.subpasses.len();
-        let dependency_count = pass.dependencies.len();
-        for subpass in &pass.subpasses {
-            let color_count = subpass.color_attachments.len();
-            let input_count = subpass.input_attachment.len();
-            if color_count != 0 {
-                writeln!(
-                    file,
-                    "    {pass}_{subpass}_color: [vk::AttachmentReference; {color_count}],"
-                )
-                .unwrap();
-            }
-            if subpass.depth_attachment.is_some() {
-                writeln!(file, "    {pass}_{subpass}_depth: vk::AttachmentReference,").unwrap();
-            }
-            if input_count != 0 {
-                writeln!(
-                    file,
-                    "    {pass}_{subpass}_input: [vk::AttachmentReference; {input_count}],"
-                )
-                .unwrap();
-            }
-        }
-        writeln!(
-            file,
-            r#"    {pass}_attachments: [vk::AttachmentDescription; {attachment_count}],
-    {pass}_subpasses: [vk::SubpassDescription; {subpass_count}],
-    {pass}_dependencies: [vk::SubpassDependency; {dependency_count}],
-    {pass}_pass: vk::RenderPassCreateInfo,"#
-        )
-        .unwrap();
     }
     let mut all_pool_sizes: Vec<Vec<(BindingType, usize)>> =
         vec![Vec::new(); renderer.descriptor_sets.len()];
@@ -445,7 +404,7 @@ struct Scratch {{"#
         )
         .unwrap();
     }
-    for_pipelines(renderer, |_, _, _, pipeline| {
+    for_pipelines(renderer, |_, pipeline| {
         let layout_count = pipeline.descriptor_sets.len();
         if layout_count > 1 {
             writeln!(
@@ -475,7 +434,7 @@ struct Scratch {{"#
         )
         .unwrap();
     }
-    for_pipelines(renderer, |_, _, subpass, pipeline| {
+    for_pipelines(renderer, |_, pipeline| {
         let binding_count = pipeline.vertex_bindings.len();
         let attribute_count = pipeline
             .vertex_bindings
@@ -513,14 +472,15 @@ struct Scratch {{"#
     {pipeline}_viewport_state: vk::PipelineViewportStateCreateInfo,
     {pipeline}_rasterizer: vk::PipelineRasterizationStateCreateInfo,
     {pipeline}_multisampling: vk::PipelineMultisampleStateCreateInfo,
-    {pipeline}_blend_attachments: [vk::PipelineColorBlendAttachmentState; {}],
+    {pipeline}_blend_attachments: [vk::PipelineColorBlendAttachmentState; 1],
     {pipeline}_blend: vk::PipelineColorBlendStateCreateInfo,
-    {pipeline}_depth: vk::PipelineDepthStencilStateCreateInfo,"#,
-            subpass.color_attachments.len()
+    {pipeline}_depth: vk::PipelineDepthStencilStateCreateInfo,
+    {pipeline}_color_formats: [vk::Format; 1],
+    {pipeline}_rendering: vk::PipelineRenderingCreateInfo,"#,
         )
         .unwrap();
     });
-    for_pipelines(renderer, |_, _, _, pipeline| {
+    for_pipelines(renderer, |_, pipeline| {
         writeln!(
             file,
             "    {pipeline}_pipeline: vk::GraphicsPipelineCreateInfo,"
@@ -534,21 +494,9 @@ struct Scratch {{"#
         )
         .unwrap();
     }
-    let pass_count = renderer.passes.len();
     writeln!(
         file,
         r#"}}
-
-pub const PASS_COUNT: usize = {pass_count};
-pub const PASS_NAMES: [&str; PASS_COUNT] = ["#
-    )
-    .unwrap();
-    for pass in &renderer.passes {
-        writeln!(file, "    \"{pass}\",").unwrap();
-    }
-    writeln!(
-        file,
-        r#"];
 
 #[rustfmt::skip]
 static mut SCRATCH: Scratch = Scratch {{"#
@@ -584,198 +532,6 @@ static mut SCRATCH: Scratch = Scratch {{"#
         border_color: vk::BorderColor::FLOAT_TRANSPARENT_BLACK,
         unnormalized_coordinates: {unnormalized_coordinates},
     }},"
-        )
-        .unwrap();
-    }
-    for pass in &renderer.passes {
-        let mut attachment_indices = HashMap::new();
-        let mut attachment_index = 0;
-        for subpass in &pass.subpasses {
-            if !subpass.color_attachments.is_empty() {
-                writeln!(file, "    {pass}_{subpass}_color: [",).unwrap();
-                for color in &subpass.color_attachments {
-                    let attachment_layout = &color.layout;
-                    writeln!(
-                        file,
-                        r#"        vk::AttachmentReference {{
-            attachment: {attachment_index},
-            layout: vk::ImageLayout::{attachment_layout},
-        }},"#
-                    )
-                    .unwrap();
-                    attachment_indices.insert(color.name.as_str(), attachment_index);
-                    attachment_index += 1;
-                }
-                writeln!(file, "    ],",).unwrap();
-            }
-            if let Some(depth) = &subpass.depth_attachment {
-                let attachment_layout = &depth.layout;
-                writeln!(
-                    file,
-                    r#"    {pass}_{subpass}_depth: vk::AttachmentReference {{
-        attachment: {attachment_index},
-        layout: vk::ImageLayout::{attachment_layout},
-    }},"#
-                )
-                .unwrap();
-                attachment_index += 1;
-            }
-            if !subpass.input_attachment.is_empty() {
-                writeln!(file, "    {pass}_{subpass}_input: [",).unwrap();
-                for input in &subpass.input_attachment {
-                    let attachment_index = attachment_indices[input.as_str()];
-                    writeln!(
-                        file,
-                        r#"        vk::AttachmentReference {{
-            attachment: {attachment_index},
-            layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-        }},"#
-                    )
-                    .unwrap();
-                }
-                writeln!(file, "    ],",).unwrap();
-            }
-        }
-        writeln!(file, "    {pass}_attachments: [").unwrap();
-        for subpass in &pass.subpasses {
-            let attachments = subpass
-                .color_attachments
-                .iter()
-                .map(|a| (AttachmentType::Color, a))
-                .chain(
-                    subpass
-                        .depth_attachment
-                        .iter()
-                        .map(|a| (AttachmentType::Depth, a)),
-                );
-            for (attachment_type, attachment) in attachments {
-                let attachment_format = if let Some(format) = &attachment.format {
-                    format!("vk::Format::{format}")
-                } else if attachment.swapchain {
-                    "vk::Format::UNDEFINED".to_owned()
-                } else if attachment_type == AttachmentType::Color {
-                    "COLOR_FORMAT".to_owned()
-                } else {
-                    "DEPTH_FORMAT".to_owned()
-                };
-                let attachment_samples = if subpass.msaa { "empty()" } else { "TYPE_1" };
-                let attachment_load = if attachment.clear.is_some() {
-                    "CLEAR"
-                } else {
-                    "DONT_CARE"
-                };
-                let attachment_store = if attachment.store {
-                    "STORE"
-                } else {
-                    "DONT_CARE"
-                };
-                let attachment_final = if let Some(layout) = &attachment.layout_final {
-                    layout
-                } else {
-                    &attachment.layout
-                };
-                writeln!(
-                    file,
-                    r#"        vk::AttachmentDescription {{
-            flags: vk::AttachmentDescriptionFlags::empty(),
-            format: {attachment_format},
-            samples: vk::SampleCountFlags::{attachment_samples},
-            load_op: vk::AttachmentLoadOp::{attachment_load},
-            store_op: vk::AttachmentStoreOp::{attachment_store},
-            stencil_load_op: vk::AttachmentLoadOp::DONT_CARE,
-            stencil_store_op: vk::AttachmentStoreOp::DONT_CARE,
-            initial_layout: vk::ImageLayout::UNDEFINED,
-            final_layout: vk::ImageLayout::{attachment_final},
-        }},"#
-                )
-                .unwrap();
-            }
-        }
-        writeln!(file, "    ],").unwrap();
-
-        writeln!(file, "    {pass}_subpasses: [").unwrap();
-        for subpass in &pass.subpasses {
-            let color_count = subpass.color_attachments.len();
-            let color_ptr = if color_count != 0 {
-                format!("unsafe {{ SCRATCH.{pass}_{subpass}_color.as_ptr() }}")
-            } else {
-                "std::ptr::null()".to_owned()
-            };
-            let depth_ptr = if subpass.depth_attachment.is_some() {
-                format!("unsafe {{ &SCRATCH.{pass}_{subpass}_depth }}")
-            } else {
-                "std::ptr::null()".to_owned()
-            };
-            let input_count = subpass.input_attachment.len();
-            let input_ptr = if input_count != 0 {
-                format!("unsafe {{ SCRATCH.{pass}_{subpass}_input.as_ptr() }}")
-            } else {
-                "std::ptr::null()".to_owned()
-            };
-            writeln!(
-                file,
-                r#"        vk::SubpassDescription {{
-            flags: vk::SubpassDescriptionFlags::empty(),
-            pipeline_bind_point: vk::PipelineBindPoint::GRAPHICS,
-            input_attachment_count: {input_count},
-            p_input_attachments: {input_ptr},
-            color_attachment_count: {color_count},
-            p_color_attachments: {color_ptr},
-            p_resolve_attachments: std::ptr::null(),
-            p_depth_stencil_attachment: {depth_ptr},
-            preserve_attachment_count: 0,
-            p_preserve_attachments: std::ptr::null(),
-        }},"#
-            )
-            .unwrap();
-        }
-        writeln!(file, "    ],").unwrap();
-
-        writeln!(file, "    {pass}_dependencies: [").unwrap();
-        for dep in &pass.dependencies {
-            let src_index = pass.subpass_index(&dep.src.subpass);
-            let dst_index = pass.subpass_index(&dep.dst.subpass);
-            let src_stage = &dep.src.stage_mask;
-            let dst_stage = &dep.dst.stage_mask;
-            let src_access = &dep.src.access_mask;
-            let dst_access = &dep.dst.access_mask;
-            let flags = if dep.by_region {
-                "vk::DependencyFlags::BY_REGION"
-            } else {
-                "vk::DependencyFlags::empty()"
-            };
-            writeln!(
-                file,
-                r#"        vk::SubpassDependency {{
-            src_subpass: {src_index},
-            dst_subpass: {dst_index},
-            src_stage_mask: vk::PipelineStageFlags::{src_stage},
-            dst_stage_mask: vk::PipelineStageFlags::{dst_stage},
-            src_access_mask: vk::AccessFlags::{src_access},
-            dst_access_mask: vk::AccessFlags::{dst_access},
-            dependency_flags: {flags},
-        }},"#
-            )
-            .unwrap();
-        }
-        writeln!(file, "    ],").unwrap();
-
-        let attachment_count: usize = pass.subpasses.iter().map(Subpass::attachment_count).sum();
-        let subpass_count = pass.subpasses.len();
-        let dependency_count = pass.dependencies.len();
-        writeln!(
-            file,
-            r#"    {pass}_pass: vk::RenderPassCreateInfo {{
-        s_type: vk::StructureType::RENDER_PASS_CREATE_INFO,
-        p_next: std::ptr::null(),
-        flags: vk::RenderPassCreateFlags::empty(),
-        attachment_count: {attachment_count},
-        p_attachments: unsafe {{ SCRATCH.{pass}_attachments.as_ptr() }},
-        subpass_count: {subpass_count},
-        p_subpasses: unsafe {{ SCRATCH.{pass}_subpasses.as_ptr() }},
-        dependency_count: {dependency_count},
-        p_dependencies: unsafe {{ SCRATCH.{pass}_dependencies.as_ptr() }},
-    }},"#
         )
         .unwrap();
     }
@@ -869,7 +625,7 @@ static mut SCRATCH: Scratch = Scratch {{"#
         )
         .unwrap();
     }
-    for_pipelines(renderer, |_, subpass_index, subpass, pipeline| {
+    for_pipelines(renderer, |pass, pipeline| {
         let descriptor_count = pipeline.descriptor_sets.len();
         let attribute_count = pipeline
             .vertex_bindings
@@ -1049,7 +805,7 @@ static mut SCRATCH: Scratch = Scratch {{"#
         }
         let polygon_mode = &pipeline.polygon_mode;
         let cull_mode = &pipeline.cull_mode;
-        let rasterization_samples = if subpass.msaa { "empty()" } else { "TYPE_1" };
+        let rasterization_samples = if pass.msaa { "empty()" } else { "TYPE_1" };
         writeln!(
             file,
             r#"    {pipeline}_viewport: vk::Viewport {{
@@ -1102,7 +858,7 @@ static mut SCRATCH: Scratch = Scratch {{"#
     {pipeline}_blend_attachments: ["#
         )
         .unwrap();
-        for _ in &subpass.color_attachments {
+        for _ in [()] {
             writeln!(
                 file,
                 r#"        vk::PipelineColorBlendAttachmentState {{
@@ -1118,12 +874,8 @@ static mut SCRATCH: Scratch = Scratch {{"#
             )
             .unwrap();
         }
-        let depth_bool = if subpass.depth_attachment.is_some() {
-            1
-        } else {
-            0
-        };
-        let color_attachment_count = subpass.color_attachments.len();
+        let depth_bool = if true { 1 } else { 0 };
+        let color_attachment_count = 1;
         let vertex_input_state = if pipeline.mesh_shaders {
             "std::ptr::null()".to_owned()
         } else {
@@ -1173,9 +925,19 @@ static mut SCRATCH: Scratch = Scratch {{"#
         min_depth_bounds: 0.,
         max_depth_bounds: 1.,
     }},
+    {pipeline}_color_formats: [vk::Format::UNDEFINED],
+    {pipeline}_rendering: vk::PipelineRenderingCreateInfo {{
+        s_type: vk::StructureType::PIPELINE_RENDERING_CREATE_INFO,
+        p_next: std::ptr::null(),
+        view_mask: 0,
+        color_attachment_count: 1,
+        p_color_attachment_formats: unsafe {{ SCRATCH.{pipeline}_color_formats.as_ptr() }},
+        depth_attachment_format: DEPTH_FORMAT,
+        stencil_attachment_format: vk::Format::UNDEFINED,
+    }},
     {pipeline}_pipeline: vk::GraphicsPipelineCreateInfo {{
         s_type: vk::StructureType::GRAPHICS_PIPELINE_CREATE_INFO,
-        p_next: std::ptr::null(),
+        p_next: unsafe {{ &SCRATCH.{pipeline}_rendering as *const _ as *const _ }},
         flags: vk::PipelineCreateFlags::empty(),
         stage_count: {shader_stage_count},
         p_stages: unsafe {{ SCRATCH.{pipeline}_shader_stages.as_ptr() }},
@@ -1190,7 +952,7 @@ static mut SCRATCH: Scratch = Scratch {{"#
         p_dynamic_state: unsafe {{ &SCRATCH.dynamic_state }},
         layout: vk::PipelineLayout::null(),
         render_pass: vk::RenderPass::null(),
-        subpass: {subpass_index},
+        subpass: 0,
         base_pipeline_handle: vk::Pipeline::null(),
         base_pipeline_index: 0,
     }},"#
@@ -1482,7 +1244,7 @@ impl PipelineLayouts {{
     pub fn cleanup(&self, dev: &Dev) {{"#
     )
     .unwrap();
-    for_pipelines(renderer, |_, _, _, pipeline| {
+    for_pipelines(renderer, |_, pipeline| {
         writeln!(
             file,
             "        unsafe {{ dev.destroy_pipeline_layout(self.{pipeline}, None) }};"
@@ -1518,23 +1280,11 @@ impl ShaderModules {{
         r#"    }}
 }}
 
-impl Passes {{
-    pub fn cleanup(&self, dev: &Dev) {{"#
-    )
-    .unwrap();
-    for pass in &renderer.passes {
-        writeln!(file, "        self.{pass}.cleanup(dev);").unwrap();
-    }
-    writeln!(
-        file,
-        r#"    }}
-}}
-
 impl Pipelines {{
     pub fn cleanup(&self, dev: &Dev) {{"#
     )
     .unwrap();
-    for_pipelines(renderer, |_, _, _, pipeline| {
+    for_pipelines(renderer, |_, pipeline| {
         writeln!(
             file,
             "        unsafe {{ dev.destroy_pipeline(self.{pipeline}, None) }};"
@@ -1629,158 +1379,22 @@ pub fn create_render_passes(
 ) -> Passes {{"#
     )
     .unwrap();
-    for pass in &renderer.passes {
-        for (subpass, attachment_index, _, attachment) in pass.attachments() {
-            if attachment.swapchain {
-                writeln!(file, "    unsafe {{ SCRATCH.{pass}_attachments[{attachment_index}].format = swapchain.format.format }};").unwrap();
-            }
-            if subpass.msaa {
-                writeln!(file, "    unsafe {{ SCRATCH.{pass}_attachments[{attachment_index}].samples = _msaa_samples }};").unwrap();
-            }
-        }
-    }
-    for pass in &renderer.passes {
-        writeln!(file, "    let {pass} = unsafe {{ dev.create_render_pass(&SCRATCH.{pass}_pass, None).unwrap_unchecked() }};").unwrap();
-    }
-    for pass in &renderer.passes {
-        writeln!(file, "    set_label({pass}, \"RENDER-PASS-{pass}\", dev);").unwrap();
-    }
     for (index, pass) in renderer.passes.iter().enumerate() {
-        let downscale = pass
-            .resolution
-            .as_ref()
-            .map_or(1, |resolution| resolution.downscaled);
-        writeln!(
-            file,
-            r#"    let extent = vk::Extent2D {{
-        width: swapchain.extent.width / {downscale},
-        height: swapchain.extent.height / {downscale},
-    }};
-    let mut framebuffer_attachments = Vec::new();
-    let mut framebuffers = Vec::new();
-    let mut resources = Vec::new();"#
-        )
-        .unwrap();
-        for (subpass, _, attachment_type, attachment) in pass.attachments() {
-            if !attachment.swapchain {
-                let format = if let Some(format) = &attachment.format {
-                    format!("vk::Format::{format}")
-                } else if attachment_type == AttachmentType::Color {
-                    "COLOR_FORMAT".to_owned()
-                } else {
-                    "DEPTH_FORMAT".to_owned()
-                };
-                let mut flags = match attachment_type {
-                    AttachmentType::Color => "vk::ImageUsageFlags::COLOR_ATTACHMENT",
-                    AttachmentType::Depth => "vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT",
-                }
-                .to_owned();
-                if pass.used_as_input(attachment) {
-                    flags += " | vk::ImageUsageFlags::INPUT_ATTACHMENT";
-                }
-                if attachment.sampled {
-                    flags += " | vk::ImageUsageFlags::SAMPLED";
-                }
-                if attachment.transient {
-                    flags += " | vk::ImageUsageFlags::TRANSIENT_ATTACHMENT";
-                }
-                let aspect = match attachment_type {
-                    AttachmentType::Color => "COLOR",
-                    AttachmentType::Depth => "DEPTH",
-                };
-                let samples = if subpass.msaa {
-                    "_msaa_samples"
-                } else {
-                    "vk::SampleCountFlags::TYPE_1"
-                };
-                writeln!(
-                    file,
-                    r#"    let resource = ImageResources::create(
-        {format},
-        vk::MemoryPropertyFlags::DEVICE_LOCAL,
-        vk::ImageTiling::OPTIMAL,
-        {flags},
-        vk::ImageAspectFlags::{aspect},
-        extent,
-        {samples},
-        dev,
-    );
-    framebuffer_attachments.push(resource.view);
-    resources.push(resource);"#
-                )
-                .unwrap();
-            } else {
-                writeln!(
-                    file,
-                    "    framebuffer_attachments.push(vk::ImageView::null());"
-                )
-                .unwrap();
-            }
-        }
-        writeln!(
-            file,
-            r#"    let info = *vk::FramebufferCreateInfo::builder()
-        .render_pass({pass})
-        .attachments(&framebuffer_attachments)
-        .width(extent.width)
-        .height(extent.height)
-        .layers(1);"#
-        )
-        .unwrap();
-        if pass.writes_to_swapchain() {
-            let swapchain_index = pass.swapchain_attachment_index();
-            writeln!(
-                file,
-                r#"    for image in &swapchain.image_views {{
-        unsafe {{ *(info.p_attachments.add({swapchain_index}) as *mut vk::ImageView) = *image }};
-        let framebuffer = unsafe {{ dev.create_framebuffer(&info, None) }}.unwrap();
-        framebuffers.push(framebuffer);
-    }}"#
-            )
-            .unwrap();
-        } else {
-            writeln!(
-                file,
-                r#"    let framebuffer = unsafe {{ dev.create_framebuffer(&info, None) }}.unwrap();
-    framebuffers.push(framebuffer);"#
-            )
-            .unwrap();
-        }
         let debug_name = &pass.debug_name;
         let debug_r = pass.debug_color.red;
         let debug_g = pass.debug_color.green;
         let debug_b = pass.debug_color.blue;
-        let direct_to_swapchain = pass.writes_to_swapchain();
         writeln!(
             file,
             r#"    let {pass} = Pass {{
         debug_name: {debug_name:?},
         debug_color: [{debug_r}, {debug_g}, {debug_b}],
-        pass: {pass},
-        extent,
         clears: vec!["#
         )
         .unwrap();
-        for subpass in &pass.subpasses {
-            for color in &subpass.color_attachments {
-                if let Some(clear) = &color.clear {
-                    let clear: Vec<_> = clear.iter().map(|c| *c as f32).collect();
-                    writeln!(file, "            vk::ClearValue {{ color: vk::ClearColorValue {{ float32: {clear:?} }} }},").unwrap();
-                }
-            }
-            if let Some(depth) = &subpass.depth_attachment {
-                if let Some(clear) = &depth.clear {
-                    let clear = clear[0] as f32;
-                    writeln!(file, "            vk::ClearValue {{ depth_stencil: vk::ClearDepthStencilValue {{ depth: {clear:?}, stencil: 0 }} }},").unwrap();
-                }
-            }
-        }
         writeln!(
             file,
             r#"        ],
-        resources,
-        framebuffers,
-        direct_to_swapchain: {direct_to_swapchain:?},
         index: {index},
     }};"#
         )
@@ -1802,7 +1416,7 @@ pub fn create_pipeline_layouts(
 ) -> PipelineLayouts {{"#
     )
     .unwrap();
-    for_pipelines(renderer, |_, _, _, pipeline| {
+    for_pipelines(renderer, |_, pipeline| {
         if pipeline.descriptor_sets.len() > 1 {
             for (descriptor_set_index, descriptor_set) in
                 pipeline.descriptor_sets.iter().enumerate()
@@ -1825,14 +1439,14 @@ pub fn create_pipeline_layouts(
             writeln!(file, "    unsafe {{ SCRATCH.{compute}_pipeline_layout.p_set_layouts = &descriptor_set_layouts.{descriptor_set} }};").unwrap();
         }
     }
-    for_pipelines(renderer, |_, _, _, pipeline| {
+    for_pipelines(renderer, |_, pipeline| {
         writeln!(file, r#"    let {pipeline} = unsafe {{ dev.create_pipeline_layout(&SCRATCH.{pipeline}_pipeline_layout, None).unwrap_unchecked() }};"#).unwrap();
     });
     for compute in &renderer.computes {
         writeln!(file, r#"    let {compute} = unsafe {{ dev.create_pipeline_layout(&SCRATCH.{compute}_pipeline_layout, None).unwrap_unchecked() }};"#).unwrap();
     }
     writeln!(file, "    PipelineLayouts {{").unwrap();
-    for_pipelines(renderer, |_, _, _, pipeline| {
+    for_pipelines(renderer, |_, pipeline| {
         writeln!(file, "        {pipeline},").unwrap();
     });
     for compute in &renderer.computes {
@@ -1903,7 +1517,7 @@ pub fn create_pipelines(
             writeln!(file, "    {name}: {ty},").unwrap();
         }
     }
-    for_pipelines(renderer, |_, _, _, pipeline| {
+    for_pipelines(renderer, |_, pipeline| {
         if let Some(specs) = &pipeline.fragment_specialization {
             for spec in specs {
                 let metadata = renderer.find_specialization(spec);
@@ -1923,11 +1537,7 @@ pub fn create_pipelines(
 ) -> Pipelines {{"#
     )
     .unwrap();
-    for_pipelines(renderer, |pass, _, subpass, pipeline| {
-        let downscale = pass
-            .resolution
-            .as_ref()
-            .map_or(1, |resolution| resolution.downscaled);
+    for_pipelines(renderer, |pass, pipeline| {
         if let Some(specs) = &pipeline.fragment_specialization {
             for spec in specs {
                 let metadata = renderer.find_specialization(spec);
@@ -1966,22 +1576,25 @@ pub fn create_pipelines(
         writeln!(
             file,
             r#"    unsafe {{ SCRATCH.{pipeline}_shader_stages[{fragment_stage_index}].module = shader_modules.{fragment_shader}_fragment }};
-    unsafe {{ SCRATCH.{pipeline}_viewport.width = (swapchain.extent.width / {downscale}) as f32 }};
-    unsafe {{ SCRATCH.{pipeline}_viewport.height = (swapchain.extent.height / {downscale}) as f32 }};
-    unsafe {{ SCRATCH.{pipeline}_scissor.extent.width = swapchain.extent.width / {downscale} }};
-    unsafe {{ SCRATCH.{pipeline}_scissor.extent.height = swapchain.extent.height / {downscale} }};"#
+    unsafe {{ SCRATCH.{pipeline}_viewport.width = swapchain.extent.width as f32 }};
+    unsafe {{ SCRATCH.{pipeline}_viewport.height = swapchain.extent.height as f32 }};
+    unsafe {{ SCRATCH.{pipeline}_scissor.extent.width = swapchain.extent.width }};
+    unsafe {{ SCRATCH.{pipeline}_scissor.extent.height = swapchain.extent.height }};"#
         )
             .unwrap();
-        if subpass.msaa {
+        if pass.msaa {
             writeln!(file, "    unsafe {{ SCRATCH.{pipeline}_multisampling.rasterization_samples = _msaa_samples }};").unwrap();
         }
-    });
-    for_pipelines(renderer, |pass, _, _, pipeline| {
-        let pass = &pass.name;
         writeln!(
             file,
-            r#"    unsafe {{ SCRATCH.{pipeline}_pipeline.layout = layouts.{pipeline} }};
-    unsafe {{ SCRATCH.{pipeline}_pipeline.render_pass = passes.{pass}.pass }};"#
+            r#"    unsafe {{ SCRATCH.{pipeline}_color_formats[0] = swapchain.format.format }};"#
+        )
+        .unwrap();
+    });
+    for_pipelines(renderer, |_, pipeline| {
+        writeln!(
+            file,
+            r#"    unsafe {{ SCRATCH.{pipeline}_pipeline.layout = layouts.{pipeline} }};"#
         )
         .unwrap();
     });
@@ -1995,7 +1608,7 @@ pub fn create_pipelines(
     }
     let mut pipeline_count = 0;
     let mut first_pipeline = None;
-    for_pipelines(renderer, |_, _, _, pipeline| {
+    for_pipelines(renderer, |_, pipeline| {
         pipeline_count += 1;
         if first_pipeline.is_none() {
             first_pipeline = Some(pipeline);
@@ -2039,15 +1652,10 @@ pub fn create_pipelines(
     .unwrap();
 }
 
-fn for_pipelines<'a>(
-    renderer: &'a Renderer,
-    mut f: impl FnMut(&'a Pass, usize, &'a Subpass, &'a Pipeline),
-) {
+fn for_pipelines<'a>(renderer: &'a Renderer, mut f: impl FnMut(&'a Pass, &'a Pipeline)) {
     for pass in &renderer.passes {
-        for (subpass_index, subpass) in pass.subpasses.iter().enumerate() {
-            for pipeline in &subpass.pipelines {
-                f(pass, subpass_index, subpass, pipeline);
-            }
+        for pipeline in &pass.pipelines {
+            f(pass, pipeline);
         }
     }
 }

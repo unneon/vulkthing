@@ -1,4 +1,4 @@
-use crate::renderer::util::{create_image_view, Dev};
+use crate::renderer::util::{create_image_view, Dev, ImageResources};
 use ash::extensions::khr::Swapchain as SwapchainKhr;
 use ash::vk;
 use winit::dpi::PhysicalSize;
@@ -7,14 +7,14 @@ pub struct Swapchain {
     pub handle: vk::SwapchainKHR,
     pub format: vk::SurfaceFormatKHR,
     pub extent: vk::Extent2D,
-    pub image_views: Vec<vk::ImageView>,
+    pub images: Vec<ImageResources>,
 }
 
 impl Swapchain {
     pub fn cleanup(&self, dev: &Dev) {
         let swapchain_ext = SwapchainKhr::new(&dev.instance, dev);
-        for image_view in &self.image_views {
-            unsafe { dev.destroy_image_view(*image_view, None) };
+        for image in &self.images {
+            unsafe { dev.destroy_image_view(image.view, None) };
         }
         unsafe { swapchain_ext.destroy_swapchain(self.handle, None) };
     }
@@ -41,12 +41,12 @@ pub fn create_swapchain(
     let format = select_format(&formats);
     let extent = select_extent(capabilities, window_size);
     let handle = create_handle(surface, image_count, format, extent, capabilities, dev);
-    let image_views = create_image_views(handle, format.format, dev);
+    let images = create_pseudo_image_resources(handle, format.format, dev);
     Swapchain {
         handle,
         format,
         extent,
-        image_views,
+        images,
     }
 }
 
@@ -130,20 +130,20 @@ fn create_handle(
     unsafe { dev.swapchain_ext.create_swapchain(&create_info, None) }.unwrap()
 }
 
-fn create_image_views(
+fn create_pseudo_image_resources(
     swapchain: vk::SwapchainKHR,
     format: vk::Format,
     dev: &Dev,
-) -> Vec<vk::ImageView> {
+) -> Vec<ImageResources> {
     let images = unsafe { dev.swapchain_ext.get_swapchain_images(swapchain) }.unwrap();
     let mut image_views = Vec::new();
     for image in images {
-        image_views.push(create_image_view(
+        let view = create_image_view(image, format, vk::ImageAspectFlags::COLOR, dev);
+        image_views.push(ImageResources {
             image,
-            format,
-            vk::ImageAspectFlags::COLOR,
-            dev,
-        ));
+            memory: vk::DeviceMemory::null(),
+            view,
+        });
     }
     image_views
 }

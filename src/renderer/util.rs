@@ -36,7 +36,7 @@ pub struct Buffer {
 
 pub struct ImageResources {
     pub image: vk::Image,
-    memory: vk::DeviceMemory,
+    pub memory: vk::DeviceMemory,
     pub view: vk::ImageView,
 }
 
