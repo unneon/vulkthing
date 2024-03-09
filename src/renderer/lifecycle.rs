@@ -44,7 +44,7 @@ impl Renderer {
         let instance = create_instance(window, &entry, args);
         let debug_ext = DebugUtils::new(&entry, &instance);
         let surface_ext = Surface::new(&entry, &instance);
-        let debug_messenger = create_debug_messenger(&debug_ext);
+        let debug_messenger = create_debug_messenger(&debug_ext, args.log_info);
         let surface = create_surface(window, &entry, &instance);
         let DeviceInfo {
             physical_device,
@@ -300,22 +300,25 @@ fn create_instance(window: &Window, entry: &Entry, args: &Args) -> Instance {
         .application_version(app_version)
         .engine_name(&engine_name)
         .engine_version(engine_version)
-        .api_version(vk::API_VERSION_1_2);
+        .api_version(vk::API_VERSION_1_3);
 
     let layers = entry.enumerate_instance_layer_properties().unwrap();
     let mut layer_names = Vec::new();
 
     // Enable Vulkan validation layers by default. This should be later changed in non-development
     // builds.
-    if !args.disable_validation {
+    let validation = if !args.disable_validation {
         if let Some(layer) = find_layer(&layers, "VK_LAYER_KHRONOS_validation") {
             layer_names.push(layer);
+            true
         } else {
             warn!("vulkan validation layers not available");
+            false
         }
     } else {
         debug!("vulkan validation layers disabled");
-    }
+        false
+    };
 
     // Vulkan doesn't appear to have any interesting extensions at this level, physical device
     // extensions are the interesting ones with raytracing and other stuff. This is just for
@@ -327,10 +330,20 @@ fn create_instance(window: &Window, entry: &Entry, args: &Args) -> Instance {
             .to_vec();
     extension_names.push(DebugUtils::name().as_ptr());
 
-    let instance_create_info = vk::InstanceCreateInfo::builder()
+    let mut instance_create_info = vk::InstanceCreateInfo::builder()
         .application_info(&app_info)
         .enabled_layer_names(&layer_names)
         .enabled_extension_names(&extension_names);
+
+    let validation_feature_enables;
+    let mut validation_features;
+    if validation {
+        validation_feature_enables = [vk::ValidationFeatureEnableEXT::DEBUG_PRINTF];
+        validation_features = vk::ValidationFeaturesEXT::builder()
+            .enabled_validation_features(&validation_feature_enables);
+        instance_create_info = instance_create_info.push_next(&mut validation_features);
+    }
+
     unsafe { entry.create_instance(&instance_create_info, None) }.unwrap()
 }
 
@@ -382,6 +395,8 @@ fn create_logical_device(
     let mut vk12_features = *vk::PhysicalDeviceVulkan12Features::builder()
         .shader_int8(true)
         .storage_buffer8_bit_access(true);
+    // TODO: Something in the task shader requires maintenance4, why?
+    let mut vk13_features = *vk::PhysicalDeviceVulkan13Features::builder().maintenance4(true);
     let mut ms_features = *vk::PhysicalDeviceMeshShaderFeaturesEXT::builder()
         .mesh_shader(true)
         .task_shader(true);
@@ -392,6 +407,7 @@ fn create_logical_device(
         .enabled_extension_names(&extensions)
         .push_next(&mut vk11_features)
         .push_next(&mut vk12_features)
+        .push_next(&mut vk13_features)
         .push_next(&mut ms_features);
 
     unsafe { instance.create_device(physical_device, &create_info, None) }.unwrap()

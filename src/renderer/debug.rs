@@ -4,13 +4,19 @@ use ash::vk;
 use ash::vk::Handle;
 use std::ffi::{CStr, CString};
 
-pub fn create_debug_messenger(debug_ext: &DebugUtils) -> vk::DebugUtilsMessengerEXT {
+pub fn create_debug_messenger(
+    debug_ext: &DebugUtils,
+    log_info: bool,
+) -> vk::DebugUtilsMessengerEXT {
     // Enable filtering by message severity and type. General and verbose levels seem to produce
     // too much noise related to physical device selection, so I turned them off.
     // vulkan-tutorial.com also shows how to enable this for creating instances, but the ash
     // example doesn't include this.
-    let severity_filter = vk::DebugUtilsMessageSeverityFlagsEXT::ERROR
+    let mut severity_filter = vk::DebugUtilsMessageSeverityFlagsEXT::ERROR
         | vk::DebugUtilsMessageSeverityFlagsEXT::WARNING;
+    if log_info {
+        severity_filter |= vk::DebugUtilsMessageSeverityFlagsEXT::INFO;
+    }
     let type_filter = vk::DebugUtilsMessageTypeFlagsEXT::GENERAL
         | vk::DebugUtilsMessageTypeFlagsEXT::VALIDATION
         | vk::DebugUtilsMessageTypeFlagsEXT::PERFORMANCE;
