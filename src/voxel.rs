@@ -1,6 +1,6 @@
 mod binary_cube;
 mod chunk_priority;
-pub mod gpu_memory;
+pub mod gpu;
 mod local_mesh;
 pub mod material;
 pub mod meshing;
@@ -11,7 +11,7 @@ mod thread;
 mod world_generation;
 
 use crate::voxel::chunk_priority::{ChunkPriority, ChunkPriorityAlgorithm};
-use crate::voxel::gpu_memory::VoxelGpuMemory;
+use crate::voxel::gpu::VoxelGpuMemory;
 use crate::voxel::meshing::MeshingAlgorithmKind;
 use crate::voxel::sparse_octree::SparseOctree;
 use crate::voxel::thread::voxel_thread;
@@ -40,7 +40,7 @@ pub struct VoxelsState {
     heightmap_noise: Arc<FastNoise>,
     loaded_svos: HashMap<Vector3<i64>, Arc<SparseOctree>>,
     loaded_heightmaps: HashMap<Vector2<i64>, Arc<DMatrix<i64>>>,
-    gpu_memory: VoxelGpuMemory,
+    gpu_memory: Box<dyn VoxelGpuMemory>,
     config: VoxelsConfig,
     config_generation: u64,
     shutdown: bool,
@@ -71,7 +71,7 @@ impl Voxels {
     pub fn new(
         config: VoxelsConfig,
         camera: Vector3<f32>,
-        gpu_memory: VoxelGpuMemory,
+        gpu_memory: Box<dyn VoxelGpuMemory>,
         thread_count: usize,
     ) -> Voxels {
         let camera = chunk_from_position(camera, config.chunk_size);

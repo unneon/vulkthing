@@ -1,10 +1,14 @@
 use crate::renderer::util::{Dev, StorageBuffer};
+use crate::voxel::gpu::VoxelGpuMemory;
+use crate::voxel::local_mesh::LocalMesh;
+use crate::voxel::meshlet;
 use crate::voxel::meshlet::{VoxelMesh, VoxelMeshlet, VoxelTriangle, VoxelVertex};
+use nalgebra::Vector3;
 use std::mem::MaybeUninit;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
-pub struct VoxelGpuMemory {
+pub struct VoxelMeshletMemory {
     meshlet_count: Arc<AtomicU32>,
     vertex_buffer: StorageBuffer<[VoxelVertex]>,
     vertex_count: usize,
@@ -14,15 +18,15 @@ pub struct VoxelGpuMemory {
     dev: Dev,
 }
 
-impl VoxelGpuMemory {
+impl VoxelMeshletMemory {
     pub fn new(
         meshlet_count: Arc<AtomicU32>,
         vertex_buffer: StorageBuffer<[VoxelVertex]>,
         triangle_buffer: StorageBuffer<[VoxelTriangle]>,
         meshlet_buffer: StorageBuffer<[VoxelMeshlet]>,
         dev: Dev,
-    ) -> VoxelGpuMemory {
-        VoxelGpuMemory {
+    ) -> VoxelMeshletMemory {
+        VoxelMeshletMemory {
             meshlet_count,
             vertex_buffer,
             vertex_count: 0,
@@ -32,8 +36,15 @@ impl VoxelGpuMemory {
             dev,
         }
     }
+}
 
-    pub fn upload_meshlet(&mut self, mut mesh: VoxelMesh) {
+impl VoxelGpuMemory for VoxelMeshletMemory {
+    fn prepare_func(&self) -> fn(LocalMesh, Vector3<i64>) -> Box<dyn std::any::Any> {
+        |mesh, chunk| Box::new(prepare(mesh, chunk))
+    }
+
+    fn upload(&mut self, mesh: Box<dyn std::any::Any>) {
+        let mut mesh = mesh.downcast::<VoxelMesh>().unwrap();
         let old_meshlet_count = self.meshlet_count.load(Ordering::SeqCst) as usize;
         let new_vertex_count = self.vertex_count + mesh.vertices.len();
         let new_triangle_count = self.triangle_count + mesh.triangles.len();
@@ -66,7 +77,7 @@ impl VoxelGpuMemory {
             .store(new_meshlet_count as u32, Ordering::SeqCst);
     }
 
-    pub fn clear(&mut self) {
+    fn clear(&mut self) {
         // Holding the lock while updating the atomic is necessary, so leftover operations don't
         // mess up.
         self.vertex_count = 0;
@@ -74,9 +85,17 @@ impl VoxelGpuMemory {
         self.meshlet_count.store(0, Ordering::SeqCst);
     }
 
-    pub fn cleanup(&mut self) {
+    fn cleanup(&mut self) {
         self.vertex_buffer.cleanup(&self.dev);
         self.triangle_buffer.cleanup(&self.dev);
         self.meshlet_buffer.cleanup(&self.dev);
     }
+}
+
+fn prepare(raw_mesh: LocalMesh, chunk: Vector3<i64>) -> VoxelMesh {
+    let mut mesh = meshlet::from_unclustered_mesh(&raw_mesh);
+    for meshlet in &mut mesh.meshlets {
+        meshlet.chunk = chunk.try_cast::<i16>().unwrap();
+    }
+    mesh
 }

@@ -20,7 +20,7 @@ use crate::renderer::uniform::{
 use crate::renderer::util::{
     timestamp_difference_to_duration, Buffer, Dev, ImageResources, StorageBuffer, UniformBuffer,
 };
-use crate::voxel::gpu_memory::VoxelGpuMemory;
+use crate::voxel::gpu::VoxelGpuMemory;
 use crate::voxel::VoxelsConfig;
 use crate::world::World;
 use ash::{vk, Entry};
@@ -74,7 +74,7 @@ pub struct Renderer {
     descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
 
     voxel_meshlet_count: Arc<AtomicU32>,
-    pub voxel_gpu_memory: Option<VoxelGpuMemory>,
+    pub voxel_gpu_memory: Option<Box<dyn VoxelGpuMemory>>,
 
     query_pool: vk::QueryPool,
     frame_index: usize,
@@ -110,6 +110,10 @@ pub struct PostprocessSettings {
     pub exposure: f32,
     pub tonemapper: Tonemapper,
     pub gamma: f32,
+}
+
+pub struct DeviceSupport {
+    mesh_shaders: bool,
 }
 
 pub const VRAM_VIA_BAR: vk::MemoryPropertyFlags = vk::MemoryPropertyFlags::from_raw(

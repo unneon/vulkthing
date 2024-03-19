@@ -15,10 +15,10 @@ use crate::renderer::uniform::Star;
 use crate::renderer::util::{vulkan_str, Buffer, Dev, ImageResources, StorageBuffer};
 use crate::renderer::vertex::Vertex;
 use crate::renderer::{
-    MeshObject, Renderer, Synchronization, UniformBuffer, DEPTH_FORMAT, FRAMES_IN_FLIGHT,
-    VRAM_VIA_BAR,
+    DeviceSupport, MeshObject, Renderer, Synchronization, UniformBuffer, DEPTH_FORMAT,
+    FRAMES_IN_FLIGHT, VRAM_VIA_BAR,
 };
-use crate::voxel::gpu_memory::VoxelGpuMemory;
+use crate::voxel::gpu::meshlets::VoxelMeshletMemory;
 use crate::window::Window;
 use crate::world::World;
 use crate::{VULKAN_APP_NAME, VULKAN_APP_VERSION, VULKAN_ENGINE_NAME, VULKAN_ENGINE_VERSION};
@@ -51,7 +51,14 @@ impl Renderer {
             queue_family,
         } = select_device(surface, &instance, &surface_ext);
         let properties = unsafe { instance.get_physical_device_properties(physical_device) };
-        let logical_device = create_logical_device(queue_family, &instance, physical_device);
+        let mut ms_features = vk::PhysicalDeviceMeshShaderFeaturesEXT::default();
+        let mut features = *vk::PhysicalDeviceFeatures2::builder().push_next(&mut ms_features);
+        unsafe { instance.get_physical_device_features2(physical_device, &mut features) };
+        let device_support = DeviceSupport {
+            mesh_shaders: (ms_features.mesh_shader != 0) && (ms_features.task_shader != 0),
+        };
+        let logical_device =
+            create_logical_device(queue_family, &instance, physical_device, &device_support);
         let swapchain_ext = SwapchainKhr::new(&instance, &logical_device);
         let mesh_ext = MeshShader::new(&instance, &logical_device);
         let dev = Dev {
@@ -127,13 +134,18 @@ impl Renderer {
         );
 
         let voxel_meshlet_count = Arc::new(AtomicU32::new(0));
-        let voxel_gpu_memory = Some(VoxelGpuMemory::new(
-            voxel_meshlet_count.clone(),
-            voxel_vertex_buffer,
-            voxel_triangle_buffer,
-            voxel_meshlet_buffer,
-            dev.clone(),
-        ));
+        let voxel_gpu_memory = if device_support.mesh_shaders {
+            Box::new(VoxelMeshletMemory::new(
+                voxel_meshlet_count.clone(),
+                voxel_vertex_buffer,
+                voxel_triangle_buffer,
+                voxel_meshlet_buffer,
+                dev.clone(),
+            ))
+        } else {
+            warn!("mesh shaders not available");
+            todo!()
+        };
 
         Renderer {
             _entry: entry,
@@ -159,7 +171,7 @@ impl Renderer {
             global,
             descriptor_sets: global_descriptor_sets,
             voxel_meshlet_count,
-            voxel_gpu_memory,
+            voxel_gpu_memory: Some(voxel_gpu_memory),
             query_pool,
             frame_index: 0,
             frametime: None,
@@ -382,18 +394,21 @@ fn create_logical_device(
     queue_family: u32,
     instance: &Instance,
     physical_device: vk::PhysicalDevice,
+    device_support: &DeviceSupport,
 ) -> Device {
     let queue_create = *vk::DeviceQueueCreateInfo::builder()
         .queue_family_index(queue_family)
         .queue_priorities(&[1.]);
     let queues = [queue_create];
 
-    let extensions = vec![
-        KhrShaderFloatControlsFn::name().as_ptr(),
-        KhrSpirv14Fn::name().as_ptr(),
-        MeshShader::name().as_ptr(),
-        SwapchainKhr::name().as_ptr(),
-    ];
+    let mut extensions = vec![SwapchainKhr::name().as_ptr()];
+    if device_support.mesh_shaders {
+        extensions.extend_from_slice(&[
+            KhrShaderFloatControlsFn::name().as_ptr(),
+            KhrSpirv14Fn::name().as_ptr(),
+            MeshShader::name().as_ptr(),
+        ]);
+    }
 
     let features = *vk::PhysicalDeviceFeatures::builder()
         .fill_mode_non_solid(true)
@@ -410,8 +425,8 @@ fn create_logical_device(
         .maintenance4(true)
         .synchronization2(true);
     let mut ms_features = *vk::PhysicalDeviceMeshShaderFeaturesEXT::builder()
-        .mesh_shader(true)
-        .task_shader(true);
+        .mesh_shader(device_support.mesh_shaders)
+        .task_shader(device_support.mesh_shaders);
 
     let create_info = vk::DeviceCreateInfo::builder()
         .queue_create_infos(&queues)

@@ -2,7 +2,7 @@ use crate::voxel::chunk_priority::ChunkPriorityAlgorithm;
 use crate::voxel::meshing::generate_mesh;
 use crate::voxel::neighbourhood::Neighbourhood;
 use crate::voxel::world_generation::{generate_chunk_svo, generate_heightmap};
-use crate::voxel::{meshlet, VoxelsShared};
+use crate::voxel::VoxelsShared;
 use nalgebra::Vector3;
 use std::sync::Arc;
 
@@ -58,16 +58,14 @@ pub fn voxel_thread(shared: &VoxelsShared) {
             }
         }
         let neighbourhood = Neighbourhood::new(&svos, config.chunk_size as i64);
+        let prepare_func = state.gpu_memory.prepare_func();
         drop(state);
         let raw_mesh = generate_mesh(neighbourhood, &config);
-        let mut mesh = meshlet::from_unclustered_mesh(&raw_mesh);
-        for meshlet in &mut mesh.meshlets {
-            meshlet.chunk = chunk.try_cast::<i16>().unwrap();
-        }
+        let mesh = prepare_func(raw_mesh, chunk);
         state = shared.state.lock().unwrap();
         if config_generation != state.config_generation {
             continue;
         }
-        state.gpu_memory.upload_meshlet(mesh);
+        state.gpu_memory.upload(mesh);
     }
 }
