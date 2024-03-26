@@ -1,4 +1,4 @@
-use crate::renderer::FRAMES_IN_FLIGHT;
+use crate::renderer::{DeviceSupport, FRAMES_IN_FLIGHT};
 use ash::extensions::ext::{DebugUtils, MeshShader};
 use ash::extensions::khr::{BufferDeviceAddress, Surface, Swapchain};
 use ash::{vk, Device, Instance};
@@ -26,6 +26,7 @@ pub struct Dev {
     pub surface_ext: Surface,
     pub swapchain_ext: Swapchain,
     pub mesh_ext: MeshShader,
+    pub support: DeviceSupport,
 }
 
 pub struct Buffer {

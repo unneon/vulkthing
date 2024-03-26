@@ -13,6 +13,7 @@ pass "render" {
     debug-name "Forward rendering pass"
     debug-color 160 167 161
     pipeline "voxel" task-shaders=true mesh-shaders=true
+    pipeline "voxel_rt"
     pipeline "debug_voxel_triangle" mesh-shaders=true {
         cull-mode "NONE"
         polygon-mode "LINE"

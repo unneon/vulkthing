@@ -112,6 +112,7 @@ pub struct PostprocessSettings {
     pub gamma: f32,
 }
 
+#[derive(Clone)]
 pub struct DeviceSupport {
     mesh_shaders: bool,
 }
@@ -235,27 +236,29 @@ impl Renderer {
 
         self.bind_descriptor_set(buf);
 
-        let voxel_meshlet_count = self.voxel_meshlet_count.load(Ordering::SeqCst);
-        begin_label(buf, "Voxel draws", [255, 0, 0], &self.dev);
-        self.bind_graphics_pipeline(buf, self.pipelines.voxel);
-        self.draw_mesh_shaders(buf, voxel_meshlet_count.div_ceil(64));
-        end_label(buf, &self.dev);
-
-        if voxel_meshlet_count > 0 {
-            begin_label(buf, "Debug voxel triangle draw", [238, 186, 11], &self.dev);
-            self.bind_graphics_pipeline(buf, self.pipelines.debug_voxel_triangle);
-            self.draw_mesh_shaders(buf, 1);
+        if self.dev.support.mesh_shaders {
+            let voxel_meshlet_count = self.voxel_meshlet_count.load(Ordering::SeqCst);
+            begin_label(buf, "Voxel draws", [255, 0, 0], &self.dev);
+            self.bind_graphics_pipeline(buf, self.pipelines.voxel);
+            self.draw_mesh_shaders(buf, voxel_meshlet_count.div_ceil(64));
             end_label(buf, &self.dev);
 
-            begin_label(buf, "Debug voxel world bound draw", [255, 78, 0], &self.dev);
-            self.bind_graphics_pipeline(buf, self.pipelines.debug_voxel_world_bound);
-            self.draw_mesh_shaders(buf, 1);
-            end_label(buf, &self.dev);
+            if voxel_meshlet_count > 0 {
+                begin_label(buf, "Debug voxel triangle draw", [238, 186, 11], &self.dev);
+                self.bind_graphics_pipeline(buf, self.pipelines.debug_voxel_triangle);
+                self.draw_mesh_shaders(buf, 1);
+                end_label(buf, &self.dev);
 
-            begin_label(buf, "Debug voxel screen bound draw", [113, 0, 0], &self.dev);
-            self.bind_graphics_pipeline(buf, self.pipelines.debug_voxel_screen_bound);
-            self.draw_mesh_shaders(buf, 1);
-            end_label(buf, &self.dev);
+                begin_label(buf, "Debug voxel world bound draw", [255, 78, 0], &self.dev);
+                self.bind_graphics_pipeline(buf, self.pipelines.debug_voxel_world_bound);
+                self.draw_mesh_shaders(buf, 1);
+                end_label(buf, &self.dev);
+
+                begin_label(buf, "Debug voxel screen bound draw", [113, 0, 0], &self.dev);
+                self.bind_graphics_pipeline(buf, self.pipelines.debug_voxel_screen_bound);
+                self.draw_mesh_shaders(buf, 1);
+                end_label(buf, &self.dev);
+            }
         }
 
         begin_label(buf, "Sun draw", [156, 85, 35], &self.dev);

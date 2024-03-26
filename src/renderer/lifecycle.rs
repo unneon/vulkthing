@@ -19,6 +19,7 @@ use crate::renderer::{
     FRAMES_IN_FLIGHT, VRAM_VIA_BAR,
 };
 use crate::voxel::gpu::meshlets::VoxelMeshletMemory;
+use crate::voxel::gpu::VoxelGpuMemory;
 use crate::window::Window;
 use crate::world::World;
 use crate::{VULKAN_APP_NAME, VULKAN_APP_VERSION, VULKAN_ENGINE_NAME, VULKAN_ENGINE_VERSION};
@@ -57,6 +58,9 @@ impl Renderer {
         let device_support = DeviceSupport {
             mesh_shaders: (ms_features.mesh_shader != 0) && (ms_features.task_shader != 0),
         };
+        if !device_support.mesh_shaders {
+            warn!("mesh shaders not available");
+        }
         let logical_device =
             create_logical_device(queue_family, &instance, physical_device, &device_support);
         let swapchain_ext = SwapchainKhr::new(&instance, &logical_device);
@@ -69,6 +73,7 @@ impl Renderer {
             surface_ext,
             swapchain_ext,
             mesh_ext,
+            support: device_support,
         };
         let queue = unsafe { dev.get_device_queue(queue_family, 0) };
         let command_pools = create_command_pools(queue_family, &dev);
@@ -134,17 +139,16 @@ impl Renderer {
         );
 
         let voxel_meshlet_count = Arc::new(AtomicU32::new(0));
-        let voxel_gpu_memory = if device_support.mesh_shaders {
-            Box::new(VoxelMeshletMemory::new(
+        let voxel_gpu_memory = if dev.support.mesh_shaders {
+            Some(Box::new(VoxelMeshletMemory::new(
                 voxel_meshlet_count.clone(),
                 voxel_vertex_buffer,
                 voxel_triangle_buffer,
                 voxel_meshlet_buffer,
                 dev.clone(),
-            ))
+            )) as Box<dyn VoxelGpuMemory>)
         } else {
-            warn!("mesh shaders not available");
-            todo!()
+            None
         };
 
         Renderer {
@@ -171,7 +175,7 @@ impl Renderer {
             global,
             descriptor_sets: global_descriptor_sets,
             voxel_meshlet_count,
-            voxel_gpu_memory: Some(voxel_gpu_memory),
+            voxel_gpu_memory,
             query_pool,
             frame_index: 0,
             frametime: None,

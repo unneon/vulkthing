@@ -1228,7 +1228,15 @@ pub fn create_shader_modules(shaders: &Shaders, dev: &Dev) -> ShaderModules {{"#
     }
     for (name, typ) in &shaders {
         let typ_lowercase = typ.lowercase();
-        writeln!(file, r#"    let {name}_{typ_lowercase} = unsafe {{ dev.create_shader_module(&SCRATCH.{name}_{typ_lowercase}, None).unwrap_unchecked() }};"#).unwrap();
+        if *typ != ShaderType::Mesh {
+            writeln!(file, r#"    let {name}_{typ_lowercase} = unsafe {{ dev.create_shader_module(&SCRATCH.{name}_{typ_lowercase}, None).unwrap_unchecked() }};"#).unwrap();
+        } else {
+            writeln!(file, r#"    let {name}_{typ_lowercase} = if dev.support.mesh_shaders {{
+        unsafe {{ dev.create_shader_module(&SCRATCH.{name}_{typ_lowercase}, None).unwrap_unchecked() }}
+    }} else {{
+        vk::ShaderModule::null()
+    }};"#).unwrap();
+        }
     }
     writeln!(file, "    ShaderModules {{").unwrap();
     for (name, typ) in &shaders {
@@ -1351,20 +1359,39 @@ pub fn create_pipelines(
             first_pipeline = Some(pipeline);
         }
     });
-    let first_pipeline = first_pipeline.unwrap();
     writeln!(
         file,
-        r#"    let mut pipelines = MaybeUninit::uninit();
-    let _ = unsafe {{ (dev.fp_v1_0().create_graphics_pipelines)(
-        dev.handle(),
-        vk::PipelineCache::null(),
-        {pipeline_count},
-        &SCRATCH.{first_pipeline}_pipeline,
-        std::ptr::null(),
-        pipelines.as_mut_ptr() as *mut vk::Pipeline,
-    ) }};"#
+        r#"    let mut pipelines: Pipelines = unsafe {{ MaybeUninit::zeroed().assume_init() }};"#
     )
     .unwrap();
+    for_pipelines(renderer, |_, pipeline| {
+        let tab = if pipeline.mesh_shaders {
+            write!(
+                file,
+                r#"    if dev.support.mesh_shaders {{
+    "#
+            )
+            .unwrap();
+            "    "
+        } else {
+            ""
+        };
+        writeln!(
+            file,
+            r#"    let _ = unsafe {{ (dev.fp_v1_0().create_graphics_pipelines)(
+{tab}        dev.handle(),
+{tab}        vk::PipelineCache::null(),
+{tab}        1,
+{tab}        &SCRATCH.{pipeline}_pipeline,
+{tab}        std::ptr::null(),
+{tab}        &mut pipelines.{pipeline},
+{tab}    ) }};"#
+        )
+        .unwrap();
+        if pipeline.mesh_shaders {
+            writeln!(file, "    }}").unwrap();
+        }
+    });
     if !renderer.computes.is_empty() {
         let compute_pipeline_count = renderer.computes.len();
         let first_compute_pipeline = &renderer.computes[0].name;
@@ -1383,7 +1410,7 @@ pub fn create_pipelines(
     }
     writeln!(
         file,
-        r#"    unsafe {{ pipelines.assume_init() }}
+        r#"    pipelines
 }}"#
     )
     .unwrap();
