@@ -1,7 +1,7 @@
 use crate::cli::Args;
 use crate::config::{
-    DEFAULT_VOXEL_MESHLET_MAX_COUNT, DEFAULT_VOXEL_TRIANGLE_MAX_COUNT,
-    DEFAULT_VOXEL_VERTEX_MAX_COUNT,
+    DEFAULT_VOXEL_MESHLET_MAX_COUNT, DEFAULT_VOXEL_OCTREE_MAX_COUNT,
+    DEFAULT_VOXEL_TRIANGLE_MAX_COUNT, DEFAULT_VOXEL_VERTEX_MAX_COUNT,
 };
 use crate::mesh::MeshData;
 use crate::renderer::codegen::{
@@ -19,7 +19,8 @@ use crate::renderer::{
     FRAMES_IN_FLIGHT, VRAM_VIA_BAR,
 };
 use crate::voxel::gpu::meshlets::VoxelMeshletMemory;
-use crate::voxel::gpu::VoxelGpuMemory;
+use crate::voxel::gpu::{SparseVoxelOctree, VoxelGpuMemory};
+use crate::voxel::material::Material;
 use crate::window::Window;
 use crate::world::World;
 use crate::{VULKAN_APP_NAME, VULKAN_APP_VERSION, VULKAN_ENGINE_NAME, VULKAN_ENGINE_VERSION};
@@ -125,6 +126,27 @@ impl Renderer {
             StorageBuffer::new_array(VRAM_VIA_BAR, DEFAULT_VOXEL_TRIANGLE_MAX_COUNT, &dev);
         let voxel_meshlet_buffer =
             StorageBuffer::new_array(VRAM_VIA_BAR, DEFAULT_VOXEL_MESHLET_MAX_COUNT, &dev);
+        let mut voxel_octree_buffer =
+            StorageBuffer::new_array(VRAM_VIA_BAR, DEFAULT_VOXEL_OCTREE_MAX_COUNT, &dev);
+        voxel_octree_buffer.generate(|i| {
+            if i == 0 {
+                SparseVoxelOctree::new_mixed(1)
+            } else if i == 8 {
+                SparseVoxelOctree::new_mixed(9)
+            } else if i == 1
+                || i == 4
+                || i == 6
+                || i == 7
+                || i == 9
+                || i == 12
+                || i == 14
+                || i == 15
+            {
+                SparseVoxelOctree::new_uniform(Material::Air)
+            } else {
+                SparseVoxelOctree::new_uniform(Material::Grass)
+            }
+        });
 
         let global = UniformBuffer::create(&dev);
         let global_descriptor_sets = alloc_descriptor_set(
@@ -133,6 +155,7 @@ impl Renderer {
             &voxel_vertex_buffer,
             &voxel_triangle_buffer,
             &voxel_meshlet_buffer,
+            &voxel_octree_buffer,
             &dev,
             descriptor_set_layout,
             descriptor_pool,

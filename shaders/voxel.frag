@@ -27,7 +27,7 @@ const vec3 NORMALS[6] = vec3[](
 );
 
 void main() {
-    vec3 position = world_space_from_depth(gl_FragCoord.z);
+    vec3 position = world_space_from_depth(gl_FragCoord.z, global.camera);
     vec3 normal = NORMALS[uint(triangle_data) & 7u];
     VoxelMaterial material = global.materials[uint(triangle_data) >> 3];
     vec3 reflected_color = pbr(position, normal, material.albedo, material.metallic, material.roughness);
