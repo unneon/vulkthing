@@ -261,6 +261,9 @@ impl Renderer {
             }
         }
 
+        self.bind_graphics_pipeline(buf, self.pipelines.voxel_rt);
+        unsafe { self.dev.cmd_draw(buf, 6, 1, 0, 0) };
+
         begin_label(buf, "Sun draw", [156, 85, 35], &self.dev);
         self.bind_graphics_pipeline(buf, self.pipelines.sun);
         self.mesh_objects[1].bind_vertex(buf, &self.dev);
