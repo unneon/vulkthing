@@ -14,21 +14,39 @@ pub trait VoxelGpuMemory: Send + 'static {
     fn cleanup(&mut self);
 }
 
+#[allow(dead_code)]
 #[derive(Clone, Copy)]
-pub struct SparseVoxelOctree {
-    #[allow(dead_code)]
+pub struct SvoNode {
+    children: [SvoChild; 8],
+    parent: u32,
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Copy)]
+pub struct SvoChild {
     packed: u32,
 }
 
-impl SparseVoxelOctree {
-    pub fn new_uniform(material: Material) -> SparseVoxelOctree {
-        SparseVoxelOctree {
+impl SvoNode {
+    pub const EMPTY_ROOT: SvoNode = SvoNode {
+        children: [SvoChild::new_uniform(Material::Air); 8],
+        parent: 0,
+    };
+
+    pub fn new(parent: u32, children: [SvoChild; 8]) -> SvoNode {
+        SvoNode { children, parent }
+    }
+}
+
+impl SvoChild {
+    pub const fn new_uniform(material: Material) -> SvoChild {
+        SvoChild {
             packed: (1 << 31) | (material as u8 as u32),
         }
     }
 
-    pub fn new_mixed(pointer: u32) -> SparseVoxelOctree {
+    pub const fn new_mixed(pointer: u32) -> SvoChild {
         assert!(pointer < (1 << 31));
-        SparseVoxelOctree { packed: pointer }
+        SvoChild { packed: pointer }
     }
 }

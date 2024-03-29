@@ -19,6 +19,8 @@ pub struct Global {
 pub struct Voxels {
     pub chunk_size: u32,
     pub meshlet_count: u32,
+    pub svo_index: u32,
+    pub svo_child: u32,
 }
 
 #[repr(C, align(16))]

@@ -19,7 +19,7 @@ use crate::renderer::{
     FRAMES_IN_FLIGHT, VRAM_VIA_BAR,
 };
 use crate::voxel::gpu::meshlets::VoxelMeshletMemory;
-use crate::voxel::gpu::{SparseVoxelOctree, VoxelGpuMemory};
+use crate::voxel::gpu::{SvoChild, SvoNode, VoxelGpuMemory};
 use crate::voxel::material::Material;
 use crate::window::Window;
 use crate::world::World;
@@ -129,23 +129,26 @@ impl Renderer {
         let mut voxel_octree_buffer =
             StorageBuffer::new_array(VRAM_VIA_BAR, DEFAULT_VOXEL_OCTREE_MAX_COUNT, &dev);
         voxel_octree_buffer.generate(|i| {
-            if i == 0 {
-                SparseVoxelOctree::new_mixed(1)
-            } else if i == 8 {
-                SparseVoxelOctree::new_mixed(9)
-            } else if i == 1
-                || i == 4
-                || i == 6
-                || i == 7
-                || i == 9
-                || i == 12
-                || i == 14
-                || i == 15
-            {
-                SparseVoxelOctree::new_uniform(Material::Air)
-            } else {
-                SparseVoxelOctree::new_uniform(Material::Grass)
-            }
+            SvoNode::new(
+                (i as u32).wrapping_sub(1),
+                std::array::from_fn(|child| {
+                    if child == 0 || child == 3 || child == 5 || child == 6 {
+                        SvoChild::new_uniform(Material::Air)
+                    } else if child == 7 {
+                        if i < 400 {
+                            SvoChild::new_mixed(i as u32 + 1)
+                        } else {
+                            SvoChild::new_uniform(Material::Air)
+                        }
+                    } else {
+                        SvoChild::new_uniform(if i % 2 == 0 {
+                            Material::Grass
+                        } else {
+                            Material::Stone
+                        })
+                    }
+                }),
+            )
         });
 
         let global = UniformBuffer::create(&dev);
@@ -168,6 +171,7 @@ impl Renderer {
                 voxel_vertex_buffer,
                 voxel_triangle_buffer,
                 voxel_meshlet_buffer,
+                voxel_octree_buffer,
                 dev.clone(),
             )) as Box<dyn VoxelGpuMemory>)
         } else {

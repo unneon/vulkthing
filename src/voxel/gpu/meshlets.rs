@@ -1,5 +1,5 @@
 use crate::renderer::util::{Dev, StorageBuffer};
-use crate::voxel::gpu::VoxelGpuMemory;
+use crate::voxel::gpu::{SvoNode, VoxelGpuMemory};
 use crate::voxel::local_mesh::LocalMesh;
 use crate::voxel::meshlet;
 use crate::voxel::meshlet::{VoxelMesh, VoxelMeshlet, VoxelTriangle, VoxelVertex};
@@ -15,6 +15,7 @@ pub struct VoxelMeshletMemory {
     triangle_buffer: StorageBuffer<[VoxelTriangle]>,
     triangle_count: usize,
     meshlet_buffer: StorageBuffer<[VoxelMeshlet]>,
+    octree_buffer: StorageBuffer<[SvoNode]>,
     dev: Dev,
 }
 
@@ -24,6 +25,7 @@ impl VoxelMeshletMemory {
         vertex_buffer: StorageBuffer<[VoxelVertex]>,
         triangle_buffer: StorageBuffer<[VoxelTriangle]>,
         meshlet_buffer: StorageBuffer<[VoxelMeshlet]>,
+        octree_buffer: StorageBuffer<[SvoNode]>,
         dev: Dev,
     ) -> VoxelMeshletMemory {
         VoxelMeshletMemory {
@@ -33,6 +35,7 @@ impl VoxelMeshletMemory {
             triangle_buffer,
             triangle_count: 0,
             meshlet_buffer,
+            octree_buffer,
             dev,
         }
     }
@@ -89,6 +92,7 @@ impl VoxelGpuMemory for VoxelMeshletMemory {
         self.vertex_buffer.cleanup(&self.dev);
         self.triangle_buffer.cleanup(&self.dev);
         self.meshlet_buffer.cleanup(&self.dev);
+        self.octree_buffer.cleanup(&self.dev);
     }
 }
 

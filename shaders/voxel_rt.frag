@@ -6,18 +6,21 @@
 #include "util/camera.glsl"
 
 layout(binding = 0) uniform GLOBAL_UNIFORM_TYPE global;
-layout(binding = 5) readonly buffer SparseVoxelOctrees { SparseVoxelOctree svos[]; };
+layout(binding = 5) readonly buffer SvoNodes { SvoNode svo_nodes[]; };
 layout(location = 0) out vec4 out_color;
 
-uint svo_material_at(uint svo_index, uint svo_side, uvec3 key) {
+uint svo_material_at(uint svo_side, uvec3 key) {
+    uint svo_index = 0;
     while (true) {
-        SparseVoxelOctree svo = svos[svo_index];
-        bool is_uniform = (svo.material_or_pointer & (1u << 31)) != 0;
+        SvoNode svo = svo_nodes[svo_index];
+        uvec3 child_vec = key / (svo_side / 2);
+        uint child_index = 4 * child_vec.z + 2 * child_vec.y + child_vec.x;
+        uint child = svo.children[child_index];
+        bool is_uniform = bitfieldExtract(child, 31, 1) != 0;
         if (is_uniform) {
-            return svo.material_or_pointer & ((1u << 5) - 1);
+            return bitfieldExtract(child, 0, 5);
         }
-        uvec3 child = key / (svo_side / 2);
-        svo_index = svo.material_or_pointer + 4 * child.z + 2 * child.y + child.x;
+        svo_index = child;
         svo_side /= 2;
         key = key % svo_side;
     }
@@ -39,30 +42,27 @@ void main() {
     while (true) {
         if (t_max.x <= t_max.y && t_max.x <= t_max.z) {
             voxel.x += step.x;
-            if (abs(voxel.x) > 100) {
+            if (abs(voxel.x) >= 256) {
                 discard;
             }
             t_max.x += t_delta.x;
         } else if (t_max.y <= t_max.x && t_max.y <= t_max.z) {
             voxel.y += step.y;
-            if (abs(voxel.y) > 100) {
+            if (abs(voxel.y) >= 256) {
                 discard;
             }
             t_max.y += t_delta.y;
         } else if (t_max.z <= t_max.x && t_max.z <= t_max.y) {
             voxel.z += step.z;
-            if (abs(voxel.z) > 100) {
+            if (abs(voxel.z) >= 256) {
                 discard;
             }
             t_max.z += t_delta.z;
         } else {
             discard;
         }
-        if (abs(voxel.x) >= 50) {
-            discard;
-        }
-        if (voxel.x >= 8 && voxel.x < 16 && voxel.y >= 8 && voxel.y < 16 && voxel.z >= 8 && voxel.z < 16) {
-            uint material = svo_material_at(0, 8, uvec3(voxel) - uvec3(8));
+        if (voxel.x >= 0 && voxel.y >= 0 && voxel.z >= 0 && max(voxel.x, max(voxel.y, voxel.z)) < 128) {
+            uint material = svo_material_at(128, uvec3(voxel));
             if (material > 0) {
                 VoxelMaterial material = global.materials[material];
                 color = material.albedo;

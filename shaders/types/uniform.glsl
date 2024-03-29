@@ -11,7 +11,7 @@
         Camera camera; \
         VoxelMaterial materials[256]; \
         Debug debug; \
-    }
+ }
 
 #define MATERIAL_UNIFORM_TYPE \
     Material { \
@@ -19,11 +19,13 @@
         float metallic; \
         vec3 emit; \
         float roughness; \
-    }
+ }
 
 struct Voxels {
     uint chunk_size;
     uint meshlet_count;
+    uint svo_index;
+    uint svo_child;
 };
 
 struct Light {

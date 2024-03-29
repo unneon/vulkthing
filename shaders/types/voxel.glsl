@@ -28,8 +28,9 @@ struct VoxelPayload {
     uint meshlet_ids[64];
 };
 
-struct SparseVoxelOctree {
+struct SvoNode {
     // Either an octree index (31 lowest bits for index, 1 dicriminant 0) or an uniform voxel (5 lowest bits for
     // material id, 26 unused, 1 discriminant 1).
-    uint material_or_pointer;
+    uint children[8];
+    uint parent;
 };

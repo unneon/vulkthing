@@ -4,7 +4,7 @@ use ash::extensions::khr::{BufferDeviceAddress, Surface, Swapchain};
 use ash::{vk, Device, Instance};
 use std::ffi::CStr;
 use std::mem::MaybeUninit;
-use std::ops::{Deref, DerefMut};
+use std::ops::Deref;
 use std::time::Duration;
 
 pub trait AsDescriptor {
@@ -49,8 +49,7 @@ pub struct UniformBuffer<T> {
 
 pub struct StorageBuffer<T: ?Sized> {
     buffer: Buffer,
-    pub mapping: *mut T,
-    size: usize,
+    mapping: *mut T,
 }
 
 impl Buffer {
@@ -239,15 +238,7 @@ impl<T: Copy> StorageBuffer<T> {
         let flags = vk::MemoryMapFlags::empty();
         let mapping =
             unsafe { dev.map_memory(buffer.memory, 0, size as u64, flags) }.unwrap() as *mut T;
-        StorageBuffer {
-            buffer,
-            mapping,
-            size,
-        }
-    }
-
-    pub fn read(&self) -> T {
-        unsafe { *self.mapping }
+        StorageBuffer { buffer, mapping }
     }
 }
 
@@ -262,21 +253,11 @@ impl<T: Copy> StorageBuffer<[T]> {
         let flags = vk::MemoryMapFlags::empty();
         let raw_mapping = unsafe { dev.map_memory(buffer.memory, 0, size as u64, flags) }.unwrap();
         let mapping = std::ptr::from_raw_parts_mut(raw_mapping as *mut (), count);
-        StorageBuffer {
-            buffer,
-            mapping,
-            size,
-        }
+        StorageBuffer { buffer, mapping }
     }
 
     pub fn generate(&mut self, mut f: impl FnMut(usize) -> T) {
-        let slice = unsafe {
-            std::slice::from_raw_parts_mut(
-                self.mapping.as_mut_ptr() as *mut MaybeUninit<T>,
-                self.mapping.len(),
-            )
-        };
-        for (index, element) in slice.iter_mut().enumerate() {
+        for (index, element) in self.mapped().iter_mut().enumerate() {
             element.write(f(index));
         }
     }
@@ -284,8 +265,9 @@ impl<T: Copy> StorageBuffer<[T]> {
 
 impl<T> StorageBuffer<[T]> {
     pub fn mapped(&mut self) -> &mut [MaybeUninit<T>] {
-        let count = self.size / std::mem::size_of::<T>();
-        unsafe { std::slice::from_raw_parts_mut(self.mapping as *mut MaybeUninit<T>, count) }
+        unsafe {
+            std::slice::from_raw_parts_mut(self.mapping as *mut MaybeUninit<T>, self.mapping.len())
+        }
     }
 }
 
@@ -294,20 +276,6 @@ impl Deref for Dev {
 
     fn deref(&self) -> &Device {
         &self.logical
-    }
-}
-
-impl<T: ?Sized> Deref for StorageBuffer<T> {
-    type Target = T;
-
-    fn deref(&self) -> &T {
-        unsafe { &*self.mapping }
-    }
-}
-
-impl<T: ?Sized> DerefMut for StorageBuffer<T> {
-    fn deref_mut(&mut self) -> &mut T {
-        unsafe { &mut *self.mapping }
     }
 }
 
@@ -324,7 +292,7 @@ impl<T: ?Sized> AsDescriptor for StorageBuffer<T> {
     fn descriptor(&self, _flight_index: usize) -> vk::DescriptorBufferInfo {
         *vk::DescriptorBufferInfo::builder()
             .buffer(self.buffer.buffer)
-            .range(self.size as u64)
+            .range(unsafe { std::mem::size_of_val_raw(self.mapping) } as u64)
     }
 }
 

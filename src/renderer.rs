@@ -333,6 +333,8 @@ impl Renderer {
                 voxels: Voxels {
                     chunk_size: voxels.chunk_size as u32,
                     meshlet_count: voxel_meshlet_count,
+                    svo_index: 0,
+                    svo_child: 0,
                 },
                 light: world.light(),
                 atmosphere: Atmosphere {

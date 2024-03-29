@@ -3,6 +3,7 @@
 #![feature(inline_const)]
 #![feature(int_roundings)]
 #![feature(iter_array_chunks)]
+#![feature(layout_for_ptr)]
 #![feature(maybe_uninit_array_assume_init)]
 #![feature(maybe_uninit_uninit_array)]
 #![feature(maybe_uninit_write_slice)]
