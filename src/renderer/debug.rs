@@ -41,6 +41,11 @@ unsafe extern "system" fn callback(
     let callback_data = *p_callback_data;
     assert!(!callback_data.p_message.is_null());
     let message = CStr::from_ptr(callback_data.p_message).to_string_lossy();
+    if message.contains("WARNING-DEBUG-PRINTF") {
+        let message = message.split_once("vkQueueSubmit():  ").unwrap().1;
+        log::trace!("{message}");
+        return vk::FALSE;
+    }
     let level = if message_severity.contains(vk::DebugUtilsMessageSeverityFlagsEXT::ERROR) {
         log::Level::Error
     } else if message_severity.contains(vk::DebugUtilsMessageSeverityFlagsEXT::WARNING) {

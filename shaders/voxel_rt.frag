@@ -36,6 +36,45 @@ SvoSearchResult find_svo(uint side_length, uvec3 key) {
     }
 }
 
+void svo_step_down(inout uint svo_index, inout uint svo_child, inout vec3 t_max, inout vec3 t_delta, ivec3 voxel, inout uint side_length, ivec3 step) {
+    uint new_index = svo_nodes[svo_index].children[svo_child];
+    uint new_child = 0;
+    t_delta /= 2;
+    if (voxel.x % side_length < side_length / 2) {
+        if (step.x > 0) {
+            t_max.x -= t_delta.x;
+        }
+    } else {
+        if (step.x < 0) {
+            t_max.x -= t_delta.x;
+        }
+        new_child += 1;
+    }
+    if (voxel.y % side_length < side_length / 2) {
+        if (step.y > 0) {
+            t_max.y -= t_delta.y;
+        }
+    } else {
+        if (step.y < 0) {
+            t_max.y -= t_delta.y;
+        }
+        new_child += 2;
+    }
+    if (voxel.z % side_length < side_length / 2) {
+        if (step.z > 0) {
+            t_max.z -= t_delta.z;
+        }
+    } else {
+        if (step.z < 0) {
+            t_max.z -= t_delta.z;
+        }
+        new_child += 4;
+    }
+    svo_index = new_index;
+    svo_child = new_child;
+    side_length /= 2;
+}
+
 void main() {
     vec3 camera_position_within_cube = mod(global.camera.position, 1);
     vec3 view_direction = normalize(world_space_from_depth(1, global.camera));
@@ -98,10 +137,11 @@ void main() {
     uint svo_child = initial_svo.child;
 
     while (true) {
-        if (bitfieldExtract(svo_nodes[svo_index].children[svo_child], 31, 1) != 1) {
-            out_color = vec4(1,0,0,1);
-            return;
-        } else if (bitfieldExtract(svo_nodes[svo_index].children[svo_child], 0, 5) != 0) {
+        while (bitfieldExtract(svo_nodes[svo_index].children[svo_child], 31, 1) == 0) {
+            svo_step_down(svo_index, svo_child, t_max, t_delta, voxel, t_side_length, step);
+        }
+
+        if (bitfieldExtract(svo_nodes[svo_index].children[svo_child], 0, 5) != 0) {
             break;
         }
 
@@ -113,6 +153,7 @@ void main() {
                     out_color = vec4(1,0,0,1);
                     return;
                 }
+                voxel.x = voxel.x - voxel.x % int(t_side_length) + int(t_side_length);
             } else {
                 if (svo_child % 2 == 1) {
                     svo_child -= 1;
@@ -120,6 +161,7 @@ void main() {
                     out_color = vec4(1,0,0,1);
                     return;
                 }
+                voxel.x = voxel.x - voxel.x % int(t_side_length) - 1;
             }
             t_max.x += t_delta.x;
         } else if (t_max.y <= t_max.z) {
@@ -130,6 +172,7 @@ void main() {
                     out_color = vec4(1,0,0,1);
                     return;
                 }
+                voxel.y = voxel.y - voxel.y % int(t_side_length) + int(t_side_length);
             } else {
                 if (svo_child % 4 >= 2) {
                     svo_child -= 2;
@@ -137,6 +180,7 @@ void main() {
                     out_color = vec4(1,0,0,1);
                     return;
                 }
+                voxel.y = voxel.y - voxel.y % int(t_side_length) - 1;
             }
             t_max.y += t_delta.y;
         } else {
@@ -147,6 +191,7 @@ void main() {
                     out_color = vec4(1,0,0,1);
                     return;
                 }
+                voxel.z = voxel.z - voxel.z % int(t_side_length) + int(t_side_length);
             } else {
                 if (svo_child % 8 >= 4) {
                     svo_child -= 4;
@@ -154,6 +199,7 @@ void main() {
                     out_color = vec4(1,0,0,1);
                     return;
                 }
+                voxel.z = voxel.z - voxel.z % int(t_side_length) - 1;
             }
             t_max.z += t_delta.z;
         }

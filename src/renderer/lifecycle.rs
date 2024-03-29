@@ -135,10 +135,10 @@ impl Renderer {
                     if child == 0 || child == 3 || child == 5 || child == 6 {
                         SvoChild::new_uniform(Material::Air)
                     } else if child == 7 {
-                        if i < 400 {
+                        if i < 6 {
                             SvoChild::new_mixed(i as u32 + 1)
                         } else {
-                            SvoChild::new_uniform(Material::Air)
+                            SvoChild::new_uniform(Material::Dirt)
                         }
                     } else {
                         SvoChild::new_uniform(if i % 2 == 0 {

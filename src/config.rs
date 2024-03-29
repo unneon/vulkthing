@@ -4,6 +4,7 @@ use crate::renderer::{PostprocessSettings, RendererSettings};
 use crate::voxel::meshing::MeshingAlgorithmKind;
 use crate::voxel::VoxelsConfig;
 use nalgebra::Vector3;
+use std::f32::consts::PI;
 
 pub const DEFAULT_SUN_POSITION: Vector3<f32> = Vector3::new(0., 0., DEFAULT_SUN_RADIUS);
 
@@ -17,10 +18,10 @@ pub const DEFAULT_STAR_MIN_SCALE: f32 = 10.;
 pub const DEFAULT_STAR_MAX_SCALE: f32 = 100.;
 
 pub const DEFAULT_CAMERA: FirstPersonCamera = FirstPersonCamera {
-    position: Vector3::new(0., 0., 20.),
+    position: Vector3::new(192., 192., 20.),
     walk_direction: Vector3::new(0., 0., 0.),
-    pitch: 0.,
-    yaw: 0.,
+    pitch: 0.35,
+    yaw: 1.25 * PI,
 };
 
 pub const DEFAULT_RENDERER_SETTINGS: RendererSettings = RendererSettings {
