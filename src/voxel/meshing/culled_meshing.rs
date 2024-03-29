@@ -10,13 +10,13 @@ pub struct CulledMeshing;
 
 struct State<'a> {
     chunk_size: usize,
-    svos: Neighbourhood<'a>,
+    svos: &'a Neighbourhood<'a>,
     vertices: Vec<LocalVertex>,
     faces: Vec<LocalFace>,
 }
 
 impl MeshingAlgorithm for CulledMeshing {
-    fn mesh(svos: Neighbourhood, chunk_size: usize) -> LocalMesh {
+    fn mesh(svos: &Neighbourhood, chunk_size: usize) -> LocalMesh {
         let cube = BinaryCube::new_at_zero(chunk_size);
         let chunk = svos.chunk();
         let mut state = State {

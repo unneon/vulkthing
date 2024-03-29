@@ -60,8 +60,8 @@ pub fn voxel_thread(shared: &VoxelsShared) {
         let neighbourhood = Neighbourhood::new(&svos, config.chunk_size as i64);
         let prepare_func = state.gpu_memory.prepare_func();
         drop(state);
-        let raw_mesh = generate_mesh(neighbourhood, &config);
-        let mesh = prepare_func(raw_mesh, chunk);
+        let raw_mesh = generate_mesh(&neighbourhood, &config);
+        let mesh = prepare_func(raw_mesh, neighbourhood.chunk(), chunk);
         state = shared.state.lock().unwrap();
         if config_generation != state.config_generation {
             continue;

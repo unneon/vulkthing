@@ -12,7 +12,7 @@ use crate::voxel::VoxelsConfig;
 use std::borrow::Cow;
 
 trait MeshingAlgorithm {
-    fn mesh(svos: Neighbourhood, chunk_size: usize) -> LocalMesh;
+    fn mesh(svos: &Neighbourhood, chunk_size: usize) -> LocalMesh;
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -33,7 +33,7 @@ impl EnumInterface for MeshingAlgorithmKind {
     }
 }
 
-pub fn generate_mesh(svos: Neighbourhood, config: &VoxelsConfig) -> LocalMesh {
+pub fn generate_mesh(svos: &Neighbourhood, config: &VoxelsConfig) -> LocalMesh {
     if let SparseOctree::Uniform {
         kind: chunk_uniform,
     } = svos.chunk()

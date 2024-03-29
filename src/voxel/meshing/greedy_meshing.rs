@@ -9,7 +9,7 @@ pub struct GreedyMeshing;
 
 struct State<'a> {
     chunk_size: usize,
-    svos: Neighbourhood<'a>,
+    svos: &'a Neighbourhood<'a>,
     slice_right: Vector3<i64>,
     slice_down: Vector3<i64>,
     slice_normal: Vector3<i64>,
@@ -28,7 +28,7 @@ enum WallNormal {
 }
 
 impl MeshingAlgorithm for GreedyMeshing {
-    fn mesh(svos: Neighbourhood, chunk_size: usize) -> LocalMesh {
+    fn mesh(svos: &Neighbourhood, chunk_size: usize) -> LocalMesh {
         let mut state = State {
             chunk_size,
             svos,

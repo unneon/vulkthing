@@ -1,8 +1,9 @@
 use crate::renderer::util::{Dev, StorageBuffer};
-use crate::voxel::gpu::{SvoNode, VoxelGpuMemory};
+use crate::voxel::gpu::{SvoChild, SvoNode, VoxelGpuMemory};
 use crate::voxel::local_mesh::LocalMesh;
 use crate::voxel::meshlet;
 use crate::voxel::meshlet::{VoxelMesh, VoxelMeshlet, VoxelTriangle, VoxelVertex};
+use crate::voxel::sparse_octree::SparseOctree;
 use nalgebra::Vector3;
 use std::mem::MaybeUninit;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -16,6 +17,7 @@ pub struct VoxelMeshletMemory {
     triangle_count: usize,
     meshlet_buffer: StorageBuffer<[VoxelMeshlet]>,
     octree_buffer: StorageBuffer<[SvoNode]>,
+    wrote_octree: bool,
     dev: Dev,
 }
 
@@ -36,14 +38,15 @@ impl VoxelMeshletMemory {
             triangle_count: 0,
             meshlet_buffer,
             octree_buffer,
+            wrote_octree: false,
             dev,
         }
     }
 }
 
 impl VoxelGpuMemory for VoxelMeshletMemory {
-    fn prepare_func(&self) -> fn(LocalMesh, Vector3<i64>) -> Box<dyn std::any::Any> {
-        |mesh, chunk| Box::new(prepare(mesh, chunk))
+    fn prepare_func(&self) -> fn(LocalMesh, &SparseOctree, Vector3<i64>) -> Box<dyn std::any::Any> {
+        |mesh, octree, chunk| Box::new(prepare(mesh, octree, chunk))
     }
 
     fn upload(&mut self, mesh: Box<dyn std::any::Any>) {
@@ -74,6 +77,16 @@ impl VoxelGpuMemory for VoxelMeshletMemory {
             &mut self.meshlet_buffer.mapped()[old_meshlet_count..new_meshlet_count];
         MaybeUninit::copy_from_slice(meshlet_memory, &mesh.meshlets);
 
+        if !self.wrote_octree
+            && mesh.triangles.len() > 250
+            && !mesh.octree.at(Vector3::new(32, 32, 16), 64).is_air()
+            && mesh.octree.at(Vector3::new(32, 32, 48), 64).is_air()
+        {
+            let octree_memory = self.octree_buffer.mapped();
+            write_octree(&mesh.octree, octree_memory);
+            self.wrote_octree = true;
+        }
+
         self.vertex_count = new_vertex_count;
         self.triangle_count = new_triangle_count;
         self.meshlet_count
@@ -96,10 +109,38 @@ impl VoxelGpuMemory for VoxelMeshletMemory {
     }
 }
 
-fn prepare(raw_mesh: LocalMesh, chunk: Vector3<i64>) -> VoxelMesh {
-    let mut mesh = meshlet::from_unclustered_mesh(&raw_mesh);
+fn prepare(raw_mesh: LocalMesh, svo: &SparseOctree, chunk: Vector3<i64>) -> VoxelMesh {
+    let mut mesh = meshlet::from_unclustered_mesh(&raw_mesh, svo);
     for meshlet in &mut mesh.meshlets {
         meshlet.chunk = chunk.try_cast::<i16>().unwrap();
     }
     mesh
+}
+
+fn write_octree(octree: &SparseOctree, memory: &mut [MaybeUninit<SvoNode>]) {
+    let mut index = 0;
+    let child = write_octree_impl(octree, 0, memory, &mut index);
+    if index == 0 {
+        memory[0].write(SvoNode::new(0, [child; 8]));
+    }
+}
+
+fn write_octree_impl(
+    octree: &SparseOctree,
+    parent: u32,
+    memory: &mut [MaybeUninit<SvoNode>],
+    index: &mut u32,
+) -> SvoChild {
+    match octree {
+        SparseOctree::Uniform { kind } => SvoChild::new_uniform(*kind),
+        SparseOctree::Mixed { children } => {
+            let current_index = *index;
+            *index += 1;
+            let children = std::array::from_fn(|i| {
+                write_octree_impl(&children[i], current_index, memory, index)
+            });
+            memory[current_index as usize].write(SvoNode::new(parent, children));
+            SvoChild::new_mixed(current_index)
+        }
+    }
 }

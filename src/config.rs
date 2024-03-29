@@ -20,7 +20,7 @@ pub const DEFAULT_STAR_MAX_SCALE: f32 = 100.;
 pub const DEFAULT_CAMERA: FirstPersonCamera = FirstPersonCamera {
     position: Vector3::new(192., 192., 20.),
     walk_direction: Vector3::new(0., 0., 0.),
-    pitch: 0.35,
+    pitch: 0.25,
     yaw: 1.25 * PI,
 };
 
@@ -51,4 +51,4 @@ pub const DEFAULT_VOXEL_CONFIG: VoxelsConfig = VoxelsConfig {
 pub const DEFAULT_VOXEL_TRIANGLE_MAX_COUNT: usize = 3 * 256 * DEFAULT_VOXEL_MESHLET_MAX_COUNT;
 pub const DEFAULT_VOXEL_MESHLET_MAX_COUNT: usize = 1024 * 1024;
 pub const DEFAULT_VOXEL_VERTEX_MAX_COUNT: usize = 128 * DEFAULT_VOXEL_MESHLET_MAX_COUNT;
-pub const DEFAULT_VOXEL_OCTREE_MAX_COUNT: usize = 1024;
+pub const DEFAULT_VOXEL_OCTREE_MAX_COUNT: usize = 1024 * 128;

@@ -85,7 +85,7 @@ void main() {
     vec3 t_delta = abs(1 / view_direction);
 
     // Amanatides J, Woo A. A fast voxel traversal algorithm for ray tracing. In Eurographics 1987 Aug 24 (Vol. 87, No. 3, pp. 3-10).
-    while (!(voxel.x >= 0 && voxel.y >= 0 && voxel.z >= 0 && max(voxel.x, max(voxel.y, voxel.z)) < 128)) {
+    while (!(voxel.x >= 0 && voxel.y >= 0 && voxel.z >= 0 && max(voxel.x, max(voxel.y, voxel.z)) < 64)) {
         if (t_max.x <= t_max.y && t_max.x <= t_max.z) {
             voxel.x += step.x;
             if (abs(voxel.x) >= 256) {
@@ -107,7 +107,7 @@ void main() {
         }
     }
 
-    SvoSearchResult initial_svo = find_svo(128, uvec3(voxel));
+    SvoSearchResult initial_svo = find_svo(64, uvec3(voxel));
 
     uint t_side_length = 1;
     while (t_side_length < initial_svo.side_length) {
@@ -150,7 +150,7 @@ void main() {
                 if (svo_child % 2 == 0) {
                     svo_child += 1;
                 } else {
-                    out_color = vec4(1,0,0,1);
+                    out_color = vec4(1, 0, 0, 1);
                     return;
                 }
                 voxel.x = voxel.x - voxel.x % int(t_side_length) + int(t_side_length);
@@ -158,7 +158,7 @@ void main() {
                 if (svo_child % 2 == 1) {
                     svo_child -= 1;
                 } else {
-                    out_color = vec4(1,0,0,1);
+                    out_color = vec4(1, 0, 0, 1);
                     return;
                 }
                 voxel.x = voxel.x - voxel.x % int(t_side_length) - 1;
@@ -169,7 +169,7 @@ void main() {
                 if (svo_child % 4 < 2) {
                     svo_child += 2;
                 } else {
-                    out_color = vec4(1,0,0,1);
+                    out_color = vec4(1, 0, 0, 1);
                     return;
                 }
                 voxel.y = voxel.y - voxel.y % int(t_side_length) + int(t_side_length);
@@ -177,7 +177,7 @@ void main() {
                 if (svo_child % 4 >= 2) {
                     svo_child -= 2;
                 } else {
-                    out_color = vec4(1,0,0,1);
+                    out_color = vec4(1, 0, 0, 1);
                     return;
                 }
                 voxel.y = voxel.y - voxel.y % int(t_side_length) - 1;
@@ -188,7 +188,7 @@ void main() {
                 if (svo_child % 8 < 4) {
                     svo_child += 4;
                 } else {
-                    out_color = vec4(1,0,0,1);
+                    out_color = vec4(1, 0, 0, 1);
                     return;
                 }
                 voxel.z = voxel.z - voxel.z % int(t_side_length) + int(t_side_length);
@@ -196,7 +196,7 @@ void main() {
                 if (svo_child % 8 >= 4) {
                     svo_child -= 4;
                 } else {
-                    out_color = vec4(1,0,0,1);
+                    out_color = vec4(1, 0, 0, 1);
                     return;
                 }
                 voxel.z = voxel.z - voxel.z % int(t_side_length) - 1;

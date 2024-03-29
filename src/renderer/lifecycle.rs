@@ -19,8 +19,7 @@ use crate::renderer::{
     FRAMES_IN_FLIGHT, VRAM_VIA_BAR,
 };
 use crate::voxel::gpu::meshlets::VoxelMeshletMemory;
-use crate::voxel::gpu::{SvoChild, SvoNode, VoxelGpuMemory};
-use crate::voxel::material::Material;
+use crate::voxel::gpu::{SvoNode, VoxelGpuMemory};
 use crate::window::Window;
 use crate::world::World;
 use crate::{VULKAN_APP_NAME, VULKAN_APP_VERSION, VULKAN_ENGINE_NAME, VULKAN_ENGINE_VERSION};
@@ -128,28 +127,7 @@ impl Renderer {
             StorageBuffer::new_array(VRAM_VIA_BAR, DEFAULT_VOXEL_MESHLET_MAX_COUNT, &dev);
         let mut voxel_octree_buffer =
             StorageBuffer::new_array(VRAM_VIA_BAR, DEFAULT_VOXEL_OCTREE_MAX_COUNT, &dev);
-        voxel_octree_buffer.generate(|i| {
-            SvoNode::new(
-                (i as u32).wrapping_sub(1),
-                std::array::from_fn(|child| {
-                    if child == 0 || child == 3 || child == 5 || child == 6 {
-                        SvoChild::new_uniform(Material::Air)
-                    } else if child == 7 {
-                        if i < 6 {
-                            SvoChild::new_mixed(i as u32 + 1)
-                        } else {
-                            SvoChild::new_uniform(Material::Dirt)
-                        }
-                    } else {
-                        SvoChild::new_uniform(if i % 2 == 0 {
-                            Material::Grass
-                        } else {
-                            Material::Stone
-                        })
-                    }
-                }),
-            )
-        });
+        voxel_octree_buffer.generate(|_| SvoNode::EMPTY_ROOT);
 
         let global = UniformBuffer::create(&dev);
         let global_descriptor_sets = alloc_descriptor_set(

@@ -1,5 +1,6 @@
 use crate::voxel::local_mesh::LocalMesh;
 use crate::voxel::material::Material;
+use crate::voxel::sparse_octree::SparseOctree;
 use meshopt::{build_meshlets, typed_to_bytes, VertexDataAdapter};
 use nalgebra::Vector3;
 use std::collections::HashMap;
@@ -9,6 +10,7 @@ pub struct VoxelMesh {
     pub meshlets: Vec<VoxelMeshlet>,
     pub vertices: Vec<VoxelVertex>,
     pub triangles: Vec<VoxelTriangle>,
+    pub octree: SparseOctree,
 }
 
 #[repr(C, align(8))]
@@ -71,12 +73,13 @@ impl VoxelTriangle {
     }
 }
 
-pub fn from_unclustered_mesh(mesh: &LocalMesh) -> VoxelMesh {
+pub fn from_unclustered_mesh(mesh: &LocalMesh, octree: &SparseOctree) -> VoxelMesh {
     if mesh.faces.is_empty() {
         return VoxelMesh {
             meshlets: Vec::new(),
             vertices: Vec::new(),
             triangles: Vec::new(),
+            octree: octree.clone(),
         };
     }
     let mut triangle_to_face = HashMap::new();
@@ -140,6 +143,7 @@ pub fn from_unclustered_mesh(mesh: &LocalMesh) -> VoxelMesh {
         meshlets,
         vertices,
         triangles,
+        octree: octree.clone(),
     }
 }
 
