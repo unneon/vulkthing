@@ -18,7 +18,7 @@ pub const DEFAULT_STAR_MIN_SCALE: f32 = 10.;
 pub const DEFAULT_STAR_MAX_SCALE: f32 = 100.;
 
 pub const DEFAULT_CAMERA: FirstPersonCamera = FirstPersonCamera {
-    position: Vector3::new(192., 192., 20.),
+    position: Vector3::new(96., 96., 20.),
     walk_direction: Vector3::new(0., 0., 0.),
     pitch: 0.25,
     yaw: 1.25 * PI,

@@ -36,6 +36,48 @@ SvoSearchResult find_svo(uint side_length, uvec3 key) {
     }
 }
 
+void svo_step_up(inout uint svo_index, inout uint svo_child, inout vec3 t_max, inout vec3 t_delta, ivec3 voxel, inout uint side_length, ivec3 step) {
+    if (svo_index == 0) {
+        discard;
+    }
+    uint new_index = svo_nodes[svo_index].parent;
+    uint new_child = 0;
+    if (voxel.x / side_length % 2 == 0) {
+        if (step.x > 0) {
+            t_max.x += t_delta.x;
+        }
+    } else {
+        if (step.x < 0) {
+            t_max.x += t_delta.x;
+        }
+        new_child += 1;
+    }
+    if (voxel.y / side_length % 2 == 0) {
+        if (step.y > 0) {
+            t_max.y += t_delta.y;
+        }
+    } else {
+        if (step.y < 0) {
+            t_max.y += t_delta.y;
+        }
+        new_child += 2;
+    }
+    if (voxel.z / side_length % 2 == 0) {
+        if (step.z > 0) {
+            t_max.z += t_delta.z;
+        }
+    } else {
+        if (step.z < 0) {
+            t_max.z += t_delta.z;
+        }
+        new_child += 4;
+    }
+    svo_index = new_index;
+    svo_child = new_child;
+    t_delta *= 2;
+    side_length *= 2;
+}
+
 void svo_step_down(inout uint svo_index, inout uint svo_child, inout vec3 t_max, inout vec3 t_delta, ivec3 voxel, inout uint side_length, ivec3 step) {
     uint new_index = svo_nodes[svo_index].children[svo_child];
     uint new_child = 0;
@@ -147,58 +189,46 @@ void main() {
 
         if (t_max.x <= t_max.y && t_max.x <= t_max.z) {
             if (step.x > 0) {
-                if (svo_child % 2 == 0) {
-                    svo_child += 1;
-                } else {
-                    out_color = vec4(1, 0, 0, 1);
-                    return;
+                while (svo_child % 2 >= 1) {
+                    svo_step_up(svo_index, svo_child, t_max, t_delta, voxel, t_side_length, step);
                 }
+                svo_child += 1;
                 voxel.x = voxel.x - voxel.x % int(t_side_length) + int(t_side_length);
             } else {
-                if (svo_child % 2 == 1) {
-                    svo_child -= 1;
-                } else {
-                    out_color = vec4(1, 0, 0, 1);
-                    return;
+                while (svo_child % 2 < 1) {
+                    svo_step_up(svo_index, svo_child, t_max, t_delta, voxel, t_side_length, step);
                 }
+                svo_child -= 1;
                 voxel.x = voxel.x - voxel.x % int(t_side_length) - 1;
             }
             t_max.x += t_delta.x;
         } else if (t_max.y <= t_max.z) {
             if (step.y > 0) {
-                if (svo_child % 4 < 2) {
-                    svo_child += 2;
-                } else {
-                    out_color = vec4(1, 0, 0, 1);
-                    return;
+                while (svo_child % 4 >= 2) {
+                    svo_step_up(svo_index, svo_child, t_max, t_delta, voxel, t_side_length, step);
                 }
+                svo_child += 2;
                 voxel.y = voxel.y - voxel.y % int(t_side_length) + int(t_side_length);
             } else {
-                if (svo_child % 4 >= 2) {
-                    svo_child -= 2;
-                } else {
-                    out_color = vec4(1, 0, 0, 1);
-                    return;
+                while (svo_child % 4 < 2) {
+                    svo_step_up(svo_index, svo_child, t_max, t_delta, voxel, t_side_length, step);
                 }
+                svo_child -= 2;
                 voxel.y = voxel.y - voxel.y % int(t_side_length) - 1;
             }
             t_max.y += t_delta.y;
         } else {
             if (step.z > 0) {
-                if (svo_child % 8 < 4) {
-                    svo_child += 4;
-                } else {
-                    out_color = vec4(1, 0, 0, 1);
-                    return;
+                while (svo_child % 8 >= 4) {
+                    svo_step_up(svo_index, svo_child, t_max, t_delta, voxel, t_side_length, step);
                 }
+                svo_child += 4;
                 voxel.z = voxel.z - voxel.z % int(t_side_length) + int(t_side_length);
             } else {
-                if (svo_child % 8 >= 4) {
-                    svo_child -= 4;
-                } else {
-                    out_color = vec4(1, 0, 0, 1);
-                    return;
+                while (svo_child % 8 < 4) {
+                    svo_step_up(svo_index, svo_child, t_max, t_delta, voxel, t_side_length, step);
                 }
+                svo_child -= 4;
                 voxel.z = voxel.z - voxel.z % int(t_side_length) - 1;
             }
             t_max.z += t_delta.z;
