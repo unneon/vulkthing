@@ -178,6 +178,7 @@ void main() {
     uint svo_index = initial_svo.index;
     uint svo_child = initial_svo.child;
 
+    uint iterations = 0;
     while (true) {
         while (bitfieldExtract(svo_nodes[svo_index].children[svo_child], 31, 1) == 0) {
             svo_step_down(svo_index, svo_child, t_max, t_delta, voxel, t_side_length, step);
@@ -232,6 +233,11 @@ void main() {
                 voxel.z = voxel.z - voxel.z % int(t_side_length) - 1;
             }
             t_max.z += t_delta.z;
+        }
+
+        if (++iterations == 1000) {
+            out_color = vec4(1, 0, 1, 1);
+            return;
         }
     }
 
