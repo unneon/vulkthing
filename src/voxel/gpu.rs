@@ -16,14 +16,14 @@ pub trait VoxelGpuMemory: Send + 'static {
 }
 
 #[allow(dead_code)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct SvoNode {
     children: [SvoChild; 8],
     parent: u32,
 }
 
 #[allow(dead_code)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct SvoChild {
     packed: u32,
 }

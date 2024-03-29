@@ -236,6 +236,9 @@ impl Renderer {
 
         self.bind_descriptor_set(buf);
 
+        self.bind_graphics_pipeline(buf, self.pipelines.voxel_rt);
+        unsafe { self.dev.cmd_draw(buf, 6, 1, 0, 0) };
+
         if self.dev.support.mesh_shaders {
             let voxel_meshlet_count = self.voxel_meshlet_count.load(Ordering::SeqCst);
             begin_label(buf, "Voxel draws", [255, 0, 0], &self.dev);
@@ -260,9 +263,6 @@ impl Renderer {
                 end_label(buf, &self.dev);
             }
         }
-
-        self.bind_graphics_pipeline(buf, self.pipelines.voxel_rt);
-        unsafe { self.dev.cmd_draw(buf, 6, 1, 0, 0) };
 
         begin_label(buf, "Sun draw", [156, 85, 35], &self.dev);
         self.bind_graphics_pipeline(buf, self.pipelines.sun);

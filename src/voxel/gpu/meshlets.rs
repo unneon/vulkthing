@@ -80,7 +80,7 @@ impl VoxelGpuMemory for VoxelMeshletMemory {
         if !self.wrote_octree
             && mesh.triangles.len() > 250
             && !mesh.octree.at(Vector3::new(32, 32, 16), 64).is_air()
-            && mesh.octree.at(Vector3::new(32, 32, 48), 64).is_air()
+            && mesh.octree.at(Vector3::new(32, 32, 32), 64).is_air()
         {
             let octree_memory = self.octree_buffer.mapped();
             write_octree(&mesh.octree, octree_memory);
