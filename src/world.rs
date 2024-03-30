@@ -140,6 +140,7 @@ impl World {
             .get_mut(self.camera_rigid_body_handle)
             .unwrap();
         rigid_body.reset_forces(true);
+        rigid_body.set_linear_damping(2.);
         let can_accelerate =
             rigid_body.linvel().dot(&self.camera.walk_direction()) <= 16. * 1.42 * 1.42;
         if can_accelerate {

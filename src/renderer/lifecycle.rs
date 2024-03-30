@@ -45,7 +45,7 @@ impl Renderer {
         let instance = create_instance(window, &entry, args);
         let debug_ext = DebugUtils::new(&entry, &instance);
         let surface_ext = Surface::new(&entry, &instance);
-        let debug_messenger = create_debug_messenger(&debug_ext, args.log_info);
+        let debug_messenger = create_debug_messenger(&debug_ext);
         let surface = create_surface(window, &entry, &instance);
         let DeviceInfo {
             physical_device,

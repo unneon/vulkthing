@@ -4,19 +4,13 @@ use ash::vk;
 use ash::vk::Handle;
 use std::ffi::{CStr, CString};
 
-pub fn create_debug_messenger(
-    debug_ext: &DebugUtils,
-    log_info: bool,
-) -> vk::DebugUtilsMessengerEXT {
-    // Enable filtering by message severity and type. General and verbose levels seem to produce
-    // too much noise related to physical device selection, so I turned them off.
+pub fn create_debug_messenger(debug_ext: &DebugUtils) -> vk::DebugUtilsMessengerEXT {
     // vulkan-tutorial.com also shows how to enable this for creating instances, but the ash
     // example doesn't include this.
-    let mut severity_filter = vk::DebugUtilsMessageSeverityFlagsEXT::ERROR
-        | vk::DebugUtilsMessageSeverityFlagsEXT::WARNING;
-    if log_info {
-        severity_filter |= vk::DebugUtilsMessageSeverityFlagsEXT::INFO;
-    }
+    let severity_filter = vk::DebugUtilsMessageSeverityFlagsEXT::ERROR
+        | vk::DebugUtilsMessageSeverityFlagsEXT::WARNING
+        | vk::DebugUtilsMessageSeverityFlagsEXT::INFO
+        | vk::DebugUtilsMessageSeverityFlagsEXT::VERBOSE;
     let type_filter = vk::DebugUtilsMessageTypeFlagsEXT::GENERAL
         | vk::DebugUtilsMessageTypeFlagsEXT::VALIDATION
         | vk::DebugUtilsMessageTypeFlagsEXT::PERFORMANCE;
@@ -39,12 +33,24 @@ unsafe extern "system" fn callback(
     // buffer/object labels/pointers, which the engine could tie back to some higher level
     // structures.
     let callback_data = *p_callback_data;
-    assert!(!callback_data.p_message.is_null());
+
+    // This can be NULL only in when using DEVICE_ADDRESS_BINDING message type.
     let message = CStr::from_ptr(callback_data.p_message).to_string_lossy();
-    if message.contains("WARNING-DEBUG-PRINTF") {
-        let message = message.split_once("vkQueueSubmit():  ").unwrap().1;
-        log::trace!("{message}");
-        return vk::FALSE;
+
+    if !callback_data.p_message_id_name.is_null() {
+        let message_id = CStr::from_ptr(callback_data.p_message_id_name).to_string_lossy();
+
+        // mesa prints some pointless device/loader selection logs when info level is enabled. Info
+        // also enables debug printf, so let's filter this out here instead.
+        if message_id == "Loader Message" {
+            return vk::FALSE;
+        }
+
+        if message_id == "WARNING-DEBUG-PRINTF" {
+            let message = message.split_once("vkQueueSubmit():  ").unwrap().1;
+            log::trace!("{message}");
+            return vk::FALSE;
+        }
     }
     let level = if message_severity.contains(vk::DebugUtilsMessageSeverityFlagsEXT::ERROR) {
         log::Level::Error
@@ -55,7 +61,7 @@ unsafe extern "system" fn callback(
     } else {
         log::Level::Trace
     };
-    log::log!(level, "vulkan debug event: {message}");
+    log::log!(level, "{message}");
     vk::FALSE
 }
 

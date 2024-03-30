@@ -1,7 +1,6 @@
 pub struct Args {
     pub benchmark: bool,
     pub disable_validation: bool,
-    pub log_info: bool,
     pub window_protocol: WindowProtocol,
 }
 
@@ -28,7 +27,6 @@ impl Args {
         Args {
             benchmark: std::env::args().any(|arg| arg == "--benchmark"),
             disable_validation: std::env::args().any(|arg| arg == "--disable-validation"),
-            log_info: std::env::args().any(|arg| arg == "--log-info"),
             window_protocol,
         }
     }

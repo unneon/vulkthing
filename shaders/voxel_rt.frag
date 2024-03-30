@@ -1,5 +1,5 @@
 #version 460
-//#extension GL_EXT_debug_printf : require
+#extension GL_EXT_debug_printf : require
 #extension GL_EXT_shader_8bit_storage : require
 #extension GL_EXT_shader_16bit_storage : require
 #include "types/uniform.glsl"
@@ -15,6 +15,10 @@ struct SvoSearchResult {
     uint child;
     uint side_length;
 };
+
+vec3 approx_fp(vec3 t_max, vec3 t_delta, vec3 view_direction) {
+    return mod(t_max, t_delta) * abs(view_direction);
+}
 
 SvoSearchResult find_svo(uint side_length, uvec3 key) {
     uint svo_index = 0;
@@ -38,13 +42,13 @@ SvoSearchResult find_svo(uint side_length, uvec3 key) {
 }
 
 void svo_step_up(inout uint svo_index, inout uint svo_child, inout vec3 t_max, inout vec3 t_delta, ivec3 voxel, inout uint side_length, ivec3 step) {
-    //    if (floor(gl_FragCoord.xy) == global.camera.resolution / 2) {
-    //        debugPrintfEXT("    walking up voxel=%v3d side_length=%u t_max=%v3f t_delta=%v3f", voxel, side_length, t_max, t_delta);
-    //    }
+    if (floor(gl_FragCoord.xy) == global.camera.resolution / 2) {
+        debugPrintfEXT("    walking up voxel=%v3d side_length=%u t_max=%v3f t_delta=%v3f", voxel, side_length, t_max, t_delta);
+    }
     if (svo_index == 0) {
-        //        if (floor(gl_FragCoord.xy) == global.camera.resolution / 2) {
-        //            debugPrintfEXT("    root node while walking up, discarding");
-        //        }
+        if (floor(gl_FragCoord.xy) == global.camera.resolution / 2) {
+            debugPrintfEXT("    root node while walking up, discarding");
+        }
         discard;
     }
     uint new_index = svo_nodes[svo_index].parent;
@@ -58,19 +62,20 @@ void svo_step_up(inout uint svo_index, inout uint svo_child, inout vec3 t_max, i
     if (step.y < 0 && svo_child % 4 >= 2) t_max.y += t_delta.y;
     if (step.z > 0 && svo_child % 8 < 4) t_max.z += t_delta.z;
     if (step.z < 0 && svo_child % 8 >= 4) t_max.z += t_delta.z;
-    //    if (floor(gl_FragCoord.xy) == global.camera.resolution / 2) {
-    //        debugPrintfEXT("    walked up, index %u child %u -> index %u child %u, t_max=%v3f", svo_index, svo_child, new_index, new_child, t_max);
-    //    }
+    if (floor(gl_FragCoord.xy) == global.camera.resolution / 2) {
+        debugPrintfEXT("    walked up, index %u child %u -> index %u child %u, t_max=%v3f", svo_index, svo_child, new_index, new_child, t_max);
+    }
     svo_index = new_index;
     svo_child = new_child;
     t_delta *= 2;
     side_length *= 2;
 }
 
-void svo_step_down(inout uint svo_index, inout uint svo_child, inout vec3 t_max, inout vec3 t_delta, ivec3 voxel, inout uint side_length, ivec3 step) {
-    //    if (floor(gl_FragCoord.xy) == global.camera.resolution / 2) {
-    //        debugPrintfEXT("    walking down voxel=%v3d side_length=%u t_max=%v3f t_delta=%v3f", voxel, side_length, t_max, t_delta);
-    //    }
+void svo_step_down(inout uint svo_index, inout uint svo_child, inout vec3 t_max, inout vec3 t_delta, ivec3 voxel, inout uint side_length, ivec3 step, vec3 view_direction) {
+    if (floor(gl_FragCoord.xy) == global.camera.resolution / 2) {
+        debugPrintfEXT("    walking down voxel=%v3d side_length=%u t_max=%v3f t_delta=%v3f", voxel, side_length, t_max, t_delta);
+        debugPrintfEXT("    fp=(%v3f)", approx_fp(t_max, t_delta, view_direction));
+    }
     uint new_index = svo_nodes[svo_index].children[svo_child];
     uint new_child = 0;
     t_delta /= 2;
@@ -104,9 +109,9 @@ void svo_step_down(inout uint svo_index, inout uint svo_child, inout vec3 t_max,
         }
         new_child += 4;
     }
-    //    if (floor(gl_FragCoord.xy) == global.camera.resolution / 2) {
-    //        debugPrintfEXT("    walked down, index %u child %u -> index %u child %u, t_max=%v3f", svo_index, svo_child, new_index, new_child, t_max);
-    //    }
+    if (floor(gl_FragCoord.xy) == global.camera.resolution / 2) {
+        debugPrintfEXT("    walked down, index %u child %u -> index %u child %u, t_max=%v3f", svo_index, svo_child, new_index, new_child, t_max);
+    }
     svo_index = new_index;
     svo_child = new_child;
     side_length /= 2;
@@ -121,36 +126,48 @@ void main() {
     vec3 t_max = abs(((step + 1) / 2 - camera_position_within_cube) / view_direction);
     vec3 t_delta = abs(1 / view_direction);
 
+    if (floor(gl_FragCoord.xy) == global.camera.resolution / 2) {
+        debugPrintfEXT("");
+        debugPrintfEXT("naive stepping outside debug cube");
+        debugPrintfEXT("    cpws=(%v3f) vd=(%v3f) step=(%v3d) t_delta=(%v3f)", camera_position_within_cube, view_direction, step, t_delta);
+        debugPrintfEXT("    voxel=(%v3d) t_max=(%v3f) fp=(%v3f)", voxel, t_max, approx_fp(t_max, t_delta, view_direction));
+    }
+
     // Amanatides J, Woo A. A fast voxel traversal algorithm for ray tracing. In Eurographics 1987 Aug 24 (Vol. 87, No. 3, pp. 3-10).
-    while (!(voxel.x >= 0 && voxel.y >= 0 && voxel.z >= 0 && max(voxel.x, max(voxel.y, voxel.z)) < 64)) {
+    while (!(voxel.x >= 0 && voxel.y >= 0 && voxel.z >= 0 && max(voxel.x, max(voxel.y, voxel.z)) < 4)) {
         if (t_max.x <= t_max.y && t_max.x <= t_max.z) {
             voxel.x += step.x;
             if (abs(voxel.x) >= 256) {
                 discard;
             }
+            t_max -= t_max.x;
             t_max.x += t_delta.x;
         } else if (t_max.y <= t_max.z) {
             voxel.y += step.y;
             if (abs(voxel.y) >= 256) {
                 discard;
             }
+            t_max -= t_max.y;
             t_max.y += t_delta.y;
         } else {
             voxel.z += step.z;
             if (abs(voxel.z) >= 256) {
                 discard;
             }
+            t_max -= t_max.z;
             t_max.z += t_delta.z;
+        }
+
+        if (floor(gl_FragCoord.xy) == global.camera.resolution / 2) {
+            debugPrintfEXT("    voxel=(%v3d) t_max=(%v3f) fp=(%v3f)", voxel, t_max, approx_fp(t_max, t_delta, view_direction));
         }
     }
 
-    SvoSearchResult initial_svo = find_svo(64, uvec3(voxel));
+    SvoSearchResult initial_svo = find_svo(4, uvec3(voxel));
 
-    //    if (floor(gl_FragCoord.xy) == global.camera.resolution / 2) {
-    //        debugPrintfEXT("");
-    //        debugPrintfEXT("step=(%v3d)", step);
-    //        debugPrintfEXT("initial_svo index=%u child=%u voxel=(%v3d)", initial_svo.index, initial_svo.child, voxel);
-    //    }
+    if (floor(gl_FragCoord.xy) == global.camera.resolution / 2) {
+        debugPrintfEXT("initial_svo index=%u child=%u voxel=(%v3d)", initial_svo.index, initial_svo.child, voxel);
+    }
 
     uint t_side_length = 1;
     while (t_side_length < initial_svo.side_length) {
@@ -174,39 +191,43 @@ void main() {
         }
         t_delta *= 2;
         t_side_length *= 2;
+
+        if (floor(gl_FragCoord.xy) == global.camera.resolution / 2) {
+            debugPrintfEXT("    t_max=(%v3f) fp=(%v3f)", t_max, approx_fp(t_max, t_delta, view_direction));
+        }
     }
 
-    //    if (floor(gl_FragCoord.xy) == global.camera.resolution / 2) {
-    //        debugPrintfEXT("t_side_length=%u", t_side_length);
-    //    }
+    if (floor(gl_FragCoord.xy) == global.camera.resolution / 2) {
+        debugPrintfEXT("t_side_length=%u", t_side_length);
+    }
 
     uint svo_index = initial_svo.index;
     uint svo_child = initial_svo.child;
 
     uint iterations = 0;
     while (true) {
-        //        if (floor(gl_FragCoord.xy) == global.camera.resolution / 2) {
-        //            debugPrintfEXT("stepping ray");
-        //        }
+        if (floor(gl_FragCoord.xy) == global.camera.resolution / 2) {
+            debugPrintfEXT("stepping ray");
+        }
 
         while (bitfieldExtract(svo_nodes[svo_index].children[svo_child], 31, 1) == 0) {
-            //            if (floor(gl_FragCoord.xy) == global.camera.resolution / 2) {
-            //                debugPrintfEXT("    walking svo down");
-            //            }
-            svo_step_down(svo_index, svo_child, t_max, t_delta, voxel, t_side_length, step);
+            if (floor(gl_FragCoord.xy) == global.camera.resolution / 2) {
+                debugPrintfEXT("    walking svo down");
+            }
+            svo_step_down(svo_index, svo_child, t_max, t_delta, voxel, t_side_length, step, view_direction);
         }
 
         if (bitfieldExtract(svo_nodes[svo_index].children[svo_child], 0, 5) != 0) {
-            //            if (floor(gl_FragCoord.xy) == global.camera.resolution / 2) {
-            //                debugPrintfEXT("    stepping finished, found material");
-            //            }
+            if (floor(gl_FragCoord.xy) == global.camera.resolution / 2) {
+                debugPrintfEXT("    stepping finished, found material");
+            }
             break;
         }
 
         if (t_max.x <= t_max.y && t_max.x <= t_max.z) {
-            //            if (floor(gl_FragCoord.xy) == global.camera.resolution / 2) {
-            //                debugPrintfEXT("    step on x coordinate, step=%d", step.x);
-            //            }
+            if (floor(gl_FragCoord.xy) == global.camera.resolution / 2) {
+                debugPrintfEXT("    step on x coordinate, step=%d", step.x);
+            }
             if (step.x > 0) {
                 while (svo_child % 2 >= 1) {
                     svo_step_up(svo_index, svo_child, t_max, t_delta, voxel, t_side_length, step);
@@ -222,9 +243,9 @@ void main() {
             }
             t_max.x += t_delta.x;
         } else if (t_max.y <= t_max.z) {
-            //            if (floor(gl_FragCoord.xy) == global.camera.resolution / 2) {
-            //                debugPrintfEXT("    step on y coordinate, step=%d", step.y);
-            //            }
+            if (floor(gl_FragCoord.xy) == global.camera.resolution / 2) {
+                debugPrintfEXT("    step on y coordinate, step=%d", step.y);
+            }
             if (step.y > 0) {
                 while (svo_child % 4 >= 2) {
                     svo_step_up(svo_index, svo_child, t_max, t_delta, voxel, t_side_length, step);
@@ -240,9 +261,9 @@ void main() {
             }
             t_max.y += t_delta.y;
         } else {
-            //            if (floor(gl_FragCoord.xy) == global.camera.resolution / 2) {
-            //                debugPrintfEXT("    step on z coordinate, step=%d", step.z);
-            //            }
+            if (floor(gl_FragCoord.xy) == global.camera.resolution / 2) {
+                debugPrintfEXT("    step on z coordinate, step=%d", step.z);
+            }
             if (step.z > 0) {
                 while (svo_child % 8 >= 4) {
                     svo_step_up(svo_index, svo_child, t_max, t_delta, voxel, t_side_length, step);
@@ -259,9 +280,9 @@ void main() {
             t_max.z += t_delta.z;
         }
 
-        //        if (floor(gl_FragCoord.xy) == global.camera.resolution / 2) {
-        //            debugPrintfEXT("    stepped ray, index=%u child=%u voxel=%v3d", svo_index, svo_child, voxel);
-        //        }
+        if (floor(gl_FragCoord.xy) == global.camera.resolution / 2) {
+            debugPrintfEXT("    stepped ray, index=%u child=%u voxel=%v3d", svo_index, svo_child, voxel);
+        }
 
         if (++iterations == 1000) {
             out_color = vec4(1, 0, 1, 1);

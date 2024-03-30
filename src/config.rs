@@ -18,10 +18,10 @@ pub const DEFAULT_STAR_MIN_SCALE: f32 = 10.;
 pub const DEFAULT_STAR_MAX_SCALE: f32 = 100.;
 
 pub const DEFAULT_CAMERA: FirstPersonCamera = FirstPersonCamera {
-    position: Vector3::new(96., 96., 20.),
+    position: Vector3::new(0.5, 6., 4.),
     walk_direction: Vector3::new(0., 0., 0.),
-    pitch: 0.25,
-    yaw: 1.25 * PI,
+    pitch: -0.45,
+    yaw: -0.5 * PI,
 };
 
 pub const DEFAULT_RENDERER_SETTINGS: RendererSettings = RendererSettings {
@@ -40,7 +40,7 @@ pub const DEFAULT_RENDERER_SETTINGS: RendererSettings = RendererSettings {
 
 pub const DEFAULT_VOXEL_CONFIG: VoxelsConfig = VoxelsConfig {
     seed: 907,
-    chunk_size: 64,
+    chunk_size: 4,
     heightmap_amplitude: 32.,
     heightmap_frequency: 0.01,
     heightmap_bias: 0.,
