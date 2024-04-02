@@ -78,9 +78,9 @@ impl VoxelGpuMemory for VoxelMeshletMemory {
         MaybeUninit::copy_from_slice(meshlet_memory, &mesh.meshlets);
 
         if !self.wrote_octree
-            && mesh.triangles.len() > 4
-            && !mesh.octree.at(Vector3::new(1, 1, 1), 4).is_air()
-            && mesh.octree.at(Vector3::new(3, 3, 3), 4).is_air()
+            && mesh.triangles.len() > 100
+            && !mesh.octree.at(Vector3::new(20, 20, 20), 64).is_air()
+            && mesh.octree.at(Vector3::new(44, 44, 44), 64).is_air()
         {
             let octree_memory = self.octree_buffer.mapped();
             write_octree(&mesh.octree, octree_memory);

@@ -46,9 +46,6 @@ const vec3 VERTICES[8] = vec3[](
 void main() {
     SetMeshOutputsEXT(8, 12);
     VoxelMeshlet meshlet = meshlets[global.debug.meshlet_id];
-    meshlet.chunk = i16vec3(0, 0, 0);
-    meshlet.bound_base = u8vec3(0, 0, 2);
-    meshlet.bound_size = u8vec3(4, 4, 2);
 
     gl_PrimitiveLineIndicesEXT[gl_LocalInvocationID.x] = INDICES[gl_LocalInvocationID.x];
 

@@ -40,7 +40,7 @@ pub const DEFAULT_RENDERER_SETTINGS: RendererSettings = RendererSettings {
 
 pub const DEFAULT_VOXEL_CONFIG: VoxelsConfig = VoxelsConfig {
     seed: 907,
-    chunk_size: 4,
+    chunk_size: 64,
     heightmap_amplitude: 32.,
     heightmap_frequency: 0.01,
     heightmap_bias: 0.,

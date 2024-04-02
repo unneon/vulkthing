@@ -124,7 +124,7 @@ fn create_handle(
         .image_sharing_mode(vk::SharingMode::EXCLUSIVE)
         .pre_transform(capabilities.current_transform)
         .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE)
-        .present_mode(vk::PresentModeKHR::FIFO)
+        .present_mode(vk::PresentModeKHR::MAILBOX)
         .clipped(true)
         .old_swapchain(vk::SwapchainKHR::null());
     unsafe { dev.swapchain_ext.create_swapchain(&create_info, None) }.unwrap()
