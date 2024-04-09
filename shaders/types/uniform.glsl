@@ -24,8 +24,9 @@
 struct Voxels {
     uint chunk_size;
     uint meshlet_count;
-    uint svo_index;
-    uint svo_child;
+    uint root_svo_index;
+    uint root_svo_side;
+    uvec3 root_svo_base;
 };
 
 struct Light {

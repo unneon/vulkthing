@@ -11,6 +11,7 @@ pub struct VoxelMesh {
     pub vertices: Vec<VoxelVertex>,
     pub triangles: Vec<VoxelTriangle>,
     pub octree: SparseOctree,
+    pub chunk: Vector3<i64>,
 }
 
 #[repr(C, align(8))]
@@ -73,13 +74,18 @@ impl VoxelTriangle {
     }
 }
 
-pub fn from_unclustered_mesh(mesh: &LocalMesh, octree: &SparseOctree) -> VoxelMesh {
+pub fn from_unclustered_mesh(
+    mesh: &LocalMesh,
+    octree: &SparseOctree,
+    chunk: Vector3<i64>,
+) -> VoxelMesh {
     if mesh.faces.is_empty() {
         return VoxelMesh {
             meshlets: Vec::new(),
             vertices: Vec::new(),
             triangles: Vec::new(),
             octree: octree.clone(),
+            chunk,
         };
     }
     let mut triangle_to_face = HashMap::new();
@@ -144,6 +150,7 @@ pub fn from_unclustered_mesh(mesh: &LocalMesh, octree: &SparseOctree) -> VoxelMe
         vertices,
         triangles,
         octree: octree.clone(),
+        chunk,
     }
 }
 

@@ -77,11 +77,7 @@ impl VoxelGpuMemory for VoxelMeshletMemory {
             &mut self.meshlet_buffer.mapped()[old_meshlet_count..new_meshlet_count];
         MaybeUninit::copy_from_slice(meshlet_memory, &mesh.meshlets);
 
-        if !self.wrote_octree
-            && mesh.triangles.len() > 100
-            && !mesh.octree.at(Vector3::new(20, 20, 20), 64).is_air()
-            && mesh.octree.at(Vector3::new(44, 44, 44), 64).is_air()
-        {
+        if mesh.chunk == Vector3::zeros() {
             let octree_memory = self.octree_buffer.mapped();
             write_octree(&mesh.octree, octree_memory);
             self.wrote_octree = true;
@@ -110,7 +106,7 @@ impl VoxelGpuMemory for VoxelMeshletMemory {
 }
 
 fn prepare(raw_mesh: LocalMesh, svo: &SparseOctree, chunk: Vector3<i64>) -> VoxelMesh {
-    let mut mesh = meshlet::from_unclustered_mesh(&raw_mesh, svo);
+    let mut mesh = meshlet::from_unclustered_mesh(&raw_mesh, svo, chunk);
     for meshlet in &mut mesh.meshlets {
         meshlet.chunk = chunk.try_cast::<i16>().unwrap();
     }

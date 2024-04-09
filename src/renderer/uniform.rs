@@ -14,13 +14,14 @@ pub struct Global {
     pub debug: Debug,
 }
 
-#[repr(C, align(4))]
+#[repr(C, align(16))]
 #[derive(Clone, Copy)]
 pub struct Voxels {
     pub chunk_size: u32,
     pub meshlet_count: u32,
-    pub svo_index: u32,
-    pub svo_child: u32,
+    pub root_svo_index: u32,
+    pub root_svo_side: u32,
+    pub root_svo_base: Vector3<u32>,
 }
 
 #[repr(C, align(16))]
