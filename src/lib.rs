@@ -76,16 +76,12 @@ pub fn main() {
     renderer.create_interface_renderer(&mut interface.ctx);
 
     let mut voxel_config = DEFAULT_VOXEL_CONFIG;
-    let voxels = if let Some(voxel_gpu_memory) = renderer.voxel_gpu_memory.take() {
-        Some(Voxels::new(
-            voxel_config.clone(),
-            world.camera.position(),
-            voxel_gpu_memory,
-            std::thread::available_parallelism().unwrap().get() - 1,
-        ))
-    } else {
-        None
-    };
+    let voxels = Voxels::new(
+        voxel_config.clone(),
+        world.camera.position(),
+        renderer.voxel_gpu_memory.take().unwrap(),
+        std::thread::available_parallelism().unwrap().get() - 1,
+    );
 
     // Run the event loop. Winit delivers events, like key presses. After it finishes delivering
     // some batch of events, it sends a MainEventsCleared event, which means the application should
@@ -145,9 +141,7 @@ pub fn main() {
                     world.update_benchmark(frame_index);
                 }
                 world.update(delta_time, &input_state, args.benchmark);
-                if let Some(voxels) = &voxels {
-                    voxels.update_camera(world.camera.position());
-                }
+                voxels.update_camera(world.camera.position());
 
                 input_state.reset_after_frame();
                 interface.apply_cursor(input_state.camera_lock, &window.window);
@@ -164,9 +158,7 @@ pub fn main() {
                     renderer.recreate_pipelines();
                 }
                 if interface_events.rebuild_voxels {
-                    if let Some(voxels) = &voxels {
-                        voxels.update_config(voxel_config.clone());
-                    }
+                    voxels.update_config(voxel_config.clone());
                 }
 
                 renderer.draw_frame(
@@ -192,8 +184,6 @@ pub fn main() {
         }
     });
     renderer.wait_idle();
-    if let Some(voxels) = voxels {
-        voxels.shutdown();
-    }
+    voxels.shutdown();
     loop_result.unwrap();
 }

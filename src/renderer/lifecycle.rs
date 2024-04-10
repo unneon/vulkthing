@@ -143,18 +143,14 @@ impl Renderer {
         );
 
         let voxel_meshlet_count = Arc::new(AtomicU32::new(0));
-        let voxel_gpu_memory = if dev.support.mesh_shaders {
-            Some(Box::new(VoxelMeshletMemory::new(
-                voxel_meshlet_count.clone(),
-                voxel_vertex_buffer,
-                voxel_triangle_buffer,
-                voxel_meshlet_buffer,
-                voxel_octree_buffer,
-                dev.clone(),
-            )) as Box<dyn VoxelGpuMemory>)
-        } else {
-            None
-        };
+        let voxel_gpu_memory = Box::new(VoxelMeshletMemory::new(
+            voxel_meshlet_count.clone(),
+            voxel_vertex_buffer,
+            voxel_triangle_buffer,
+            voxel_meshlet_buffer,
+            voxel_octree_buffer,
+            dev.clone(),
+        )) as Box<dyn VoxelGpuMemory>;
 
         Renderer {
             _entry: entry,
@@ -180,7 +176,7 @@ impl Renderer {
             global,
             descriptor_sets: global_descriptor_sets,
             voxel_meshlet_count,
-            voxel_gpu_memory,
+            voxel_gpu_memory: Some(voxel_gpu_memory),
             query_pool,
             frame_index: 0,
             frametime: None,
