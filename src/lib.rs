@@ -1,21 +1,13 @@
 #![feature(array_chunks)]
-#![feature(extract_if)]
-#![feature(inline_const)]
-#![feature(int_roundings)]
 #![feature(iter_array_chunks)]
 #![feature(layout_for_ptr)]
-#![feature(maybe_uninit_array_assume_init)]
-#![feature(maybe_uninit_uninit_array)]
 #![feature(maybe_uninit_write_slice)]
 #![feature(panic_info_message)]
 #![feature(ptr_metadata)]
-#![feature(slice_ptr_get)]
 #![feature(slice_ptr_len)]
 #![allow(clippy::collapsible_match)]
-#![allow(clippy::manual_map)]
 #![allow(clippy::single_match)]
 #![allow(clippy::too_many_arguments)]
-#![allow(clippy::type_complexity)]
 
 use crate::cli::Args;
 use crate::config::{DEFAULT_RENDERER_SETTINGS, DEFAULT_VOXEL_CONFIG};
