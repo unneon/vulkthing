@@ -26,6 +26,7 @@ pub struct Global {
     pub postprocessing: PostprocessUniform,
     pub camera: Camera,
     pub materials: [VoxelMaterial; 256],
+    pub debug: Debug,
 }
 
 #[repr(C, align(4))]
@@ -90,6 +91,12 @@ pub struct VoxelMaterial {
     pub roughness: f32,
     pub emit: Vector3<f32>,
     pub metallic: f32,
+}
+
+#[repr(C, align(4))]
+#[derive(Clone, Copy)]
+pub struct Debug {
+    pub meshlet_id: u32,
 }
 
 #[repr(u32)]
