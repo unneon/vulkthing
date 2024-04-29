@@ -10,6 +10,7 @@ pub mod uniform;
 pub mod util;
 pub mod vertex;
 
+use crate::interface::EnumInterface;
 use crate::renderer::codegen::{Passes, Pipelines, Samplers};
 use crate::renderer::debug::{begin_label, end_label};
 use crate::renderer::pass::Pass;
@@ -26,6 +27,7 @@ use crate::world::World;
 use ash::{vk, Entry};
 use imgui::DrawData;
 use nalgebra::{Matrix4, Vector2, Vector3};
+use std::borrow::Cow;
 use std::f32::consts::FRAC_PI_4;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
@@ -97,6 +99,7 @@ pub struct MeshObject {
 }
 
 pub struct RendererSettings {
+    pub voxel_rendering: VoxelRendering,
     pub atmosphere_in_scattering_samples: usize,
     pub atmosphere_optical_depth_samples: usize,
     pub atmosphere_wavelengths: Vector3<f32>,
@@ -104,6 +107,13 @@ pub struct RendererSettings {
     pub depth_far: f32,
     pub enable_atmosphere: bool,
     pub postprocess: PostprocessSettings,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum VoxelRendering {
+    Classic,
+    MeshShaders,
+    RayTracing,
 }
 
 pub struct PostprocessSettings {
@@ -145,7 +155,7 @@ impl Renderer {
         let Some(image_index) = (unsafe { self.prepare_command_buffer(window_size) }) else {
             return;
         };
-        unsafe { self.record_command_buffer(image_index, world, ui_draw) };
+        unsafe { self.record_command_buffer(image_index, world, settings, ui_draw) };
         self.frametime = self.query_timestamp();
         self.update_global_uniform(
             world,
@@ -198,6 +208,7 @@ impl Renderer {
         &mut self,
         image_index: usize,
         world: &World,
+        settings: &RendererSettings,
         ui_draw: &DrawData,
     ) {
         let buf = self.command_buffers[self.flight_index];
@@ -207,7 +218,7 @@ impl Renderer {
         self.dev.begin_command_buffer(buf, &begin_info).unwrap();
         self.reset_timestamps(buf);
         self.write_timestamp(buf, 0, vk::PipelineStageFlags::ALL_COMMANDS);
-        self.record_render_pass(image_index, buf, world, ui_draw);
+        self.record_render_pass(image_index, buf, world, settings, ui_draw);
         self.write_timestamp(buf, 1, vk::PipelineStageFlags::ALL_COMMANDS);
         self.dev.end_command_buffer(buf).unwrap();
     }
@@ -217,6 +228,7 @@ impl Renderer {
         image_index: usize,
         buf: vk::CommandBuffer,
         world: &World,
+        settings: &RendererSettings,
         ui_draw: &DrawData,
     ) {
         let color = &self.swapchain.images[image_index];
@@ -236,30 +248,36 @@ impl Renderer {
 
         self.bind_descriptor_set(buf);
 
-        self.bind_graphics_pipeline(buf, self.pipelines.voxel_rt);
-        unsafe { self.dev.cmd_draw(buf, 6, 1, 0, 0) };
-
-        if self.dev.support.mesh_shaders {
-            let voxel_meshlet_count = self.voxel_meshlet_count.load(Ordering::SeqCst);
-            begin_label(buf, "Voxel draws", [255, 0, 0], &self.dev);
-            self.bind_graphics_pipeline(buf, self.pipelines.voxel);
-            self.draw_mesh_shaders(buf, voxel_meshlet_count.div_ceil(64));
-            end_label(buf, &self.dev);
-
-            if voxel_meshlet_count > 0 {
-                begin_label(buf, "Debug voxel triangle draw", [238, 186, 11], &self.dev);
-                self.bind_graphics_pipeline(buf, self.pipelines.debug_voxel_triangle);
-                self.draw_mesh_shaders(buf, 1);
+        match settings.voxel_rendering {
+            VoxelRendering::Classic => todo!(),
+            VoxelRendering::MeshShaders => {
+                let voxel_meshlet_count = self.voxel_meshlet_count.load(Ordering::SeqCst);
+                begin_label(buf, "Voxel draws (mesh shaders)", [255, 0, 0], &self.dev);
+                self.bind_graphics_pipeline(buf, self.pipelines.voxel);
+                self.draw_mesh_shaders(buf, voxel_meshlet_count.div_ceil(64));
                 end_label(buf, &self.dev);
 
-                begin_label(buf, "Debug voxel world bound draw", [255, 78, 0], &self.dev);
-                self.bind_graphics_pipeline(buf, self.pipelines.debug_voxel_world_bound);
-                self.draw_mesh_shaders(buf, 1);
-                end_label(buf, &self.dev);
+                if voxel_meshlet_count > 0 {
+                    begin_label(buf, "Debug voxel triangle draw", [238, 186, 11], &self.dev);
+                    self.bind_graphics_pipeline(buf, self.pipelines.debug_voxel_triangle);
+                    self.draw_mesh_shaders(buf, 1);
+                    end_label(buf, &self.dev);
 
-                begin_label(buf, "Debug voxel screen bound draw", [113, 0, 0], &self.dev);
-                self.bind_graphics_pipeline(buf, self.pipelines.debug_voxel_screen_bound);
-                self.draw_mesh_shaders(buf, 1);
+                    begin_label(buf, "Debug voxel world bound draw", [255, 78, 0], &self.dev);
+                    self.bind_graphics_pipeline(buf, self.pipelines.debug_voxel_world_bound);
+                    self.draw_mesh_shaders(buf, 1);
+                    end_label(buf, &self.dev);
+
+                    begin_label(buf, "Debug voxel screen bound draw", [113, 0, 0], &self.dev);
+                    self.bind_graphics_pipeline(buf, self.pipelines.debug_voxel_screen_bound);
+                    self.draw_mesh_shaders(buf, 1);
+                    end_label(buf, &self.dev);
+                }
+            }
+            VoxelRendering::RayTracing => {
+                begin_label(buf, "Voxel draws (ray tracing)", [255, 0, 0], &self.dev);
+                self.bind_graphics_pipeline(buf, self.pipelines.voxel_rt);
+                unsafe { self.dev.cmd_draw(buf, 6, 1, 0, 0) };
                 end_label(buf, &self.dev);
             }
         }
@@ -539,5 +557,21 @@ impl MeshObject {
                 0,
             )
         };
+    }
+}
+
+impl EnumInterface for VoxelRendering {
+    const VALUES: &'static [Self] = &[
+        VoxelRendering::Classic,
+        VoxelRendering::MeshShaders,
+        VoxelRendering::RayTracing,
+    ];
+
+    fn label(&self) -> Cow<str> {
+        Cow::Borrowed(match self {
+            VoxelRendering::Classic => "Classic",
+            VoxelRendering::MeshShaders => "Mesh shaders",
+            VoxelRendering::RayTracing => "Ray tracing",
+        })
     }
 }

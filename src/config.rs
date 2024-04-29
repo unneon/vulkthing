@@ -1,6 +1,6 @@
 use crate::camera::first_person::FirstPersonCamera;
 use crate::renderer::uniform::Tonemapper;
-use crate::renderer::{PostprocessSettings, RendererSettings};
+use crate::renderer::{PostprocessSettings, RendererSettings, VoxelRendering};
 use crate::voxel::meshing::MeshingAlgorithmKind;
 use crate::voxel::VoxelsConfig;
 use nalgebra::Vector3;
@@ -25,6 +25,7 @@ pub const DEFAULT_CAMERA: FirstPersonCamera = FirstPersonCamera {
 };
 
 pub const DEFAULT_RENDERER_SETTINGS: RendererSettings = RendererSettings {
+    voxel_rendering: VoxelRendering::RayTracing,
     atmosphere_in_scattering_samples: 10,
     atmosphere_optical_depth_samples: 3,
     atmosphere_wavelengths: Vector3::new(700., 530., 440.),

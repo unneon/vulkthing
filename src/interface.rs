@@ -93,6 +93,7 @@ impl Interface {
                         .build(&mut world.sun_speed);
                 }
                 if ui.collapsing_header("Renderer", TreeNodeFlags::empty()) {
+                    enum_combo(ui, "Voxel rendering", &mut renderer.voxel_rendering);
                     ui.slider_config("Depth near plane", 0.001, 16.)
                         .flags(SliderFlags::LOGARITHMIC)
                         .build(&mut renderer.depth_near);
