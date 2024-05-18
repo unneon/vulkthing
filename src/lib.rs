@@ -5,6 +5,7 @@
 use crate::cli::Args;
 use crate::config::{DEFAULT_RENDERER_SETTINGS, DEFAULT_VOXEL_CONFIG};
 use crate::input::InputState;
+#[cfg(feature = "dev-menu")]
 use crate::interface::Interface;
 use crate::logger::{initialize_logger, initialize_panic_hook};
 use crate::mesh::load_mesh;
@@ -21,6 +22,7 @@ mod camera;
 mod cli;
 mod config;
 mod input;
+#[cfg(feature = "dev-menu")]
 mod interface;
 mod logger;
 mod mesh;
@@ -57,6 +59,7 @@ pub fn main() {
         &world,
         &args,
     );
+    #[cfg(feature = "dev-menu")]
     let mut interface = Interface::new(
         renderer.swapchain.extent.width as usize,
         renderer.swapchain.extent.height as usize,
@@ -66,6 +69,7 @@ pub fn main() {
     let mut old_size = window.window.inner_size();
     let mut frame_index = 0;
 
+    #[cfg(feature = "dev-menu")]
     renderer.create_interface_renderer(&mut interface.ctx);
 
     let mut voxel_config = DEFAULT_VOXEL_CONFIG;
@@ -90,6 +94,7 @@ pub fn main() {
                 target.set_control_flow(ControlFlow::Poll);
             }
             Event::WindowEvent { event, .. } => {
+                #[cfg(feature = "dev-menu")]
                 interface.apply_window(&event);
                 match event {
                     WindowEvent::KeyboardInput { event, .. } => input_state.apply_keyboard(event),
@@ -137,21 +142,24 @@ pub fn main() {
                 voxels.update_camera(world.camera.position());
 
                 input_state.reset_after_frame();
-                interface.apply_cursor(input_state.camera_lock, &window.window);
-                let interface_events = interface.build(
-                    &mut world,
-                    &mut renderer_settings,
-                    &mut voxel_config,
-                    renderer.frametime,
-                );
-                assert!(!interface_events.planet_changed);
-                if interface_events.rebuild_swapchain {
-                    renderer.recreate_swapchain(window.window.inner_size());
-                } else if interface_events.rebuild_pipelines {
-                    renderer.recreate_pipelines();
-                }
-                if interface_events.rebuild_voxels {
-                    voxels.update_config(voxel_config.clone());
+                #[cfg(feature = "dev-menu")]
+                {
+                    interface.apply_cursor(input_state.camera_lock, &window.window);
+                    let interface_events = interface.build(
+                        &mut world,
+                        &mut renderer_settings,
+                        &mut voxel_config,
+                        renderer.frametime,
+                    );
+                    assert!(!interface_events.planet_changed);
+                    if interface_events.rebuild_swapchain {
+                        renderer.recreate_swapchain(window.window.inner_size());
+                    } else if interface_events.rebuild_pipelines {
+                        renderer.recreate_pipelines();
+                    }
+                    if interface_events.rebuild_voxels {
+                        voxels.update_config(voxel_config.clone());
+                    }
                 }
 
                 renderer.draw_frame(
@@ -159,6 +167,7 @@ pub fn main() {
                     &voxel_config,
                     &renderer_settings,
                     window.window.inner_size(),
+                    #[cfg(feature = "dev-menu")]
                     interface.draw_data(),
                 );
 

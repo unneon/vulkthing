@@ -327,27 +327,27 @@ struct Scratch {{"#
     let pool_size_count = pool_sizes.len();
     writeln!(
         file,
-        r#"    descriptor_set_bindings: [vk::DescriptorSetLayoutBinding; {binding_count}],
-    descriptor_set_layout: vk::DescriptorSetLayoutCreateInfo,
+        r#"    descriptor_set_bindings: [vk::DescriptorSetLayoutBinding<'static>; {binding_count}],
+    descriptor_set_layout: vk::DescriptorSetLayoutCreateInfo<'static>,
     descriptor_pool_sizes: [vk::DescriptorPoolSize; {pool_size_count}],
-    descriptor_pool: vk::DescriptorPoolCreateInfo,"#
-    )
-    .unwrap();
-    writeln!(
-        file,
-        r#"    assembly: vk::PipelineInputAssemblyStateCreateInfo,
-    dynamic_state: vk::PipelineDynamicStateCreateInfo,"#
+    descriptor_pool: vk::DescriptorPoolCreateInfo<'static>,
+    assembly: vk::PipelineInputAssemblyStateCreateInfo<'static>,
+    dynamic_state: vk::PipelineDynamicStateCreateInfo<'static>,"#
     )
     .unwrap();
     for (name, typ) in &shaders {
         let typ_lowercase = typ.lowercase();
         writeln!(
             file,
-            r#"    {name}_{typ_lowercase}: vk::ShaderModuleCreateInfo,"#
+            r#"    {name}_{typ_lowercase}: vk::ShaderModuleCreateInfo<'static>,"#
         )
         .unwrap();
     }
-    writeln!(file, "    pipeline_layout: vk::PipelineLayoutCreateInfo,").unwrap();
+    writeln!(
+        file,
+        "    pipeline_layout: vk::PipelineLayoutCreateInfo<'static>,"
+    )
+    .unwrap();
     for_pipelines(renderer, |_, pipeline| {
         let binding_count = pipeline.vertex_bindings.len();
         let attribute_count = pipeline
@@ -370,34 +370,34 @@ struct Scratch {{"#
         let shader_stage_count = if pipeline.task_shaders { 3 } else { 2 };
         writeln!(
             file,
-            r#"    {pipeline}_shader_stages: [vk::PipelineShaderStageCreateInfo; {shader_stage_count}],"#
+            r#"    {pipeline}_shader_stages: [vk::PipelineShaderStageCreateInfo<'static>; {shader_stage_count}],"#
         )
             .unwrap();
         if pipeline.mesh_shaders {
         } else {
             writeln!(file, r#"    {pipeline}_vertex_bindings: [vk::VertexInputBindingDescription; {binding_count}],
     {pipeline}_vertex_attributes: [vk::VertexInputAttributeDescription; {attribute_count}],
-    {pipeline}_vertex_state: vk::PipelineVertexInputStateCreateInfo,"#).unwrap();
+    {pipeline}_vertex_state: vk::PipelineVertexInputStateCreateInfo<'static>,"#).unwrap();
         }
         writeln!(
             file,
             r#"    {pipeline}_viewport: vk::Viewport,
     {pipeline}_scissor: vk::Rect2D,
-    {pipeline}_viewport_state: vk::PipelineViewportStateCreateInfo,
-    {pipeline}_rasterizer: vk::PipelineRasterizationStateCreateInfo,
-    {pipeline}_multisampling: vk::PipelineMultisampleStateCreateInfo,
+    {pipeline}_viewport_state: vk::PipelineViewportStateCreateInfo<'static>,
+    {pipeline}_rasterizer: vk::PipelineRasterizationStateCreateInfo<'static>,
+    {pipeline}_multisampling: vk::PipelineMultisampleStateCreateInfo<'static>,
     {pipeline}_blend_attachments: [vk::PipelineColorBlendAttachmentState; 1],
-    {pipeline}_blend: vk::PipelineColorBlendStateCreateInfo,
-    {pipeline}_depth: vk::PipelineDepthStencilStateCreateInfo,
+    {pipeline}_blend: vk::PipelineColorBlendStateCreateInfo<'static>,
+    {pipeline}_depth: vk::PipelineDepthStencilStateCreateInfo<'static>,
     {pipeline}_color_formats: [vk::Format; 1],
-    {pipeline}_rendering: vk::PipelineRenderingCreateInfo,"#,
+    {pipeline}_rendering: vk::PipelineRenderingCreateInfo<'static>,"#,
         )
         .unwrap();
     });
     for_pipelines(renderer, |_, pipeline| {
         writeln!(
             file,
-            "    {pipeline}_pipeline: vk::GraphicsPipelineCreateInfo,"
+            "    {pipeline}_pipeline: vk::GraphicsPipelineCreateInfo<'static>,"
         )
         .unwrap();
     });
@@ -462,6 +462,7 @@ static mut SCRATCH: Scratch = Scratch {{"#
             descriptor_count: 1,
             stage_flags: vk::ShaderStageFlags::{stage},
             p_immutable_samplers: std::ptr::null(),
+            _marker: std::marker::PhantomData,
         }},"#,
         )
         .unwrap();
@@ -476,6 +477,7 @@ static mut SCRATCH: Scratch = Scratch {{"#
         flags: vk::DescriptorSetLayoutCreateFlags::empty(),
         binding_count: {binding_count},
         p_bindings: unsafe {{ SCRATCH.descriptor_set_bindings.as_ptr() }},
+        _marker: std::marker::PhantomData,
     }},
     descriptor_pool_sizes: [",
     )
@@ -503,6 +505,7 @@ static mut SCRATCH: Scratch = Scratch {{"#
         max_sets: {max_sets},
         pool_size_count: {pool_size_count},
         p_pool_sizes: unsafe {{ SCRATCH.descriptor_pool_sizes.as_ptr() }},
+        _marker: std::marker::PhantomData,
     }},
     pipeline_layout: vk::PipelineLayoutCreateInfo {{
         s_type: vk::StructureType::PIPELINE_LAYOUT_CREATE_INFO,
@@ -512,6 +515,7 @@ static mut SCRATCH: Scratch = Scratch {{"#
         p_set_layouts: std::ptr::null(),
         push_constant_range_count: 0,
         p_push_constant_ranges: std::ptr::null(),
+        _marker: std::marker::PhantomData,
     }},
     assembly: vk::PipelineInputAssemblyStateCreateInfo {{
         s_type: vk::StructureType::PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
@@ -519,6 +523,7 @@ static mut SCRATCH: Scratch = Scratch {{"#
         flags: vk::PipelineInputAssemblyStateCreateFlags::empty(),
         topology: vk::PrimitiveTopology::TRIANGLE_LIST,
         primitive_restart_enable: 0,
+        _marker: std::marker::PhantomData,
     }},
     dynamic_state: vk::PipelineDynamicStateCreateInfo {{
         s_type: vk::StructureType::PIPELINE_DYNAMIC_STATE_CREATE_INFO,
@@ -526,6 +531,7 @@ static mut SCRATCH: Scratch = Scratch {{"#
         flags: vk::PipelineDynamicStateCreateFlags::empty(),
         dynamic_state_count: 0,
         p_dynamic_states: std::ptr::null(),
+        _marker: std::marker::PhantomData,
     }},"#
     )
     .unwrap();
@@ -539,6 +545,7 @@ static mut SCRATCH: Scratch = Scratch {{"#
         flags: vk::ShaderModuleCreateFlags::empty(),
         code_size: 0,
         p_code: std::ptr::null(),
+        _marker: std::marker::PhantomData,
     }},"#
         )
         .unwrap();
@@ -608,6 +615,7 @@ static mut SCRATCH: Scratch = Scratch {{"#
             module: vk::ShaderModule::null(),
             p_name: unsafe {{ CStr::from_bytes_with_nul_unchecked(b"main\0") }}.as_ptr(),
             p_specialization_info: std::ptr::null(),
+            _marker: std::marker::PhantomData,
         }},"#
             )
             .unwrap();
@@ -622,6 +630,7 @@ static mut SCRATCH: Scratch = Scratch {{"#
             module: vk::ShaderModule::null(),
             p_name: unsafe {{ CStr::from_bytes_with_nul_unchecked(b"main\0") }}.as_ptr(),
             p_specialization_info: std::ptr::null(),
+            _marker: std::marker::PhantomData,
         }},
         vk::PipelineShaderStageCreateInfo {{
             s_type: vk::StructureType::PIPELINE_SHADER_STAGE_CREATE_INFO,
@@ -631,6 +640,7 @@ static mut SCRATCH: Scratch = Scratch {{"#
             module: vk::ShaderModule::null(),
             p_name: unsafe {{ CStr::from_bytes_with_nul_unchecked(b"main\0") }}.as_ptr(),
             p_specialization_info: {fragment_specialization_info},
+            _marker: std::marker::PhantomData,
         }},
     ],"#
         )
@@ -691,6 +701,7 @@ static mut SCRATCH: Scratch = Scratch {{"#
         p_vertex_binding_descriptions: unsafe {{ SCRATCH.{pipeline}_vertex_bindings.as_ptr() }},
         vertex_attribute_description_count: {attribute_count},
         p_vertex_attribute_descriptions: unsafe {{ SCRATCH.{pipeline}_vertex_attributes.as_ptr() }},
+        _marker: std::marker::PhantomData,
     }},"#
             )
             .unwrap();
@@ -720,6 +731,7 @@ static mut SCRATCH: Scratch = Scratch {{"#
         p_viewports: unsafe {{ &SCRATCH.{pipeline}_viewport }},
         scissor_count: 1,
         p_scissors: unsafe {{ &SCRATCH.{pipeline}_scissor }},
+        _marker: std::marker::PhantomData,
     }},
     {pipeline}_rasterizer: vk::PipelineRasterizationStateCreateInfo {{
         s_type: vk::StructureType::PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
@@ -735,6 +747,7 @@ static mut SCRATCH: Scratch = Scratch {{"#
         depth_bias_clamp: 0.,
         depth_bias_slope_factor: 0.,
         line_width: 1.,
+        _marker: std::marker::PhantomData,
     }},
     {pipeline}_multisampling: vk::PipelineMultisampleStateCreateInfo {{
         s_type: vk::StructureType::PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
@@ -746,6 +759,7 @@ static mut SCRATCH: Scratch = Scratch {{"#
         p_sample_mask: std::ptr::null(),
         alpha_to_coverage_enable: 0,
         alpha_to_one_enable: 0,
+        _marker: std::marker::PhantomData,
     }},
     {pipeline}_blend_attachments: ["#
         )
@@ -786,6 +800,7 @@ static mut SCRATCH: Scratch = Scratch {{"#
         attachment_count: {color_attachment_count},
         p_attachments: unsafe {{ SCRATCH.{pipeline}_blend_attachments.as_ptr() }},
         blend_constants: [0., 0., 0., 0.],
+        _marker: std::marker::PhantomData,
     }},
     {pipeline}_depth: vk::PipelineDepthStencilStateCreateInfo {{
         s_type: vk::StructureType::PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
@@ -816,6 +831,7 @@ static mut SCRATCH: Scratch = Scratch {{"#
         }},
         min_depth_bounds: 0.,
         max_depth_bounds: 1.,
+        _marker: std::marker::PhantomData,
     }},
     {pipeline}_color_formats: [vk::Format::UNDEFINED],
     {pipeline}_rendering: vk::PipelineRenderingCreateInfo {{
@@ -826,6 +842,7 @@ static mut SCRATCH: Scratch = Scratch {{"#
         p_color_attachment_formats: unsafe {{ SCRATCH.{pipeline}_color_formats.as_ptr() }},
         depth_attachment_format: DEPTH_FORMAT,
         stencil_attachment_format: vk::Format::UNDEFINED,
+        _marker: std::marker::PhantomData,
     }},
     {pipeline}_pipeline: vk::GraphicsPipelineCreateInfo {{
         s_type: vk::StructureType::GRAPHICS_PIPELINE_CREATE_INFO,
@@ -847,6 +864,7 @@ static mut SCRATCH: Scratch = Scratch {{"#
         subpass: 0,
         base_pipeline_handle: vk::Pipeline::null(),
         base_pipeline_index: 0,
+        _marker: std::marker::PhantomData,
     }},"#
         )
         .unwrap();
@@ -911,7 +929,7 @@ pub fn alloc_descriptor_set("#
     pool: vk::DescriptorPool,
 ) -> [vk::DescriptorSet; FRAMES_IN_FLIGHT] {{
     let layouts = [layout; FRAMES_IN_FLIGHT];
-    let descriptor_set_alloc_info = vk::DescriptorSetAllocateInfo::builder()
+    let descriptor_set_alloc_info = vk::DescriptorSetAllocateInfo::default()
         .descriptor_pool(pool)
         .set_layouts(&layouts);
     let descriptors: [vk::DescriptorSet; FRAMES_IN_FLIGHT] =
@@ -973,7 +991,7 @@ pub fn update_descriptor_set(
         match binding {
             DescriptorBinding::AccelerationStructure(_) => writeln!(
                 file,
-                r#"        let mut {binding_name}_acceleration_structure = *vk::WriteDescriptorSetAccelerationStructureKHR::builder()
+                r#"        let mut {binding_name}_acceleration_structure = *vk::WriteDescriptorSetAccelerationStructureKHR::default()
             .acceleration_structures({binding_name}.as_ref().map(|as_| std::slice::from_ref(&as_.acceleration_structure)).unwrap_or_default());"#
             )
                 .unwrap(),
@@ -981,7 +999,7 @@ pub fn update_descriptor_set(
                 let layout = &image.layout;
                 writeln!(
                     file,
-                    r#"        let {binding_name}_image = *vk::DescriptorImageInfo::builder()
+                    r#"        let {binding_name}_image = *vk::DescriptorImageInfo::default()
             .image_layout(vk::ImageLayout::{layout})
             .image_view({binding_name});"#
                 )
@@ -989,14 +1007,14 @@ pub fn update_descriptor_set(
             }
             DescriptorBinding::InputAttachment(_) => writeln!(
                 file,
-                r#"        let {binding_name}_image = *vk::DescriptorImageInfo::builder()
+                r#"        let {binding_name}_image = *vk::DescriptorImageInfo::default()
             .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
             .image_view({binding_name});"#
             )
                 .unwrap(),
             DescriptorBinding::StorageBuffer(_) => writeln!(file, r#"        let {binding_name}_buffer = {binding_name}.descriptor(_flight_index);"#).unwrap(),
             DescriptorBinding::StorageImage(_) => writeln!(file,
-                                                           r#"        let {binding_name}_image = *vk::DescriptorImageInfo::builder()
+                                                           r#"        let {binding_name}_image = *vk::DescriptorImageInfo::default()
             .image_layout(vk::ImageLayout::GENERAL)
             .image_view({binding_name});"#
             ).unwrap(),
@@ -1008,7 +1026,7 @@ pub fn update_descriptor_set(
         }
         writeln!(
             file,
-            r#"        let {write_mutable}{binding_name} = *vk::WriteDescriptorSet::builder()
+            r#"        let {write_mutable}{binding_name} = vk::WriteDescriptorSet::default()
             .dst_set(*descriptor)
             .dst_binding({binding_index})
             .descriptor_type(vk::DescriptorType::{binding_type})"#

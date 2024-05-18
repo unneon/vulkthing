@@ -1,9 +1,9 @@
 use crate::cli::{Args, WindowProtocol};
 use log::warn;
-use winit::event_loop::{EventLoop, EventLoopBuilder};
+use winit::event_loop::EventLoop;
 use winit::platform::wayland::EventLoopBuilderExtWayland;
 use winit::platform::x11::EventLoopBuilderExtX11;
-use winit::window::{CursorGrabMode, Fullscreen, WindowBuilder};
+use winit::window::{CursorGrabMode, Fullscreen};
 
 const TITLE: &str = "Vulkthing";
 
@@ -15,20 +15,19 @@ pub struct Window {
 pub fn create_window(args: &Args) -> Window {
     // Create the application window using winit. Use a predefined size for now, though games should
     // run in fullscreen eventually.
-    let mut event_loop = EventLoopBuilder::new();
+    let mut event_loop = EventLoop::builder();
     match args.window_protocol {
         WindowProtocol::Wayland => event_loop.with_wayland(),
         WindowProtocol::X11 => event_loop.with_x11(),
     };
     let event_loop = event_loop.build().unwrap();
-    let window = WindowBuilder::new()
+    let window_attributes = winit::window::Window::default_attributes()
         .with_title(TITLE)
         .with_resizable(true)
         .with_decorations(false)
         .with_fullscreen(Some(Fullscreen::Borderless(None)))
-        .with_visible(false)
-        .build(&event_loop)
-        .unwrap();
+        .with_visible(false);
+    let window = event_loop.create_window(window_attributes).unwrap();
     if window.set_cursor_grab(CursorGrabMode::Locked).is_err() {
         warn!("cursor grab unavailable");
     }

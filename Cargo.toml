@@ -3,23 +3,25 @@ name = "vulkthing"
 version = "0.0.0"
 edition = "2021"
 
+[features]
+dev-menu = ["imgui", "imgui-rs-vulkan-renderer"]
+
 [dependencies]
-ash = "0.37"
-ash-window = "0.12"
+ash = "0.38"
+ash-window = "0.13"
 bracket-noise = "0.8"
-imgui = "0.11"
-imgui-rs-vulkan-renderer = { version = "1.12", features = ["dynamic-rendering"] }
+imgui = { version = "0.12", optional = true }
+imgui-rs-vulkan-renderer = { version = "1.13", optional = true, features = ["dynamic-rendering"] }
 log = "0.4"
 meshopt = "0.2"
 nalgebra = { version = "0.32", features = ["std"], default-features = false }
 num-traits = "0.2"
 rand = { version = "0.8", features = ["small_rng"] }
-rapier3d = "0.17"
-# TODO: Upgrade to raw-window-handle 0.6 once ash-window is compatible.
-raw-window-handle = "0.5"
+rapier3d = "0.19"
+raw-window-handle = "0.6"
 shaderc = { git = "https://github.com/google/shaderc-rs" }
 tobj = { version = "4.0", default-features = false }
-winit = { version = "0.29", features = ["rwh_05", "wayland", "x11"], default-features = false }
+winit = "0.30"
 
 [dev-dependencies]
 criterion = "0.5"

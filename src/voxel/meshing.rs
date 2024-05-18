@@ -1,6 +1,7 @@
 mod culled_meshing;
 mod greedy_meshing;
 
+#[cfg(feature = "dev-menu")]
 use crate::interface::EnumInterface;
 use crate::voxel::local_mesh::LocalMesh;
 use crate::voxel::material::Material;
@@ -9,7 +10,6 @@ use crate::voxel::meshing::greedy_meshing::GreedyMeshing;
 use crate::voxel::neighbourhood::Neighbourhood;
 use crate::voxel::sparse_octree::SparseOctree;
 use crate::voxel::VoxelsConfig;
-use std::borrow::Cow;
 
 trait MeshingAlgorithm {
     fn mesh(svos: &Neighbourhood, chunk_size: usize) -> LocalMesh;
@@ -21,15 +21,16 @@ pub enum MeshingAlgorithmKind {
     Greedy,
 }
 
+#[cfg(feature = "dev-menu")]
 impl EnumInterface for MeshingAlgorithmKind {
     const VALUES: &'static [MeshingAlgorithmKind] =
         &[MeshingAlgorithmKind::Culled, MeshingAlgorithmKind::Greedy];
 
-    fn label(&self) -> Cow<str> {
-        match self {
-            MeshingAlgorithmKind::Culled => Cow::Borrowed("Culled Meshing"),
-            MeshingAlgorithmKind::Greedy => Cow::Borrowed("Greedy Meshing"),
-        }
+    fn label(&self) -> std::borrow::Cow<str> {
+        std::borrow::Cow::Borrowed(match self {
+            MeshingAlgorithmKind::Culled => "Culled Meshing",
+            MeshingAlgorithmKind::Greedy => "Greedy Meshing",
+        })
     }
 }
 

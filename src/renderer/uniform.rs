@@ -1,6 +1,6 @@
+#[cfg(feature = "dev-menu")]
 use crate::interface::EnumInterface;
 use nalgebra::{Matrix4, Vector2, Vector3};
-use std::borrow::Cow;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -110,6 +110,7 @@ pub struct Star {
     pub model: Matrix4<f32>,
 }
 
+#[cfg(feature = "dev-menu")]
 impl EnumInterface for Tonemapper {
     const VALUES: &'static [Self] = &[
         Tonemapper::RgbClamping,
@@ -118,8 +119,8 @@ impl EnumInterface for Tonemapper {
         Tonemapper::HillAces,
     ];
 
-    fn label(&self) -> Cow<str> {
-        Cow::Borrowed(match self {
+    fn label(&self) -> std::borrow::Cow<str> {
+        std::borrow::Cow::Borrowed(match self {
             Tonemapper::RgbClamping => "RGB Clamping",
             Tonemapper::TumblinRushmeier => "Tumblin Rushmeier",
             Tonemapper::Schlick => "Schlick",

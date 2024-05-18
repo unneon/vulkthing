@@ -1,6 +1,6 @@
 use crate::renderer::{DeviceSupport, FRAMES_IN_FLIGHT};
-use ash::extensions::ext::{DebugUtils, MeshShader};
-use ash::extensions::khr::{BufferDeviceAddress, Surface, Swapchain};
+use ash::ext::{debug_utils, mesh_shader};
+use ash::khr::{buffer_device_address, surface, swapchain};
 use ash::{vk, Device, Instance};
 use std::ffi::CStr;
 use std::mem::MaybeUninit;
@@ -22,10 +22,11 @@ pub struct Dev {
     pub logical: Device,
     pub physical: vk::PhysicalDevice,
     pub instance: Instance,
-    pub debug_ext: DebugUtils,
-    pub surface_ext: Surface,
-    pub swapchain_ext: Swapchain,
-    pub mesh_ext: MeshShader,
+    pub debug_ext: debug_utils::Device,
+    pub debug_ext_instance: debug_utils::Instance,
+    pub surface_ext: surface::Instance,
+    pub swapchain_ext: swapchain::Device,
+    pub mesh_ext: mesh_shader::Device,
     pub support: DeviceSupport,
 }
 
@@ -59,20 +60,20 @@ impl Buffer {
         size: usize,
         dev: &Dev,
     ) -> Buffer {
-        let create_info = vk::BufferCreateInfo::builder()
+        let create_info = vk::BufferCreateInfo::default()
             .size(size as u64)
             .usage(usage)
             .sharing_mode(vk::SharingMode::EXCLUSIVE);
         let buffer = unsafe { dev.create_buffer(&create_info, None) }.unwrap();
         let requirements = unsafe { dev.get_buffer_memory_requirements(buffer) };
         let memory_type_index = find_memory_type(properties, requirements.memory_type_bits, dev);
-        let mut memory_info = vk::MemoryAllocateInfo::builder()
+        let mut memory_info = vk::MemoryAllocateInfo::default()
             .allocation_size(requirements.size)
             .memory_type_index(memory_type_index);
 
         let mut allocate_flags;
         if usage.contains(vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS) {
-            allocate_flags = *vk::MemoryAllocateFlagsInfoKHR::builder()
+            allocate_flags = vk::MemoryAllocateFlagsInfoKHR::default()
                 .flags(vk::MemoryAllocateFlags::DEVICE_ADDRESS);
             memory_info = memory_info.push_next(&mut allocate_flags);
         }
@@ -120,8 +121,8 @@ impl Buffer {
     }
 
     #[allow(dead_code)]
-    pub fn device_address(&self, buffer_device_address_ext: &BufferDeviceAddress) -> u64 {
-        let info = *vk::BufferDeviceAddressInfoKHR::builder().buffer(self.buffer);
+    pub fn device_address(&self, buffer_device_address_ext: &buffer_device_address::Device) -> u64 {
+        let info = vk::BufferDeviceAddressInfoKHR::default().buffer(self.buffer);
         unsafe { buffer_device_address_ext.get_buffer_device_address(&info) }
     }
 
@@ -134,13 +135,13 @@ impl Buffer {
 impl Ctx<'_> {
     #[allow(dead_code)]
     pub fn execute<R>(&self, f: impl FnOnce(vk::CommandBuffer) -> R) -> R {
-        let command_info = vk::CommandBufferAllocateInfo::builder()
+        let command_info = vk::CommandBufferAllocateInfo::default()
             .level(vk::CommandBufferLevel::PRIMARY)
             .command_pool(self.command_pool)
             .command_buffer_count(1);
         let buf = unsafe { self.dev.allocate_command_buffers(&command_info) }.unwrap()[0];
 
-        let begin_info = vk::CommandBufferBeginInfo::builder()
+        let begin_info = vk::CommandBufferBeginInfo::default()
             .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
         unsafe { self.dev.begin_command_buffer(buf, &begin_info) }.unwrap();
 
@@ -149,10 +150,10 @@ impl Ctx<'_> {
         unsafe { self.dev.end_command_buffer(buf) }.unwrap();
 
         let submit_buffers = [buf];
-        let submit_info = vk::SubmitInfo::builder().command_buffers(&submit_buffers);
+        let submit_info = vk::SubmitInfo::default().command_buffers(&submit_buffers);
         unsafe {
             self.dev
-                .queue_submit(self.queue, &[*submit_info], vk::Fence::null())
+                .queue_submit(self.queue, &[submit_info], vk::Fence::null())
         }
         .unwrap();
         unsafe { self.dev.queue_wait_idle(self.queue) }.unwrap();
@@ -281,7 +282,7 @@ impl Deref for Dev {
 
 impl<T> AsDescriptor for UniformBuffer<T> {
     fn descriptor(&self, flight_index: usize) -> vk::DescriptorBufferInfo {
-        *vk::DescriptorBufferInfo::builder()
+        vk::DescriptorBufferInfo::default()
             .buffer(self.buffer.buffer)
             .offset((flight_index * self.aligned_size) as u64)
             .range(std::mem::size_of::<T>() as u64)
@@ -290,7 +291,7 @@ impl<T> AsDescriptor for UniformBuffer<T> {
 
 impl<T: ?Sized> AsDescriptor for StorageBuffer<T> {
     fn descriptor(&self, _flight_index: usize) -> vk::DescriptorBufferInfo {
-        *vk::DescriptorBufferInfo::builder()
+        vk::DescriptorBufferInfo::default()
             .buffer(self.buffer.buffer)
             .range(unsafe { std::mem::size_of_val(&*self.mapping) } as u64)
     }
@@ -310,7 +311,7 @@ pub fn create_image(
     samples: vk::SampleCountFlags,
     dev: &Dev,
 ) -> (vk::Image, vk::DeviceMemory) {
-    let image_info = vk::ImageCreateInfo::builder()
+    let image_info = vk::ImageCreateInfo::default()
         .image_type(vk::ImageType::TYPE_2D)
         .extent(vk::Extent3D {
             width: extent.width,
@@ -329,7 +330,7 @@ pub fn create_image(
 
     let requirements = unsafe { dev.get_image_memory_requirements(image) };
     let memory_type = find_memory_type(memory, requirements.memory_type_bits, dev);
-    let alloc_info = vk::MemoryAllocateInfo::builder()
+    let alloc_info = vk::MemoryAllocateInfo::default()
         .allocation_size(requirements.size)
         .memory_type_index(memory_type);
     let image_memory = unsafe { dev.allocate_memory(&alloc_info, None) }.unwrap();
@@ -344,7 +345,7 @@ pub fn create_image_view(
     aspect_mask: vk::ImageAspectFlags,
     dev: &Dev,
 ) -> vk::ImageView {
-    let view_info = vk::ImageViewCreateInfo::builder()
+    let view_info = vk::ImageViewCreateInfo::default()
         .image(image)
         .view_type(vk::ImageViewType::TYPE_2D)
         .format(format)

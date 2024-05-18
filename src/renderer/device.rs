@@ -1,5 +1,5 @@
 use crate::renderer::util::vulkan_str;
-use ash::extensions::khr::Surface;
+use ash::khr::surface;
 use ash::{vk, Instance};
 use log::{debug, warn};
 
@@ -12,7 +12,7 @@ pub struct DeviceInfo {
 pub fn select_device(
     surface: vk::SurfaceKHR,
     instance: &Instance,
-    surface_ext: &Surface,
+    surface_ext: &surface::Instance,
 ) -> DeviceInfo {
     // Select the GPU. For now, just select the first discrete GPU with graphics support. Later,
     // this should react better to iGPU, dGPU and iGPU+dGPU setups. In more complex setups, it would
@@ -47,7 +47,7 @@ pub fn select_device(
 
 fn find_graphics_queue(
     queues: &[vk::QueueFamilyProperties],
-    surface_extension: &Surface,
+    surface_extension: &surface::Instance,
     device: vk::PhysicalDevice,
     surface: vk::SurfaceKHR,
 ) -> Option<u32> {

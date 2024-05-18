@@ -1,10 +1,10 @@
 use crate::renderer::util::Dev;
-use ash::extensions::ext::DebugUtils;
+use ash::ext::debug_utils;
 use ash::vk;
 use ash::vk::Handle;
 use std::ffi::{CStr, CString};
 
-pub fn create_debug_messenger(debug_ext: &DebugUtils) -> vk::DebugUtilsMessengerEXT {
+pub fn create_debug_messenger(debug_ext: &debug_utils::Instance) -> vk::DebugUtilsMessengerEXT {
     // vulkan-tutorial.com also shows how to enable this for creating instances, but the ash
     // example doesn't include this.
     let severity_filter = vk::DebugUtilsMessageSeverityFlagsEXT::ERROR
@@ -14,7 +14,7 @@ pub fn create_debug_messenger(debug_ext: &DebugUtils) -> vk::DebugUtilsMessenger
     let type_filter = vk::DebugUtilsMessageTypeFlagsEXT::GENERAL
         | vk::DebugUtilsMessageTypeFlagsEXT::VALIDATION
         | vk::DebugUtilsMessageTypeFlagsEXT::PERFORMANCE;
-    let info = vk::DebugUtilsMessengerCreateInfoEXT::builder()
+    let info = vk::DebugUtilsMessengerCreateInfoEXT::default()
         .message_severity(severity_filter)
         .message_type(type_filter)
         .pfn_user_callback(Some(callback));
@@ -73,7 +73,7 @@ pub fn begin_label(buf: vk::CommandBuffer, text: &str, color: [u8; 3], dev: &Dev
         1.,
     ];
     let label_name = CString::new(text).unwrap();
-    let label = *vk::DebugUtilsLabelEXT::builder()
+    let label = vk::DebugUtilsLabelEXT::default()
         .label_name(&label_name)
         .color(color);
     unsafe { dev.debug_ext.cmd_begin_debug_utils_label(buf, &label) };
@@ -85,13 +85,8 @@ pub fn end_label(buf: vk::CommandBuffer, dev: &Dev) {
 
 pub fn set_label<T: Handle>(object: T, name: &str, dev: &Dev) {
     let object_name = CString::new(name).unwrap();
-    let name_info = *vk::DebugUtilsObjectNameInfoEXT::builder()
-        .object_type(T::TYPE)
-        .object_handle(object.as_raw())
+    let name_info = vk::DebugUtilsObjectNameInfoEXT::default()
+        .object_handle(object)
         .object_name(&object_name);
-    unsafe {
-        dev.debug_ext
-            .set_debug_utils_object_name(dev.logical.handle(), &name_info)
-    }
-    .unwrap();
+    unsafe { dev.debug_ext.set_debug_utils_object_name(&name_info) }.unwrap();
 }

@@ -20,7 +20,7 @@ impl Pass {
     ) {
         begin_label(buf, self.debug_name, self.debug_color, dev);
 
-        let color_attachment_info = *vk::RenderingAttachmentInfo::builder()
+        let color_attachment_info = vk::RenderingAttachmentInfo::default()
             .image_view(color.view)
             .image_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
             .load_op(vk::AttachmentLoadOp::CLEAR)
@@ -30,15 +30,15 @@ impl Pass {
                     float32: [0., 0., 0., 0.],
                 },
             });
-        let depth_attachment_info = *vk::RenderingAttachmentInfo::builder()
+        let depth_attachment_info = vk::RenderingAttachmentInfo::default()
             .image_view(depth.view)
             .image_layout(vk::ImageLayout::DEPTH_ATTACHMENT_OPTIMAL)
             .load_op(vk::AttachmentLoadOp::CLEAR)
             .store_op(vk::AttachmentStoreOp::DONT_CARE)
             .clear_value(vk::ClearValue {
-                depth_stencil: *vk::ClearDepthStencilValue::builder().depth(1.),
+                depth_stencil: vk::ClearDepthStencilValue::default().depth(1.),
             });
-        let rendering_info = vk::RenderingInfo::builder()
+        let rendering_info = vk::RenderingInfo::default()
             .render_area(vk::Rect2D {
                 offset: vk::Offset2D { x: 0, y: 0 },
                 extent,

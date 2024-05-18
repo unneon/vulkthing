@@ -10,6 +10,7 @@ pub mod uniform;
 pub mod util;
 pub mod vertex;
 
+#[cfg(feature = "dev-menu")]
 use crate::interface::EnumInterface;
 use crate::renderer::codegen::{Passes, Pipelines, Samplers};
 use crate::renderer::debug::{begin_label, end_label};
@@ -25,9 +26,9 @@ use crate::voxel::gpu::VoxelGpuMemory;
 use crate::voxel::VoxelsConfig;
 use crate::world::World;
 use ash::{vk, Entry};
+#[cfg(feature = "dev-menu")]
 use imgui::DrawData;
 use nalgebra::{Matrix4, Vector2, Vector3};
-use std::borrow::Cow;
 use std::f32::consts::FRAC_PI_4;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
@@ -83,6 +84,7 @@ pub struct Renderer {
     pub frametime: Option<Duration>,
     pub just_completed_first_render: bool,
 
+    #[cfg(feature = "dev-menu")]
     interface_renderer: Option<imgui_rs_vulkan_renderer::Renderer>,
 }
 
@@ -150,12 +152,20 @@ impl Renderer {
         voxels: &VoxelsConfig,
         settings: &RendererSettings,
         window_size: PhysicalSize<u32>,
-        ui_draw: &DrawData,
+        #[cfg(feature = "dev-menu")] ui_draw: &DrawData,
     ) {
         let Some(image_index) = (unsafe { self.prepare_command_buffer(window_size) }) else {
             return;
         };
-        unsafe { self.record_command_buffer(image_index, world, settings, ui_draw) };
+        unsafe {
+            self.record_command_buffer(
+                image_index,
+                world,
+                settings,
+                #[cfg(feature = "dev-menu")]
+                ui_draw,
+            )
+        };
         self.frametime = self.query_timestamp();
         self.update_global_uniform(
             world,
@@ -209,16 +219,23 @@ impl Renderer {
         image_index: usize,
         world: &World,
         settings: &RendererSettings,
-        ui_draw: &DrawData,
+        #[cfg(feature = "dev-menu")] ui_draw: &DrawData,
     ) {
         let buf = self.command_buffers[self.flight_index];
 
-        let begin_info = vk::CommandBufferBeginInfo::builder()
+        let begin_info = vk::CommandBufferBeginInfo::default()
             .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
         self.dev.begin_command_buffer(buf, &begin_info).unwrap();
         self.reset_timestamps(buf);
         self.write_timestamp(buf, 0, vk::PipelineStageFlags::ALL_COMMANDS);
-        self.record_render_pass(image_index, buf, world, settings, ui_draw);
+        self.record_render_pass(
+            image_index,
+            buf,
+            world,
+            settings,
+            #[cfg(feature = "dev-menu")]
+            ui_draw,
+        );
         self.write_timestamp(buf, 1, vk::PipelineStageFlags::ALL_COMMANDS);
         self.dev.end_command_buffer(buf).unwrap();
     }
@@ -229,7 +246,7 @@ impl Renderer {
         buf: vk::CommandBuffer,
         world: &World,
         settings: &RendererSettings,
-        ui_draw: &DrawData,
+        #[cfg(feature = "dev-menu")] ui_draw: &DrawData,
     ) {
         let color = &self.swapchain.images[image_index];
         let depth = &self.depth;
@@ -299,14 +316,17 @@ impl Renderer {
         unsafe { self.dev.cmd_draw(buf, 6, 1, 0, 0) };
         end_label(buf, &self.dev);
 
-        // TODO: Fix drawing SRGB interface to linear color space.
-        begin_label(buf, "Debugging interface draw", [63, 70, 73], &self.dev);
-        self.interface_renderer
-            .as_mut()
-            .unwrap()
-            .cmd_draw(buf, ui_draw)
-            .unwrap();
-        end_label(buf, &self.dev);
+        #[cfg(feature = "dev-menu")]
+        {
+            // TODO: Fix drawing SRGB interface to linear color space.
+            begin_label(buf, "Debugging interface draw", [63, 70, 73], &self.dev);
+            self.interface_renderer
+                .as_mut()
+                .unwrap()
+                .cmd_draw(buf, ui_draw)
+                .unwrap();
+            end_label(buf, &self.dev);
+        }
 
         self.passes.render.end(buf, &self.dev);
 
@@ -408,7 +428,7 @@ impl Renderer {
         let wait_semaphores = [image_available];
         let command_buffers = [command_buffer];
         let signal_semaphores = [render_finished];
-        let submit_info = vk::SubmitInfo::builder()
+        let submit_info = vk::SubmitInfo::default()
             .wait_semaphores(&wait_semaphores)
             .wait_dst_stage_mask(&[vk::PipelineStageFlags::FRAGMENT_SHADER])
             .command_buffers(&command_buffers)
@@ -416,7 +436,7 @@ impl Renderer {
         unsafe {
             self.dev.queue_submit(
                 self.queue,
-                &[*submit_info],
+                &[submit_info],
                 self.sync.in_flight[self.flight_index],
             )
         }
@@ -429,7 +449,7 @@ impl Renderer {
         let wait_semaphores = [render_finished];
         let swapchains = [self.swapchain.handle];
         let image_indices = [image_index as u32];
-        let present_info = vk::PresentInfoKHR::builder()
+        let present_info = vk::PresentInfoKHR::default()
             .wait_semaphores(&wait_semaphores)
             .swapchains(&swapchains)
             .image_indices(&image_indices);
@@ -492,7 +512,7 @@ impl Renderer {
     }
 
     fn barriers(&self, buf: vk::CommandBuffer, barriers: &[vk::ImageMemoryBarrier2]) {
-        let dependency_info = vk::DependencyInfo::builder().image_memory_barriers(barriers);
+        let dependency_info = vk::DependencyInfo::default().image_memory_barriers(barriers);
         unsafe { self.dev.cmd_pipeline_barrier2(buf, &dependency_info) }
     }
 
@@ -526,7 +546,6 @@ impl Renderer {
             self.dev.get_query_pool_results(
                 self.query_pool,
                 (2 * self.flight_index) as u32,
-                2,
                 &mut timestamps,
                 vk::QueryResultFlags::TYPE_64,
             )
@@ -560,6 +579,7 @@ impl MeshObject {
     }
 }
 
+#[cfg(feature = "dev-menu")]
 impl EnumInterface for VoxelRendering {
     const VALUES: &'static [Self] = &[
         VoxelRendering::Classic,
@@ -567,8 +587,8 @@ impl EnumInterface for VoxelRendering {
         VoxelRendering::RayTracing,
     ];
 
-    fn label(&self) -> Cow<str> {
-        Cow::Borrowed(match self {
+    fn label(&self) -> std::borrow::Cow<str> {
+        std::borrow::Cow::Borrowed(match self {
             VoxelRendering::Classic => "Classic",
             VoxelRendering::MeshShaders => "Mesh shaders",
             VoxelRendering::RayTracing => "Ray tracing",

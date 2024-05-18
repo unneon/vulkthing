@@ -1,5 +1,5 @@
 use crate::renderer::util::{create_image_view, Dev, ImageResources};
-use ash::extensions::khr::Swapchain as SwapchainKhr;
+use ash::khr::swapchain;
 use ash::vk;
 use winit::dpi::PhysicalSize;
 
@@ -12,7 +12,7 @@ pub struct Swapchain {
 
 impl Swapchain {
     pub fn cleanup(&self, dev: &Dev) {
-        let swapchain_ext = SwapchainKhr::new(&dev.instance, dev);
+        let swapchain_ext = swapchain::Device::new(&dev.instance, dev);
         for image in &self.images {
             unsafe { dev.destroy_image_view(image.view, None) };
         }
@@ -113,7 +113,7 @@ fn create_handle(
     capabilities: vk::SurfaceCapabilitiesKHR,
     dev: &Dev,
 ) -> vk::SwapchainKHR {
-    let create_info = vk::SwapchainCreateInfoKHR::builder()
+    let create_info = vk::SwapchainCreateInfoKHR::default()
         .surface(surface)
         .min_image_count(image_count as u32)
         .image_format(format.format)

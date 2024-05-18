@@ -23,9 +23,8 @@ use crate::voxel::gpu::{SvoNode, VoxelGpuMemory};
 use crate::window::Window;
 use crate::world::World;
 use crate::{VULKAN_APP_NAME, VULKAN_APP_VERSION, VULKAN_ENGINE_NAME, VULKAN_ENGINE_VERSION};
-use ash::extensions::ext::{DebugUtils, MeshShader};
-use ash::extensions::khr::{Surface, Swapchain as SwapchainKhr};
-use ash::vk::{KhrShaderFloatControlsFn, KhrSpirv14Fn};
+use ash::ext::{debug_utils, mesh_shader};
+use ash::khr::{surface, swapchain};
 use ash::{vk, Device, Entry, Instance};
 use log::{debug, warn};
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
@@ -43,9 +42,9 @@ impl Renderer {
     ) -> Renderer {
         let entry = unsafe { Entry::load() }.unwrap();
         let instance = create_instance(window, &entry, args);
-        let debug_ext = DebugUtils::new(&entry, &instance);
-        let surface_ext = Surface::new(&entry, &instance);
-        let debug_messenger = create_debug_messenger(&debug_ext);
+        let debug_ext_instance = debug_utils::Instance::new(&entry, &instance);
+        let debug_messenger = create_debug_messenger(&debug_ext_instance);
+        let surface_ext = surface::Instance::new(&entry, &instance);
         let surface = create_surface(window, &entry, &instance);
         let DeviceInfo {
             physical_device,
@@ -53,7 +52,7 @@ impl Renderer {
         } = select_device(surface, &instance, &surface_ext);
         let properties = unsafe { instance.get_physical_device_properties(physical_device) };
         let mut ms_features = vk::PhysicalDeviceMeshShaderFeaturesEXT::default();
-        let mut features = *vk::PhysicalDeviceFeatures2::builder().push_next(&mut ms_features);
+        let mut features = vk::PhysicalDeviceFeatures2::default().push_next(&mut ms_features);
         unsafe { instance.get_physical_device_features2(physical_device, &mut features) };
         let device_support = DeviceSupport {
             mesh_shaders: (ms_features.mesh_shader != 0) && (ms_features.task_shader != 0),
@@ -63,13 +62,15 @@ impl Renderer {
         }
         let logical_device =
             create_logical_device(queue_family, &instance, physical_device, &device_support);
-        let swapchain_ext = SwapchainKhr::new(&instance, &logical_device);
-        let mesh_ext = MeshShader::new(&instance, &logical_device);
+        let debug_ext = debug_utils::Device::new(&instance, &logical_device);
+        let swapchain_ext = swapchain::Device::new(&instance, &logical_device);
+        let mesh_ext = mesh_shader::Device::new(&instance, &logical_device);
         let dev = Dev {
             logical: logical_device,
             physical: physical_device,
             instance,
             debug_ext,
+            debug_ext_instance,
             surface_ext,
             swapchain_ext,
             mesh_ext,
@@ -181,10 +182,12 @@ impl Renderer {
             frame_index: 0,
             frametime: None,
             just_completed_first_render: false,
+            #[cfg(feature = "dev-menu")]
             interface_renderer: None,
         }
     }
 
+    #[cfg(feature = "dev-menu")]
     pub fn create_interface_renderer(&mut self, imgui: &mut imgui::Context) {
         self.interface_renderer = Some(
             imgui_rs_vulkan_renderer::Renderer::with_default_allocator(
@@ -275,6 +278,7 @@ impl Drop for Renderer {
         unsafe {
             self.dev.device_wait_idle().unwrap();
 
+            #[cfg(feature = "dev-menu")]
             drop(self.interface_renderer.take());
             self.dev.destroy_query_pool(self.query_pool, None);
             self.stars.cleanup(&self.dev);
@@ -296,7 +300,7 @@ impl Drop for Renderer {
             self.dev.destroy_device(None);
             self.dev.surface_ext.destroy_surface(self.surface, None);
             self.dev
-                .debug_ext
+                .debug_ext_instance
                 .destroy_debug_utils_messenger(self.debug_messenger, None);
             self.dev.instance.destroy_instance(None);
         }
@@ -321,14 +325,14 @@ fn create_instance(window: &Window, entry: &Entry, args: &Args) -> Instance {
         VULKAN_ENGINE_VERSION.1,
         VULKAN_ENGINE_VERSION.2,
     );
-    let app_info = vk::ApplicationInfo::builder()
+    let app_info = vk::ApplicationInfo::default()
         .application_name(&app_name)
         .application_version(app_version)
         .engine_name(&engine_name)
         .engine_version(engine_version)
         .api_version(vk::API_VERSION_1_3);
 
-    let layers = entry.enumerate_instance_layer_properties().unwrap();
+    let layers = unsafe { entry.enumerate_instance_layer_properties() }.unwrap();
     let mut layer_names = Vec::new();
 
     // Enable Vulkan validation layers by default. This should be later changed in non-development
@@ -351,12 +355,12 @@ fn create_instance(window: &Window, entry: &Entry, args: &Args) -> Instance {
     // OS-specific windowing system interactions, and enabling debug logging for the validation
     // layers.
     let mut extension_names =
-        ash_window::enumerate_required_extensions(window.window.raw_display_handle())
+        ash_window::enumerate_required_extensions(window.window.raw_display_handle().unwrap())
             .unwrap()
             .to_vec();
-    extension_names.push(DebugUtils::name().as_ptr());
+    extension_names.push(debug_utils::NAME.as_ptr());
 
-    let mut instance_create_info = vk::InstanceCreateInfo::builder()
+    let mut instance_create_info = vk::InstanceCreateInfo::default()
         .application_info(&app_info)
         .enabled_layer_names(&layer_names)
         .enabled_extension_names(&extension_names);
@@ -365,7 +369,7 @@ fn create_instance(window: &Window, entry: &Entry, args: &Args) -> Instance {
     let mut validation_features;
     if validation {
         validation_feature_enables = [vk::ValidationFeatureEnableEXT::DEBUG_PRINTF];
-        validation_features = vk::ValidationFeaturesEXT::builder()
+        validation_features = vk::ValidationFeaturesEXT::default()
             .enabled_validation_features(&validation_feature_enables);
         instance_create_info = instance_create_info.push_next(&mut validation_features);
     }
@@ -387,8 +391,8 @@ fn create_surface(window: &Window, entry: &Entry, instance: &Instance) -> vk::Su
         ash_window::create_surface(
             entry,
             instance,
-            window.window.raw_display_handle(),
-            window.window.raw_window_handle(),
+            window.window.raw_display_handle().unwrap(),
+            window.window.raw_window_handle().unwrap(),
             None,
         )
     }
@@ -401,39 +405,39 @@ fn create_logical_device(
     physical_device: vk::PhysicalDevice,
     device_support: &DeviceSupport,
 ) -> Device {
-    let queue_create = *vk::DeviceQueueCreateInfo::builder()
+    let queue_create = vk::DeviceQueueCreateInfo::default()
         .queue_family_index(queue_family)
         .queue_priorities(&[1.]);
     let queues = [queue_create];
 
-    let mut extensions = vec![SwapchainKhr::name().as_ptr()];
+    let mut extensions = vec![swapchain::NAME.as_ptr()];
     if device_support.mesh_shaders {
         extensions.extend_from_slice(&[
-            KhrShaderFloatControlsFn::name().as_ptr(),
-            KhrSpirv14Fn::name().as_ptr(),
-            MeshShader::name().as_ptr(),
+            mesh_shader::NAME.as_ptr(),
+            ash::khr::shader_float_controls::NAME.as_ptr(),
+            ash::khr::spirv_1_4::NAME.as_ptr(),
         ]);
     }
 
-    let features = *vk::PhysicalDeviceFeatures::builder()
+    let features = vk::PhysicalDeviceFeatures::default()
         .fill_mode_non_solid(true)
         .fragment_stores_and_atomics(true)
         .shader_int16(true);
     let mut vk11_features =
-        *vk::PhysicalDeviceVulkan11Features::builder().storage_buffer16_bit_access(true);
-    let mut vk12_features = *vk::PhysicalDeviceVulkan12Features::builder()
+        vk::PhysicalDeviceVulkan11Features::default().storage_buffer16_bit_access(true);
+    let mut vk12_features = vk::PhysicalDeviceVulkan12Features::default()
         .shader_int8(true)
         .storage_buffer8_bit_access(true);
     // TODO: Something in the task shader requires maintenance4, why?
-    let mut vk13_features = *vk::PhysicalDeviceVulkan13Features::builder()
+    let mut vk13_features = vk::PhysicalDeviceVulkan13Features::default()
         .dynamic_rendering(true)
         .maintenance4(true)
         .synchronization2(true);
-    let mut ms_features = *vk::PhysicalDeviceMeshShaderFeaturesEXT::builder()
+    let mut ms_features = vk::PhysicalDeviceMeshShaderFeaturesEXT::default()
         .mesh_shader(device_support.mesh_shaders)
         .task_shader(device_support.mesh_shaders);
 
-    let create_info = vk::DeviceCreateInfo::builder()
+    let create_info = vk::DeviceCreateInfo::default()
         .queue_create_infos(&queues)
         .enabled_features(&features)
         .enabled_extension_names(&extensions)
@@ -447,7 +451,7 @@ fn create_logical_device(
 
 fn create_pipeline_layout(layout: vk::DescriptorSetLayout, dev: &Dev) -> vk::PipelineLayout {
     let create_info =
-        vk::PipelineLayoutCreateInfo::builder().set_layouts(std::array::from_ref(&layout));
+        vk::PipelineLayoutCreateInfo::default().set_layouts(std::array::from_ref(&layout));
     unsafe { dev.create_pipeline_layout(&create_info, None).unwrap() }
 }
 
@@ -465,7 +469,7 @@ fn create_depth(extent: vk::Extent2D, dev: &Dev) -> ImageResources {
 }
 
 fn create_command_pools(queue_family: u32, dev: &Dev) -> [vk::CommandPool; FRAMES_IN_FLIGHT] {
-    let command_pool_info = vk::CommandPoolCreateInfo::builder().queue_family_index(queue_family);
+    let command_pool_info = vk::CommandPoolCreateInfo::default().queue_family_index(queue_family);
     let mut pools = [vk::CommandPool::null(); FRAMES_IN_FLIGHT];
     for pool in &mut pools {
         *pool = unsafe { dev.create_command_pool(&command_pool_info, None) }.unwrap();
@@ -479,7 +483,7 @@ fn create_command_buffers(
 ) -> [vk::CommandBuffer; FRAMES_IN_FLIGHT] {
     let mut buffers = [vk::CommandBuffer::null(); FRAMES_IN_FLIGHT];
     for (i, buffer) in buffers.iter_mut().enumerate() {
-        let buffer_info = vk::CommandBufferAllocateInfo::builder()
+        let buffer_info = vk::CommandBufferAllocateInfo::default()
             .command_pool(command_pools[i])
             .level(vk::CommandBufferLevel::PRIMARY)
             .command_buffer_count(1);
@@ -503,8 +507,8 @@ fn create_index_buffer(index_data: &[u32], dev: &Dev) -> Buffer {
 }
 
 fn create_sync(dev: &Dev) -> Synchronization {
-    let semaphore_info = vk::SemaphoreCreateInfo::builder();
-    let fence_info = vk::FenceCreateInfo::builder().flags(vk::FenceCreateFlags::SIGNALED);
+    let semaphore_info = vk::SemaphoreCreateInfo::default();
+    let fence_info = vk::FenceCreateInfo::default().flags(vk::FenceCreateFlags::SIGNALED);
     let mut image_available: [vk::Semaphore; FRAMES_IN_FLIGHT] = Default::default();
     let mut render_finished: [vk::Semaphore; FRAMES_IN_FLIGHT] = Default::default();
     let mut in_flight: [vk::Fence; FRAMES_IN_FLIGHT] = Default::default();
@@ -521,7 +525,7 @@ fn create_sync(dev: &Dev) -> Synchronization {
 }
 
 fn create_query_pool(dev: &Dev) -> vk::QueryPool {
-    let create_info = *vk::QueryPoolCreateInfo::builder()
+    let create_info = vk::QueryPoolCreateInfo::default()
         .query_type(vk::QueryType::TIMESTAMP)
         .query_count((2 * FRAMES_IN_FLIGHT) as u32);
     unsafe { dev.create_query_pool(&create_info, None) }.unwrap()
