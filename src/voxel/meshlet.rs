@@ -120,7 +120,10 @@ pub fn from_unclustered_mesh(
         }
         let bound_base = min_coords;
         let bound_size = max_coords - min_coords;
-        for &[mi0, mi1, mi2] in meshlet.triangles.array_chunks() {
+        for mi012 in meshlet.triangles.chunks(3) {
+            let &[mi0, mi1, mi2] = mi012 else {
+                unreachable!()
+            };
             let i0 = meshlet.vertices[mi0 as usize];
             let i1 = meshlet.vertices[mi1 as usize];
             let i2 = meshlet.vertices[mi2 as usize];

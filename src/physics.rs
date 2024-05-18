@@ -41,7 +41,9 @@ impl Physics {
             .iter()
             .map(|v| Point3::from(v.position.component_mul(scale)))
             .collect();
-        let indices = (0..vertices.len() as u32).array_chunks().collect();
+        let indices = (0..vertices.len() as u32 / 3)
+            .map(|i| [3 * i, 3 * i + 1, 3 * i + 2])
+            .collect();
         ColliderBuilder::trimesh(vertices, indices)
     }
 

@@ -48,7 +48,8 @@ fn flatten_meshes(models: &[tobj::Model]) -> MeshData<Vertex> {
         }
     }
     let indices = (0..vertices.len() as u32).collect();
-    for [v1, v2, v3] in vertices.array_chunks_mut() {
+    for v123 in vertices.chunks_mut(3) {
+        let [v1, v2, v3] = v123 else { unreachable!() };
         let normal = (v2.position - v1.position)
             .cross(&(v3.position - v1.position))
             .normalize();

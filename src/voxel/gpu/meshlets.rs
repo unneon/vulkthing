@@ -67,15 +67,23 @@ impl VoxelGpuMemory for VoxelMeshletMemory {
         }
 
         let vertex_memory = &mut self.vertex_buffer.mapped()[self.vertex_count..new_vertex_count];
-        MaybeUninit::copy_from_slice(vertex_memory, &mesh.vertices);
+        for (vertex_memory, mesh_vertex) in vertex_memory.iter_mut().zip(mesh.vertices.iter()) {
+            vertex_memory.write(*mesh_vertex);
+        }
 
         let triangle_memory =
             &mut self.triangle_buffer.mapped()[self.triangle_count..new_triangle_count];
-        MaybeUninit::copy_from_slice(triangle_memory, &mesh.triangles);
+        for (triangle_memory, mesh_triangle) in
+            triangle_memory.iter_mut().zip(mesh.triangles.iter())
+        {
+            triangle_memory.write(*mesh_triangle);
+        }
 
         let meshlet_memory =
             &mut self.meshlet_buffer.mapped()[old_meshlet_count..new_meshlet_count];
-        MaybeUninit::copy_from_slice(meshlet_memory, &mesh.meshlets);
+        for (meshlet_memory, mesh_meshlet) in meshlet_memory.iter_mut().zip(mesh.meshlets.iter()) {
+            meshlet_memory.write(*mesh_meshlet);
+        }
 
         if mesh.chunk == Vector3::zeros() {
             let octree_memory = self.octree_buffer.mapped();

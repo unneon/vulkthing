@@ -44,12 +44,11 @@ pub fn initialize_panic_hook() {
 }
 
 fn panic_hook(info: &PanicInfo) {
-    let generic_message;
-    let message = if let Some(message) = info.message() {
+    let full_message = info.to_string();
+    let message = if let Some((_, message)) = full_message.split_once('\n') {
         message
     } else {
-        generic_message = format_args!("panic");
-        &generic_message
+        "panic"
     };
     if let Some(location) = info.location() {
         error!("{message}, \x1B[1mlocation:\x1B[0m {location}");

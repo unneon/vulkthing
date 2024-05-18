@@ -88,7 +88,9 @@ impl Buffer {
 
     pub fn fill_from_slice_host_visible<T: Copy>(&self, data: &[T], dev: &Dev) {
         self.with_mapped(dev, |mapped| {
-            MaybeUninit::copy_from_slice(mapped, data);
+            for (mapped, data) in mapped.iter_mut().zip(data.iter()) {
+                mapped.write(data);
+            }
         });
     }
 
@@ -252,7 +254,7 @@ impl<T: Copy> StorageBuffer<[T]> {
         let buffer = Buffer::create(flags, vk::BufferUsageFlags::STORAGE_BUFFER, size, dev);
         let flags = vk::MemoryMapFlags::empty();
         let raw_mapping = unsafe { dev.map_memory(buffer.memory, 0, size as u64, flags) }.unwrap();
-        let mapping = std::ptr::from_raw_parts_mut(raw_mapping as *mut (), count);
+        let mapping = unsafe { std::slice::from_raw_parts_mut(raw_mapping as *mut T, count) };
         StorageBuffer { buffer, mapping }
     }
 
@@ -265,9 +267,7 @@ impl<T: Copy> StorageBuffer<[T]> {
 
 impl<T> StorageBuffer<[T]> {
     pub fn mapped(&mut self) -> &mut [MaybeUninit<T>] {
-        unsafe {
-            std::slice::from_raw_parts_mut(self.mapping as *mut MaybeUninit<T>, self.mapping.len())
-        }
+        unsafe { &mut *(self.mapping as *mut [MaybeUninit<T>]) }
     }
 }
 
@@ -292,7 +292,7 @@ impl<T: ?Sized> AsDescriptor for StorageBuffer<T> {
     fn descriptor(&self, _flight_index: usize) -> vk::DescriptorBufferInfo {
         *vk::DescriptorBufferInfo::builder()
             .buffer(self.buffer.buffer)
-            .range(unsafe { std::mem::size_of_val_raw(self.mapping) } as u64)
+            .range(unsafe { std::mem::size_of_val(&*self.mapping) } as u64)
     }
 }
 
