@@ -1,5 +1,3 @@
-mod benchmark;
-
 use crate::camera::Camera;
 use crate::config::{
     DEFAULT_CAMERA, DEFAULT_STAR_COUNT, DEFAULT_STAR_MAX_SCALE, DEFAULT_STAR_MIN_SCALE,
@@ -116,16 +114,14 @@ impl World {
         }
     }
 
-    pub fn update(&mut self, delta_time: f32, input_state: &InputState, benchmark: bool) {
-        if !benchmark {
-            self.camera.apply_input(input_state, delta_time);
-            self.update_player(input_state);
-            self.physics.step(delta_time);
-            self.camera.set_position(
-                self.physics.get_translation(self.camera_rigid_body_handle)
-                    + Vector3::new(0., 0., AVERAGE_MALE_EYE_HEIGHT / 2.),
-            );
-        }
+    pub fn update(&mut self, delta_time: f32, input_state: &InputState) {
+        self.camera.apply_input(input_state, delta_time);
+        self.update_player(input_state);
+        self.physics.step(delta_time);
+        self.camera.set_position(
+            self.physics.get_translation(self.camera_rigid_body_handle)
+                + Vector3::new(0., 0., AVERAGE_MALE_EYE_HEIGHT / 2.),
+        );
         if !self.sun_pause {
             self.time_of_day += self.sun_speed * delta_time;
         }
