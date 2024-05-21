@@ -111,6 +111,7 @@ pub struct RendererSettings {
     pub postprocess: PostprocessSettings,
 }
 
+#[allow(dead_code)]
 #[derive(Clone, Copy, PartialEq)]
 pub enum VoxelRendering {
     Classic,

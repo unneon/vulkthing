@@ -53,6 +53,8 @@ struct AppState {
     renderer: Option<Renderer>,
     renderer_settings: RendererSettings,
     input_state: InputState,
+    #[cfg(feature = "dev-menu")]
+    interface: Option<Interface>,
     last_window_size: Option<PhysicalSize<u32>>,
     last_frame_timestamp: Instant,
     frame_index: usize,
@@ -90,6 +92,16 @@ impl ApplicationHandler for AppState {
             &self.args,
         );
 
+        #[cfg(feature = "dev-menu")]
+        {
+            let mut interface = Interface::new(
+                renderer.swapchain.extent.width as usize,
+                renderer.swapchain.extent.height as usize,
+            );
+            renderer.create_interface_renderer(&mut interface.ctx);
+            self.interface = Some(interface);
+        }
+
         let voxels = Voxels::new(
             self.voxels_config.clone(),
             self.world.camera.position(),
@@ -105,7 +117,7 @@ impl ApplicationHandler for AppState {
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _: WindowId, event: WindowEvent) {
         #[cfg(feature = "dev-menu")]
-        interface.apply_window(&event);
+        self.interface.as_mut().unwrap().apply_window(&event);
         match event {
             WindowEvent::KeyboardInput { event, .. } => self.input_state.apply_keyboard(event),
             WindowEvent::Resized(new_size) => {
@@ -160,21 +172,30 @@ impl ApplicationHandler for AppState {
         self.input_state.reset_after_frame();
         #[cfg(feature = "dev-menu")]
         {
-            interface.apply_cursor(input_state.camera_lock, &window.window);
-            let interface_events = interface.build(
-                &mut world,
-                &mut renderer_settings,
-                &mut voxel_config,
-                renderer.frametime,
+            self.interface
+                .as_mut()
+                .unwrap()
+                .apply_cursor(self.input_state.camera_lock, self.window.as_ref().unwrap());
+            let interface_events = self.interface.as_mut().unwrap().build(
+                &mut self.world,
+                &mut self.renderer_settings,
+                &mut self.voxels_config,
+                self.renderer.as_ref().unwrap().frametime,
             );
             assert!(!interface_events.planet_changed);
             if interface_events.rebuild_swapchain {
-                renderer.recreate_swapchain(window.window.inner_size());
+                self.renderer
+                    .as_mut()
+                    .unwrap()
+                    .recreate_swapchain(self.window.as_ref().unwrap().inner_size());
             } else if interface_events.rebuild_pipelines {
-                renderer.recreate_pipelines();
+                self.renderer.as_mut().unwrap().recreate_pipelines();
             }
             if interface_events.rebuild_voxels {
-                voxels.update_config(voxel_config.clone());
+                self.voxels
+                    .as_mut()
+                    .unwrap()
+                    .update_config(self.voxels_config.clone());
             }
         }
 
@@ -184,7 +205,7 @@ impl ApplicationHandler for AppState {
             &self.renderer_settings,
             self.window.as_ref().unwrap().inner_size(),
             #[cfg(feature = "dev-menu")]
-            interface.draw_data(),
+            self.interface.as_mut().unwrap().draw_data(),
         );
 
         if self.renderer.as_ref().unwrap().just_completed_first_render {
@@ -205,15 +226,6 @@ pub fn main() {
     let args = Args::parse();
     let event_loop = create_event_loop(&args);
 
-    #[cfg(feature = "dev-menu")]
-    let mut interface = Interface::new(
-        renderer.swapchain.extent.width as usize,
-        renderer.swapchain.extent.height as usize,
-    );
-
-    #[cfg(feature = "dev-menu")]
-    renderer.create_interface_renderer(&mut interface.ctx);
-
     let mut app_state = AppState {
         window: None,
         world: World::new(),
@@ -224,6 +236,8 @@ pub fn main() {
         last_frame_timestamp: Instant::now(),
         renderer: None,
         renderer_settings: DEFAULT_RENDERER_SETTINGS,
+        #[cfg(feature = "dev-menu")]
+        interface: None,
         frame_index: 0,
         args,
     };
