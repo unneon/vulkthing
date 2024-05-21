@@ -20,18 +20,18 @@ use crate::renderer::{
 };
 use crate::voxel::gpu::meshlets::VoxelMeshletMemory;
 use crate::voxel::gpu::{SvoNode, VoxelGpuMemory};
-use crate::window::Window;
 use crate::world::World;
 use crate::{VULKAN_APP_NAME, VULKAN_APP_VERSION, VULKAN_ENGINE_NAME, VULKAN_ENGINE_VERSION};
 use ash::ext::{debug_utils, mesh_shader};
 use ash::khr::{surface, swapchain};
 use ash::{vk, Device, Entry, Instance};
 use log::{debug, warn};
-use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
+use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use std::ffi::CString;
 use std::sync::atomic::AtomicU32;
 use std::sync::Arc;
 use winit::dpi::PhysicalSize;
+use winit::window::Window;
 
 impl Renderer {
     pub fn new(
@@ -86,7 +86,7 @@ impl Renderer {
         let descriptor_set_layout = create_descriptor_set_layout(&samplers, &dev);
         let descriptor_pool = create_descriptor_pool(descriptor_set_layout, &dev);
 
-        let swapchain = create_swapchain(surface, window.window.inner_size(), &dev);
+        let swapchain = create_swapchain(surface, window.inner_size(), &dev);
         let depth = create_depth(swapchain.extent, &dev);
         let passes = create_render_passes(&swapchain, vk::SampleCountFlags::TYPE_1, &dev);
         let pipeline_layout = create_pipeline_layout(descriptor_set_layout, &dev);
@@ -355,7 +355,7 @@ fn create_instance(window: &Window, entry: &Entry, args: &Args) -> Instance {
     // OS-specific windowing system interactions, and enabling debug logging for the validation
     // layers.
     let mut extension_names =
-        ash_window::enumerate_required_extensions(window.window.raw_display_handle().unwrap())
+        ash_window::enumerate_required_extensions(window.display_handle().unwrap().as_raw())
             .unwrap()
             .to_vec();
     extension_names.push(debug_utils::NAME.as_ptr());
@@ -391,8 +391,8 @@ fn create_surface(window: &Window, entry: &Entry, instance: &Instance) -> vk::Su
         ash_window::create_surface(
             entry,
             instance,
-            window.window.raw_display_handle().unwrap(),
-            window.window.raw_window_handle().unwrap(),
+            window.display_handle().unwrap().as_raw(),
+            window.window_handle().unwrap().as_raw(),
             None,
         )
     }

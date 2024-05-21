@@ -1,6 +1,6 @@
 #![allow(clippy::too_many_arguments)]
 
-use crate::cli::Args;
+use crate::cli::{Args, WindowProtocol};
 use crate::config::{DEFAULT_RENDERER_SETTINGS, DEFAULT_VOXEL_CONFIG};
 use crate::input::InputState;
 #[cfg(feature = "dev-menu")]
@@ -9,15 +9,16 @@ use crate::logger::{initialize_logger, initialize_panic_hook};
 use crate::mesh::load_mesh;
 use crate::renderer::{Renderer, RendererSettings};
 use crate::voxel::{Voxels, VoxelsConfig};
-use crate::window::create_window;
 use crate::world::World;
-use log::debug;
+use log::{debug, warn};
 use std::time::Instant;
 use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalSize;
 use winit::event::{DeviceEvent, DeviceId, StartCause, WindowEvent};
-use winit::event_loop::{ActiveEventLoop, ControlFlow};
-use winit::window::WindowId;
+use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
+use winit::platform::wayland::EventLoopBuilderExtWayland;
+use winit::platform::x11::EventLoopBuilderExtX11;
+use winit::window::{CursorGrabMode, Fullscreen, Window, WindowId};
 
 mod camera;
 mod cli;
@@ -31,8 +32,9 @@ mod physics;
 mod renderer;
 mod util;
 pub mod voxel;
-mod window;
 mod world;
+
+const WINDOW_TITLE: &str = "Vulkthing";
 
 const VULKAN_APP_NAME: &str = "Vulkthing";
 const VULKAN_APP_VERSION: (u32, u32, u32) = (0, 0, 0);
@@ -44,16 +46,17 @@ const SPRINT_SPEED: f32 = 100.;
 const CAMERA_SENSITIVITY: f32 = 0.01;
 
 struct AppState {
-    window: winit::window::Window,
+    window: Option<Window>,
     world: World,
-    voxels: Voxels,
+    voxels: Option<Voxels>,
     voxels_config: VoxelsConfig,
-    renderer: Renderer,
+    renderer: Option<Renderer>,
     renderer_settings: RendererSettings,
     input_state: InputState,
-    last_window_size: PhysicalSize<u32>,
+    last_window_size: Option<PhysicalSize<u32>>,
     last_frame_timestamp: Instant,
     frame_index: usize,
+    args: Args,
 }
 
 impl ApplicationHandler for AppState {
@@ -65,8 +68,39 @@ impl ApplicationHandler for AppState {
         }
     }
 
-    fn resumed(&mut self, _: &ActiveEventLoop) {
-        // TODO: Create window here instead for correct behavior on Android I think?
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        let window_attributes = Window::default_attributes()
+            .with_title(WINDOW_TITLE)
+            .with_resizable(true)
+            .with_decorations(false)
+            .with_fullscreen(Some(Fullscreen::Borderless(None)))
+            .with_visible(false);
+        let window = event_loop.create_window(window_attributes).unwrap();
+        if window.set_cursor_grab(CursorGrabMode::Locked).is_err() {
+            warn!("cursor grab unavailable");
+        }
+        window.set_cursor_visible(false);
+
+        let tetrahedron_mesh = load_mesh("assets/tetrahedron.obj");
+        let icosahedron_mesh = load_mesh("assets/icosahedron.obj");
+        let mut renderer = Renderer::new(
+            &window,
+            &[&tetrahedron_mesh, &icosahedron_mesh],
+            &self.world,
+            &self.args,
+        );
+
+        let voxels = Voxels::new(
+            self.voxels_config.clone(),
+            self.world.camera.position(),
+            renderer.voxel_gpu_memory.take().unwrap(),
+            std::thread::available_parallelism().unwrap().get() - 1,
+        );
+
+        self.last_window_size = Some(window.inner_size());
+        self.window = Some(window);
+        self.renderer = Some(renderer);
+        self.voxels = Some(voxels);
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _: WindowId, event: WindowEvent) {
@@ -78,14 +112,20 @@ impl ApplicationHandler for AppState {
                 // On app launch under GNOME/Wayland, winit will send a resize event even if
                 // the size happens to be the same (the focus status also seems to change).
                 // Let's avoid rebuilding the pipelines in this case.
-                if new_size != self.last_window_size {
-                    let old_size = self.last_window_size;
-                    debug!(
-                        "window resized from {}x{} to {}x{}",
-                        old_size.width, old_size.height, new_size.width, new_size.height
-                    );
-                    self.renderer.recreate_swapchain(new_size);
-                    self.last_window_size = new_size;
+                if Some(new_size) != self.last_window_size {
+                    if let Some(old_size) = self.last_window_size {
+                        debug!(
+                            "window resized from {}x{} to {}x{}",
+                            old_size.width, old_size.height, new_size.width, new_size.height
+                        );
+                    } else {
+                        debug!(
+                            "window initially resized to {}x{}",
+                            new_size.width, new_size.height
+                        );
+                    }
+                    self.renderer.as_mut().unwrap().recreate_swapchain(new_size);
+                    self.last_window_size = Some(new_size);
                 }
             }
             WindowEvent::CloseRequested => {
@@ -112,7 +152,10 @@ impl ApplicationHandler for AppState {
         let delta_time = (current_frame_timestamp - self.last_frame_timestamp).as_secs_f32();
         self.last_frame_timestamp = current_frame_timestamp;
         self.world.update(delta_time, &self.input_state);
-        self.voxels.update_camera(self.world.camera.position());
+        self.voxels
+            .as_mut()
+            .unwrap()
+            .update_camera(self.world.camera.position());
 
         self.input_state.reset_after_frame();
         #[cfg(feature = "dev-menu")]
@@ -135,17 +178,17 @@ impl ApplicationHandler for AppState {
             }
         }
 
-        self.renderer.draw_frame(
+        self.renderer.as_mut().unwrap().draw_frame(
             &self.world,
             &self.voxels_config,
             &self.renderer_settings,
-            self.window.inner_size(),
+            self.window.as_ref().unwrap().inner_size(),
             #[cfg(feature = "dev-menu")]
             interface.draw_data(),
         );
 
-        if self.renderer.just_completed_first_render {
-            self.window.set_visible(true);
+        if self.renderer.as_ref().unwrap().just_completed_first_render {
+            self.window.as_mut().unwrap().set_visible(true);
         }
 
         self.frame_index += 1;
@@ -160,16 +203,8 @@ pub fn main() {
     initialize_logger();
     initialize_panic_hook();
     let args = Args::parse();
-    let window = create_window(&args);
-    let tetrahedron_mesh = load_mesh("assets/tetrahedron.obj");
-    let icosahedron_mesh = load_mesh("assets/icosahedron.obj");
-    let world = World::new();
-    let mut renderer = Renderer::new(
-        &window,
-        &[&tetrahedron_mesh, &icosahedron_mesh],
-        &world,
-        &args,
-    );
+    let event_loop = create_event_loop(&args);
+
     #[cfg(feature = "dev-menu")]
     let mut interface = Interface::new(
         renderer.swapchain.extent.width as usize,
@@ -179,29 +214,35 @@ pub fn main() {
     #[cfg(feature = "dev-menu")]
     renderer.create_interface_renderer(&mut interface.ctx);
 
-    let voxels_config = DEFAULT_VOXEL_CONFIG;
-    let voxels = Voxels::new(
-        voxels_config.clone(),
-        world.camera.position(),
-        renderer.voxel_gpu_memory.take().unwrap(),
-        std::thread::available_parallelism().unwrap().get() - 1,
-    );
-
-    let last_window_size = window.window.inner_size();
     let mut app_state = AppState {
-        window: window.window,
-        world,
-        voxels,
+        window: None,
+        world: World::new(),
+        voxels: None,
+        voxels_config: DEFAULT_VOXEL_CONFIG,
         input_state: InputState::new(),
-        last_window_size,
+        last_window_size: None,
         last_frame_timestamp: Instant::now(),
-        renderer,
-        voxels_config,
+        renderer: None,
         renderer_settings: DEFAULT_RENDERER_SETTINGS,
         frame_index: 0,
+        args,
     };
-    let loop_result = window.event_loop.run_app(&mut app_state);
-    app_state.renderer.wait_idle();
-    app_state.voxels.shutdown();
+    let loop_result = event_loop.run_app(&mut app_state);
+    if let Some(renderer) = app_state.renderer {
+        renderer.wait_idle();
+    }
+    if let Some(voxels) = app_state.voxels {
+        voxels.shutdown();
+    }
     loop_result.unwrap();
+}
+
+fn create_event_loop(args: &Args) -> EventLoop<()> {
+    let mut event_loop = EventLoop::builder();
+    match args.window_protocol {
+        Some(WindowProtocol::Wayland) => event_loop.with_wayland(),
+        Some(WindowProtocol::X11) => event_loop.with_x11(),
+        None => &mut event_loop,
+    };
+    event_loop.build().unwrap()
 }
