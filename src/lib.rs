@@ -48,6 +48,10 @@ const CAMERA_SENSITIVITY: f32 = 0.01;
 struct AppState {
     window: Option<Window>,
     world: World,
+    // This depends on the lifetime of Renderer, but there isn't a good way to represent this in
+    // Rust and I actually had a segfault because of this. Do I have to go with self-referential
+    // structs here? Or do I need to fold everything using Vulkan resources into the renderer
+    // struct? Thinking about it, it's probably Arc, because there are worker threads involved.
     voxels: Option<Voxels>,
     voxels_config: VoxelsConfig,
     renderer: Option<Renderer>,
@@ -216,7 +220,10 @@ impl ApplicationHandler for AppState {
     }
 
     fn exiting(&mut self, _: &ActiveEventLoop) {
-        // TODO: Handle all the Vulkan resource teardown during this event.
+        if let Some(renderer) = self.renderer.take() {
+            renderer.wait_idle();
+            self.voxels.take().unwrap().shutdown();
+        }
     }
 }
 
@@ -241,14 +248,7 @@ pub fn main() {
         frame_index: 0,
         args,
     };
-    let loop_result = event_loop.run_app(&mut app_state);
-    if let Some(renderer) = app_state.renderer {
-        renderer.wait_idle();
-    }
-    if let Some(voxels) = app_state.voxels {
-        voxels.shutdown();
-    }
-    loop_result.unwrap();
+    event_loop.run_app(&mut app_state).unwrap();
 }
 
 fn create_event_loop(args: &Args) -> EventLoop<()> {
