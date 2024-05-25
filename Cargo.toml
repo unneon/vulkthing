@@ -4,6 +4,8 @@ version = "0.0.0"
 edition = "2021"
 
 [features]
+# Temporarily doesn't work, blocked on imgui-rs-vulkan-renderer upgrading to ash 0.38, which is blocked on gpu-allocator
+# merging the upgrade to ash 0.38. https://github.com/Traverse-Research/gpu-allocator/pull/218
 dev-menu = ["imgui", "imgui-rs-vulkan-renderer"]
 
 [dependencies]
