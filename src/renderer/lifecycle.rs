@@ -494,14 +494,14 @@ fn create_command_buffers(
 
 pub fn create_vertex_buffer(vertex_data: &[Vertex], dev: &Dev) -> Buffer {
     let size = std::mem::size_of_val(vertex_data);
-    let vertex = Buffer::create(VRAM_VIA_BAR, vk::BufferUsageFlags::VERTEX_BUFFER, size, dev);
+    let mut vertex = Buffer::create(VRAM_VIA_BAR, vk::BufferUsageFlags::VERTEX_BUFFER, size, dev);
     vertex.fill_from_slice_host_visible(vertex_data, dev);
     vertex
 }
 
 fn create_index_buffer(index_data: &[u32], dev: &Dev) -> Buffer {
     let size = std::mem::size_of_val(index_data);
-    let vertex = Buffer::create(VRAM_VIA_BAR, vk::BufferUsageFlags::INDEX_BUFFER, size, dev);
+    let mut vertex = Buffer::create(VRAM_VIA_BAR, vk::BufferUsageFlags::INDEX_BUFFER, size, dev);
     vertex.fill_from_slice_host_visible(index_data, dev);
     vertex
 }

@@ -87,37 +87,26 @@ impl Buffer {
         }
     }
 
-    pub fn fill_from_slice_host_visible<T: Copy>(&self, data: &[T], dev: &Dev) {
-        self.with_mapped(dev, |mapped| {
-            for (mapped, data) in mapped.iter_mut().zip(data.iter()) {
-                mapped.write(data);
-            }
+    pub fn fill_from_slice_host_visible<T: Copy>(&mut self, data: &[T], dev: &Dev) {
+        assert_eq!(std::mem::size_of_val(data), self.size);
+        self.with_mapped(dev, |mapped: *mut [T]| {
+            unsafe { std::ptr::copy_nonoverlapping(data.as_ptr(), mapped as *mut T, data.len()) };
         });
     }
 
-    #[allow(dead_code)]
-    pub fn generate_host_visible<T: Copy>(&self, dev: &Dev, mut f: impl FnMut(usize) -> T) {
-        self.with_mapped(dev, |mapped| {
-            for (i, mapped) in mapped.iter_mut().enumerate() {
-                mapped.write(f(i));
-            }
-        });
-    }
-
-    pub fn with_mapped<T, R>(&self, dev: &Dev, f: impl FnOnce(&mut [MaybeUninit<T>]) -> R) -> R {
+    pub fn with_mapped<T, R>(&mut self, dev: &Dev, f: impl FnOnce(*mut [T]) -> R) -> R {
         let memory = self.map_memory(dev);
         let r = f(memory);
         unsafe { dev.unmap_memory(self.memory) };
         r
     }
 
-    // TODO: Safety
-    #[allow(clippy::mut_from_ref)]
-    pub fn map_memory<'a, T: 'a>(&self, dev: &Dev) -> &'a mut [MaybeUninit<T>] {
+    pub fn map_memory<T>(&mut self, dev: &Dev) -> *mut [T] {
         let count = self.size / std::mem::size_of::<T>();
         let flags = vk::MemoryMapFlags::empty();
         let ptr = unsafe { dev.map_memory(self.memory, 0, self.size as u64, flags) }.unwrap();
-        unsafe { std::slice::from_raw_parts_mut(ptr as *mut MaybeUninit<T>, count) }
+        let slice = unsafe { std::slice::from_raw_parts_mut(ptr as *mut MaybeUninit<T>, count) };
+        slice as *mut [MaybeUninit<T>] as *mut [T]
     }
 
     #[allow(dead_code)]
