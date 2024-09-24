@@ -6,7 +6,6 @@ use rapier3d::prelude::*;
 pub struct Physics {
     integration_parameters: IntegrationParameters,
     physics_pipeline: PhysicsPipeline,
-    pub query_pipeline: QueryPipeline,
     island_manager: IslandManager,
     broad_phase: DefaultBroadPhase,
     narrow_phase: NarrowPhase,
@@ -22,7 +21,6 @@ impl Physics {
         Physics {
             integration_parameters: IntegrationParameters::default(),
             physics_pipeline: PhysicsPipeline::new(),
-            query_pipeline: QueryPipeline::new(),
             island_manager: IslandManager::new(),
             broad_phase: DefaultBroadPhase::new(),
             narrow_phase: NarrowPhase::new(),

@@ -1182,7 +1182,7 @@ pub fn create_render_passes(
 ) -> Passes {{"#
     )
     .unwrap();
-    for (index, pass) in renderer.passes.iter().enumerate() {
+    for pass in &renderer.passes {
         let debug_name = &pass.debug_name;
         let debug_r = pass.debug_color.red;
         let debug_g = pass.debug_color.green;
@@ -1192,13 +1192,6 @@ pub fn create_render_passes(
             r#"    let {pass} = Pass {{
         debug_name: {debug_name:?},
         debug_color: [{debug_r}, {debug_g}, {debug_b}],
-        clears: vec!["#
-        )
-        .unwrap();
-        writeln!(
-            file,
-            r#"        ],
-        index: {index},
     }};"#
         )
         .unwrap();

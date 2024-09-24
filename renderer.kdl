@@ -1,6 +1,3 @@
-mesh "icosahedron"
-mesh "tetrahedron"
-
 descriptor-set {
     uniform "global" "ALL" "Global"
     storage-buffer "stars" "ALL" "[Star]"

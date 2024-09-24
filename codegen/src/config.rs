@@ -2,8 +2,6 @@ use knuffel::Decode;
 
 #[derive(Debug, Decode)]
 pub struct Renderer {
-    #[knuffel(children(name = "mesh"))]
-    pub meshes: Vec<Mesh>,
     #[knuffel(children(name = "sampler"))]
     pub samplers: Vec<Sampler>,
     #[knuffel(child)]
@@ -14,14 +12,6 @@ pub struct Renderer {
     pub computes: Vec<Compute>,
     #[knuffel(children(name = "specialization"))]
     pub specializations: Vec<Specialization>,
-}
-
-#[derive(Debug, Decode)]
-pub struct Mesh {
-    #[knuffel(argument)]
-    pub name: String,
-    #[knuffel(property, default)]
-    pub dynamic: bool,
 }
 
 #[derive(Debug, Decode)]
@@ -68,8 +58,6 @@ pub struct ImageBinding {
     pub stage: String,
     #[knuffel(argument)]
     pub sampler: String,
-    #[knuffel(property, default)]
-    pub msaa: bool,
     #[knuffel(property, default = "SHADER_READ_ONLY_OPTIMAL".to_owned())]
     pub layout: String,
 }
@@ -80,8 +68,6 @@ pub struct InputAttachmentBinding {
     pub name: String,
     #[knuffel(argument)]
     pub stage: String,
-    #[knuffel(property, default)]
-    pub msaa: bool,
 }
 
 #[derive(Debug, Decode)]
@@ -173,7 +159,7 @@ pub struct VertexBinding {
 #[derive(Debug, Decode)]
 pub struct VertexAttribute {
     #[knuffel(argument)]
-    pub name: String,
+    pub _name: String,
     #[knuffel(argument)]
     pub format: String,
     #[knuffel(property, default)]
@@ -181,31 +167,9 @@ pub struct VertexAttribute {
 }
 
 #[derive(Debug, Decode)]
-pub struct Dependency {
-    #[knuffel(child)]
-    pub src: DependencyTarget,
-    #[knuffel(child)]
-    pub dst: DependencyTarget,
-    #[knuffel(child)]
-    pub by_region: bool,
-}
-
-#[derive(Debug, Decode)]
-pub struct DependencyTarget {
-    #[knuffel(argument)]
-    pub subpass: String,
-    #[knuffel(argument)]
-    pub stage_mask: String,
-    #[knuffel(argument)]
-    pub access_mask: String,
-}
-
-#[derive(Debug, Decode)]
 pub struct Compute {
     #[knuffel(argument)]
     pub name: String,
-    #[knuffel(child, unwrap(arguments))]
-    pub descriptor_sets: Vec<String>,
 }
 
 #[derive(Debug, Decode)]

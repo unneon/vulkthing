@@ -5,8 +5,6 @@ use ash::vk;
 pub struct Pass {
     pub debug_name: &'static str,
     pub debug_color: [u8; 3],
-    pub clears: Vec<vk::ClearValue>,
-    pub index: usize,
 }
 
 impl Pass {
