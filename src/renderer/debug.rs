@@ -47,9 +47,10 @@ unsafe extern "system" fn callback(
         }
 
         if message_id == "WARNING-DEBUG-PRINTF" {
-            let message = message.split_once("vkQueueSubmit():  ").unwrap().1;
-            log::trace!("{message}");
-            return vk::FALSE;
+            if let Some((_, message)) = message.split_once("vkQueueSubmit():  ") {
+                log::trace!("{message}");
+                return vk::FALSE;
+            }
         }
     }
     let level = if message_severity.contains(vk::DebugUtilsMessageSeverityFlagsEXT::ERROR) {
