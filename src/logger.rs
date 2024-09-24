@@ -1,5 +1,5 @@
 use log::{error, Level, LevelFilter, Metadata, Record};
-use std::panic::PanicInfo;
+use std::panic::PanicHookInfo;
 use std::sync::OnceLock;
 use std::time::Instant;
 
@@ -43,7 +43,7 @@ pub fn initialize_panic_hook() {
     std::panic::set_hook(Box::new(panic_hook));
 }
 
-fn panic_hook(info: &PanicInfo) {
+fn panic_hook(info: &PanicHookInfo) {
     let full_message = info.to_string();
     let message = if let Some((_, message)) = full_message.split_once('\n') {
         message
