@@ -476,7 +476,7 @@ static mut SCRATCH: Scratch = Scratch {{"#
         p_next: std::ptr::null(),
         flags: vk::DescriptorSetLayoutCreateFlags::empty(),
         binding_count: {binding_count},
-        p_bindings: unsafe {{ SCRATCH.descriptor_set_bindings.as_ptr() }},
+        p_bindings: unsafe {{ &raw const (SCRATCH.descriptor_set_bindings[0]) }},
         _marker: std::marker::PhantomData,
     }},
     descriptor_pool_sizes: [",
@@ -504,7 +504,7 @@ static mut SCRATCH: Scratch = Scratch {{"#
         flags: vk::DescriptorPoolCreateFlags::empty(),
         max_sets: {max_sets},
         pool_size_count: {pool_size_count},
-        p_pool_sizes: unsafe {{ SCRATCH.descriptor_pool_sizes.as_ptr() }},
+        p_pool_sizes: unsafe {{ &raw const SCRATCH.descriptor_pool_sizes[0] }},
         _marker: std::marker::PhantomData,
     }},
     pipeline_layout: vk::PipelineLayoutCreateInfo {{
@@ -582,7 +582,7 @@ static mut SCRATCH: Scratch = Scratch {{"#
                 r#"    ],
     {pipeline}_fragment_specialization_info: vk::SpecializationInfo {{
         map_entry_count: {specialization_count},
-        p_map_entries: unsafe {{ SCRATCH.{pipeline}_fragment_specialization_entries.as_ptr() }},
+        p_map_entries: unsafe {{ &raw const SCRATCH.{pipeline}_fragment_specialization_entries[0] }},
         data_size: {offset},
         p_data: unsafe {{ (&SCRATCH.{pipeline}_fragment_specialization_scratch) as *const _ as *const std::ffi::c_void }},
     }},
@@ -594,7 +594,7 @@ static mut SCRATCH: Scratch = Scratch {{"#
                 writeln!(file, "        {spec}: {default},").unwrap();
             }
             writeln!(file, "    }},").unwrap();
-            format!("unsafe {{ &SCRATCH.{pipeline}_fragment_specialization_info }}")
+            format!("unsafe {{ &raw const SCRATCH.{pipeline}_fragment_specialization_info }}")
         } else {
             "std::ptr::null()".to_owned()
         };
@@ -690,6 +690,16 @@ static mut SCRATCH: Scratch = Scratch {{"#
                 }
             }
             let vertex_binding_count = pipeline.vertex_bindings.len();
+            let vertex_binding_descriptions = if vertex_binding_count > 0 {
+                &format!("unsafe {{ &raw const SCRATCH.{pipeline}_vertex_bindings[0] }}")
+            } else {
+                "std::ptr::null()"
+            };
+            let vertex_attribute_descriptions = if attribute_count > 0 {
+                &format!("unsafe {{ &raw const SCRATCH.{pipeline}_vertex_attributes[0] }}")
+            } else {
+                "std::ptr::null()"
+            };
             writeln!(
                 file,
                 r#"    ],
@@ -698,9 +708,9 @@ static mut SCRATCH: Scratch = Scratch {{"#
         p_next: std::ptr::null(),
         flags: vk::PipelineVertexInputStateCreateFlags::empty(),
         vertex_binding_description_count: {vertex_binding_count},
-        p_vertex_binding_descriptions: unsafe {{ SCRATCH.{pipeline}_vertex_bindings.as_ptr() }},
+        p_vertex_binding_descriptions: {vertex_binding_descriptions},
         vertex_attribute_description_count: {attribute_count},
-        p_vertex_attribute_descriptions: unsafe {{ SCRATCH.{pipeline}_vertex_attributes.as_ptr() }},
+        p_vertex_attribute_descriptions: {vertex_attribute_descriptions},
         _marker: std::marker::PhantomData,
     }},"#
             )
@@ -728,9 +738,9 @@ static mut SCRATCH: Scratch = Scratch {{"#
         p_next: std::ptr::null(),
         flags: vk::PipelineViewportStateCreateFlags::empty(),
         viewport_count: 1,
-        p_viewports: unsafe {{ &SCRATCH.{pipeline}_viewport }},
+        p_viewports: unsafe {{ &raw const SCRATCH.{pipeline}_viewport }},
         scissor_count: 1,
-        p_scissors: unsafe {{ &SCRATCH.{pipeline}_scissor }},
+        p_scissors: unsafe {{ &raw const SCRATCH.{pipeline}_scissor }},
         _marker: std::marker::PhantomData,
     }},
     {pipeline}_rasterizer: vk::PipelineRasterizationStateCreateInfo {{
@@ -785,7 +795,7 @@ static mut SCRATCH: Scratch = Scratch {{"#
         let vertex_input_state = if pipeline.mesh_shaders {
             "std::ptr::null()".to_owned()
         } else {
-            format!("unsafe {{ &SCRATCH.{pipeline}_vertex_state }}")
+            format!("unsafe {{ &raw const SCRATCH.{pipeline}_vertex_state }}")
         };
         let shader_stage_count = if pipeline.task_shaders { 3 } else { 2 };
         writeln!(
@@ -798,7 +808,7 @@ static mut SCRATCH: Scratch = Scratch {{"#
         logic_op_enable: 0,
         logic_op: vk::LogicOp::CLEAR,
         attachment_count: {color_attachment_count},
-        p_attachments: unsafe {{ SCRATCH.{pipeline}_blend_attachments.as_ptr() }},
+        p_attachments: unsafe {{ &raw const SCRATCH.{pipeline}_blend_attachments[0] }},
         blend_constants: [0., 0., 0., 0.],
         _marker: std::marker::PhantomData,
     }},
@@ -839,26 +849,26 @@ static mut SCRATCH: Scratch = Scratch {{"#
         p_next: std::ptr::null(),
         view_mask: 0,
         color_attachment_count: 1,
-        p_color_attachment_formats: unsafe {{ SCRATCH.{pipeline}_color_formats.as_ptr() }},
+        p_color_attachment_formats: unsafe {{ &raw const SCRATCH.{pipeline}_color_formats[0] }},
         depth_attachment_format: DEPTH_FORMAT,
         stencil_attachment_format: vk::Format::UNDEFINED,
         _marker: std::marker::PhantomData,
     }},
     {pipeline}_pipeline: vk::GraphicsPipelineCreateInfo {{
         s_type: vk::StructureType::GRAPHICS_PIPELINE_CREATE_INFO,
-        p_next: unsafe {{ &SCRATCH.{pipeline}_rendering as *const _ as *const _ }},
+        p_next: unsafe {{ &raw const SCRATCH.{pipeline}_rendering as *const _ }},
         flags: vk::PipelineCreateFlags::empty(),
         stage_count: {shader_stage_count},
-        p_stages: unsafe {{ SCRATCH.{pipeline}_shader_stages.as_ptr() }},
+        p_stages: unsafe {{ &raw const SCRATCH.{pipeline}_shader_stages[0] }},
         p_vertex_input_state: {vertex_input_state},
-        p_input_assembly_state: unsafe {{ &SCRATCH.assembly }},
+        p_input_assembly_state: unsafe {{ &raw const SCRATCH.assembly }},
         p_tessellation_state: std::ptr::null(),
-        p_viewport_state: unsafe {{ &SCRATCH.{pipeline}_viewport_state }},
-        p_rasterization_state: unsafe {{ &SCRATCH.{pipeline}_rasterizer }},
-        p_multisample_state: unsafe {{ &SCRATCH.{pipeline}_multisampling }},
-        p_depth_stencil_state: unsafe {{ &SCRATCH.{pipeline}_depth }},
-        p_color_blend_state: unsafe {{ &SCRATCH.{pipeline}_blend }},
-        p_dynamic_state: unsafe {{ &SCRATCH.dynamic_state }},
+        p_viewport_state: unsafe {{ &raw const SCRATCH.{pipeline}_viewport_state }},
+        p_rasterization_state: unsafe {{ &raw const SCRATCH.{pipeline}_rasterizer }},
+        p_multisample_state: unsafe {{ &raw const SCRATCH.{pipeline}_multisampling }},
+        p_depth_stencil_state: unsafe {{ &raw const SCRATCH.{pipeline}_depth }},
+        p_color_blend_state: unsafe {{ &raw const SCRATCH.{pipeline}_blend }},
+        p_dynamic_state: unsafe {{ &raw const SCRATCH.dynamic_state }},
         layout: vk::PipelineLayout::null(),
         render_pass: vk::RenderPass::null(),
         subpass: 0,
