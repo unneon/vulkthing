@@ -149,11 +149,12 @@ impl Display for Sampler {
 }
 
 pub fn generate_code(in_path: &str, renderer: &Renderer, mut file: File) {
+    // clippy::deref_addrof has false positives for *&raw const expressions.
     write!(
         file,
         r#"// Code generated from {in_path}.
 
-#![allow(unused)]
+#![allow(unused, clippy::deref_addrof)]
 
 use crate::renderer::shader::compile_glsl;
 #[rustfmt::skip]
