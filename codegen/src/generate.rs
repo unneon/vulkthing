@@ -584,7 +584,7 @@ static mut SCRATCH: Scratch = Scratch {{"#
         map_entry_count: {specialization_count},
         p_map_entries: unsafe {{ &raw const SCRATCH.{pipeline}_fragment_specialization_entries[0] }},
         data_size: {offset},
-        p_data: unsafe {{ (&SCRATCH.{pipeline}_fragment_specialization_scratch) as *const _ as *const std::ffi::c_void }},
+        p_data: unsafe {{ (&raw const SCRATCH.{pipeline}_fragment_specialization_scratch) as *const std::ffi::c_void }},
     }},
     {pipeline}_fragment_specialization_scratch: {pipeline_camelcase}Specialization {{"#
             )
@@ -1147,7 +1147,7 @@ pub fn create_samplers(dev: &Dev) -> Samplers {{"#
     )
     .unwrap();
     for sampler in &renderer.samplers {
-        writeln!(file, "    let {} = unsafe {{ dev.create_sampler(&SCRATCH.{}_sampler, None).unwrap_unchecked() }};", sampler.name, sampler.name).unwrap();
+        writeln!(file, "    let {} = unsafe {{ dev.create_sampler(&*&raw const SCRATCH.{}_sampler, None).unwrap_unchecked() }};", sampler.name, sampler.name).unwrap();
     }
     writeln!(file, "    Samplers {{").unwrap();
     for sampler in &renderer.samplers {
@@ -1172,14 +1172,14 @@ pub fn create_descriptor_set_layout(_samplers: &Samplers, dev: &Dev) -> vk::Desc
                 .unwrap();
         }
     }
-    writeln!(file, "    unsafe {{ dev.create_descriptor_set_layout(&SCRATCH.descriptor_set_layout, None).unwrap_unchecked() }}").unwrap();
+    writeln!(file, "    unsafe {{ dev.create_descriptor_set_layout(&*&raw const SCRATCH.descriptor_set_layout, None).unwrap_unchecked() }}").unwrap();
     writeln!(
         file,
         r#"}}
 
 #[rustfmt::skip]
 pub fn create_descriptor_pool(layout: vk::DescriptorSetLayout, dev: &Dev) -> vk::DescriptorPool {{
-    unsafe {{ dev.create_descriptor_pool(&SCRATCH.descriptor_pool, None).unwrap_unchecked() }}
+    unsafe {{ dev.create_descriptor_pool(&*&raw const SCRATCH.descriptor_pool, None).unwrap_unchecked() }}
 }}
 
 #[allow(unused_mut)]
@@ -1250,10 +1250,10 @@ pub fn create_shader_modules(shaders: &Shaders, dev: &Dev) -> ShaderModules {{"#
     for (name, typ) in &shaders {
         let typ_lowercase = typ.lowercase();
         if *typ != ShaderType::Mesh {
-            writeln!(file, r#"    let {name}_{typ_lowercase} = unsafe {{ dev.create_shader_module(&SCRATCH.{name}_{typ_lowercase}, None).unwrap_unchecked() }};"#).unwrap();
+            writeln!(file, r#"    let {name}_{typ_lowercase} = unsafe {{ dev.create_shader_module(&*&raw const SCRATCH.{name}_{typ_lowercase}, None).unwrap_unchecked() }};"#).unwrap();
         } else {
             writeln!(file, r#"    let {name}_{typ_lowercase} = if dev.support.mesh_shaders {{
-        unsafe {{ dev.create_shader_module(&SCRATCH.{name}_{typ_lowercase}, None).unwrap_unchecked() }}
+        unsafe {{ dev.create_shader_module(&*&raw const SCRATCH.{name}_{typ_lowercase}, None).unwrap_unchecked() }}
     }} else {{
         vk::ShaderModule::null()
     }};"#).unwrap();
@@ -1403,7 +1403,7 @@ pub fn create_pipelines(
 {tab}        dev.handle(),
 {tab}        vk::PipelineCache::null(),
 {tab}        1,
-{tab}        &SCRATCH.{pipeline}_pipeline,
+{tab}        &*&raw const SCRATCH.{pipeline}_pipeline,
 {tab}        std::ptr::null(),
 {tab}        &mut pipelines.{pipeline},
 {tab}    ) }};"#
@@ -1422,7 +1422,7 @@ pub fn create_pipelines(
         dev.handle(),
         vk::PipelineCache::null(),
         {compute_pipeline_count},
-        &SCRATCH.{first_compute_pipeline}_pipeline,
+        &*&raw const SCRATCH.{first_compute_pipeline}_pipeline,
         std::ptr::null(),
         (pipelines.as_mut_ptr() as *mut vk::Pipeline).offset({pipeline_count}),
     ) }};"#
