@@ -70,6 +70,10 @@ impl ShaderType {
             ShaderType::Vertex => "vert",
         }
     }
+
+    fn requires_mesh_shaders(&self) -> bool {
+        matches!(self, ShaderType::Mesh | ShaderType::Task)
+    }
 }
 
 impl DescriptorBinding {
@@ -187,7 +191,7 @@ use crate::renderer::uniform::{{"#
         r#"}};
 use crate::renderer::debug::set_label;
 use crate::renderer::util::{{AsDescriptor, Dev, ImageResources, StorageBuffer, UniformBuffer}};
-use crate::renderer::{{Pass, Swapchain, COLOR_FORMAT, DEPTH_FORMAT, FRAMES_IN_FLIGHT}};
+use crate::renderer::{{DeviceSupport, Pass, Swapchain, COLOR_FORMAT, DEPTH_FORMAT, FRAMES_IN_FLIGHT}};
 use ash::vk;
 use std::ffi::CStr;
 use std::mem::MaybeUninit;
@@ -1217,14 +1221,18 @@ pub fn create_render_passes(
 }}
 
 #[rustfmt::skip]
-pub fn create_shaders() -> Shaders {{"#
+pub fn create_shaders(device_support: &DeviceSupport) -> Shaders {{"#
     )
     .unwrap();
     for (name, typ) in &shaders {
         let typ_lowercase = typ.lowercase();
         let typ_camelcase = typ.camelcase();
         let ext = typ.extension();
-        writeln!(file, r#"    let {name}_{typ_lowercase} = compile_glsl("shaders/{name}.{ext}", shaderc::ShaderKind::{typ_camelcase});"#).unwrap();
+        if !typ.requires_mesh_shaders() {
+            writeln!(file, r#"    let {name}_{typ_lowercase} = compile_glsl("shaders/{name}.{ext}", shaderc::ShaderKind::{typ_camelcase});"#).unwrap();
+        } else {
+            writeln!(file, r#"    let {name}_{typ_lowercase} = if device_support.mesh_shaders {{ compile_glsl("shaders/{name}.{ext}", shaderc::ShaderKind::{typ_camelcase}) }} else {{ Vec::new() }};"#).unwrap();
+        }
     }
     writeln!(file, "    Shaders {{").unwrap();
     for (name, typ) in &shaders {
@@ -1250,7 +1258,12 @@ pub fn create_shader_modules(shaders: &Shaders, dev: &Dev) -> ShaderModules {{"#
     }
     for (name, typ) in &shaders {
         let typ_lowercase = typ.lowercase();
-        if *typ != ShaderType::Mesh {
+        // TODO: Fragment shaders which rely on mesh shader functionality (such
+        // as perprimitiveEXT) are still built on devices without mesh shaders
+        // support. This would need some dependency tracking, but if I add full
+        // non-mesh shader codepath I will be able to use conditional
+        // compilation in GLSL instead.
+        if !typ.requires_mesh_shaders() {
             writeln!(file, r#"    let {name}_{typ_lowercase} = unsafe {{ dev.create_shader_module(&*&raw const SCRATCH.{name}_{typ_lowercase}, None).unwrap_unchecked() }};"#).unwrap();
         } else {
             writeln!(file, r#"    let {name}_{typ_lowercase} = if dev.support.mesh_shaders {{

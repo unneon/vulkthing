@@ -90,7 +90,7 @@ impl Renderer {
         let depth = create_depth(swapchain.extent, &dev);
         let passes = create_render_passes(&swapchain, vk::SampleCountFlags::TYPE_1, &dev);
         let pipeline_layout = create_pipeline_layout(descriptor_set_layout, &dev);
-        let shaders = create_shaders();
+        let shaders = create_shaders(&dev.support);
         let shader_modules = create_shader_modules(&shaders, &dev);
         let pipelines = create_pipelines(
             vk::SampleCountFlags::TYPE_1,
@@ -233,7 +233,7 @@ impl Renderer {
     pub fn recreate_pipelines(&mut self) {
         unsafe { self.dev.device_wait_idle() }.unwrap();
         self.pipelines.cleanup(&self.dev);
-        let shaders = create_shaders();
+        let shaders = create_shaders(&self.dev.support);
         let shader_modules = create_shader_modules(&shaders, &self.dev);
         self.pipelines = create_pipelines(
             vk::SampleCountFlags::TYPE_1,
@@ -422,12 +422,14 @@ fn create_logical_device(
     let features = vk::PhysicalDeviceFeatures::default()
         .fill_mode_non_solid(true)
         .fragment_stores_and_atomics(true)
-        .shader_int16(true);
+        .shader_int16(true)
+        .vertex_pipeline_stores_and_atomics(true);
     let mut vk11_features =
         vk::PhysicalDeviceVulkan11Features::default().storage_buffer16_bit_access(true);
     let mut vk12_features = vk::PhysicalDeviceVulkan12Features::default()
         .shader_int8(true)
-        .storage_buffer8_bit_access(true);
+        .storage_buffer8_bit_access(true)
+        .timeline_semaphore(true);
     // TODO: Something in the task shader requires maintenance4, why?
     let mut vk13_features = vk::PhysicalDeviceVulkan13Features::default()
         .dynamic_rendering(true)
@@ -437,14 +439,16 @@ fn create_logical_device(
         .mesh_shader(device_support.mesh_shaders)
         .task_shader(device_support.mesh_shaders);
 
-    let create_info = vk::DeviceCreateInfo::default()
+    let mut create_info = vk::DeviceCreateInfo::default()
         .queue_create_infos(&queues)
         .enabled_features(&features)
         .enabled_extension_names(&extensions)
         .push_next(&mut vk11_features)
         .push_next(&mut vk12_features)
-        .push_next(&mut vk13_features)
-        .push_next(&mut ms_features);
+        .push_next(&mut vk13_features);
+    if device_support.mesh_shaders {
+        create_info = create_info.push_next(&mut ms_features);
+    }
 
     unsafe { instance.create_device(physical_device, &create_info, None) }.unwrap()
 }
