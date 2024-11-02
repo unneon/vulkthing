@@ -4,8 +4,7 @@ version = "0.0.0"
 edition = "2021"
 
 [features]
-# Temporarily doesn't work, blocked on imgui-rs-vulkan-renderer upgrading to ash 0.38, which is blocked on gpu-allocator
-# merging the upgrade to ash 0.38. https://github.com/Traverse-Research/gpu-allocator/pull/218
+default = ["dev-menu"]
 dev-menu = ["imgui", "imgui-rs-vulkan-renderer"]
 
 [dependencies]
@@ -13,13 +12,13 @@ ash = "0.38"
 ash-window = "0.13"
 bracket-noise = "0.8"
 imgui = { version = "0.12", optional = true }
-imgui-rs-vulkan-renderer = { version = "1.13", optional = true, features = ["dynamic-rendering"] }
+imgui-rs-vulkan-renderer = { version = "1.16", optional = true, features = ["dynamic-rendering"] }
 log = "0.4"
-meshopt = "0.2"
-nalgebra = { version = "0.32", features = ["std"], default-features = false }
+meshopt = "0.4"
+nalgebra = { version = "0.33", features = ["std"], default-features = false }
 num-traits = "0.2"
 rand = { version = "0.8", features = ["small_rng"] }
-rapier3d = "0.19"
+rapier3d = "0.22"
 raw-window-handle = "0.6"
 shaderc = { git = "https://github.com/google/shaderc-rs" }
 tobj = { version = "4.0", default-features = false }

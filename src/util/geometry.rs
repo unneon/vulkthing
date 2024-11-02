@@ -1,9 +1,17 @@
-use nalgebra::{ClosedAdd, ClosedMul, ClosedSub, Scalar, Vector3};
+use nalgebra::{ClosedAddAssign, ClosedMulAssign, ClosedSubAssign, Scalar, Vector3};
 use num_traits::Signed;
 use std::ops::Range;
 
 pub trait Coordinate:
-    Clone + ClosedAdd + ClosedMul + ClosedSub + Copy + PartialEq + PartialOrd + Scalar + Signed
+    Clone
+    + ClosedAddAssign
+    + ClosedMulAssign
+    + ClosedSubAssign
+    + Copy
+    + PartialEq
+    + PartialOrd
+    + Scalar
+    + Signed
 {
     const ZERO: Self;
     const ONE: Self;

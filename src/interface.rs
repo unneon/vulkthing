@@ -22,7 +22,6 @@ pub struct Interface {
 
 pub struct InterfaceEvents {
     pub planet_changed: bool,
-    pub grass_changed: bool,
     pub rebuild_swapchain: bool,
     pub rebuild_pipelines: bool,
     pub rebuild_voxels: bool,
@@ -39,7 +38,6 @@ impl Interface {
         let ui = self.ctx.frame();
         let mut events = InterfaceEvents {
             planet_changed: false,
-            grass_changed: false,
             rebuild_swapchain: false,
             rebuild_pipelines: false,
             rebuild_voxels: false,

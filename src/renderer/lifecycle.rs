@@ -205,6 +205,8 @@ impl Renderer {
                     in_flight_frames: FRAMES_IN_FLIGHT,
                     enable_depth_test: false,
                     enable_depth_write: false,
+                    subpass: 0,
+                    sample_count: vk::SampleCountFlags::TYPE_1,
                 }),
             )
             .unwrap(),
