@@ -1,2 +1,3 @@
+*.spv
 /src/renderer/codegen.rs
 /target

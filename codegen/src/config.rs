@@ -1,3 +1,4 @@
+use crate::types::ShaderType;
 use knuffel::Decode;
 
 #[derive(Debug, Decode)]
@@ -180,4 +181,52 @@ pub struct Specialization {
     pub ty: String,
     #[knuffel(property, default = true)]
     pub shared: bool,
+}
+
+impl Renderer {
+    pub fn pipelines(&self) -> impl Iterator<Item = &Pipeline> {
+        self.passes.iter().flat_map(|pass| &pass.pipelines)
+    }
+
+    pub fn shaders(&self) -> impl Iterator<Item = (&str, ShaderType)> {
+        self.pipelines().flat_map(|pipeline| {
+            let task_shader = if pipeline.task_shaders {
+                let task_shader = match &pipeline.task_shader {
+                    Some(path) => path.strip_suffix(".task").unwrap(),
+                    None => pipeline.name.as_str(),
+                };
+                Some((task_shader, ShaderType::Task))
+            } else {
+                None
+            };
+            let mesh_shader = if pipeline.mesh_shaders {
+                let mesh_shader = match &pipeline.mesh_shader {
+                    Some(path) => path.strip_suffix(".mesh").unwrap(),
+                    None => pipeline.name.as_str(),
+                };
+                Some((mesh_shader, ShaderType::Mesh))
+            } else {
+                None
+            };
+            let vertex_shader = if !pipeline.mesh_shaders {
+                let vertex_shader = match &pipeline.vertex_shader {
+                    Some(path) => path.strip_suffix(".vert").unwrap(),
+                    None => pipeline.name.as_str(),
+                };
+                Some((vertex_shader, ShaderType::Vertex))
+            } else {
+                None
+            };
+            let fragment_shader = match &pipeline.fragment_shader {
+                Some(path) => path.strip_suffix(".frag").unwrap(),
+                None => pipeline.name.as_str(),
+            };
+            let fragment_shader = (fragment_shader, ShaderType::Fragment);
+            task_shader
+                .into_iter()
+                .chain(mesh_shader.into_iter())
+                .chain(vertex_shader.into_iter())
+                .chain(std::iter::once(fragment_shader))
+        })
+    }
 }

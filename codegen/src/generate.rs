@@ -2,6 +2,7 @@ use crate::config::{
     Compute, DescriptorBinding, Pass, Pipeline, Renderer, Sampler, VertexAttribute,
 };
 use crate::helper::to_camelcase;
+use crate::types::ShaderType;
 use std::borrow::Cow;
 use std::collections::{BTreeSet, HashMap};
 use std::fmt::{Display, Formatter};
@@ -18,15 +19,6 @@ enum BindingType {
     Uniform,
 }
 
-#[derive(Eq, Ord, PartialEq, PartialOrd)]
-enum ShaderType {
-    Compute,
-    Mesh,
-    Task,
-    Vertex,
-    Fragment,
-}
-
 impl BindingType {
     fn name(&self) -> &'static str {
         match self {
@@ -37,42 +29,6 @@ impl BindingType {
             BindingType::StorageImage => "STORAGE_IMAGE",
             BindingType::Uniform => "UNIFORM_BUFFER",
         }
-    }
-}
-
-impl ShaderType {
-    fn lowercase(&self) -> &'static str {
-        match self {
-            ShaderType::Compute => "compute",
-            ShaderType::Fragment => "fragment",
-            ShaderType::Mesh => "mesh",
-            ShaderType::Task => "task",
-            ShaderType::Vertex => "vertex",
-        }
-    }
-
-    fn camelcase(&self) -> &'static str {
-        match self {
-            ShaderType::Compute => "Compute",
-            ShaderType::Fragment => "Fragment",
-            ShaderType::Mesh => "Mesh",
-            ShaderType::Task => "Task",
-            ShaderType::Vertex => "Vertex",
-        }
-    }
-
-    fn extension(&self) -> &'static str {
-        match self {
-            ShaderType::Compute => "comp",
-            ShaderType::Fragment => "frag",
-            ShaderType::Mesh => "mesh",
-            ShaderType::Task => "task",
-            ShaderType::Vertex => "vert",
-        }
-    }
-
-    fn requires_mesh_shaders(&self) -> bool {
-        matches!(self, ShaderType::Mesh | ShaderType::Task)
     }
 }
 
@@ -1228,10 +1184,15 @@ pub fn create_shaders(device_support: &DeviceSupport) -> Shaders {{"#
         let typ_lowercase = typ.lowercase();
         let typ_camelcase = typ.camelcase();
         let ext = typ.extension();
-        if !typ.requires_mesh_shaders() {
-            writeln!(file, r#"    let {name}_{typ_lowercase} = compile_glsl("shaders/{name}.{ext}", shaderc::ShaderKind::{typ_camelcase});"#).unwrap();
+        let spirv = if !std::fs::exists(format!("shaders/{name}.{ext}.spv")).unwrap() {
+            format!("compile_glsl(\"shaders/{name}.{ext}\", shaderc::ShaderKind::{typ_camelcase})")
         } else {
-            writeln!(file, r#"    let {name}_{typ_lowercase} = if device_support.mesh_shaders {{ compile_glsl("shaders/{name}.{ext}", shaderc::ShaderKind::{typ_camelcase}) }} else {{ Vec::new() }};"#).unwrap();
+            format!("ash::util::read_spv(&mut std::io::Cursor::new(include_bytes!(\"../../shaders/{name}.{ext}.spv\"))).unwrap()")
+        };
+        if !typ.requires_mesh_shaders() {
+            writeln!(file, r#"    let {name}_{typ_lowercase} = {spirv};"#).unwrap();
+        } else {
+            writeln!(file, r#"    let {name}_{typ_lowercase} = if device_support.mesh_shaders {{ {spirv} }} else {{ Vec::new() }};"#).unwrap();
         }
     }
     writeln!(file, "    Shaders {{").unwrap();
