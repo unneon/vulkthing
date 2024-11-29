@@ -8,7 +8,7 @@ pub fn compile_shaders(renderer: &Renderer) {
         if !glsl_path.exists() {
             let spirv_path = glsl_path.with_added_extension("spv");
             let entry_point = format!("{shader_name}_{}", shader_type.extension());
-            Command::new("slangc")
+            let status = Command::new("slangc")
                 .args([
                     "shaders/main.slang",
                     "-profile",
@@ -17,11 +17,15 @@ pub fn compile_shaders(renderer: &Renderer) {
                     entry_point.as_str(),
                     "-target",
                     "spirv",
+                    // TODO: Slangc should infer this based on mesh shader usage, report as bug.
+                    "-capability",
+                    "spirv_1_4",
                     "-o",
                 ])
                 .arg(spirv_path)
                 .status()
                 .unwrap();
+            assert!(status.success());
         }
     }
 }
