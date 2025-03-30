@@ -421,18 +421,23 @@ fn create_logical_device(
         ]);
     }
 
+    // TODO: I'm not sure why some of these features are required.
     let features = vk::PhysicalDeviceFeatures::default()
         .fill_mode_non_solid(true)
         .fragment_stores_and_atomics(true)
         .shader_int16(true)
+        .shader_int64(true)
         .vertex_pipeline_stores_and_atomics(true);
     let mut vk11_features =
         vk::PhysicalDeviceVulkan11Features::default().storage_buffer16_bit_access(true);
     let mut vk12_features = vk::PhysicalDeviceVulkan12Features::default()
+        .buffer_device_address(true)
         .shader_int8(true)
         .storage_buffer8_bit_access(true)
-        .timeline_semaphore(true);
-    // TODO: Something in the task shader requires maintenance4, why?
+        .timeline_semaphore(true)
+        .uniform_and_storage_buffer8_bit_access(true)
+        .vulkan_memory_model(true)
+        .vulkan_memory_model_device_scope(true);
     let mut vk13_features = vk::PhysicalDeviceVulkan13Features::default()
         .dynamic_rendering(true)
         .maintenance4(true)
