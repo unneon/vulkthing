@@ -1,5 +1,4 @@
 #version 460
-#extension GL_EXT_debug_printf : require
 #extension GL_EXT_shader_8bit_storage : require
 #extension GL_EXT_shader_16bit_storage : require
 #include "types/uniform.glsl"
