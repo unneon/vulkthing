@@ -83,19 +83,45 @@ float4 debug_voxel_world_bound_frag() {
     return float4(255. / 255, 78. / 255, 0. / 255, 1);
 }
 
-[shader("fragment")]
-float4 skybox_frag(float3 frag_direction) {
-    return float4(0, 0, 0, 1);
+struct SkyboxVertex {
+    float4 position : SV_Position;
+    float3 direction : DIRECTION;
+}
+
+[shader("vertex")]
+SkyboxVertex skybox_vert(uint id : SV_VertexID) {
+    const float2 POSITIONS[6] = {
+        float2(1, 1),
+        float2(1, -1),
+        float2(-1, -1),
+        float2(1, 1),
+        float2(-1, -1),
+        float2(-1, 1)
+    };
+
+    float4 normalized_clip_space = float4(POSITIONS[id], 1, 1);
+    float3 direction = normalize(mul(global.camera.inverse_view_matrix, mul(global.camera.inverse_projection_matrix, normalized_clip_space)).xyz);
+
+    SkyboxVertex vertex;
+    vertex.position = normalized_clip_space;
+    vertex.direction = direction;
+    return vertex;
 }
 
 [shader("fragment")]
-float4 star_frag(float3 frag_position) {
-    float3 color_at_object = float3(10);
-    return float4(color_at_object, 1);
+float4 skybox_frag(float3 direction : DIRECTION) {
+    float3 color = 0;
+    return float4(color, 1);
 }
 
 [shader("fragment")]
-float4 sun_frag(float3 frag_position) {
-    float3 color_at_object = float3(100);
-    return float4(color_at_object, 1);
+float4 star_frag(float3 position) {
+    float3 color = 10;
+    return float4(color, 1);
+}
+
+[shader("fragment")]
+float4 sun_frag(float3 position) {
+    float3 color = 100;
+    return float4(color, 1);
 }
