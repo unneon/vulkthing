@@ -1,4 +1,8 @@
+[[vk::binding(0)]]
 uniform Global global;
+
+[[vk::binding(1)]]
+StructuredBuffer<Star> stars;
 
 struct Global {
     Voxels voxels;
@@ -68,6 +72,10 @@ struct Debug {
     uint meshlet_id;
 };
 
+struct Star {
+    float4x4 model;
+};
+
 [shader("fragment")]
 float4 debug_voxel_screen_bound_frag() {
     return float4(113. / 255, 0. / 255, 0. / 255, 1);
@@ -109,19 +117,45 @@ SkyboxVertex skybox_vert(uint id : SV_VertexID) {
 }
 
 [shader("fragment")]
-float4 skybox_frag(float3 direction : DIRECTION) {
-    float3 color = 0;
-    return float4(color, 1);
+float4 skybox_frag() {
+    return float4(float3(0), 1);
+}
+
+[shader("vertex")]
+float4 star_vert(uint instance_id : SV_InstanceID, float3 in_position : POSITION) : SV_Position {
+    float4x4 star_model = stars[instance_id].model;
+    float4 world_space = mul(star_model, float4(in_position, 1));
+    float4 clip_space = mul(global.camera.projection_matrix, mul(global.camera.view_matrix, world_space));
+    return clip_space;
 }
 
 [shader("fragment")]
-float4 star_frag(float3 position) {
-    float3 color = 10;
-    return float4(color, 1);
+float4 star_frag() {
+    return float4(float3(10), 1);
+}
+
+[shader("vertex")]
+float4 sun_vert(float3 position) : SV_Position {
+    float4 world_space = float4(50 * position + global.light.position, 1);
+    float4 clip_space = mul(global.camera.projection_matrix, mul(global.camera.view_matrix, world_space));
+    return clip_space;
 }
 
 [shader("fragment")]
-float4 sun_frag(float3 position) {
-    float3 color = 100;
-    return float4(color, 1);
+float4 sun_frag(){
+    return float4(float3(100), 1);
+}
+
+[shader("vertex")]
+float4 voxel_rt_vert(uint id : SV_VertexID) : SV_Position {
+    const float2 POSITIONS[6] = {
+        float2(1, 1),
+        float2(1, -1),
+        float2(-1, -1),
+        float2(1, 1),
+        float2(-1, -1),
+        float2(-1, 1)
+    };
+
+    return float4(POSITIONS[id], 0.9, 1);
 }
