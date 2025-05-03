@@ -3,8 +3,9 @@ use std::path::PathBuf;
 use std::process::Command;
 
 pub fn compile_shaders(renderer: &Renderer) {
+    let out_dir = PathBuf::from(std::env::var("OUT_DIR").unwrap());
     for (shader_name, shader_type) in renderer.shaders() {
-        let spirv_path = PathBuf::from(format!("shaders/{shader_name}.{}.spv", shader_type.extension()));
+        let spirv_path = out_dir.join(format!("{shader_name}.{}.spv", shader_type.extension()));
         let entry_point = format!("{shader_name}_{}", shader_type.extension());
         let status = Command::new("slangc")
             .args([

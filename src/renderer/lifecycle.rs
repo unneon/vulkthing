@@ -6,7 +6,7 @@ use crate::config::{
 use crate::mesh::MeshData;
 use crate::renderer::codegen::{
     alloc_descriptor_set, create_descriptor_pool, create_descriptor_set_layout, create_pipelines,
-    create_render_passes, create_samplers, create_shader_modules, create_shaders,
+    create_render_passes, create_samplers, create_shader_modules,
 };
 use crate::renderer::debug::create_debug_messenger;
 use crate::renderer::device::{select_device, DeviceInfo};
@@ -90,8 +90,7 @@ impl Renderer {
         let depth = create_depth(swapchain.extent, &dev);
         let passes = create_render_passes(&swapchain, vk::SampleCountFlags::TYPE_1, &dev);
         let pipeline_layout = create_pipeline_layout(descriptor_set_layout, &dev);
-        let shaders = create_shaders(&dev.support);
-        let shader_modules = create_shader_modules(&shaders, &dev);
+        let shader_modules = create_shader_modules(&dev);
         let pipelines = create_pipelines(
             vk::SampleCountFlags::TYPE_1,
             &passes,
@@ -235,8 +234,7 @@ impl Renderer {
     pub fn recreate_pipelines(&mut self) {
         unsafe { self.dev.device_wait_idle() }.unwrap();
         self.pipelines.cleanup(&self.dev);
-        let shaders = create_shaders(&self.dev.support);
-        let shader_modules = create_shader_modules(&shaders, &self.dev);
+        let shader_modules = create_shader_modules(&self.dev);
         self.pipelines = create_pipelines(
             vk::SampleCountFlags::TYPE_1,
             &self.passes,

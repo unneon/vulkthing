@@ -18,12 +18,5 @@ pub fn build_script(in_path: &str, out_path: &str) {
     compile_shaders(&renderer);
     generate_code(in_path, &renderer, out_file);
     println!("cargo:rerun-if-changed={in_path}");
-    println!("cargo:rerun-if-changed=shaders/main.slang");
-    for shader in renderer.shaders() {
-        println!(
-            "cargo:rerun-if-changed=shaders/{}.{}",
-            shader.0,
-            shader.1.extension()
-        );
-    }
+    println!("cargo:rerun-if-changed=shaders");
 }

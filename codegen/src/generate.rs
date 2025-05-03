@@ -145,6 +145,7 @@ use crate::renderer::uniform::{{"#
         file,
         r#"}};
 use crate::renderer::debug::set_label;
+use crate::renderer::shader::SpvArray;
 use crate::renderer::util::{{AsDescriptor, Dev, ImageResources, StorageBuffer, UniformBuffer}};
 use crate::renderer::{{DeviceSupport, Pass, Swapchain, COLOR_FORMAT, DEPTH_FORMAT, FRAMES_IN_FLIGHT}};
 use ash::vk;
@@ -205,7 +206,7 @@ pub struct Shaders {{"#
     }
     for (name, typ) in &shaders {
         let typ_lowercase = typ.lowercase();
-        writeln!(file, "    pub {name}_{typ_lowercase}: Vec<u32>,").unwrap();
+        writeln!(file, "    pub {name}_{typ_lowercase}: &'static [u8],").unwrap();
     }
     writeln!(
         file,
@@ -862,10 +863,16 @@ static mut SCRATCH: Scratch = Scratch {{"#
         )
         .unwrap();
     }
-    writeln!(
-        file,
-        r#"}};
-
+    writeln!(file, r#"}};"#).unwrap();
+    for (name, typ) in &shaders {
+        let name_uppercase = name.to_uppercase();
+        let typ_lowercase = typ.lowercase();
+        let typ_uppercase = typ_lowercase.to_uppercase();
+        let ext = typ.extension();
+        let bytes = format!(r#"include_bytes!(concat!(env!("OUT_DIR"), "/{name}.{ext}.spv"))"#);
+        writeln!(file, r#"static {name_uppercase}_{typ_uppercase}_SPV: SpvArray<{{ {bytes}.len() }}> = SpvArray(*{bytes});"#).unwrap();
+    }
+    writeln!(file, r#"
 impl Samplers {{
     pub fn cleanup(&self, dev: &Dev) {{"#
     )
@@ -1176,40 +1183,15 @@ pub fn create_render_passes(
 }}
 
 #[rustfmt::skip]
-pub fn create_shaders(device_support: &DeviceSupport) -> Shaders {{"#
+pub fn create_shader_modules(dev: &Dev) -> ShaderModules {{"#
     )
     .unwrap();
     for (name, typ) in &shaders {
+        let name_uppercase = name.to_uppercase();
         let typ_lowercase = typ.lowercase();
-        let ext = typ.extension();
-        let spirv = format!("ash::util::read_spv(&mut std::io::Cursor::new(include_bytes!(\"../../shaders/{name}.{ext}.spv\"))).unwrap()");
-        if !typ.requires_mesh_shaders() {
-            writeln!(file, r#"    let {name}_{typ_lowercase} = {spirv};"#).unwrap();
-        } else {
-            writeln!(file, r#"    let {name}_{typ_lowercase} = if device_support.mesh_shaders {{ {spirv} }} else {{ Vec::new() }};"#).unwrap();
-        }
-    }
-    writeln!(file, "    Shaders {{").unwrap();
-    for (name, typ) in &shaders {
-        let typ_lowercase = typ.lowercase();
-        writeln!(file, r#"        {name}_{typ_lowercase},"#).unwrap();
-    }
-    writeln!(
-        file,
-        r#"    }}
-}}
-
-#[rustfmt::skip]
-pub fn create_shader_modules(shaders: &Shaders, dev: &Dev) -> ShaderModules {{"#
-    )
-    .unwrap();
-    for (name, typ) in &shaders {
-        let typ_lowercase = typ.lowercase();
-        writeln!(file, r#"    unsafe {{ SCRATCH.{name}_{typ_lowercase}.code_size = 4 * shaders.{name}_{typ_lowercase}.len() }};"#).unwrap();
-    }
-    for (name, typ) in &shaders {
-        let typ_lowercase = typ.lowercase();
-        writeln!(file, r#"    unsafe {{ SCRATCH.{name}_{typ_lowercase}.p_code = shaders.{name}_{typ_lowercase}.as_ptr() }};"#).unwrap();
+        let typ_uppercase = typ_lowercase.to_uppercase();
+        writeln!(file, r#"    unsafe {{ SCRATCH.{name}_{typ_lowercase}.code_size = {name_uppercase}_{typ_uppercase}_SPV.0.len() }};"#).unwrap();
+        writeln!(file, r#"    unsafe {{ SCRATCH.{name}_{typ_lowercase}.p_code = {name_uppercase}_{typ_uppercase}_SPV.0.as_ptr() as *const u32 }};"#).unwrap();
     }
     for (name, typ) in &shaders {
         let typ_lowercase = typ.lowercase();
