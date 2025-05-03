@@ -20,6 +20,7 @@ pub fn compile_shaders(renderer: &Renderer) {
                     // TODO: Slangc should infer this based on mesh shader usage, report as bug.
                     "-capability",
                     "spirv_1_4",
+                    "-O3",
                     "-o",
                 ])
                 .arg(spirv_path)
