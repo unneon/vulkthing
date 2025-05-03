@@ -116,7 +116,6 @@ pub fn generate_code(in_path: &str, renderer: &Renderer, mut file: File) {
 
 #![allow(unused, clippy::deref_addrof)]
 
-use crate::renderer::shader::compile_glsl;
 #[rustfmt::skip]
 use crate::renderer::uniform::{{"#
     )
@@ -1182,13 +1181,8 @@ pub fn create_shaders(device_support: &DeviceSupport) -> Shaders {{"#
     .unwrap();
     for (name, typ) in &shaders {
         let typ_lowercase = typ.lowercase();
-        let typ_camelcase = typ.camelcase();
         let ext = typ.extension();
-        let spirv = if !std::fs::exists(format!("shaders/{name}.{ext}.spv")).unwrap() {
-            format!("compile_glsl(\"shaders/{name}.{ext}\", shaderc::ShaderKind::{typ_camelcase})")
-        } else {
-            format!("ash::util::read_spv(&mut std::io::Cursor::new(include_bytes!(\"../../shaders/{name}.{ext}.spv\"))).unwrap()")
-        };
+        let spirv = format!("ash::util::read_spv(&mut std::io::Cursor::new(include_bytes!(\"../../shaders/{name}.{ext}.spv\"))).unwrap()");
         if !typ.requires_mesh_shaders() {
             writeln!(file, r#"    let {name}_{typ_lowercase} = {spirv};"#).unwrap();
         } else {

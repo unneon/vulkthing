@@ -18,16 +18,6 @@ impl ShaderType {
         }
     }
 
-    pub fn camelcase(&self) -> &'static str {
-        match self {
-            ShaderType::Compute => "Compute",
-            ShaderType::Fragment => "Fragment",
-            ShaderType::Mesh => "Mesh",
-            ShaderType::Task => "Task",
-            ShaderType::Vertex => "Vertex",
-        }
-    }
-
     pub fn extension(&self) -> &'static str {
         match self {
             ShaderType::Compute => "comp",

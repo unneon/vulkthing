@@ -4,7 +4,6 @@ pub mod debug;
 mod device;
 pub mod lifecycle;
 mod pass;
-mod shader;
 mod swapchain;
 pub mod uniform;
 pub mod util;
