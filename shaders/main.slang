@@ -33,7 +33,7 @@ void debug_voxel_screen_bound_mesh(
     float3 world_space_min = global.voxels.chunk_size * float3(meshlet.chunk) + meshlet.bound_base;
     float3 world_space_max = world_space_min + meshlet.bound_size;
     float4 screen_aabb;
-    if (screen_aabb_projection(world_space_min, world_space_max, global.camera.depth_near, mul(global.camera.projection_matrix, global.camera.view_matrix), screen_aabb)) {
+    if (screen_aabb_projection(world_space_min, world_space_max, screen_aabb)) {
         SetMeshOutputCounts(4, 4);
         indices[id] = INDICES[id];
         vertices[id].position = float4(screen_aabb.xy + (screen_aabb.zw - screen_aabb.xy) * VERTICES[id], 0, 1);
@@ -220,7 +220,7 @@ bool frustum_cull(VoxelMeshlet meshlet) {
     float3 world_space_min = global.voxels.chunk_size * float3(meshlet.chunk) + meshlet.bound_base;
     float3 world_space_max = world_space_min + meshlet.bound_size;
     float4 screen_aabb;
-    if (!screen_aabb_projection(world_space_min, world_space_max, global.camera.depth_near, global.camera.projection_matrix * global.camera.view_matrix, screen_aabb)) {
+    if (!screen_aabb_projection(world_space_min, world_space_max, screen_aabb)) {
         return false;
     }
     return screen_aabb.x > 1 || screen_aabb.y > 1 || screen_aabb.z < -1 || screen_aabb.w < -1;
