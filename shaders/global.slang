@@ -6,6 +6,12 @@ public uniform Global global;
 [[vk::binding(1)]]
 public StructuredBuffer<Star> stars;
 
+[[vk::binding(2)]]
+public StructuredBuffer<VoxelVertex> voxel_vertices;
+
+[[vk::binding(3)]]
+public StructuredBuffer<VoxelTriangle> voxel_triangles;
+
 [[vk::binding(4)]]
 public StructuredBuffer<VoxelMeshlet> meshlets;
 
@@ -95,6 +101,19 @@ public struct VoxelMeshlet {
     uint8_t _pad1;
     public uint8_t3 bound_size;
     uint8_t _pad2;
+};
+
+public struct VoxelVertex {
+    public uint8_t3 position;
+    // Two lowest bits encode an ambient occlusion value (00 => 0, 11 => 3/4), the other bits are unused.
+    public uint8_t data;
+};
+
+public struct VoxelTriangle {
+    public uint8_t3 indices;
+    // Three lowest bits encode a normal matching the convention of the DIRECTION array, five highest bits are used for
+    // material ID. Subject to heavy changes later.
+    public uint8_t data;
 };
 
 public struct SvoNode {

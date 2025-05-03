@@ -42,6 +42,35 @@ void debug_voxel_screen_bound_mesh(
     }
 }
 
+struct DebugVoxelTriangleVertex {
+    float4 position : SV_Position;
+};
+
+[shader("mesh")]
+[outputtopology("triangle")]
+[numthreads(256, 1, 1)]
+// TODO: Mesa advertises 128 maxPreferredMeshWorkGroupInvocations contradicting their presentation and official drivers.
+void debug_voxel_triangle_mesh(
+    uint id : SV_GroupIndex,
+    OutputVertices<DebugVoxelTriangleVertex, 128> vertices,
+    OutputIndices<uint3, 256> indices
+) {
+    VoxelMeshlet meshlet = meshlets[global.debug.meshlet_id];
+    SetMeshOutputCounts(meshlet.vertex_count, meshlet.triangle_count);
+
+    if (id < meshlet.triangle_count) {
+        VoxelTriangle triangle = voxel_triangles[meshlet.triangle_offset + id];
+        indices[id] = triangle.indices;
+    }
+
+    if (id < meshlet.vertex_count) {
+        VoxelVertex vertex = voxel_vertices[meshlet.vertex_offset + id];
+        float3 world_space = vertex.position + global.voxels.chunk_size * float3(meshlet.chunk);
+        float4 clip_space = mul(global.camera.projection_matrix, mul(global.camera.view_matrix, float4(world_space, 1)));
+        vertices[id].position = clip_space;
+    }
+}
+
 [shader("fragment")]
 float4 debug_voxel_screen_bound_frag() {
     return float4(113. / 255, 0. / 255, 0. / 255, 1);
@@ -55,6 +84,56 @@ float4 debug_voxel_triangle_frag() {
 [shader("fragment")]
 float4 debug_voxel_world_bound_frag() {
     return float4(255. / 255, 78. / 255, 0. / 255, 1);
+}
+
+struct DebugVoxelWorldBoundVertex {
+    float4 position : SV_Position;
+};
+
+[shader("mesh")]
+[outputtopology("line")]
+[numthreads(12, 1, 1)]
+void debug_voxel_world_bound_mesh(
+    uint id : SV_GroupIndex,
+    OutputVertices<DebugVoxelWorldBoundVertex, 8> vertices,
+    OutputIndices<uint2, 12> indices,
+) {
+    const uint2 INDICES[12] = {
+        uint2(0, 1),
+        uint2(0, 2),
+        uint2(1, 3),
+        uint2(2, 3),
+        uint2(0, 4),
+        uint2(1, 5),
+        uint2(2, 6),
+        uint2(3, 7),
+        uint2(4, 5),
+        uint2(4, 6),
+        uint2(5, 7),
+        uint2(6, 7)
+    };
+
+    const float3 VERTICES[8] = {
+        float3(0, 0, 0),
+        float3(0, 1, 0),
+        float3(1, 0, 0),
+        float3(1, 1, 0),
+        float3(0, 0, 1),
+        float3(0, 1, 1),
+        float3(1, 0, 1),
+        float3(1, 1, 1)
+    };
+
+    SetMeshOutputCounts(8, 12);
+    VoxelMeshlet meshlet = meshlets[global.debug.meshlet_id];
+
+    indices[id] = INDICES[id];
+
+    if (id < 8) {
+        float3 world_space = global.voxels.chunk_size * float3(meshlet.chunk) + meshlet.bound_base + VERTICES[id] * meshlet.bound_size;
+        float4 clip_space = mul(global.camera.projection_matrix, mul(global.camera.view_matrix, float4(world_space, 1)));
+        vertices[id].position = clip_space;
+    }
 }
 
 struct SkyboxVertex {
