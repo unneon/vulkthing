@@ -191,6 +191,102 @@ float4 sun_frag(){
     return float4(float3(100), 1);
 }
 
+struct VoxelPayload {
+    uint meshlet_ids[64];
+};
+
+struct VoxelMeshVertex {
+    float4 position : SV_Position;
+    float ambient_occlusion : AMBIENT_OCCLUSION;
+};
+
+groupshared VoxelPayload voxel_task_payload;
+
+bool back_cull(VoxelMeshlet meshlet) {
+    for (int dx = 0; dx < 2; ++dx) {
+        for (int dy = 0; dy < 2; ++dy) {
+            for (int dz = 0; dz < 2; ++dz) {
+                float3 world_space = global.voxels.chunk_size * float3(meshlet.chunk) + meshlet.bound_base + meshlet.bound_size * float3(dx, dy, dz);
+                if (dot(world_space - global.camera.position, global.camera.direction) > 0) {
+                    return false;
+                }
+            }
+        }
+    }
+    return true;
+}
+
+bool frustum_cull(VoxelMeshlet meshlet) {
+    float3 world_space_min = global.voxels.chunk_size * float3(meshlet.chunk) + meshlet.bound_base;
+    float3 world_space_max = world_space_min + meshlet.bound_size;
+    float4 screen_aabb;
+    if (!screen_aabb_projection(world_space_min, world_space_max, global.camera.depth_near, global.camera.projection_matrix * global.camera.view_matrix, screen_aabb)) {
+        return false;
+    }
+    return screen_aabb.x > 1 || screen_aabb.y > 1 || screen_aabb.z < -1 || screen_aabb.w < -1;
+}
+
+[shader("amplification")]
+[numthreads(64, 1, 1)]
+void voxel_task(
+    uint group_id : SV_GroupID,
+    uint id : SV_GroupIndex,
+) {
+    uint meshlet_index = 64 * group_id.x + id.x;
+    VoxelMeshlet meshlet = meshlets[meshlet_index];
+
+    bool cull = meshlet_index >= global.voxels.meshlet_count;
+    cull = cull || back_cull(meshlet);
+    cull = cull || frustum_cull(meshlet);
+
+    uint task_count = WaveActiveSum(cull ? 0 : 1);
+    uint task_index = WavePrefixSum(cull ? 0 : 1);
+
+    if (!cull) {
+        voxel_task_payload.meshlet_ids[task_index] = meshlet_index;
+    }
+    DispatchMesh(task_count, 1, 1, voxel_task_payload);
+}
+
+[shader("mesh")]
+[outputtopology("triangle")]
+[numthreads(256, 1, 1)]
+// TODO: Mesa advertises 128 maxPreferredMeshWorkGroupInvocations contradicting their presentation and official drivers.
+void voxel_mesh(
+    uint group_id : SV_GroupID,
+    uint id : SV_GroupIndex,
+    in payload VoxelPayload payload,
+    OutputVertices<VoxelMeshVertex, 128> vertices,
+    OutputIndices<uint3, 256> indices,
+) {
+    VoxelMeshlet meshlet = meshlets[payload.meshlet_ids[group_id.x]];
+    SetMeshOutputCounts(meshlet.vertex_count, meshlet.triangle_count);
+
+    if (id < meshlet.triangle_count) {
+        VoxelTriangle triangle = voxel_triangles[meshlet.triangle_offset + id];
+        indices[id] = triangle.indices;
+    }
+
+    if (id < meshlet.vertex_count) {
+        VoxelVertex vertex = voxel_vertices[meshlet.vertex_offset + id];
+        float3 world_space = vertex.position + global.voxels.chunk_size * float3(meshlet.chunk);
+        float4 clip_space = mul(global.camera.projection_matrix, mul(global.camera.view_matrix, float4(world_space, 1)));
+        vertices[id].position = clip_space;
+        vertices[id].ambient_occlusion = 0.75 * float(vertex.data & 3) / 3;
+    }
+}
+
+[shader("fragment")]
+float4 voxel_frag(
+    float4 frag_coord: SV_Position,
+    float ambient_occlusion : AMBIENT_OCCLUSION,
+) {
+    float3 position = world_space_from_depth(frag_coord.z, frag_coord);
+    float3 color = normalize(position);
+    float3 light = (1 - ambient_occlusion) * color;
+    return float4(light, 1);
+}
+
 [shader("vertex")]
 float4 voxel_rt_vert(uint id : SV_VertexID) : SV_Position {
     const float2 POSITIONS[6] = {
