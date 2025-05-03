@@ -1,6 +1,46 @@
 import camera;
+import geometry;
 import global;
 import voxel;
+
+struct DebugVoxelScreenBoundVertex {
+    float4 position : SV_Position;
+};
+
+[shader("mesh")]
+[outputtopology("line")]
+[numthreads(4, 1, 1)]
+void debug_voxel_screen_bound_mesh(
+    uint id : SV_GroupIndex,
+    OutputVertices<DebugVoxelScreenBoundVertex, 4> vertices,
+    OutputIndices<uint2, 4> indices,
+) {
+    const uint2 INDICES[4] = {
+        uint2(0, 1),
+        uint2(0, 2),
+        uint2(1, 3),
+        uint2(2, 3),
+    };
+
+    const float2 VERTICES[4] = {
+        float2(0, 0),
+        float2(0, 1),
+        float2(1, 0),
+        float2(1, 1),
+    };
+
+    VoxelMeshlet meshlet = meshlets[global.debug.meshlet_id];
+    float3 world_space_min = global.voxels.chunk_size * float3(meshlet.chunk) + meshlet.bound_base;
+    float3 world_space_max = world_space_min + meshlet.bound_size;
+    float4 screen_aabb;
+    if (screen_aabb_projection(world_space_min, world_space_max, global.camera.depth_near, mul(global.camera.projection_matrix, global.camera.view_matrix), screen_aabb)) {
+        SetMeshOutputCounts(4, 4);
+        indices[id] = INDICES[id];
+        vertices[id].position = float4(screen_aabb.xy + (screen_aabb.zw - screen_aabb.xy) * VERTICES[id], 0, 1);
+    } else {
+        SetMeshOutputCounts(0, 0);
+    }
+}
 
 [shader("fragment")]
 float4 debug_voxel_screen_bound_frag() {

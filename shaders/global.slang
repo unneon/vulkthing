@@ -6,6 +6,9 @@ public uniform Global global;
 [[vk::binding(1)]]
 public StructuredBuffer<Star> stars;
 
+[[vk::binding(4)]]
+public StructuredBuffer<VoxelMeshlet> meshlets;
+
 [[vk::binding(5)]]
 public StructuredBuffer<SvoNode> svo_nodes;
 
@@ -79,6 +82,19 @@ public struct Debug {
 
 public struct Star {
     public float4x4 model;
+};
+
+public struct VoxelMeshlet {
+    public uint vertex_offset;
+    public uint vertex_count;
+    public uint triangle_offset;
+    public uint triangle_count;
+    public int16_t3 chunk;
+    int16_t _pad0;
+    public uint8_t3 bound_base;
+    uint8_t _pad1;
+    public uint8_t3 bound_size;
+    uint8_t _pad2;
 };
 
 public struct SvoNode {
