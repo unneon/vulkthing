@@ -1,6 +1,4 @@
-use spirv_reflect::types::{
-    ReflectDescriptorSet, ReflectTypeDescription, ReflectTypeFlags,
-};
+use spirv_reflect::types::{ReflectDescriptorSet, ReflectTypeDescription, ReflectTypeFlags};
 use std::{borrow::Cow, collections::HashMap};
 
 pub struct TypeInfo<'a> {
