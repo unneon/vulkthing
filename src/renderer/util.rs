@@ -382,10 +382,7 @@ fn find_memory_type(properties: vk::MemoryPropertyFlags, type_filter: u32, dev: 
             return i;
         }
     }
-    panic!(
-        "no good memory type_filter={type_filter} properties={properties:?} {:#?}",
-        properties
-    );
+    panic!("no suitable memory type found, \x1B[1mtype_filter\x1B[0m: 0x{type_filter:X}, \x1B[1mproperties\x1B[0m: {properties:?}");
 }
 
 pub fn vulkan_str(slice: &[i8]) -> &str {

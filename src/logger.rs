@@ -51,7 +51,7 @@ fn panic_hook(info: &PanicHookInfo) {
         "panic"
     };
     if let Some(location) = info.location() {
-        error!("{message}, \x1B[1mlocation:\x1B[0m {location}");
+        error!("{message}, \x1B[1mpanic_location:\x1B[0m {location}");
     } else {
         error!("{message}");
     }

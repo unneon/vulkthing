@@ -872,7 +872,9 @@ static mut SCRATCH: Scratch = Scratch {{"#
         let bytes = format!(r#"include_bytes!(concat!(env!("OUT_DIR"), "/{name}.{ext}.spv"))"#);
         writeln!(file, r#"static {name_uppercase}_{typ_uppercase}_SPV: SpvArray<{{ {bytes}.len() }}> = SpvArray(*{bytes});"#).unwrap();
     }
-    writeln!(file, r#"
+    writeln!(
+        file,
+        r#"
 impl Samplers {{
     pub fn cleanup(&self, dev: &Dev) {{"#
     )
