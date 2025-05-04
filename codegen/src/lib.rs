@@ -1,4 +1,4 @@
-#![feature(path_add_extension)]
+#![feature(iter_array_chunks, path_add_extension)]
 
 mod config;
 mod generate;

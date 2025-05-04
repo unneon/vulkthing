@@ -20,7 +20,7 @@ fn compile_shader(entry_point: Option<&str>, spirv_path: &Path) {
     if let Some(entry_point) = entry_point {
         command.args(["-entry", entry_point]);
     }
-    let status = command
+    let output = command
         .args([
             "-target",
             "spirv",
@@ -31,9 +31,28 @@ fn compile_shader(entry_point: Option<&str>, spirv_path: &Path) {
             "-o",
         ])
         .arg(spirv_path)
-        // TODO: Parse warnings and errors and emit them to stdout in Cargo format.
-        .stderr(std::process::Stdio::null())
-        .status()
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap()
+        .wait_with_output()
         .unwrap();
-    assert!(status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    let mut error_found = false;
+    for [msg, ctx, highlight] in stderr.lines().array_chunks() {
+        let severity = if msg.contains(": error ") {
+            error_found = true;
+            "error"
+        } else if msg.contains(": warning ") {
+            "warning"
+        } else {
+            unreachable!()
+        };
+        println!("cargo::{severity}={msg}");
+        println!("cargo::{severity}={ctx}");
+        println!("cargo::{severity}={highlight}");
+    }
+    if error_found {
+        std::process::exit(0);
+    }
+    assert!(output.status.success());
 }
