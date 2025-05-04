@@ -5,3 +5,4 @@ edition = "2021"
 
 [dependencies]
 knuffel = "3.2"
+spirv-reflect = { git = "https://github.com/gwihlidal/spirv-reflect-rs" }

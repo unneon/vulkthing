@@ -6,19 +6,17 @@ pub mod lifecycle;
 mod pass;
 mod shader;
 mod swapchain;
-pub mod uniform;
 pub mod util;
 pub mod vertex;
 
+use crate::gpu::std140::{Atmosphere, Camera, Debug, Global, VoxelMaterial, Voxels};
+use crate::gpu::std430::Star;
 #[cfg(feature = "dev-menu")]
 use crate::interface::EnumInterface;
 use crate::renderer::codegen::{Passes, Pipelines, Samplers};
 use crate::renderer::debug::{begin_label, end_label};
 use crate::renderer::pass::Pass;
 use crate::renderer::swapchain::Swapchain;
-use crate::renderer::uniform::{
-    Atmosphere, Camera, Debug, Global, PostprocessUniform, Star, Tonemapper, VoxelMaterial, Voxels,
-};
 use crate::renderer::util::{
     timestamp_difference_to_duration, Buffer, Dev, ImageResources, StorageBuffer, UniformBuffer,
 };
@@ -108,7 +106,6 @@ pub struct RendererSettings {
     pub depth_near: f32,
     pub depth_far: f32,
     pub enable_atmosphere: bool,
-    pub postprocess: PostprocessSettings,
 }
 
 #[allow(dead_code)]
@@ -117,12 +114,6 @@ pub enum VoxelRendering {
     Classic,
     MeshShaders,
     RayTracing,
-}
-
-pub struct PostprocessSettings {
-    pub exposure: f32,
-    pub tonemapper: Tonemapper,
-    pub gamma: f32,
 }
 
 #[derive(Clone)]
@@ -378,8 +369,7 @@ impl Renderer {
                 },
                 light: world.light(),
                 atmosphere: Atmosphere {
-                    enable: settings.enable_atmosphere,
-                    _pad0: [0; 3],
+                    enable: if settings.enable_atmosphere { 1 } else { 0 },
                     scatter_point_count: settings.atmosphere_in_scattering_samples as u32,
                     optical_depth_point_count: settings.atmosphere_optical_depth_samples as u32,
                     density_falloff: world.atmosphere.density_falloff,
@@ -395,11 +385,6 @@ impl Renderer {
                     scattering_strength: world.atmosphere.scattering_strength,
                     henyey_greenstein_g: world.atmosphere.henyey_greenstein_g,
                 },
-                postprocessing: PostprocessUniform {
-                    exposure: settings.postprocess.exposure,
-                    tonemapper: settings.postprocess.tonemapper,
-                    gamma: settings.postprocess.gamma,
-                },
                 camera: Camera {
                     view_matrix: world.view_matrix(),
                     projection_matrix: self.projection_matrix(settings),
@@ -412,7 +397,7 @@ impl Renderer {
                     depth_near: settings.depth_near,
                     depth_far: settings.depth_far,
                     position: world.camera.position(),
-                    _pad1: 0.,
+                    _pad0: 0.,
                     direction: world.camera.view_direction(),
                 },
                 materials,

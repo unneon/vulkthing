@@ -403,6 +403,7 @@ name = "codegen"
 version = "0.0.0"
 dependencies = [
  "knuffel",
+ "spirv-reflect",
 ]
 
 [[package]]
@@ -1980,6 +1981,29 @@ dependencies = [
  "num-traits",
  "robust",
  "smallvec",
+]
+
+[[package]]
+name = "spirv"
+version = "0.2.0+1.5.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "246bfa38fe3db3f1dfc8ca5a2cdeb7348c78be2112740cc0ec8ef18b6d94f830"
+dependencies = [
+ "bitflags 1.3.2",
+ "num-traits",
+]
+
+[[package]]
+name = "spirv-reflect"
+version = "0.2.3"
+source = "git+https://github.com/gwihlidal/spirv-reflect-rs#97298067e3b1c9ce05633d78f1183c14a3cc6acc"
+dependencies = [
+ "bitflags 1.3.2",
+ "cc",
+ "num-traits",
+ "serde",
+ "serde_derive",
+ "spirv",
 ]
 
 [[package]]

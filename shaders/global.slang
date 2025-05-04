@@ -18,11 +18,14 @@ public StructuredBuffer<VoxelMeshlet> meshlets;
 [[vk::binding(5)]]
 public StructuredBuffer<SvoNode> svo_nodes;
 
+// Temporarily, read the reflection codegen and make sure the alignment will be handled correctly
+// before modifying any struct definitions! This can be fixed by either implementing full std140 and
+// std430 alignment rules in codegen, or hoping the scalar_block_layout extension works well.
+
 public struct Global {
     public Voxels voxels;
     public Light light;
     public Atmosphere atmosphere;
-    public Postprocessing postprocessing;
     public Camera camera;
     public VoxelMaterial materials[256];
     public Debug debug;
@@ -57,12 +60,6 @@ public struct Atmosphere {
     public float henyey_greenstein_g;
 };
 
-public struct Postprocessing {
-    public float exposure;
-    public uint tonemapper;
-    public float gamma;
-};
-
 public struct Camera {
     public float4x4 view_matrix;
     public float4x4 projection_matrix;
@@ -72,6 +69,7 @@ public struct Camera {
     public float depth_near;
     public float depth_far;
     public float3 position;
+    float _pad0;
     public float3 direction;
 };
 

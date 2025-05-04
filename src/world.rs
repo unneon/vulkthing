@@ -3,9 +3,9 @@ use crate::config::{
     DEFAULT_CAMERA, DEFAULT_STAR_COUNT, DEFAULT_STAR_MAX_SCALE, DEFAULT_STAR_MIN_SCALE,
     DEFAULT_STAR_RADIUS, DEFAULT_SUN_POSITION, DEFAULT_SUN_RADIUS, DEFAULT_SUN_SPEED,
 };
+use crate::gpu::std140::Light;
 use crate::input::InputState;
 use crate::physics::Physics;
-use crate::renderer::uniform::Light;
 use crate::util::{RandomDirection, RandomRotation};
 use nalgebra::{Matrix4, UnitQuaternion, Vector3};
 use rand::Rng;

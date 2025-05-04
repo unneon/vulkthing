@@ -3,6 +3,7 @@ use crate::config::{
     DEFAULT_VOXEL_MESHLET_MAX_COUNT, DEFAULT_VOXEL_OCTREE_MAX_COUNT,
     DEFAULT_VOXEL_TRIANGLE_MAX_COUNT, DEFAULT_VOXEL_VERTEX_MAX_COUNT,
 };
+use crate::gpu::std430::Star;
 use crate::mesh::MeshData;
 use crate::renderer::codegen::{
     alloc_descriptor_set, create_descriptor_pool, create_descriptor_set_layout, create_pipelines,
@@ -11,7 +12,6 @@ use crate::renderer::codegen::{
 use crate::renderer::debug::create_debug_messenger;
 use crate::renderer::device::{select_device, DeviceInfo};
 use crate::renderer::swapchain::create_swapchain;
-use crate::renderer::uniform::Star;
 use crate::renderer::util::{vulkan_str, Buffer, Dev, ImageResources, StorageBuffer};
 use crate::renderer::vertex::Vertex;
 use crate::renderer::{
@@ -19,7 +19,7 @@ use crate::renderer::{
     FRAMES_IN_FLIGHT, VRAM_VIA_BAR,
 };
 use crate::voxel::gpu::meshlets::VoxelMeshletMemory;
-use crate::voxel::gpu::{SvoNode, VoxelGpuMemory};
+use crate::voxel::gpu::{VoxelGpuMemory, EMPTY_ROOT};
 use crate::world::World;
 use crate::{VULKAN_APP_NAME, VULKAN_APP_VERSION, VULKAN_ENGINE_NAME, VULKAN_ENGINE_VERSION};
 use ash::ext::{debug_utils, mesh_shader};
@@ -127,7 +127,7 @@ impl Renderer {
             StorageBuffer::new_array(VRAM_VIA_BAR, DEFAULT_VOXEL_MESHLET_MAX_COUNT, &dev);
         let mut voxel_octree_buffer =
             StorageBuffer::new_array(VRAM_VIA_BAR, DEFAULT_VOXEL_OCTREE_MAX_COUNT, &dev);
-        voxel_octree_buffer.generate(|_| SvoNode::EMPTY_ROOT);
+        voxel_octree_buffer.generate(|_| EMPTY_ROOT);
 
         let global = UniformBuffer::create(&dev);
         let global_descriptor_sets = alloc_descriptor_set(

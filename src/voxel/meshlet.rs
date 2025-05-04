@@ -1,3 +1,4 @@
+use crate::gpu::std430::{VoxelMeshlet, VoxelTriangle, VoxelVertex};
 use crate::voxel::local_mesh::LocalMesh;
 use crate::voxel::material::Material;
 use crate::voxel::sparse_octree::SparseOctree;
@@ -12,37 +13,6 @@ pub struct VoxelMesh {
     pub triangles: Vec<VoxelTriangle>,
     pub octree: SparseOctree,
     pub chunk: Vector3<i64>,
-}
-
-#[repr(C, align(8))]
-#[derive(Clone, Copy, Debug)]
-pub struct VoxelMeshlet {
-    pub vertex_offset: u32,
-    pub vertex_count: u32,
-    pub triangle_offset: u32,
-    pub triangle_count: u32,
-    pub chunk: Vector3<i16>,
-    pub _pad0: i16,
-    pub bound_base: Vector3<u8>,
-    pub _pad1: u8,
-    pub bound_size: Vector3<u8>,
-    pub _pad2: u8,
-}
-
-#[repr(C, align(4))]
-#[derive(Clone, Copy, Debug)]
-pub struct VoxelVertex {
-    position: Vector3<u8>,
-    data: u8,
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Debug)]
-pub struct VoxelTriangle {
-    index0: u8,
-    index1: u8,
-    index2: u8,
-    data: u8,
 }
 
 // Data format expected by the meshoptimizer library. I'll be writing my own meshlet construction
@@ -66,9 +36,7 @@ impl VoxelTriangle {
     fn new(indices: [u8; 3], normal: u8, material: Material) -> VoxelTriangle {
         assert!(normal < 6);
         VoxelTriangle {
-            index0: indices[0],
-            index1: indices[1],
-            index2: indices[2],
+            indices: indices.into(),
             data: normal | ((material as u8) << 3),
         }
     }

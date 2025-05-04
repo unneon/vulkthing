@@ -23,6 +23,7 @@ use winit::window::{CursorGrabMode, Fullscreen, Window, WindowId};
 mod camera;
 mod cli;
 mod config;
+mod gpu;
 mod input;
 #[cfg(feature = "dev-menu")]
 mod interface;

@@ -1,10 +1,10 @@
 descriptor-set {
     uniform "global" "ALL" "Global"
-    storage-buffer "stars" "ALL" "[Star]"
-    storage-buffer "voxel_vertices" "ALL" "[crate::voxel::meshlet::VoxelVertex]"
-    storage-buffer "voxel_triangles" "ALL" "[crate::voxel::meshlet::VoxelTriangle]"
-    storage-buffer "voxel_meshlets" "ALL" "[crate::voxel::meshlet::VoxelMeshlet]"
-    storage-buffer "voxel_octrees" "ALL" "[crate::voxel::gpu::SvoNode]"
+    storage-buffer "stars" "ALL" "Star"
+    storage-buffer "voxel_vertices" "ALL" "VoxelVertex"
+    storage-buffer "voxel_triangles" "ALL" "VoxelTriangle"
+    storage-buffer "voxel_meshlets" "ALL" "VoxelMeshlet"
+    storage-buffer "voxel_octrees" "ALL" "SvoNode"
 }
 
 pass "render" {

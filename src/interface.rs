@@ -1,4 +1,4 @@
-use crate::renderer::{PostprocessSettings, RendererSettings};
+use crate::renderer::RendererSettings;
 use crate::voxel::VoxelsConfig;
 use crate::world::World;
 use ash::vk;
@@ -132,9 +132,6 @@ impl Interface {
                         &mut world.atmosphere.henyey_greenstein_g,
                     );
                 }
-                if ui.collapsing_header("Post-processing", TreeNodeFlags::empty()) {
-                    build_postprocess(ui, &mut renderer.postprocess);
-                }
                 if ui.collapsing_header("Performance", TreeNodeFlags::empty()) {
                     if let Some(frametime) = frametime {
                         ui.label_text(
@@ -166,17 +163,6 @@ impl EnumInterface for vk::SampleCountFlags {
             Cow::Borrowed("1x")
         }
     }
-}
-
-fn build_postprocess(ui: &Ui, postprocess: &mut PostprocessSettings) {
-    ui.slider_config("Exposure", 0.001, 100.)
-        .flags(SliderFlags::LOGARITHMIC)
-        .build(&mut postprocess.exposure);
-    enum_combo(ui, "Tonemapper", &mut postprocess.tonemapper);
-    Drag::new("Gamma")
-        .range(0., f32::INFINITY)
-        .speed(0.01)
-        .build(ui, &mut postprocess.gamma);
 }
 
 fn enum_combo<T: Copy + EnumInterface + PartialEq>(ui: &Ui, label: &str, value: &mut T) -> bool {

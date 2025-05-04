@@ -2,12 +2,14 @@ use crate::config::{
     Compute, DescriptorBinding, Pass, Pipeline, Renderer, Sampler, VertexAttribute,
 };
 use crate::helper::to_camelcase;
+use crate::reflect::{reflect, Layout, Type};
 use crate::types::ShaderType;
 use std::borrow::Cow;
 use std::collections::{BTreeSet, HashMap};
 use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io::Write;
+use std::path::{Path, PathBuf};
 
 #[derive(Clone, PartialEq)]
 enum BindingType {
@@ -74,7 +76,7 @@ impl DescriptorBinding {
             | DescriptorBinding::StorageImage(_) => "vk::ImageView".into(),
             DescriptorBinding::StorageBuffer(storage) => {
                 let typ = &storage.typ;
-                format!("&StorageBuffer<{typ}>").into()
+                format!("&StorageBuffer<[{typ}]>").into()
             }
             DescriptorBinding::Uniform(uniform) => {
                 let typ = &uniform.typ;
@@ -108,37 +110,41 @@ impl Display for Sampler {
     }
 }
 
-pub fn generate_code(in_path: &str, renderer: &Renderer, mut file: File) {
-    // clippy::deref_addrof has false positives for *&raw const expressions.
+pub fn generate_code(in_path: &str, renderer: &Renderer) {
+    let out_dir = PathBuf::from(std::env::var("OUT_DIR").unwrap());
+    generate_codegen(in_path, renderer, &out_dir);
+    generate_uniform(&out_dir);
+}
+
+fn generate_codegen(in_path: &str, renderer: &Renderer, out_dir: &Path) {
+    let mut file = File::create(out_dir.join("codegen.rs")).unwrap();
     write!(
         file,
         r#"// Code generated from {in_path}.
 
-#![allow(unused, clippy::deref_addrof)]
-
 #[rustfmt::skip]
-use crate::renderer::uniform::{{"#
+use crate::gpu::std140::{{"#
     )
     .unwrap();
-    let mut uniform_types = BTreeSet::new();
+    let mut std140_types = BTreeSet::new();
+    let mut std430_types = BTreeSet::new();
     for binding in &renderer.descriptor_set.bindings {
         if let DescriptorBinding::Uniform(uniform) = binding {
-            uniform_types.insert(uniform.typ.as_str());
+            std140_types.insert(uniform.typ.as_str());
         } else if let DescriptorBinding::StorageBuffer(storage) = binding {
-            uniform_types.insert(
-                storage
-                    .typ
-                    .strip_prefix("[")
-                    .unwrap()
-                    .strip_suffix("]")
-                    .unwrap(),
-            );
+            std430_types.insert(storage.typ.as_str());
         }
     }
-    for typ in &uniform_types {
-        if *typ == "u8" || *typ == "u32" || typ.starts_with("crate::") {
-            continue;
-        }
+    for typ in &std140_types {
+        write!(file, "{typ},").unwrap();
+    }
+    writeln!(
+        file,
+        r#"}};
+use crate::gpu::std430::{{"#
+    )
+    .unwrap();
+    for typ in &std430_types {
         write!(file, "{typ},").unwrap();
     }
     writeln!(
@@ -869,7 +875,8 @@ static mut SCRATCH: Scratch = Scratch {{"#
         let typ_lowercase = typ.lowercase();
         let typ_uppercase = typ_lowercase.to_uppercase();
         let ext = typ.extension();
-        let bytes = format!(r#"include_bytes!(concat!(env!("OUT_DIR"), "/{name}.{ext}.spv"))"#);
+        let bytes =
+            format!(r#"include_bytes!(concat!(env!("OUT_DIR"), "/shaders/{name}.{ext}.spv"))"#);
         writeln!(file, r#"static {name_uppercase}_{typ_uppercase}_SPV: SpvArray<{{ {bytes}.len() }}> = SpvArray(*{bytes});"#).unwrap();
     }
     writeln!(
@@ -1388,6 +1395,51 @@ pub fn create_pipelines(
 }}"#
     )
     .unwrap();
+}
+
+fn generate_uniform(out_dir: &Path) {
+    let spirv_path = out_dir.join("reflection.spv");
+    let spirv = std::fs::read(&spirv_path).unwrap();
+    let refl = spirv_reflect::create_shader_module(&spirv).unwrap();
+    let descriptor_sets = refl.enumerate_descriptor_sets(None).unwrap();
+    let type_info = reflect(&descriptor_sets);
+    let mut file = File::create(out_dir.join("gpu.rs")).unwrap();
+    for layout in [Layout::Std140, Layout::Std430] {
+        let layout_lowercase = layout.lowercase();
+        writeln!(file, r#"pub mod {layout_lowercase} {{"#).unwrap();
+        for ((struct_name, struct_layout), struct_) in &type_info.structs {
+            if *struct_layout != layout {
+                continue;
+            }
+            let alignment = struct_.alignment;
+            writeln!(
+                file,
+                r#"    #[repr(C, align({alignment}))]
+    #[derive(Clone, Copy, Debug)]
+    pub struct {struct_name} {{"#
+            )
+            .unwrap();
+            for (member_name, member_typ) in &struct_.members {
+                if let Type::Struct(_, member_layout) = member_typ {
+                    assert_eq!(*member_layout, layout);
+                }
+                let member_typ_rust = member_typ.to_rust();
+                writeln!(file, "        pub {member_name}: {member_typ_rust},").unwrap();
+            }
+            writeln!(
+                file,
+                r#"    }}
+    "#
+            )
+            .unwrap();
+        }
+        writeln!(
+            file,
+            r#"}}
+"#
+        )
+        .unwrap();
+    }
 }
 
 fn for_pipelines<'a>(renderer: &'a Renderer, mut f: impl FnMut(&'a Pass, &'a Pipeline)) {

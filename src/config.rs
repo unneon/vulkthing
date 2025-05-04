@@ -1,6 +1,5 @@
 use crate::camera::first_person::FirstPersonCamera;
-use crate::renderer::uniform::Tonemapper;
-use crate::renderer::{PostprocessSettings, RendererSettings, VoxelRendering};
+use crate::renderer::{RendererSettings, VoxelRendering};
 use crate::voxel::meshing::MeshingAlgorithmKind;
 use crate::voxel::VoxelsConfig;
 use nalgebra::Vector3;
@@ -32,11 +31,6 @@ pub const DEFAULT_RENDERER_SETTINGS: RendererSettings = RendererSettings {
     depth_near: 0.2,
     depth_far: 65536.,
     enable_atmosphere: false,
-    postprocess: PostprocessSettings {
-        exposure: 1.,
-        tonemapper: Tonemapper::HillAces,
-        gamma: 1.,
-    },
 };
 
 pub const DEFAULT_VOXEL_CONFIG: VoxelsConfig = VoxelsConfig {

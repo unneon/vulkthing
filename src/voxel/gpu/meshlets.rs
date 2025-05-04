@@ -1,8 +1,11 @@
+use super::{svo_mixed, svo_uniform};
+use crate::gpu::std430::SvoNode;
+use crate::gpu::std430::{VoxelMeshlet, VoxelTriangle, VoxelVertex};
 use crate::renderer::util::{Dev, StorageBuffer};
-use crate::voxel::gpu::{SvoChild, SvoNode, VoxelGpuMemory};
+use crate::voxel::gpu::VoxelGpuMemory;
 use crate::voxel::local_mesh::LocalMesh;
 use crate::voxel::meshlet;
-use crate::voxel::meshlet::{VoxelMesh, VoxelMeshlet, VoxelTriangle, VoxelVertex};
+use crate::voxel::meshlet::VoxelMesh;
 use crate::voxel::sparse_octree::SparseOctree;
 use nalgebra::Vector3;
 use std::mem::MaybeUninit;
@@ -125,7 +128,10 @@ fn write_octree(octree: &SparseOctree, memory: &mut [MaybeUninit<SvoNode>]) {
     let mut index = 0;
     let child = write_octree_impl(octree, 0, memory, &mut index);
     if index == 0 {
-        memory[0].write(SvoNode::new(0, [child; 8]));
+        memory[0].write(SvoNode {
+            children: [child; 8],
+            parent: 0,
+        });
     }
 }
 
@@ -134,17 +140,17 @@ fn write_octree_impl(
     parent: u32,
     memory: &mut [MaybeUninit<SvoNode>],
     index: &mut u32,
-) -> SvoChild {
+) -> u32 {
     match octree {
-        SparseOctree::Uniform { kind } => SvoChild::new_uniform(*kind),
+        SparseOctree::Uniform { kind } => svo_uniform(*kind),
         SparseOctree::Mixed { children } => {
             let current_index = *index;
             *index += 1;
             let children = std::array::from_fn(|i| {
                 write_octree_impl(&children[i], current_index, memory, index)
             });
-            memory[current_index as usize].write(SvoNode::new(parent, children));
-            SvoChild::new_mixed(current_index)
+            memory[current_index as usize].write(SvoNode { parent, children });
+            svo_mixed(current_index)
         }
     }
 }
