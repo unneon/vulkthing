@@ -1,5 +1,5 @@
 use spirv_reflect::types::{
-    ReflectDescriptorSet, ReflectStorageClass, ReflectTypeDescription, ReflectTypeFlags,
+    ReflectDescriptorSet, ReflectTypeDescription, ReflectTypeFlags,
 };
 use std::{borrow::Cow, collections::HashMap};
 
@@ -128,7 +128,6 @@ fn collect_types<'a>(
 
 fn is_struct(typ: &ReflectTypeDescription) -> bool {
     typ.type_flags.contains(ReflectTypeFlags::STRUCT)
-        && typ.storage_class != ReflectStorageClass::Undefined
         && !typ.type_name.starts_with('_')
         && typ.type_name != "StructuredBuffer"
 }

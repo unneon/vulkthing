@@ -15,25 +15,11 @@ void debug_voxel_screen_bound_mesh(
     OutputVertices<DebugVoxelScreenBoundVertex, 4> vertices,
     OutputIndices<uint2, 4> indices,
 ) {
-    const uint2 INDICES[4] = {
-        uint2(0, 1),
-        uint2(0, 2),
-        uint2(1, 3),
-        uint2(2, 3),
-    };
-
-    const float2 VERTICES[4] = {
-        float2(0, 0),
-        float2(0, 1),
-        float2(1, 0),
-        float2(1, 1),
-    };
+    const uint2 INDICES[4] = {{0, 1}, {0, 2}, {1, 3}, {2, 3}};
+    const float2 VERTICES[4] = {{0, 0}, {0, 1}, {1, 0}, {1, 1}};
 
     VoxelMeshlet meshlet = meshlets[global.debug.meshlet_id];
-    float3 world_space_min = global.voxels.chunk_size * float3(meshlet.chunk) + meshlet.bound_base;
-    float3 world_space_max = world_space_min + meshlet.bound_size;
-    float4 screen_aabb;
-    if (screen_aabb_projection(world_space_min, world_space_max, screen_aabb)) {
+    if (let screen_aabb = screen_aabb_projection(meshlet.world_space_min, meshlet.world_space_max)) {
         SetMeshOutputCounts(4, 4);
         indices[id] = INDICES[id];
         vertices[id].position = float4(screen_aabb.xy + (screen_aabb.zw - screen_aabb.xy) * VERTICES[id], 0, 1);
@@ -93,31 +79,8 @@ void debug_voxel_world_bound_mesh(
     OutputVertices<DebugVoxelWorldBoundVertex, 8> vertices,
     OutputIndices<uint2, 12> indices,
 ) {
-    const uint2 INDICES[12] = {
-        uint2(0, 1),
-        uint2(0, 2),
-        uint2(1, 3),
-        uint2(2, 3),
-        uint2(0, 4),
-        uint2(1, 5),
-        uint2(2, 6),
-        uint2(3, 7),
-        uint2(4, 5),
-        uint2(4, 6),
-        uint2(5, 7),
-        uint2(6, 7)
-    };
-
-    const float3 VERTICES[8] = {
-        float3(0, 0, 0),
-        float3(0, 1, 0),
-        float3(1, 0, 0),
-        float3(1, 1, 0),
-        float3(0, 0, 1),
-        float3(0, 1, 1),
-        float3(1, 0, 1),
-        float3(1, 1, 1)
-    };
+    const uint2 INDICES[12] = {{0, 1}, {0, 2}, {1, 3}, {2, 3}, {0, 4}, {1, 5}, {2, 6}, {3, 7}, {4, 5}, {4, 6}, {5, 7}, {6, 7}};
+    const float3 VERTICES[8] = {{0, 0, 0}, {0, 1, 0}, {1, 0, 0}, {1, 1, 0}, {0, 0, 1}, {0, 1, 1}, {1, 0, 1}, {1, 1, 1}};
 
     SetMeshOutputCounts(8, 12);
     VoxelMeshlet meshlet = meshlets[global.debug.meshlet_id];
@@ -143,14 +106,7 @@ struct SkyboxVertex {
 
 [shader("vertex")]
 SkyboxVertex skybox_vert(uint id : SV_VertexID) {
-    const float2 POSITIONS[6] = {
-        float2(1, 1),
-        float2(1, -1),
-        float2(-1, -1),
-        float2(1, 1),
-        float2(-1, -1),
-        float2(-1, 1)
-    };
+    const float2 POSITIONS[6] = {{1, 1}, {1, -1}, {-1, -1}, {1, 1}, {-1, -1}, {-1, 1}};
 
     float4 normalized_clip_space = float4(POSITIONS[id], 1, 1);
     float3 direction = normalize(mul(global.camera.inverse_view_matrix, mul(global.camera.inverse_projection_matrix, normalized_clip_space)).xyz);
@@ -201,30 +157,6 @@ struct VoxelMeshVertex {
 };
 
 groupshared VoxelPayload voxel_task_payload;
-
-bool back_cull(VoxelMeshlet meshlet) {
-    for (int dx = 0; dx < 2; ++dx) {
-        for (int dy = 0; dy < 2; ++dy) {
-            for (int dz = 0; dz < 2; ++dz) {
-                float3 world_space = global.voxels.chunk_size * float3(meshlet.chunk) + meshlet.bound_base + meshlet.bound_size * float3(dx, dy, dz);
-                if (dot(world_space - global.camera.position, global.camera.direction) > 0) {
-                    return false;
-                }
-            }
-        }
-    }
-    return true;
-}
-
-bool frustum_cull(VoxelMeshlet meshlet) {
-    float3 world_space_min = global.voxels.chunk_size * float3(meshlet.chunk) + meshlet.bound_base;
-    float3 world_space_max = world_space_min + meshlet.bound_size;
-    float4 screen_aabb;
-    if (!screen_aabb_projection(world_space_min, world_space_max, screen_aabb)) {
-        return false;
-    }
-    return screen_aabb.x > 1 || screen_aabb.y > 1 || screen_aabb.z < -1 || screen_aabb.w < -1;
-}
 
 [shader("amplification")]
 [numthreads(64, 1, 1)]
@@ -289,14 +221,7 @@ float4 voxel_frag(
 
 [shader("vertex")]
 float4 voxel_rt_vert(uint id : SV_VertexID) : SV_Position {
-    const float2 POSITIONS[6] = {
-        float2(1, 1),
-        float2(1, -1),
-        float2(-1, -1),
-        float2(1, 1),
-        float2(-1, -1),
-        float2(-1, 1)
-    };
+    const float2 POSITIONS[6] = {{1, 1}, {1, -1}, {-1, -1}, {1, 1}, {-1, -1}, {-1, 1}};
 
     return float4(POSITIONS[id], 0.9, 1);
 }

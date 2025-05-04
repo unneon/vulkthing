@@ -1,7 +1,7 @@
 module global;
 
 [[vk::binding(0)]]
-public uniform Global global;
+public ConstantBuffer<Global> global;
 
 [[vk::binding(1)]]
 public StructuredBuffer<Star> stars;
@@ -99,6 +99,19 @@ public struct VoxelMeshlet {
     uint8_t _pad1;
     public uint8_t3 bound_size;
     uint8_t _pad2;
+
+    public property world_space_min : float3 {
+        get {
+            Global global = global;
+            return global.voxels.chunk_size * float3(chunk) + bound_base;
+        }
+    }
+
+    public property world_space_max : float3 {
+        get {
+            return world_space_min + bound_size;
+        }
+    }
 };
 
 public struct VoxelVertex {

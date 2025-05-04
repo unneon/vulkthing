@@ -1,6 +1,29 @@
 module voxel;
 
+import geometry;
 import global;
+
+public bool back_cull(VoxelMeshlet meshlet) {
+    for (int dx = 0; dx < 2; ++dx) {
+        for (int dy = 0; dy < 2; ++dy) {
+            for (int dz = 0; dz < 2; ++dz) {
+                float3 world_space = global.voxels.chunk_size * float3(meshlet.chunk) + meshlet.bound_base + meshlet.bound_size * float3(dx, dy, dz);
+                if (dot(world_space - global.camera.position, global.camera.direction) > 0) {
+                    return false;
+                }
+            }
+        }
+    }
+    return true;
+}
+
+public bool frustum_cull(VoxelMeshlet meshlet) {
+    if (let screen_aabb = screen_aabb_projection(meshlet.world_space_min, meshlet.world_space_max)) {
+        // TODO: Report compiler bug to slangc.
+        return screen_aabb.x > 1 || screen_aabb.y > 1 || (screen_aabb.z) < -1 || (screen_aabb.w) < -1;
+    }
+    return false;
+}
 
 bool is_inside_root_svo(uint3 voxel) {
     return voxel.x >= 0 && voxel.x < global.voxels.root_svo_side &&
