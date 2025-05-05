@@ -122,7 +122,6 @@ fn generate_codegen(in_path: &str, renderer: &Renderer, out_dir: &Path) {
         file,
         r#"// Code generated from {in_path}.
 
-#[rustfmt::skip]
 use crate::gpu::std140::{{"#
     )
     .unwrap();
@@ -168,7 +167,7 @@ pub struct Samplers {{"#
         file,
         r#"}}
 
-pub struct Shaders {{"#
+pub struct ShaderModules {{"#
     )
     .unwrap();
     let mut pipeline_vertex_shaders = HashMap::new();
@@ -210,17 +209,6 @@ pub struct Shaders {{"#
     for compute in &renderer.computes {
         shaders.insert((compute.name.as_str(), ShaderType::Compute));
     }
-    for (name, typ) in &shaders {
-        let typ_lowercase = typ.lowercase();
-        writeln!(file, "    pub {name}_{typ_lowercase}: &'static [u8],").unwrap();
-    }
-    writeln!(
-        file,
-        r#"}}
-
-pub struct ShaderModules {{"#
-    )
-    .unwrap();
     for (name, typ) in &shaders {
         let typ_lowercase = typ.lowercase();
         writeln!(file, "    pub {name}_{typ_lowercase}: vk::ShaderModule,").unwrap();
@@ -379,7 +367,6 @@ struct Scratch {{"#
         file,
         r#"}}
 
-#[rustfmt::skip]
 static mut SCRATCH: Scratch = Scratch {{"#
     )
     .unwrap();
@@ -899,7 +886,6 @@ impl Samplers {{
         r#"    }}
 }}
 
-#[rustfmt::skip]
 pub fn alloc_descriptor_set("#
     )
     .unwrap();
@@ -1118,7 +1104,6 @@ impl Pipelines {{
         r#"    }}
 }}
 
-#[rustfmt::skip]
 pub fn create_samplers(dev: &Dev) -> Samplers {{"#
     )
     .unwrap();
@@ -1134,7 +1119,6 @@ pub fn create_samplers(dev: &Dev) -> Samplers {{"#
         r#"    }}
 }}
 
-#[rustfmt::skip]
 pub fn create_descriptor_set_layout(_samplers: &Samplers, dev: &Dev) -> vk::DescriptorSetLayout {{"#
     )
     .unwrap();
@@ -1153,14 +1137,12 @@ pub fn create_descriptor_set_layout(_samplers: &Samplers, dev: &Dev) -> vk::Desc
         file,
         r#"}}
 
-#[rustfmt::skip]
 pub fn create_descriptor_pool(layout: vk::DescriptorSetLayout, dev: &Dev) -> vk::DescriptorPool {{
     unsafe {{ dev.create_descriptor_pool(&*&raw const SCRATCH.descriptor_pool, None).unwrap_unchecked() }}
 }}
 
 #[allow(unused_mut)]
 #[allow(clippy::identity_op)]
-#[rustfmt::skip]
 pub fn create_render_passes(
     swapchain: &Swapchain,
     _msaa_samples: vk::SampleCountFlags,
@@ -1191,7 +1173,6 @@ pub fn create_render_passes(
         r#"    }}
 }}
 
-#[rustfmt::skip]
 pub fn create_shader_modules(dev: &Dev) -> ShaderModules {{"#
     )
     .unwrap();
@@ -1229,7 +1210,6 @@ pub fn create_shader_modules(dev: &Dev) -> ShaderModules {{"#
         r#"    }}
 }}
 
-#[rustfmt::skip]
 #[allow(clippy::identity_op)]
 pub fn create_pipelines(
     _msaa_samples: vk::SampleCountFlags,
