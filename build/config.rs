@@ -224,8 +224,8 @@ impl Renderer {
             let fragment_shader = (fragment_shader, ShaderType::Fragment);
             task_shader
                 .into_iter()
-                .chain(mesh_shader.into_iter())
-                .chain(vertex_shader.into_iter())
+                .chain(mesh_shader)
+                .chain(vertex_shader)
                 .chain(std::iter::once(fragment_shader))
         })
     }

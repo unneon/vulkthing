@@ -2,6 +2,7 @@
 name = "vulkthing"
 version = "0.0.0"
 edition = "2021"
+build = "build/main.rs"
 
 [features]
 default = ["dev-menu"]
@@ -28,7 +29,8 @@ winit = "0.30"
 criterion = "0.5"
 
 [build-dependencies]
-codegen = { path = "codegen" }
+knuffel = "3.2"
+spirv-reflect = { git = "https://github.com/gwihlidal/spirv-reflect-rs" }
 
 [[bench]]
 name = "voxels"

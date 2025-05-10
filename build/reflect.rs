@@ -191,8 +191,8 @@ fn get_alignment(typ: &Type, layout: Layout, structs: &HashMap<(&str, Layout), S
     match typ {
         Type::Struct(name, layout) => structs[&(*name, *layout)].alignment,
         Type::Array(subtyp, _) => match layout {
-            Layout::Std140 => get_alignment(&subtyp, layout, structs).next_multiple_of(16),
-            Layout::Std430 => get_alignment(&subtyp, layout, structs),
+            Layout::Std140 => get_alignment(subtyp, layout, structs).next_multiple_of(16),
+            Layout::Std430 => get_alignment(subtyp, layout, structs),
         },
         Type::Vector(scalar, components) => match components {
             1 => scalar.alignment(),

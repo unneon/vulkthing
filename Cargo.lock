@@ -361,9 +361,9 @@ checksum = "1462739cb27611015575c0c11df5df7601141071f07518d56fcc1be504cbec97"
 
 [[package]]
 name = "cmake"
-version = "0.1.51"
+version = "0.1.54"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fb1e43aa7fd152b1f968787f7dbcdeb306d1867ff373c69955211876c053f91a"
+checksum = "e7caa3f9de89ddbe2c607f4101924c5abec803763ae9534e4f4d7d8f84aa81f0"
 dependencies = [
  "cc",
 ]
@@ -396,14 +396,6 @@ dependencies = [
  "core-graphics-types",
  "libc",
  "objc",
-]
-
-[[package]]
-name = "codegen"
-version = "0.0.0"
-dependencies = [
- "knuffel",
- "spirv-reflect",
 ]
 
 [[package]]
@@ -913,6 +905,15 @@ dependencies = [
  "bitflags 2.6.0",
  "libc",
  "redox_syscall 0.5.7",
+]
+
+[[package]]
+name = "link-cplusplus"
+version = "1.0.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4a6f6da007f968f9def0d65a05b187e2960183de70c160204ecfccf0ee330212"
+dependencies = [
+ "cc",
 ]
 
 [[package]]
@@ -1766,12 +1767,9 @@ checksum = "cbf4a6aa5f6d6888f39e980649f3ad6b666acdce1d78e95b8a2cb076e687ae30"
 
 [[package]]
 name = "roxmltree"
-version = "0.14.1"
+version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "921904a62e410e37e215c40381b7117f830d9d89ba60ab5236170541dd25646b"
-dependencies = [
- "xmlparser",
-]
+checksum = "6c20b6793b5c2fa6553b250154b78d6d0db37e72700ae35fad9387a46f487c97"
 
 [[package]]
 name = "rstar"
@@ -1886,8 +1884,8 @@ dependencies = [
 
 [[package]]
 name = "shaderc"
-version = "0.8.3"
-source = "git+https://github.com/google/shaderc-rs#4e0441563a49009a24916a0e4c6577532bf990a0"
+version = "0.9.1"
+source = "git+https://github.com/google/shaderc-rs#1ebe0975482d59186e5791b6fa30ab098783a4d0"
 dependencies = [
  "libc",
  "shaderc-sys",
@@ -1895,11 +1893,13 @@ dependencies = [
 
 [[package]]
 name = "shaderc-sys"
-version = "0.8.3"
-source = "git+https://github.com/google/shaderc-rs#4e0441563a49009a24916a0e4c6577532bf990a0"
+version = "0.9.1"
+source = "git+https://github.com/google/shaderc-rs#1ebe0975482d59186e5791b6fa30ab098783a4d0"
 dependencies = [
  "cmake",
  "libc",
+ "link-cplusplus",
+ "pkg-config",
  "roxmltree",
 ]
 
@@ -2186,10 +2186,10 @@ dependencies = [
  "ash",
  "ash-window",
  "bracket-noise",
- "codegen",
  "criterion",
  "imgui",
  "imgui-rs-vulkan-renderer",
+ "knuffel",
  "log",
  "meshopt",
  "nalgebra",
@@ -2198,6 +2198,7 @@ dependencies = [
  "rapier3d",
  "raw-window-handle",
  "shaderc",
+ "spirv-reflect",
  "tobj",
  "winit",
 ]
@@ -2755,12 +2756,6 @@ name = "xkeysym"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b9cc00251562a284751c9973bace760d86c0276c471b4be569fe6b068ee97a56"
-
-[[package]]
-name = "xmlparser"
-version = "0.13.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "66fee0b777b0f5ac1c69bb06d361268faafa61cd4682ae064a171c16c433e9e4"
 
 [[package]]
 name = "zerocopy"

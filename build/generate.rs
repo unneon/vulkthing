@@ -110,21 +110,15 @@ impl Display for Sampler {
     }
 }
 
-pub fn generate_code(in_path: &str, renderer: &Renderer) {
+pub fn generate_code(renderer: &Renderer) {
     let out_dir = PathBuf::from(std::env::var("OUT_DIR").unwrap());
-    generate_codegen(in_path, renderer, &out_dir);
+    generate_codegen(renderer, &out_dir);
     generate_uniform(&out_dir);
 }
 
-fn generate_codegen(in_path: &str, renderer: &Renderer, out_dir: &Path) {
+fn generate_codegen(renderer: &Renderer, out_dir: &Path) {
     let mut file = File::create(out_dir.join("codegen.rs")).unwrap();
-    write!(
-        file,
-        r#"// Code generated from {in_path}.
-
-use crate::gpu::std140::{{"#
-    )
-    .unwrap();
+    write!(file, r#"use crate::gpu::std140::{{"#).unwrap();
     let mut std140_types = BTreeSet::new();
     let mut std430_types = BTreeSet::new();
     for binding in &renderer.descriptor_set.bindings {
@@ -725,13 +719,8 @@ static mut SCRATCH: Scratch = Scratch {{"#
         alpha_to_one_enable: 0,
         _marker: std::marker::PhantomData,
     }},
-    {pipeline}_blend_attachments: ["#
-        )
-        .unwrap();
-        for _ in [()] {
-            writeln!(
-                file,
-                r#"        vk::PipelineColorBlendAttachmentState {{
+    {pipeline}_blend_attachments: [
+        vk::PipelineColorBlendAttachmentState {{
             blend_enable: 0,
             src_color_blend_factor: vk::BlendFactor::ZERO,
             dst_color_blend_factor: vk::BlendFactor::ZERO,
@@ -741,11 +730,8 @@ static mut SCRATCH: Scratch = Scratch {{"#
             alpha_blend_op: vk::BlendOp::ADD,
             color_write_mask: vk::ColorComponentFlags::RGBA,
         }},"#
-            )
-            .unwrap();
-        }
-        let depth_bool = if true { 1 } else { 0 };
-        let color_attachment_count = 1;
+        )
+        .unwrap();
         let vertex_input_state = if pipeline.mesh_shaders {
             "std::ptr::null()".to_owned()
         } else {
@@ -761,7 +747,7 @@ static mut SCRATCH: Scratch = Scratch {{"#
         flags: vk::PipelineColorBlendStateCreateFlags::empty(),
         logic_op_enable: 0,
         logic_op: vk::LogicOp::CLEAR,
-        attachment_count: {color_attachment_count},
+        attachment_count: 1,
         p_attachments: unsafe {{ &raw const SCRATCH.{pipeline}_blend_attachments[0] }},
         blend_constants: [0., 0., 0., 0.],
         _marker: std::marker::PhantomData,
@@ -770,8 +756,8 @@ static mut SCRATCH: Scratch = Scratch {{"#
         s_type: vk::StructureType::PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
         p_next: std::ptr::null(),
         flags: vk::PipelineDepthStencilStateCreateFlags::empty(),
-        depth_test_enable: {depth_bool},
-        depth_write_enable: {depth_bool},
+        depth_test_enable: 1,
+        depth_write_enable: 1,
         depth_compare_op: vk::CompareOp::LESS_OR_EQUAL,
         depth_bounds_test_enable: 0,
         stencil_test_enable: 0,

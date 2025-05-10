@@ -18,9 +18,9 @@ public StructuredBuffer<VoxelMeshlet> meshlets;
 [[vk::binding(5)]]
 public StructuredBuffer<SvoNode> svo_nodes;
 
-// Temporarily, read the reflection codegen and make sure the alignment will be handled correctly
-// before modifying any struct definitions! This can be fixed by either implementing full std140 and
-// std430 alignment rules in codegen, or hoping the scalar_block_layout extension works well.
+// Temporarily, read the reflection build script and make sure the alignment will be handled
+// correctly before modifying any struct definitions! This can be fixed by auto-adding padding
+// fields depending on the layout.
 
 public struct Global {
     public Voxels voxels;

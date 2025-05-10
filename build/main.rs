@@ -7,15 +7,16 @@ mod reflect;
 mod shaders;
 mod types;
 
-use crate::config::Renderer;
 use crate::generate::generate_code;
 use crate::shaders::compile_shaders;
 
-pub fn build_script(in_path: &str) {
-    let text = std::fs::read_to_string(in_path).unwrap();
-    let renderer: Renderer = knuffel::parse(in_path, &text).unwrap();
+const IN_PATH: &str = "renderer.kdl";
+
+fn main() {
+    let text = std::fs::read_to_string(IN_PATH).unwrap();
+    let renderer = knuffel::parse(IN_PATH, &text).unwrap();
     compile_shaders(&renderer);
-    generate_code(in_path, &renderer);
-    println!("cargo:rerun-if-changed={in_path}");
+    generate_code(&renderer);
+    println!("cargo:rerun-if-changed={IN_PATH}");
     println!("cargo:rerun-if-changed=shaders");
 }
