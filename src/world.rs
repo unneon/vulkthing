@@ -80,14 +80,14 @@ impl World {
         };
         let entities = vec![sun];
         let mut stars = Vec::new();
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         for _ in 0..DEFAULT_STAR_COUNT {
             stars.push(Star {
                 transform: Transform {
                     translation: DEFAULT_STAR_RADIUS * rng.sample(RandomDirection),
                     rotation: rng.sample(RandomRotation),
                     scale: Vector3::from_element(
-                        rng.gen_range(DEFAULT_STAR_MIN_SCALE..DEFAULT_STAR_MAX_SCALE),
+                        rng.random_range(DEFAULT_STAR_MIN_SCALE..DEFAULT_STAR_MAX_SCALE),
                     ),
                 },
             });

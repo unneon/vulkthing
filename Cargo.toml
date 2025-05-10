@@ -18,10 +18,9 @@ log = "0.4"
 meshopt = "0.4"
 nalgebra = { version = "0.33", features = ["std"], default-features = false }
 num-traits = "0.2"
-rand = { version = "0.8", features = ["small_rng"] }
-rapier3d = "0.22"
+rand = { version = "0.9", features = ["small_rng"] }
+rapier3d = "0.25"
 raw-window-handle = "0.6"
-shaderc = { git = "https://github.com/google/shaderc-rs" }
 tobj = { version = "4.0", default-features = false }
 winit = "0.30"
 

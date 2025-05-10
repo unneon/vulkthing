@@ -42,7 +42,7 @@ impl Physics {
         let indices = (0..vertices.len() as u32 / 3)
             .map(|i| [3 * i, 3 * i + 1, 3 * i + 2])
             .collect();
-        ColliderBuilder::trimesh(vertices, indices)
+        ColliderBuilder::trimesh(vertices, indices).unwrap()
     }
 
     #[allow(dead_code)]
