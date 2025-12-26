@@ -9,7 +9,7 @@ use crate::renderer::codegen::{
     alloc_descriptor_set, create_descriptor_pool, create_descriptor_set_layout, create_pipelines,
     create_render_passes, create_samplers, create_shader_modules,
 };
-use crate::renderer::debug::create_debug_messenger;
+use crate::renderer::debug::{create_debug_messenger, set_label};
 use crate::renderer::device::{select_device, DeviceInfo};
 use crate::renderer::swapchain::create_swapchain;
 use crate::renderer::util::{vulkan_str, Buffer, Dev, ImageResources, StorageBuffer};
@@ -79,7 +79,6 @@ impl Renderer {
         let queue = unsafe { dev.get_device_queue(queue_family, 0) };
         let command_pools = create_command_pools(queue_family, &dev);
         let command_buffers = create_command_buffers(&command_pools, &dev);
-        let sync = create_sync(&dev);
 
         let samplers = create_samplers(&dev);
 
@@ -87,6 +86,7 @@ impl Renderer {
         let descriptor_pool = create_descriptor_pool(descriptor_set_layout, &dev);
 
         let swapchain = create_swapchain(surface, window.inner_size(), &dev);
+        let sync = create_sync(swapchain.images.len(), &dev);
         let depth = create_depth(swapchain.extent, &dev);
         let passes = create_render_passes(&swapchain, vk::SampleCountFlags::TYPE_1, &dev);
         let pipeline_layout = create_pipeline_layout(descriptor_set_layout, &dev);
@@ -257,8 +257,8 @@ impl Synchronization {
         for fence in self.in_flight {
             unsafe { dev.destroy_fence(fence, None) };
         }
-        for semaphore in self.render_finished {
-            unsafe { dev.destroy_semaphore(semaphore, None) };
+        for semaphore in &self.render_finished {
+            unsafe { dev.destroy_semaphore(*semaphore, None) };
         }
         for semaphore in self.image_available {
             unsafe { dev.destroy_semaphore(semaphore, None) };
@@ -416,7 +416,8 @@ fn create_logical_device(
         .vertex_pipeline_stores_and_atomics(true);
     let mut vk11_features = vk::PhysicalDeviceVulkan11Features::default()
         .shader_draw_parameters(true)
-        .storage_buffer16_bit_access(true);
+        .storage_buffer16_bit_access(true)
+        .uniform_and_storage_buffer16_bit_access(true);
     let mut vk12_features = vk::PhysicalDeviceVulkan12Features::default()
         .buffer_device_address(true)
         .shader_int8(true)
@@ -504,17 +505,24 @@ fn create_index_buffer(index_data: &[u32], dev: &Dev) -> Buffer {
     vertex
 }
 
-fn create_sync(dev: &Dev) -> Synchronization {
+fn create_sync(image_count: usize, dev: &Dev) -> Synchronization {
     let semaphore_info = vk::SemaphoreCreateInfo::default();
     let fence_info = vk::FenceCreateInfo::default().flags(vk::FenceCreateFlags::SIGNALED);
     let mut image_available: [vk::Semaphore; FRAMES_IN_FLIGHT] = Default::default();
-    let mut render_finished: [vk::Semaphore; FRAMES_IN_FLIGHT] = Default::default();
     let mut in_flight: [vk::Fence; FRAMES_IN_FLIGHT] = Default::default();
     for i in 0..FRAMES_IN_FLIGHT {
         image_available[i] = unsafe { dev.create_semaphore(&semaphore_info, None) }.unwrap();
-        render_finished[i] = unsafe { dev.create_semaphore(&semaphore_info, None) }.unwrap();
+        set_label(image_available[i], &format!("image_available[{i}]"), dev);
         in_flight[i] = unsafe { dev.create_fence(&fence_info, None) }.unwrap();
+        set_label(in_flight[i], &format!("in_flight[{i}]"), dev);
     }
+    let render_finished = (0..image_count)
+        .map(|i| {
+            let render_finished = unsafe { dev.create_semaphore(&semaphore_info, None) }.unwrap();
+            set_label(render_finished, &format!("render_finished[{i}]"), dev);
+            render_finished
+        })
+        .collect();
     Synchronization {
         image_available,
         render_finished,

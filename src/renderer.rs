@@ -88,7 +88,7 @@ pub struct Renderer {
 
 struct Synchronization {
     image_available: [vk::Semaphore; FRAMES_IN_FLIGHT],
-    render_finished: [vk::Semaphore; FRAMES_IN_FLIGHT],
+    render_finished: Vec<vk::Semaphore>,
     in_flight: [vk::Fence; FRAMES_IN_FLIGHT],
 }
 
@@ -166,7 +166,7 @@ impl Renderer {
             settings,
             window_size,
         );
-        self.submit_graphics();
+        self.submit_graphics(image_index);
         self.submit_present(image_index);
 
         self.flight_index = (self.flight_index + 1) % FRAMES_IN_FLIGHT;
@@ -406,10 +406,10 @@ impl Renderer {
         );
     }
 
-    fn submit_graphics(&self) {
+    fn submit_graphics(&self, image_index: usize) {
         let command_buffer = self.command_buffers[self.flight_index];
         let image_available = self.sync.image_available[self.flight_index];
-        let render_finished = self.sync.render_finished[self.flight_index];
+        let render_finished = self.sync.render_finished[image_index];
 
         let wait_semaphores = [image_available];
         let command_buffers = [command_buffer];
@@ -430,7 +430,7 @@ impl Renderer {
     }
 
     fn submit_present(&self, image_index: usize) {
-        let render_finished = self.sync.render_finished[self.flight_index];
+        let render_finished = self.sync.render_finished[image_index];
 
         let wait_semaphores = [render_finished];
         let swapchains = [self.swapchain.handle];
