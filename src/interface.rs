@@ -12,7 +12,7 @@ pub mod integration;
 pub trait EnumInterface: Sized + 'static {
     const VALUES: &'static [Self];
 
-    fn label(&self) -> Cow<str>;
+    fn label(&self) -> Cow<'_, str>;
 }
 
 pub struct Interface {
@@ -152,7 +152,7 @@ impl EnumInterface for vk::SampleCountFlags {
         vk::SampleCountFlags::TYPE_8,
     ];
 
-    fn label(&self) -> Cow<str> {
+    fn label(&self) -> Cow<'_, str> {
         if self.contains(vk::SampleCountFlags::TYPE_8) {
             Cow::Borrowed("8x")
         } else if self.contains(vk::SampleCountFlags::TYPE_4) {

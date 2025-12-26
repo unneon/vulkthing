@@ -84,7 +84,7 @@ impl Scalar {
     }
 }
 
-pub fn reflect(descriptor_sets: &[ReflectDescriptorSet]) -> TypeInfo {
+pub fn reflect(descriptor_sets: &[ReflectDescriptorSet]) -> TypeInfo<'_> {
     let mut structs = HashMap::new();
     for set in descriptor_sets {
         for binding in &set.bindings {
@@ -140,7 +140,7 @@ fn parse_struct_name(typ: &ReflectTypeDescription) -> (&str, Layout) {
     }
 }
 
-fn parse_type(typ: &ReflectTypeDescription) -> Type {
+fn parse_type(typ: &ReflectTypeDescription) -> Type<'_> {
     if let Some(name) = typ.type_name.strip_suffix("_std140") {
         Type::Struct(name, Layout::Std140)
     } else if let Some(name) = typ.type_name.strip_suffix("_std430") {

@@ -573,7 +573,7 @@ impl EnumInterface for VoxelRendering {
         VoxelRendering::RayTracing,
     ];
 
-    fn label(&self) -> std::borrow::Cow<str> {
+    fn label(&self) -> std::borrow::Cow<'_, str> {
         std::borrow::Cow::Borrowed(match self {
             VoxelRendering::Classic => "Classic",
             VoxelRendering::MeshShaders => "Mesh shaders",

@@ -26,7 +26,7 @@ impl EnumInterface for MeshingAlgorithmKind {
     const VALUES: &'static [MeshingAlgorithmKind] =
         &[MeshingAlgorithmKind::Culled, MeshingAlgorithmKind::Greedy];
 
-    fn label(&self) -> std::borrow::Cow<str> {
+    fn label(&self) -> std::borrow::Cow<'_, str> {
         std::borrow::Cow::Borrowed(match self {
             MeshingAlgorithmKind::Culled => "Culled Meshing",
             MeshingAlgorithmKind::Greedy => "Greedy Meshing",

@@ -1,7 +1,7 @@
 module voxel;
 
+import bindings;
 import geometry;
-import global;
 
 public bool back_cull(VoxelMeshlet meshlet) {
     for (int dx = 0; dx < 2; ++dx) {

@@ -1,4 +1,4 @@
-module global;
+module bindings;
 
 [[vk::binding(0)]]
 public ConstantBuffer<Global> global;
@@ -102,7 +102,6 @@ public struct VoxelMeshlet {
 
     public property world_space_min : float3 {
         get {
-            Global global = global;
             return global.voxels.chunk_size * float3(chunk) + bound_base;
         }
     }

@@ -1,4 +1,4 @@
-import global;
+import bindings;
 
 public Optional<float4> screen_aabb_projection(float3 min_coords, float3 max_coords) {
     float4x4 projection_view = mul(global.camera.projection_matrix, global.camera.view_matrix);

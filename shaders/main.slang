@@ -1,6 +1,6 @@
+import bindings;
 import camera;
 import geometry;
-import global;
 import voxel;
 
 struct DebugVoxelScreenBoundVertex {

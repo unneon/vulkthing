@@ -1,6 +1,6 @@
 module camera;
 
-import global;
+import bindings;
 
 public float3 world_space_from_depth(float depth, float4 frag_coord) {
     // Algorithms I found didn't work, but there's a simple way to reconstruct the formulae: save the intermediate
