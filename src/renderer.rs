@@ -3,7 +3,6 @@ pub mod codegen;
 pub mod debug;
 mod device;
 pub mod lifecycle;
-mod pass;
 mod shader;
 mod swapchain;
 pub mod util;
@@ -13,9 +12,8 @@ use crate::gpu::std140::{Atmosphere, Camera, Debug, Global, VoxelMaterial, Voxel
 use crate::gpu::std430::Star;
 #[cfg(feature = "dev-menu")]
 use crate::interface::EnumInterface;
-use crate::renderer::codegen::{Passes, Pipelines, Samplers};
+use crate::renderer::codegen::{Pipelines, Samplers};
 use crate::renderer::debug::{begin_label, end_label};
-use crate::renderer::pass::Pass;
 use crate::renderer::swapchain::Swapchain;
 use crate::renderer::util::{
     timestamp_difference_to_duration, Buffer, Dev, ImageResources, StorageBuffer, UniformBuffer,
@@ -51,7 +49,6 @@ pub struct Renderer {
     descriptor_set_layout: vk::DescriptorSetLayout,
     descriptor_pool: vk::DescriptorPool,
     pipeline_layout: vk::PipelineLayout,
-    passes: Passes,
 
     // All resources that depend on swapchain extent (window size). So swapchain description, memory
     // used for all framebuffer attachments, framebuffers, and the mentioned postprocess descriptor
@@ -250,11 +247,7 @@ impl Renderer {
                 depth.from_undefined().to_depth(),
             ],
         );
-
-        self.passes
-            .render
-            .begin(buf, color, depth, self.swapchain.extent, &self.dev);
-
+        self.begin_rendering(buf, color, depth, self.swapchain.extent);
         self.bind_descriptor_set(buf);
 
         match settings.voxel_rendering {
@@ -320,8 +313,7 @@ impl Renderer {
             end_label(buf, &self.dev);
         }
 
-        self.passes.render.end(buf, &self.dev);
-
+        self.end_rendering(buf);
         self.barriers(buf, &[color.from_color_write().to_present()]);
     }
 
@@ -463,6 +455,46 @@ impl Renderer {
         );
         proj[(1, 1)] *= -1.;
         proj
+    }
+
+    fn begin_rendering(
+        &self,
+        buf: vk::CommandBuffer,
+        color: &ImageResources,
+        depth: &ImageResources,
+        extent: vk::Extent2D,
+    ) {
+        let color_attachment_info = vk::RenderingAttachmentInfo::default()
+            .image_view(color.view)
+            .image_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+            .load_op(vk::AttachmentLoadOp::CLEAR)
+            .store_op(vk::AttachmentStoreOp::STORE)
+            .clear_value(vk::ClearValue {
+                color: vk::ClearColorValue {
+                    float32: [0., 0., 0., 0.],
+                },
+            });
+        let depth_attachment_info = vk::RenderingAttachmentInfo::default()
+            .image_view(depth.view)
+            .image_layout(vk::ImageLayout::DEPTH_ATTACHMENT_OPTIMAL)
+            .load_op(vk::AttachmentLoadOp::CLEAR)
+            .store_op(vk::AttachmentStoreOp::DONT_CARE)
+            .clear_value(vk::ClearValue {
+                depth_stencil: vk::ClearDepthStencilValue::default().depth(1.),
+            });
+        let rendering_info = vk::RenderingInfo::default()
+            .render_area(vk::Rect2D {
+                offset: vk::Offset2D { x: 0, y: 0 },
+                extent,
+            })
+            .color_attachments(std::array::from_ref(&color_attachment_info))
+            .layer_count(1)
+            .depth_attachment(&depth_attachment_info);
+        unsafe { self.dev.cmd_begin_rendering(buf, &rendering_info) };
+    }
+
+    pub fn end_rendering(&self, buf: vk::CommandBuffer) {
+        unsafe { self.dev.cmd_end_rendering(buf) };
     }
 
     fn bind_graphics_pipeline(&self, buf: vk::CommandBuffer, pipeline: vk::Pipeline) {

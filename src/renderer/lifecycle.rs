@@ -7,7 +7,7 @@ use crate::gpu::std430::Star;
 use crate::mesh::MeshData;
 use crate::renderer::codegen::{
     alloc_descriptor_set, create_descriptor_pool, create_descriptor_set_layout, create_pipelines,
-    create_render_passes, create_samplers, create_shader_modules,
+    create_samplers, create_shader_modules,
 };
 use crate::renderer::debug::{create_debug_messenger, set_label};
 use crate::renderer::device::{select_device, DeviceInfo};
@@ -88,12 +88,10 @@ impl Renderer {
         let swapchain = create_swapchain(surface, window.inner_size(), &dev);
         let sync = create_sync(swapchain.images.len(), &dev);
         let depth = create_depth(swapchain.extent, &dev);
-        let passes = create_render_passes(&swapchain, vk::SampleCountFlags::TYPE_1, &dev);
         let pipeline_layout = create_pipeline_layout(descriptor_set_layout, &dev);
         let shader_modules = create_shader_modules(&dev);
         let pipelines = create_pipelines(
             vk::SampleCountFlags::TYPE_1,
-            &passes,
             &swapchain,
             &shader_modules,
             pipeline_layout,
@@ -163,7 +161,6 @@ impl Renderer {
             descriptor_set_layout,
             descriptor_pool,
             pipeline_layout,
-            passes,
             swapchain,
             pipelines,
             depth,
@@ -224,8 +221,6 @@ impl Renderer {
         self.cleanup_swapchain();
 
         self.swapchain = create_swapchain(self.surface, window_size, &self.dev);
-        self.passes =
-            create_render_passes(&self.swapchain, vk::SampleCountFlags::TYPE_1, &self.dev);
         self.depth = create_depth(self.swapchain.extent, &self.dev);
 
         self.recreate_pipelines();
@@ -237,7 +232,6 @@ impl Renderer {
         let shader_modules = create_shader_modules(&self.dev);
         self.pipelines = create_pipelines(
             vk::SampleCountFlags::TYPE_1,
-            &self.passes,
             &self.swapchain,
             &shader_modules,
             self.pipeline_layout,

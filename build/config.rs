@@ -7,8 +7,8 @@ pub struct Renderer {
     pub samplers: Vec<Sampler>,
     #[knuffel(child)]
     pub descriptor_set: DescriptorSet,
-    #[knuffel(children(name = "pass"))]
-    pub passes: Vec<Pass>,
+    #[knuffel(children(name = "pipeline"))]
+    pub pipelines: Vec<Pipeline>,
     #[knuffel(children(name = "compute"))]
     pub computes: Vec<Compute>,
     #[knuffel(children(name = "specialization"))]
@@ -100,30 +100,6 @@ pub struct UniformBinding {
 }
 
 #[derive(Debug, Decode)]
-pub struct Pass {
-    #[knuffel(argument)]
-    pub name: String,
-    #[knuffel(child, unwrap(argument))]
-    pub debug_name: String,
-    #[knuffel(child)]
-    pub debug_color: SdrColor,
-    #[knuffel(child)]
-    pub msaa: bool,
-    #[knuffel(children(name = "pipeline"))]
-    pub pipelines: Vec<Pipeline>,
-}
-
-#[derive(Debug, Decode)]
-pub struct SdrColor {
-    #[knuffel(argument)]
-    pub red: u8,
-    #[knuffel(argument)]
-    pub green: u8,
-    #[knuffel(argument)]
-    pub blue: u8,
-}
-
-#[derive(Debug, Decode)]
 pub struct Pipeline {
     #[knuffel(argument)]
     pub name: String,
@@ -184,12 +160,8 @@ pub struct Specialization {
 }
 
 impl Renderer {
-    pub fn pipelines(&self) -> impl Iterator<Item = &Pipeline> {
-        self.passes.iter().flat_map(|pass| &pass.pipelines)
-    }
-
     pub fn shaders(&self) -> impl Iterator<Item = (&str, ShaderType)> {
-        self.pipelines().flat_map(|pipeline| {
+        self.pipelines.iter().flat_map(|pipeline| {
             let task_shader = if pipeline.task_shaders {
                 let task_shader = match &pipeline.task_shader {
                     Some(path) => path.strip_suffix(".task").unwrap(),

@@ -1,6 +1,4 @@
-use crate::config::{
-    Compute, DescriptorBinding, Pass, Pipeline, Renderer, Sampler, VertexAttribute,
-};
+use crate::config::{Compute, DescriptorBinding, Pipeline, Renderer, Sampler, VertexAttribute};
 use crate::helper::to_camelcase;
 use crate::reflect::{reflect, Layout, Type};
 use crate::types::ShaderType;
@@ -92,12 +90,6 @@ impl Display for Compute {
     }
 }
 
-impl Display for Pass {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        self.name.fmt(f)
-    }
-}
-
 impl Display for Pipeline {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.name.fmt(f)
@@ -131,7 +123,7 @@ fn generate_codegen(renderer: &Renderer, out_dir: &Path) {
     for typ in &std140_types {
         write!(file, "{typ},").unwrap();
     }
-    writeln!(
+    write!(
         file,
         r#"}};
 use crate::gpu::std430::{{"#
@@ -146,7 +138,7 @@ use crate::gpu::std430::{{"#
 use crate::renderer::debug::set_label;
 use crate::renderer::shader::SpvArray;
 use crate::renderer::util::{{AsDescriptor, Dev, ImageResources, StorageBuffer, UniformBuffer}};
-use crate::renderer::{{DeviceSupport, Pass, Swapchain, COLOR_FORMAT, DEPTH_FORMAT, FRAMES_IN_FLIGHT}};
+use crate::renderer::{{DeviceSupport, Swapchain, COLOR_FORMAT, DEPTH_FORMAT, FRAMES_IN_FLIGHT}};
 use ash::vk;
 use std::ffi::CStr;
 use std::mem::MaybeUninit;
@@ -169,7 +161,7 @@ pub struct ShaderModules {{"#
     let mut pipeline_task_shaders = HashMap::new();
     let mut pipeline_mesh_shaders = HashMap::new();
     let mut shaders = BTreeSet::new();
-    for_pipelines(renderer, |_, pipeline| {
+    for pipeline in &renderer.pipelines {
         if pipeline.task_shaders {
             let task_shader = match &pipeline.task_shader {
                 Some(path) => path.strip_suffix(".task").unwrap(),
@@ -199,7 +191,7 @@ pub struct ShaderModules {{"#
         };
         pipeline_fragment_shaders.insert(pipeline.name.as_str(), fragment_shader);
         shaders.insert((fragment_shader, ShaderType::Fragment));
-    });
+    }
     for compute in &renderer.computes {
         shaders.insert((compute.name.as_str(), ShaderType::Compute));
     }
@@ -212,23 +204,12 @@ pub struct ShaderModules {{"#
         r#"}}
 
 #[repr(C)]
-pub struct Passes {{"#
-    )
-    .unwrap();
-    for pass in &renderer.passes {
-        writeln!(file, "    pub {pass}: Pass,").unwrap();
-    }
-    writeln!(
-        file,
-        r#"}}
-
-#[repr(C)]
 pub struct Pipelines {{"#
     )
     .unwrap();
-    for_pipelines(renderer, |_, pipeline| {
+    for pipeline in &renderer.pipelines {
         writeln!(file, "    pub {pipeline}: vk::Pipeline,").unwrap();
-    });
+    }
     for compute in &renderer.computes {
         writeln!(file, "    pub {compute}: vk::Pipeline,").unwrap();
     }
@@ -239,7 +220,7 @@ pub struct Pipelines {{"#
 "#
     )
     .unwrap();
-    for_pipelines(renderer, |_, pipeline| {
+    for pipeline in &renderer.pipelines {
         if let Some(specs) = &pipeline.fragment_specialization {
             let pipeline_camelcase = to_camelcase(&pipeline.to_string());
             writeln!(file, "struct {pipeline_camelcase}Specialization {{").unwrap();
@@ -249,7 +230,7 @@ pub struct Pipelines {{"#
             }
             writeln!(file, "}}").unwrap();
         }
-    });
+    }
     writeln!(
         file,
         r#"
@@ -297,7 +278,7 @@ struct Scratch {{"#
         "    pipeline_layout: vk::PipelineLayoutCreateInfo<'static>,"
     )
     .unwrap();
-    for_pipelines(renderer, |_, pipeline| {
+    for pipeline in &renderer.pipelines {
         let binding_count = pipeline.vertex_bindings.len();
         let attribute_count = pipeline
             .vertex_bindings
@@ -342,14 +323,14 @@ struct Scratch {{"#
     {pipeline}_rendering: vk::PipelineRenderingCreateInfo<'static>,"#,
         )
         .unwrap();
-    });
-    for_pipelines(renderer, |_, pipeline| {
+    }
+    for pipeline in &renderer.pipelines {
         writeln!(
             file,
             "    {pipeline}_pipeline: vk::GraphicsPipelineCreateInfo<'static>,"
         )
         .unwrap();
-    });
+    }
     for compute in &renderer.computes {
         writeln!(
             file,
@@ -484,21 +465,23 @@ static mut SCRATCH: Scratch = Scratch {{"#
     )
     .unwrap();
     for (name, typ) in &shaders {
+        let name_uppercase = name.to_uppercase();
         let typ_lowercase = typ.lowercase();
+        let typ_uppercase = typ_lowercase.to_uppercase();
         writeln!(
             file,
             r#"    {name}_{typ_lowercase}: vk::ShaderModuleCreateInfo {{
         s_type: vk::StructureType::SHADER_MODULE_CREATE_INFO,
         p_next: std::ptr::null(),
         flags: vk::ShaderModuleCreateFlags::empty(),
-        code_size: 0,
-        p_code: std::ptr::null(),
+        code_size: {name_uppercase}_{typ_uppercase}_SPV.0.len(),
+        p_code: {name_uppercase}_{typ_uppercase}_SPV.0.as_ptr() as *const u32,
         _marker: std::marker::PhantomData,
     }},"#
         )
         .unwrap();
     }
-    for_pipelines(renderer, |pass, pipeline| {
+    for pipeline in &renderer.pipelines {
         let attribute_count = pipeline
             .vertex_bindings
             .iter()
@@ -666,7 +649,6 @@ static mut SCRATCH: Scratch = Scratch {{"#
         }
         let polygon_mode = &pipeline.polygon_mode;
         let cull_mode = &pipeline.cull_mode;
-        let rasterization_samples = if pass.msaa { "empty()" } else { "TYPE_1" };
         writeln!(
             file,
             r#"    {pipeline}_viewport: vk::Viewport {{
@@ -711,7 +693,7 @@ static mut SCRATCH: Scratch = Scratch {{"#
         s_type: vk::StructureType::PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
         p_next: std::ptr::null(),
         flags: vk::PipelineMultisampleStateCreateFlags::empty(),
-        rasterization_samples: vk::SampleCountFlags::{rasterization_samples},
+        rasterization_samples: vk::SampleCountFlags::TYPE_1,
         sample_shading_enable: 0,
         min_sample_shading: 0.,
         p_sample_mask: std::ptr::null(),
@@ -818,7 +800,7 @@ static mut SCRATCH: Scratch = Scratch {{"#
     }},"#
         )
         .unwrap();
-    });
+    }
     for compute in &renderer.computes {
         writeln!(
             file,
@@ -1071,13 +1053,13 @@ impl Pipelines {{
     pub fn cleanup(&self, dev: &Dev) {{"#
     )
     .unwrap();
-    for_pipelines(renderer, |_, pipeline| {
+    for pipeline in &renderer.pipelines {
         writeln!(
             file,
             "        unsafe {{ dev.destroy_pipeline(self.{pipeline}, None) }};"
         )
         .unwrap();
-    });
+    }
     for compute in &renderer.computes {
         writeln!(
             file,
@@ -1127,48 +1109,9 @@ pub fn create_descriptor_pool(layout: vk::DescriptorSetLayout, dev: &Dev) -> vk:
     unsafe {{ dev.create_descriptor_pool(&*&raw const SCRATCH.descriptor_pool, None).unwrap_unchecked() }}
 }}
 
-#[allow(unused_mut)]
-#[allow(clippy::identity_op)]
-pub fn create_render_passes(
-    swapchain: &Swapchain,
-    _msaa_samples: vk::SampleCountFlags,
-    dev: &Dev,
-) -> Passes {{"#
-    )
-    .unwrap();
-    for pass in &renderer.passes {
-        let debug_name = &pass.debug_name;
-        let debug_r = pass.debug_color.red;
-        let debug_g = pass.debug_color.green;
-        let debug_b = pass.debug_color.blue;
-        writeln!(
-            file,
-            r#"    let {pass} = Pass {{
-        debug_name: {debug_name:?},
-        debug_color: [{debug_r}, {debug_g}, {debug_b}],
-    }};"#
-        )
-        .unwrap();
-    }
-    writeln!(file, "    Passes {{").unwrap();
-    for pass in &renderer.passes {
-        writeln!(file, "        {pass},").unwrap();
-    }
-    writeln!(
-        file,
-        r#"    }}
-}}
-
 pub fn create_shader_modules(dev: &Dev) -> ShaderModules {{"#
     )
     .unwrap();
-    for (name, typ) in &shaders {
-        let name_uppercase = name.to_uppercase();
-        let typ_lowercase = typ.lowercase();
-        let typ_uppercase = typ_lowercase.to_uppercase();
-        writeln!(file, r#"    unsafe {{ SCRATCH.{name}_{typ_lowercase}.code_size = {name_uppercase}_{typ_uppercase}_SPV.0.len() }};"#).unwrap();
-        writeln!(file, r#"    unsafe {{ SCRATCH.{name}_{typ_lowercase}.p_code = {name_uppercase}_{typ_uppercase}_SPV.0.as_ptr() as *const u32 }};"#).unwrap();
-    }
     for (name, typ) in &shaders {
         let typ_lowercase = typ.lowercase();
         // TODO: Fragment shaders which rely on mesh shader functionality (such
@@ -1198,8 +1141,7 @@ pub fn create_shader_modules(dev: &Dev) -> ShaderModules {{"#
 
 #[allow(clippy::identity_op)]
 pub fn create_pipelines(
-    _msaa_samples: vk::SampleCountFlags,
-    passes: &Passes,"#
+    _msaa_samples: vk::SampleCountFlags,"#
     )
     .unwrap();
     for spec in &renderer.specializations {
@@ -1209,7 +1151,7 @@ pub fn create_pipelines(
             writeln!(file, "    {name}: {ty},").unwrap();
         }
     }
-    for_pipelines(renderer, |_, pipeline| {
+    for pipeline in &renderer.pipelines {
         if let Some(specs) = &pipeline.fragment_specialization {
             for spec in specs {
                 let metadata = renderer.find_specialization(spec);
@@ -1219,7 +1161,7 @@ pub fn create_pipelines(
                 }
             }
         }
-    });
+    }
     writeln!(
         file,
         r#"    swapchain: &Swapchain,
@@ -1229,7 +1171,7 @@ pub fn create_pipelines(
 ) -> Pipelines {{"#
     )
     .unwrap();
-    for_pipelines(renderer, |pass, pipeline| {
+    for pipeline in &renderer.pipelines {
         if let Some(specs) = &pipeline.fragment_specialization {
             for spec in specs {
                 let metadata = renderer.find_specialization(spec);
@@ -1274,22 +1216,19 @@ pub fn create_pipelines(
     unsafe {{ SCRATCH.{pipeline}_scissor.extent.height = swapchain.extent.height }};"#
         )
             .unwrap();
-        if pass.msaa {
-            writeln!(file, "    unsafe {{ SCRATCH.{pipeline}_multisampling.rasterization_samples = _msaa_samples }};").unwrap();
-        }
         writeln!(
             file,
             r#"    unsafe {{ SCRATCH.{pipeline}_color_formats[0] = swapchain.format.format }};"#
         )
         .unwrap();
-    });
-    for_pipelines(renderer, |_, pipeline| {
+    }
+    for pipeline in &renderer.pipelines {
         writeln!(
             file,
             r#"    unsafe {{ SCRATCH.{pipeline}_pipeline.layout = layout }};"#
         )
         .unwrap();
-    });
+    }
     for compute in &renderer.computes {
         writeln!(
             file,
@@ -1298,20 +1237,13 @@ pub fn create_pipelines(
         )
         .unwrap();
     }
-    let mut pipeline_count = 0;
-    let mut first_pipeline = None;
-    for_pipelines(renderer, |_, pipeline| {
-        pipeline_count += 1;
-        if first_pipeline.is_none() {
-            first_pipeline = Some(pipeline);
-        }
-    });
+    let pipeline_count = renderer.pipelines.len();
     writeln!(
         file,
         r#"    let mut pipelines: Pipelines = unsafe {{ MaybeUninit::zeroed().assume_init() }};"#
     )
     .unwrap();
-    for_pipelines(renderer, |_, pipeline| {
+    for pipeline in &renderer.pipelines {
         let tab = if pipeline.mesh_shaders {
             write!(
                 file,
@@ -1338,7 +1270,7 @@ pub fn create_pipelines(
         if pipeline.mesh_shaders {
             writeln!(file, "    }}").unwrap();
         }
-    });
+    }
     if !renderer.computes.is_empty() {
         let compute_pipeline_count = renderer.computes.len();
         let first_compute_pipeline = &renderer.computes[0].name;
@@ -1405,14 +1337,6 @@ fn generate_uniform(out_dir: &Path) {
 "#
         )
         .unwrap();
-    }
-}
-
-fn for_pipelines<'a>(renderer: &'a Renderer, mut f: impl FnMut(&'a Pass, &'a Pipeline)) {
-    for pass in &renderer.passes {
-        for pipeline in &pass.pipelines {
-            f(pass, pipeline);
-        }
     }
 }
 
