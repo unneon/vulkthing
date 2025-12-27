@@ -15,22 +15,15 @@ bracket-noise = "0.8"
 imgui = { version = "0.12", optional = true }
 imgui-rs-vulkan-renderer = { version = "1.16", optional = true, features = ["dynamic-rendering"] }
 log = "0.4"
-meshopt = "0.4"
-nalgebra = { version = "0.33", features = ["std"], default-features = false }
+meshopt = "0.6"
+nalgebra = { version = "0.34", features = ["std"], default-features = false }
 num-traits = "0.2"
 rand = { version = "0.9", features = ["small_rng"] }
-rapier3d = "0.25"
+rapier3d = "0.31"
 raw-window-handle = "0.6"
 tobj = { version = "4.0", default-features = false }
 winit = "0.30"
 
-[dev-dependencies]
-criterion = "0.5"
-
 [build-dependencies]
 knuffel = "3.2"
 spirv-reflect = { git = "https://github.com/gwihlidal/spirv-reflect-rs" }
-
-[[bench]]
-name = "voxels"
-harness = false
