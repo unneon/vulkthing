@@ -249,6 +249,8 @@ impl Renderer {
         );
         self.begin_rendering(buf, color, depth, self.swapchain.extent);
         self.bind_descriptor_set(buf);
+        self.set_viewport(buf);
+        self.set_scissor(buf);
 
         match settings.voxel_rendering {
             VoxelRendering::Classic => todo!(),
@@ -523,6 +525,39 @@ impl Renderer {
                 &[],
             )
         };
+    }
+
+    fn set_viewport(&self, buf: vk::CommandBuffer) {
+        unsafe {
+            self.dev.cmd_set_viewport(
+                buf,
+                0,
+                &[vk::Viewport {
+                    x: 0.,
+                    y: 0.,
+                    width: self.swapchain.extent.width as f32,
+                    height: self.swapchain.extent.height as f32,
+                    min_depth: 0.,
+                    max_depth: 1.,
+                }],
+            )
+        }
+    }
+
+    fn set_scissor(&self, buf: vk::CommandBuffer) {
+        unsafe {
+            self.dev.cmd_set_scissor(
+                buf,
+                0,
+                &[vk::Rect2D {
+                    offset: vk::Offset2D { x: 0, y: 0 },
+                    extent: vk::Extent2D {
+                        width: self.swapchain.extent.width,
+                        height: self.swapchain.extent.height,
+                    },
+                }],
+            )
+        }
     }
 
     fn draw_mesh_shaders(&self, buf: vk::CommandBuffer, count: u32) {

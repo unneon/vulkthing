@@ -262,6 +262,7 @@ struct Scratch {{"#
     descriptor_pool_sizes: [vk::DescriptorPoolSize; {pool_size_count}],
     descriptor_pool: vk::DescriptorPoolCreateInfo<'static>,
     assembly: vk::PipelineInputAssemblyStateCreateInfo<'static>,
+    dynamic_states: [vk::DynamicState; 2],
     dynamic_state: vk::PipelineDynamicStateCreateInfo<'static>,"#
     )
     .unwrap();
@@ -311,9 +312,7 @@ struct Scratch {{"#
         }
         writeln!(
             file,
-            r#"    {pipeline}_viewport: vk::Viewport,
-    {pipeline}_scissor: vk::Rect2D,
-    {pipeline}_viewport_state: vk::PipelineViewportStateCreateInfo<'static>,
+            r#"    {pipeline}_viewport_state: vk::PipelineViewportStateCreateInfo<'static>,
     {pipeline}_rasterizer: vk::PipelineRasterizationStateCreateInfo<'static>,
     {pipeline}_multisampling: vk::PipelineMultisampleStateCreateInfo<'static>,
     {pipeline}_blend_attachments: [vk::PipelineColorBlendAttachmentState; 1],
@@ -454,12 +453,16 @@ static mut SCRATCH: Scratch = Scratch {{"#
         primitive_restart_enable: 0,
         _marker: std::marker::PhantomData,
     }},
+    dynamic_states: [
+        vk::DynamicState::VIEWPORT,
+        vk::DynamicState::SCISSOR,
+    ],
     dynamic_state: vk::PipelineDynamicStateCreateInfo {{
         s_type: vk::StructureType::PIPELINE_DYNAMIC_STATE_CREATE_INFO,
         p_next: std::ptr::null(),
         flags: vk::PipelineDynamicStateCreateFlags::empty(),
-        dynamic_state_count: 0,
-        p_dynamic_states: std::ptr::null(),
+        dynamic_state_count: 2,
+        p_dynamic_states: unsafe {{ &raw const SCRATCH.dynamic_states[0] }},
         _marker: std::marker::PhantomData,
     }},"#
     )
@@ -651,26 +654,14 @@ static mut SCRATCH: Scratch = Scratch {{"#
         let cull_mode = &pipeline.cull_mode;
         writeln!(
             file,
-            r#"    {pipeline}_viewport: vk::Viewport {{
-        x: 0.,
-        y: 0.,
-        width: 0.,
-        height: 0.,
-        min_depth: 0.,
-        max_depth: 1.,
-    }},
-    {pipeline}_scissor: vk::Rect2D {{
-        offset: vk::Offset2D {{ x: 0, y: 0 }},
-        extent: vk::Extent2D {{ width: 0, height: 0 }},
-    }},
-    {pipeline}_viewport_state: vk::PipelineViewportStateCreateInfo {{
+            r#"    {pipeline}_viewport_state: vk::PipelineViewportStateCreateInfo {{
         s_type: vk::StructureType::PIPELINE_VIEWPORT_STATE_CREATE_INFO,
         p_next: std::ptr::null(),
         flags: vk::PipelineViewportStateCreateFlags::empty(),
         viewport_count: 1,
-        p_viewports: unsafe {{ &raw const SCRATCH.{pipeline}_viewport }},
+        p_viewports: std::ptr::null(),
         scissor_count: 1,
-        p_scissors: unsafe {{ &raw const SCRATCH.{pipeline}_scissor }},
+        p_scissors: std::ptr::null(),
         _marker: std::marker::PhantomData,
     }},
     {pipeline}_rasterizer: vk::PipelineRasterizationStateCreateInfo {{
@@ -1209,11 +1200,7 @@ pub fn create_pipelines(
         let fragment_shader = pipeline_fragment_shaders[pipeline.name.as_str()];
         writeln!(
             file,
-            r#"    unsafe {{ SCRATCH.{pipeline}_shader_stages[{fragment_stage_index}].module = shader_modules.{fragment_shader}_fragment }};
-    unsafe {{ SCRATCH.{pipeline}_viewport.width = swapchain.extent.width as f32 }};
-    unsafe {{ SCRATCH.{pipeline}_viewport.height = swapchain.extent.height as f32 }};
-    unsafe {{ SCRATCH.{pipeline}_scissor.extent.width = swapchain.extent.width }};
-    unsafe {{ SCRATCH.{pipeline}_scissor.extent.height = swapchain.extent.height }};"#
+            r#"    unsafe {{ SCRATCH.{pipeline}_shader_stages[{fragment_stage_index}].module = shader_modules.{fragment_shader}_fragment }};"#
         )
             .unwrap();
         writeln!(
