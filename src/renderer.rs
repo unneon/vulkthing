@@ -5,6 +5,7 @@ mod device;
 pub mod lifecycle;
 mod shader;
 mod swapchain;
+pub mod swapchain_waiter;
 pub mod util;
 pub mod vertex;
 
@@ -15,6 +16,7 @@ use crate::interface::EnumInterface;
 use crate::renderer::codegen::{Pipelines, Samplers};
 use crate::renderer::debug::{begin_label, end_label};
 use crate::renderer::swapchain::Swapchain;
+use crate::renderer::swapchain_waiter::{SwapchainEvent, SwapchainWaiter};
 use crate::renderer::util::{
     timestamp_difference_to_duration, Buffer, Dev, ImageResources, StorageBuffer, UniformBuffer,
 };
@@ -54,6 +56,7 @@ pub struct Renderer {
     // used for all framebuffer attachments, framebuffers, and the mentioned postprocess descriptor
     // set. Projection matrix depends on the monitor aspect ratio, so it's included too.
     pub swapchain: Swapchain,
+    swapchain_waiter: SwapchainWaiter,
     pipelines: Pipelines,
     depth: ImageResources,
 
@@ -77,12 +80,12 @@ pub struct Renderer {
     query_pool: vk::QueryPool,
     frame_index: usize,
     pub frametime: Option<Duration>,
-    pub just_completed_first_render: bool,
 
     #[cfg(feature = "dev-menu")]
     interface_renderer: Option<imgui_rs_vulkan_renderer::Renderer>,
 }
 
+#[derive(Clone)]
 struct Synchronization {
     image_available: [vk::Semaphore; FRAMES_IN_FLIGHT],
     render_finished: Vec<vk::Semaphore>,
@@ -137,15 +140,15 @@ const DEPTH_FORMAT: vk::Format = vk::Format::D32_SFLOAT;
 impl Renderer {
     pub fn draw_frame(
         &mut self,
+        event: SwapchainEvent,
         world: &World,
         voxels: &VoxelsConfig,
         settings: &RendererSettings,
         window_size: PhysicalSize<u32>,
         #[cfg(feature = "dev-menu")] ui_draw: &DrawData,
     ) {
-        let Some(image_index) = (unsafe { self.prepare_command_buffer(window_size) }) else {
-            return;
-        };
+        let image_index = self.acquire_image_index(event, window_size);
+        self.reset_command_pool();
         unsafe {
             self.record_command_buffer(
                 image_index,
@@ -165,42 +168,47 @@ impl Renderer {
         );
         self.submit_graphics(image_index);
         self.submit_present(image_index);
+        self.swapchain_waiter.send(self.swapchain.handle);
 
         self.flight_index = (self.flight_index + 1) % FRAMES_IN_FLIGHT;
         self.frame_index += 1;
     }
 
-    unsafe fn prepare_command_buffer(&mut self, window_size: PhysicalSize<u32>) -> Option<usize> {
-        let image_available = self.sync.image_available[self.flight_index];
-        let in_flight = self.sync.in_flight[self.flight_index];
-
-        self.dev
-            .wait_for_fences(&[in_flight], true, u64::MAX)
-            .unwrap();
-
-        self.just_completed_first_render = self.frame_index == FRAMES_IN_FLIGHT;
-
-        let acquire_result = self.dev.swapchain_ext.acquire_next_image(
-            self.swapchain.handle,
-            u64::MAX,
-            image_available,
-            vk::Fence::null(),
-        );
-        if acquire_result == Err(vk::Result::ERROR_OUT_OF_DATE_KHR) {
-            self.recreate_swapchain(window_size);
-            return None;
+    fn acquire_image_index(
+        &mut self,
+        event: SwapchainEvent,
+        window_size: PhysicalSize<u32>,
+    ) -> usize {
+        if let Some(image_index) = event.image_index {
+            return image_index;
         }
-        let (image_index, _is_suboptimal) = acquire_result.unwrap();
 
-        self.dev.reset_fences(&[in_flight]).unwrap();
-        self.dev
-            .reset_command_pool(
-                self.command_pools[self.flight_index],
-                vk::CommandPoolResetFlags::empty(),
-            )
-            .unwrap();
+        loop {
+            self.recreate_swapchain(window_size);
+            let acquire_result = unsafe {
+                self.dev.swapchain_ext.acquire_next_image(
+                    self.swapchain.handle,
+                    u64::MAX,
+                    self.sync.image_available[self.flight_index],
+                    vk::Fence::null(),
+                )
+            };
+            if acquire_result == Err(vk::Result::ERROR_OUT_OF_DATE_KHR) {
+                continue;
+            }
+            break acquire_result.unwrap().0 as usize;
+        }
+    }
 
-        Some(image_index as usize)
+    fn reset_command_pool(&self) {
+        unsafe {
+            self.dev
+                .reset_command_pool(
+                    self.command_pools[self.flight_index],
+                    vk::CommandPoolResetFlags::empty(),
+                )
+                .unwrap()
+        }
     }
 
     unsafe fn record_command_buffer(

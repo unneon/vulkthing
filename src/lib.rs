@@ -7,6 +7,7 @@ use crate::input::InputState;
 use crate::interface::Interface;
 use crate::logger::{initialize_logger, initialize_panic_hook};
 use crate::mesh::load_mesh;
+use crate::renderer::swapchain_waiter::SwapchainEvent;
 use crate::renderer::{Renderer, RendererSettings};
 use crate::voxel::{Voxels, VoxelsConfig};
 use crate::world::World;
@@ -14,8 +15,8 @@ use log::{debug, warn};
 use std::time::Instant;
 use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalSize;
-use winit::event::{DeviceEvent, DeviceId, StartCause, WindowEvent};
-use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
+use winit::event::{DeviceEvent, DeviceId, WindowEvent};
+use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
 use winit::platform::wayland::EventLoopBuilderExtWayland;
 use winit::platform::x11::EventLoopBuilderExtX11;
 use winit::window::{CursorGrabMode, Fullscreen, Window, WindowId};
@@ -47,6 +48,7 @@ const SPRINT_SPEED: f32 = 100.;
 const CAMERA_SENSITIVITY: f32 = 0.01;
 
 struct AppState {
+    event_loop_proxy: EventLoopProxy<SwapchainEvent>,
     window: Option<Window>,
     world: World,
     // This depends on the lifetime of Renderer, but there isn't a good way to represent this in
@@ -62,26 +64,17 @@ struct AppState {
     interface: Option<Interface>,
     last_window_size: Option<PhysicalSize<u32>>,
     last_frame_timestamp: Instant,
-    frame_index: usize,
     args: Args,
 }
 
-impl ApplicationHandler for AppState {
-    fn new_events(&mut self, event_loop: &ActiveEventLoop, cause: StartCause) {
-        if cause == StartCause::Init {
-            // winit is set up for desktop applications by default, so we need to enable polling
-            // regardless of whether there are any new events.
-            event_loop.set_control_flow(ControlFlow::Poll);
-        }
-    }
-
+impl ApplicationHandler<SwapchainEvent> for AppState {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window_attributes = Window::default_attributes()
             .with_title(WINDOW_TITLE)
             .with_resizable(true)
             .with_decorations(false)
             .with_fullscreen(Some(Fullscreen::Borderless(None)))
-            .with_visible(false);
+            .with_visible(true);
         let window = event_loop.create_window(window_attributes).unwrap();
         if window.set_cursor_grab(CursorGrabMode::Locked).is_err() {
             warn!("cursor grab unavailable");
@@ -92,6 +85,7 @@ impl ApplicationHandler for AppState {
         let icosahedron_mesh = load_mesh("assets/icosahedron.obj");
         let mut renderer = Renderer::new(
             &window,
+            self.event_loop_proxy.clone(),
             &[&tetrahedron_mesh, &icosahedron_mesh],
             &self.world,
             &self.args,
@@ -159,12 +153,15 @@ impl ApplicationHandler for AppState {
         }
     }
 
-    // Desktop applications shouldn't render here according to winit documentation, but this
-    // is a game so it's necessary for the game to render even if the camera is not moving.
-    // Though I think this approach actually has a problem with input lag. The renderer has
-    // to wait on Vulkan fences internally, so rather, this waiting should be done in a
-    // background thread and notifications integrated into winit's event loop?
-    fn about_to_wait(&mut self, _: &ActiveEventLoop) {
+    // In winit, there is a RedrawRequested event. It only fires when manually triggered or when the
+    // compositor invalidates the window's contents, not every frame like games want. The mechanism
+    // we want to use instead is Vulkan's vkWaitForFences and vkAcquireNextImageKHR, that
+    // (presumably?) integrate with Wayland client implementation under the hood, but not with
+    // winit's event loop. Calling them results in blocking the main thread, increasing the input
+    // lag by up to one frame. Here, the renderered spawns a background thread that calls the Vulkan
+    // functions instead, and sends a user-defined event to winit's event loop. This is, as far as I
+    // understand winit/Vulkan/Wayland, the ideal way to decide when to render.
+    fn user_event(&mut self, _: &ActiveEventLoop, event: SwapchainEvent) {
         let current_frame_timestamp = Instant::now();
         let delta_time = (current_frame_timestamp - self.last_frame_timestamp).as_secs_f32();
         self.last_frame_timestamp = current_frame_timestamp;
@@ -205,6 +202,7 @@ impl ApplicationHandler for AppState {
         }
 
         self.renderer.as_mut().unwrap().draw_frame(
+            event,
             &self.world,
             &self.voxels_config,
             &self.renderer_settings,
@@ -212,12 +210,6 @@ impl ApplicationHandler for AppState {
             #[cfg(feature = "dev-menu")]
             self.interface.as_mut().unwrap().draw_data(),
         );
-
-        if self.renderer.as_ref().unwrap().just_completed_first_render {
-            self.window.as_mut().unwrap().set_visible(true);
-        }
-
-        self.frame_index += 1;
     }
 
     fn exiting(&mut self, _: &ActiveEventLoop) {
@@ -235,6 +227,7 @@ pub fn main() {
     let event_loop = create_event_loop(&args);
 
     let mut app_state = AppState {
+        event_loop_proxy: event_loop.create_proxy(),
         window: None,
         world: World::new(),
         voxels: None,
@@ -246,14 +239,13 @@ pub fn main() {
         renderer_settings: DEFAULT_RENDERER_SETTINGS,
         #[cfg(feature = "dev-menu")]
         interface: None,
-        frame_index: 0,
         args,
     };
     event_loop.run_app(&mut app_state).unwrap();
 }
 
-fn create_event_loop(args: &Args) -> EventLoop<()> {
-    let mut event_loop = EventLoop::builder();
+fn create_event_loop(args: &Args) -> EventLoop<SwapchainEvent> {
+    let mut event_loop = EventLoop::with_user_event();
     match args.window_protocol {
         Some(WindowProtocol::Wayland) => event_loop.with_wayland(),
         Some(WindowProtocol::X11) => event_loop.with_x11(),

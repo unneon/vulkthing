@@ -12,11 +12,12 @@ use crate::renderer::codegen::{
 use crate::renderer::debug::{create_debug_messenger, set_label};
 use crate::renderer::device::{select_device, DeviceInfo};
 use crate::renderer::swapchain::create_swapchain;
+use crate::renderer::swapchain_waiter::SwapchainEvent;
 use crate::renderer::util::{vulkan_str, Buffer, Dev, ImageResources, StorageBuffer};
 use crate::renderer::vertex::Vertex;
 use crate::renderer::{
-    DeviceSupport, MeshObject, Renderer, Synchronization, UniformBuffer, DEPTH_FORMAT,
-    FRAMES_IN_FLIGHT, VRAM_VIA_BAR,
+    DeviceSupport, MeshObject, Renderer, SwapchainWaiter, Synchronization, UniformBuffer,
+    DEPTH_FORMAT, FRAMES_IN_FLIGHT, VRAM_VIA_BAR,
 };
 use crate::voxel::gpu::meshlets::VoxelMeshletMemory;
 use crate::voxel::gpu::{VoxelGpuMemory, EMPTY_ROOT};
@@ -31,11 +32,13 @@ use std::ffi::CString;
 use std::sync::atomic::AtomicU32;
 use std::sync::Arc;
 use winit::dpi::PhysicalSize;
+use winit::event_loop::EventLoopProxy;
 use winit::window::Window;
 
 impl Renderer {
     pub fn new(
         window: &Window,
+        event_loop_proxy: EventLoopProxy<SwapchainEvent>,
         meshes: &[&MeshData<Vertex>],
         world: &World,
         args: &Args,
@@ -87,6 +90,8 @@ impl Renderer {
 
         let swapchain = create_swapchain(surface, window.inner_size(), &dev);
         let sync = create_sync(swapchain.images.len(), &dev);
+        let swapchain_waiter =
+            SwapchainWaiter::new(swapchain.handle, sync.clone(), &dev, event_loop_proxy);
         let depth = create_depth(swapchain.extent, &dev);
         let pipeline_layout = create_pipeline_layout(descriptor_set_layout, &dev);
         let shader_modules = create_shader_modules(&dev);
@@ -162,6 +167,7 @@ impl Renderer {
             descriptor_pool,
             pipeline_layout,
             swapchain,
+            swapchain_waiter,
             pipelines,
             depth,
             command_pools,
@@ -177,7 +183,6 @@ impl Renderer {
             query_pool,
             frame_index: 0,
             frametime: None,
-            just_completed_first_render: false,
             #[cfg(feature = "dev-menu")]
             interface_renderer: None,
         }
@@ -269,6 +274,8 @@ impl MeshObject {
 
 impl Drop for Renderer {
     fn drop(&mut self) {
+        self.swapchain_waiter.shutdown();
+
         unsafe {
             self.dev.device_wait_idle().unwrap();
 
