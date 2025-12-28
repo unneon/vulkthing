@@ -89,8 +89,8 @@ impl Renderer {
 
         let swapchain = create_swapchain(surface, window.inner_size(), &dev);
         let sync = create_sync(swapchain.images.len(), &dev);
-        let swapchain_waiter =
-            SwapchainWaiter::new(swapchain.handle, sync.clone(), &dev, event_loop_proxy);
+        let swapchain_waiter = SwapchainWaiter::new(sync.clone(), &dev, event_loop_proxy);
+        swapchain_waiter.send(swapchain.handle);
         let depth = create_depth(swapchain.extent, &dev);
         let pipeline_layout = create_pipeline_layout(descriptor_set_layout, &dev);
         let pipelines = create_pipelines(

@@ -1,12 +1,12 @@
 use crate::renderer::util::Dev;
 use crate::renderer::{Synchronization, FRAMES_IN_FLIGHT};
 use ash::vk;
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::mpsc;
 use std::thread::JoinHandle;
 use winit::event_loop::EventLoopProxy;
 
 pub struct SwapchainWaiter {
-    shared: Arc<(Mutex<State>, Condvar)>,
+    sender: Option<mpsc::SyncSender<vk::SwapchainKHR>>,
     join_handle: Option<JoinHandle<()>>,
 }
 
@@ -15,63 +15,42 @@ pub struct SwapchainEvent {
     pub image_index: Option<usize>,
 }
 
-#[derive(PartialEq)]
-enum State {
-    Waiting(vk::SwapchainKHR),
-    Idle,
-    Shutdown,
-}
-
 impl SwapchainWaiter {
     pub(super) fn new(
-        swapchain: vk::SwapchainKHR,
         sync: Synchronization,
         dev: &Dev,
         event_loop_proxy: EventLoopProxy<SwapchainEvent>,
     ) -> SwapchainWaiter {
-        let shared = Arc::new((Mutex::new(State::Waiting(swapchain)), Condvar::new()));
-        let shared2 = shared.clone();
+        let (sender, receiver) = mpsc::sync_channel(1);
         let dev = dev.clone();
         let join_handle = std::thread::Builder::new()
             .name("swapchain-waiter".to_owned())
-            .spawn(move || thread(sync, shared2, dev, event_loop_proxy))
+            .spawn(move || thread(sync, receiver, dev, event_loop_proxy))
             .unwrap();
         SwapchainWaiter {
-            shared,
+            sender: Some(sender),
             join_handle: Some(join_handle),
         }
     }
 
     pub fn send(&self, swapchain: vk::SwapchainKHR) {
-        let (state, condvar) = self.shared.as_ref();
-        *state.lock().unwrap() = State::Waiting(swapchain);
-        condvar.notify_all();
+        self.sender.as_ref().unwrap().send(swapchain).unwrap();
     }
 
     pub fn shutdown(&mut self) {
-        let (state, condvar) = self.shared.as_ref();
-        *state.lock().unwrap() = State::Shutdown;
-        condvar.notify_all();
+        let _ = self.sender.take().unwrap();
         self.join_handle.take().unwrap().join().unwrap();
     }
 }
 
 fn thread(
     sync: Synchronization,
-    swapchain: Arc<(Mutex<State>, Condvar)>,
+    receiver: mpsc::Receiver<vk::SwapchainKHR>,
     dev: Dev,
     event_loop: EventLoopProxy<SwapchainEvent>,
 ) {
-    let (swapchain_mutex, swapchain_codvar) = swapchain.as_ref();
-    let mut state = swapchain_mutex.lock().unwrap();
     let mut flight_index = 0;
-    loop {
-        let swapchain = match *state {
-            State::Waiting(swapchain) => swapchain,
-            State::Idle => unreachable!(),
-            State::Shutdown => break,
-        };
-
+    while let Ok(swapchain) = receiver.recv() {
         let image_available = sync.image_available[flight_index];
         let in_flight = sync.in_flight[flight_index];
 
@@ -87,7 +66,6 @@ fn thread(
             )
         };
 
-        *state = State::Idle;
         let image_index = if acquire_result == Err(vk::Result::ERROR_OUT_OF_DATE_KHR) {
             None
         } else {
@@ -96,10 +74,6 @@ fn thread(
         event_loop
             .send_event(SwapchainEvent { image_index })
             .unwrap();
-
-        while *state == State::Idle {
-            state = swapchain_codvar.wait(state).unwrap();
-        }
 
         flight_index = (flight_index + 1) % FRAMES_IN_FLIGHT;
     }
