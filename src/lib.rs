@@ -37,11 +37,8 @@ pub mod voxel;
 mod world;
 
 const WINDOW_TITLE: &str = "Vulkthing";
-
 const VULKAN_APP_NAME: &str = "Vulkthing";
-const VULKAN_APP_VERSION: (u32, u32, u32) = (0, 0, 0);
 const VULKAN_ENGINE_NAME: &str = "Unneongine";
-const VULKAN_ENGINE_VERSION: (u32, u32, u32) = (0, 0, 0);
 
 const WALK_SPEED: f32 = 25.;
 const SPRINT_SPEED: f32 = 100.;

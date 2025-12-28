@@ -21,7 +21,7 @@ use crate::renderer::{
 use crate::voxel::gpu::meshlets::VoxelMeshletMemory;
 use crate::voxel::gpu::{VoxelGpuMemory, EMPTY_ROOT};
 use crate::world::World;
-use crate::{VULKAN_APP_NAME, VULKAN_APP_VERSION, VULKAN_ENGINE_NAME, VULKAN_ENGINE_VERSION};
+use crate::{VULKAN_APP_NAME, VULKAN_ENGINE_NAME};
 use ash::ext::{debug_utils, mesh_shader};
 use ash::khr::{surface, swapchain};
 use ash::{vk, Device, Entry, Instance};
@@ -321,22 +321,16 @@ fn create_instance(window: &Window, entry: &Entry, args: &Args) -> Instance {
     let app_name = CString::new(VULKAN_APP_NAME).unwrap();
     let app_version = vk::make_api_version(
         0,
-        VULKAN_APP_VERSION.0,
-        VULKAN_APP_VERSION.1,
-        VULKAN_APP_VERSION.2,
+        env!("CARGO_PKG_VERSION_MAJOR").parse().unwrap(),
+        env!("CARGO_PKG_VERSION_MINOR").parse().unwrap(),
+        env!("CARGO_PKG_VERSION_PATCH").parse().unwrap(),
     );
     let engine_name = CString::new(VULKAN_ENGINE_NAME).unwrap();
-    let engine_version = vk::make_api_version(
-        0,
-        VULKAN_ENGINE_VERSION.0,
-        VULKAN_ENGINE_VERSION.1,
-        VULKAN_ENGINE_VERSION.2,
-    );
     let app_info = vk::ApplicationInfo::default()
         .application_name(&app_name)
         .application_version(app_version)
         .engine_name(&engine_name)
-        .engine_version(engine_version)
+        .engine_version(vk::make_api_version(0, 0, 0, 0))
         .api_version(vk::API_VERSION_1_3);
 
     let layers = unsafe { entry.enumerate_instance_layer_properties() }.unwrap();
