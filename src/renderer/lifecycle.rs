@@ -3,7 +3,7 @@ use crate::config::{
     DEFAULT_VOXEL_MESHLET_MAX_COUNT, DEFAULT_VOXEL_OCTREE_MAX_COUNT,
     DEFAULT_VOXEL_TRIANGLE_MAX_COUNT, DEFAULT_VOXEL_VERTEX_MAX_COUNT,
 };
-use crate::gpu::Star;
+use crate::gpu::{ClassicVertex, Star};
 use crate::mesh::MeshData;
 use crate::renderer::codegen::{
     alloc_descriptor_set, create_descriptor_pool, create_descriptor_set_layout, create_pipelines,
@@ -14,7 +14,6 @@ use crate::renderer::device::{select_device, DeviceInfo};
 use crate::renderer::swapchain::create_swapchain;
 use crate::renderer::swapchain_waiter::SwapchainEvent;
 use crate::renderer::util::{vulkan_str, Buffer, Dev, ImageResources, StorageBuffer};
-use crate::renderer::vertex::Vertex;
 use crate::renderer::{
     DeviceSupport, MeshObject, Renderer, SwapchainWaiter, Synchronization, UniformBuffer,
     DEPTH_FORMAT, FRAMES_IN_FLIGHT, VRAM_VIA_BAR,
@@ -39,7 +38,7 @@ impl Renderer {
     pub fn new(
         window: &Window,
         event_loop_proxy: EventLoopProxy<SwapchainEvent>,
-        meshes: &[&MeshData<Vertex>],
+        meshes: &[&MeshData<ClassicVertex>],
         world: &World,
         args: &Args,
     ) -> Renderer {
@@ -102,14 +101,15 @@ impl Renderer {
         );
 
         let mut mesh_objects = Vec::new();
+        let mut mesh_vertices_so_far = 0;
         for mesh in meshes {
-            let vertex = create_vertex_buffer(&mesh.vertices, &dev);
             let index = create_index_buffer(&mesh.indices, &dev);
             mesh_objects.push(MeshObject {
                 triangle_count: mesh.vertices.len() / 3,
-                vertex,
                 index,
+                base_vertex: mesh_vertices_so_far,
             });
+            mesh_vertices_so_far += mesh.vertices.len();
         }
 
         let mut stars = StorageBuffer::new_array(VRAM_VIA_BAR, world.stars.len(), &dev);
@@ -128,6 +128,16 @@ impl Renderer {
         let mut voxel_octree_buffer =
             StorageBuffer::new_array(VRAM_VIA_BAR, DEFAULT_VOXEL_OCTREE_MAX_COUNT, &dev);
         voxel_octree_buffer.generate(|_| EMPTY_ROOT);
+        let classic_total_vertices: usize = meshes.iter().map(|mesh| mesh.vertices.len()).sum();
+        let mut classic_vertex_buffer =
+            StorageBuffer::new_array(VRAM_VIA_BAR, classic_total_vertices, &dev);
+        for (vertex, slot) in meshes
+            .iter()
+            .flat_map(|mesh| mesh.vertices.iter())
+            .zip(classic_vertex_buffer.mapped().iter_mut())
+        {
+            slot.write(*vertex);
+        }
 
         let global = UniformBuffer::create(&dev);
         let global_descriptor_sets = alloc_descriptor_set(
@@ -137,6 +147,7 @@ impl Renderer {
             &voxel_triangle_buffer,
             &voxel_meshlet_buffer,
             &voxel_octree_buffer,
+            &classic_vertex_buffer,
             &dev,
             descriptor_set_layout,
             descriptor_pool,
@@ -172,6 +183,7 @@ impl Renderer {
             sync,
             flight_index: 0,
             mesh_objects,
+            classic_vertex_buffer,
             stars,
             global,
             descriptor_sets: global_descriptor_sets,
@@ -261,7 +273,6 @@ impl Synchronization {
 
 impl MeshObject {
     pub fn cleanup(&self, dev: &Device) {
-        self.vertex.cleanup(dev);
         self.index.cleanup(dev);
     }
 }
@@ -280,6 +291,7 @@ impl Drop for Renderer {
             for mesh in &self.mesh_objects {
                 mesh.cleanup(&self.dev);
             }
+            self.classic_vertex_buffer.cleanup(&self.dev);
             self.global.cleanup(&self.dev);
             self.sync.cleanup(&self.dev);
             for pool in &self.command_pools {
@@ -488,13 +500,6 @@ fn create_command_buffers(
         *buffer = unsafe { dev.allocate_command_buffers(&buffer_info) }.unwrap()[0];
     }
     buffers
-}
-
-pub fn create_vertex_buffer(vertex_data: &[Vertex], dev: &Dev) -> Buffer {
-    let size = std::mem::size_of_val(vertex_data);
-    let mut vertex = Buffer::create(VRAM_VIA_BAR, vk::BufferUsageFlags::VERTEX_BUFFER, size, dev);
-    vertex.fill_from_slice_host_visible(vertex_data, dev);
-    vertex
 }
 
 fn create_index_buffer(index_data: &[u32], dev: &Dev) -> Buffer {

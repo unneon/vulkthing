@@ -35,8 +35,6 @@ pub struct Pipeline {
     pub mesh_shaders: bool,
     #[knuffel(child, unwrap(argument))]
     pub vertex_shader: Option<String>,
-    #[knuffel(children(name = "vertex-binding"))]
-    pub vertex_bindings: Vec<VertexBinding>,
     #[knuffel(child, unwrap(argument))]
     pub task_shader: Option<String>,
     #[knuffel(child, unwrap(argument))]
@@ -49,24 +47,6 @@ pub struct Pipeline {
     pub polygon_mode: String,
     #[knuffel(child, unwrap(argument), default = "BACK".into())]
     pub cull_mode: String,
-}
-
-#[derive(Debug, Decode)]
-pub struct VertexBinding {
-    #[knuffel(property, default = "VERTEX".into())]
-    pub rate: String,
-    #[knuffel(children(name = "attribute"))]
-    pub attributes: Vec<VertexAttribute>,
-}
-
-#[derive(Debug, Decode)]
-pub struct VertexAttribute {
-    #[knuffel(argument)]
-    pub _name: String,
-    #[knuffel(argument)]
-    pub format: String,
-    #[knuffel(property, default)]
-    pub unused: bool,
 }
 
 #[derive(Debug, Decode)]

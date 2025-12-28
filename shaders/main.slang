@@ -123,7 +123,8 @@ float4 skybox_frag() {
 }
 
 [shader("vertex")]
-float4 star_vert(uint instance_id : SV_InstanceID, float3 in_position : POSITION) : SV_Position {
+float4 star_vert(uint instance_id : SV_InstanceID, uint vertex_base : SV_StartVertexLocation, uint vertex_id : SV_VertexID) : SV_Position {
+    float3 in_position = classic_vertices[vertex_base + vertex_id].position;
     float4x4 star_model = stars[instance_id].model;
     float4 world_space = mul(star_model, float4(in_position, 1));
     float4 clip_space = mul(global.camera.projection_matrix, mul(global.camera.view_matrix, world_space));
@@ -136,7 +137,8 @@ float4 star_frag() {
 }
 
 [shader("vertex")]
-float4 sun_vert(float3 position) : SV_Position {
+float4 sun_vert(uint vertex_base : SV_StartVertexLocation, uint vertex_id : SV_VertexID) : SV_Position {
+    float3 position = classic_vertices[vertex_base + vertex_id].position;
     float4 world_space = float4(50 * position + global.light.position, 1);
     float4 clip_space = mul(global.camera.projection_matrix, mul(global.camera.view_matrix, world_space));
     return clip_space;

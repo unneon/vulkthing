@@ -18,6 +18,9 @@ public StructuredBuffer<VoxelMeshlet> voxel_meshlets;
 [[vk::binding(5)]]
 public StructuredBuffer<SvoNode> svo_nodes;
 
+[[vk::binding(6)]]
+public StructuredBuffer<ClassicVertex> classic_vertices;
+
 public struct Global {
     public Voxels voxels;
     public Light light;
@@ -121,4 +124,9 @@ public struct VoxelTriangle {
 public struct SvoNode {
     public uint children[8];
     public uint parent;
+};
+
+public struct ClassicVertex {
+    public float3 position;
+    public float3 normal;
 };

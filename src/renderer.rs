@@ -7,9 +7,8 @@ mod shader;
 mod swapchain;
 pub mod swapchain_waiter;
 pub mod util;
-pub mod vertex;
 
-use crate::gpu::{Atmosphere, Camera, Debug, Global, Star, VoxelMaterial, Voxels};
+use crate::gpu::{Atmosphere, Camera, ClassicVertex, Debug, Global, Star, VoxelMaterial, Voxels};
 #[cfg(feature = "dev-menu")]
 use crate::interface::EnumInterface;
 use crate::renderer::codegen::{Pipelines, Samplers};
@@ -69,6 +68,7 @@ pub struct Renderer {
     // And finally resources specific to this renderer. So various buffers related to objects we
     // actually render, their descriptor sets and the like.
     mesh_objects: Vec<MeshObject>,
+    classic_vertex_buffer: StorageBuffer<[ClassicVertex]>,
     stars: StorageBuffer<[Star]>,
     global: UniformBuffer<Global>,
     descriptor_sets: [vk::DescriptorSet; FRAMES_IN_FLIGHT],
@@ -93,8 +93,8 @@ struct Synchronization {
 
 pub struct MeshObject {
     triangle_count: usize,
-    vertex: Buffer,
     index: Buffer,
+    base_vertex: usize,
 }
 
 pub struct RendererSettings {
@@ -620,7 +620,6 @@ impl Renderer {
 
 impl MeshObject {
     fn bind_vertex(&self, buf: vk::CommandBuffer, dev: &Dev) {
-        unsafe { dev.cmd_bind_vertex_buffers(buf, 0, &[self.vertex.buffer], &[0]) };
         unsafe { dev.cmd_bind_index_buffer(buf, self.index.buffer, 0, vk::IndexType::UINT32) };
     }
 
@@ -631,7 +630,7 @@ impl MeshObject {
                 3 * self.triangle_count as u32,
                 instance_count as u32,
                 0,
-                0,
+                self.base_vertex as i32,
                 0,
             )
         };

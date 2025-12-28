@@ -1,4 +1,4 @@
-use crate::config::{Compute, Pipeline, Renderer, Sampler, VertexAttribute};
+use crate::config::{Compute, Pipeline, Renderer, Sampler};
 use crate::helper::to_camelcase;
 use crate::reflect::collect_all_types;
 use crate::types::{AshDescriptor, AshEnum, ShaderType};
@@ -185,13 +185,6 @@ struct Scratch {{"#
     )
     .unwrap();
     for pipeline in &renderer.pipelines {
-        let binding_count = pipeline.vertex_bindings.len();
-        let attribute_count = pipeline
-            .vertex_bindings
-            .iter()
-            .flat_map(|binding| binding.attributes.iter())
-            .filter(|attribute| !attribute.unused)
-            .count();
         if let Some(fragment_specialization) = &pipeline.fragment_specialization {
             let specialization_count = fragment_specialization.len();
             let pipeline_camelcase = to_camelcase(&pipeline.to_string());
@@ -211,9 +204,11 @@ struct Scratch {{"#
             .unwrap();
         if pipeline.mesh_shaders {
         } else {
-            writeln!(file, r#"    {pipeline}_vertex_bindings: [vk::VertexInputBindingDescription; {binding_count}],
-    {pipeline}_vertex_attributes: [vk::VertexInputAttributeDescription; {attribute_count}],
-    {pipeline}_vertex_state: vk::PipelineVertexInputStateCreateInfo<'static>,"#).unwrap();
+            writeln!(
+                file,
+                r#"    {pipeline}_vertex_state: vk::PipelineVertexInputStateCreateInfo<'static>,"#
+            )
+            .unwrap();
         }
         writeln!(
             file,
@@ -390,12 +385,6 @@ static mut SCRATCH: Scratch = Scratch {{"#
         .unwrap();
     }
     for pipeline in &renderer.pipelines {
-        let attribute_count = pipeline
-            .vertex_bindings
-            .iter()
-            .flat_map(|binding| binding.attributes.iter())
-            .filter(|attribute| !attribute.unused)
-            .count();
         let fragment_specialization_info = if let Some(fragment_specialization) =
             &pipeline.fragment_specialization
         {
@@ -491,70 +480,16 @@ static mut SCRATCH: Scratch = Scratch {{"#
         .unwrap();
         if pipeline.mesh_shaders {
         } else {
-            writeln!(file, r#"    {pipeline}_vertex_bindings: ["#).unwrap();
-            for (binding_index, binding) in pipeline.vertex_bindings.iter().enumerate() {
-                let raw_stride: usize = binding.attributes.iter().map(attribute_size).sum();
-                let stride = raw_stride.next_multiple_of(4);
-                let rate = &binding.rate;
-                writeln!(
-                    file,
-                    r#"        vk::VertexInputBindingDescription {{
-            binding: {binding_index},
-            stride: {stride},
-            input_rate: vk::VertexInputRate::{rate},
-        }},"#,
-                )
-                .unwrap();
-            }
             writeln!(
                 file,
-                r#"    ],
-    {pipeline}_vertex_attributes: ["#
-            )
-            .unwrap();
-            let mut total_locations = 0;
-            for (binding_index, binding) in pipeline.vertex_bindings.iter().enumerate() {
-                let mut offset = 0;
-                for attribute in &binding.attributes {
-                    if !attribute.unused {
-                        let format = &attribute.format;
-                        writeln!(
-                            file,
-                            r#"        vk::VertexInputAttributeDescription {{
-            binding: {binding_index},
-            location: {total_locations},
-            format: vk::Format::{format},
-            offset: {offset},
-        }},"#
-                        )
-                        .unwrap();
-                        total_locations += 1;
-                    }
-                    offset += attribute_size(attribute);
-                }
-            }
-            let vertex_binding_count = pipeline.vertex_bindings.len();
-            let vertex_binding_descriptions = if vertex_binding_count > 0 {
-                &format!("unsafe {{ &raw const SCRATCH.{pipeline}_vertex_bindings[0] }}")
-            } else {
-                "std::ptr::null()"
-            };
-            let vertex_attribute_descriptions = if attribute_count > 0 {
-                &format!("unsafe {{ &raw const SCRATCH.{pipeline}_vertex_attributes[0] }}")
-            } else {
-                "std::ptr::null()"
-            };
-            writeln!(
-                file,
-                r#"    ],
-    {pipeline}_vertex_state: vk::PipelineVertexInputStateCreateInfo {{
+                r#"    {pipeline}_vertex_state: vk::PipelineVertexInputStateCreateInfo {{
         s_type: vk::StructureType::PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
         p_next: std::ptr::null(),
         flags: vk::PipelineVertexInputStateCreateFlags::empty(),
-        vertex_binding_description_count: {vertex_binding_count},
-        p_vertex_binding_descriptions: {vertex_binding_descriptions},
-        vertex_attribute_description_count: {attribute_count},
-        p_vertex_attribute_descriptions: {vertex_attribute_descriptions},
+        vertex_binding_description_count: 0,
+        p_vertex_binding_descriptions: std::ptr::null(),
+        vertex_attribute_description_count: 0,
+        p_vertex_attribute_descriptions: std::ptr::null(),
         _marker: std::marker::PhantomData,
     }},"#
             )
@@ -1143,15 +1078,5 @@ fn generate_uniform(reflection: &ShaderModule, out_dir: &Path) {
     "#
         )
         .unwrap();
-    }
-}
-
-fn attribute_size(attribute: &VertexAttribute) -> usize {
-    match attribute.format.as_str() {
-        "R16_UINT" => 2,
-        "R32_SFLOAT" => 4,
-        "R32G32B32_SFLOAT" => 12,
-        "R32G32B32A32_SFLOAT" => 16,
-        _ => todo!("attribute_size({:?})", attribute.format),
     }
 }

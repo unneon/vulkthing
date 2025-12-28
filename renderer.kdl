@@ -6,16 +6,6 @@ pipeline "debug_voxel_triangle" mesh-shaders=true {
 }
 pipeline "debug_voxel_world_bound" mesh-shaders=true
 pipeline "debug_voxel_screen_bound" mesh-shaders=true
-pipeline "sun" {
-    vertex-binding {
-        attribute "vertex_position" "R32G32B32_SFLOAT"
-        attribute "vertex_normal" "R32G32B32_SFLOAT" unused=true
-    }
-}
-pipeline "star" {
-    vertex-binding {
-        attribute "vertex_position" "R32G32B32_SFLOAT"
-        attribute "vertex_normal" "R32G32B32_SFLOAT" unused=true
-    }
-}
+pipeline "sun"
+pipeline "star"
 pipeline "skybox"

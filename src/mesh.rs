@@ -1,4 +1,4 @@
-use crate::renderer::vertex::Vertex;
+use crate::gpu::ClassicVertex;
 use log::debug;
 use nalgebra::Vector3;
 use tobj::LoadOptions;
@@ -9,7 +9,7 @@ pub struct MeshData<V> {
     pub indices: Vec<u32>,
 }
 
-pub fn load_mesh(obj_path: &str) -> MeshData<Vertex> {
+pub fn load_mesh(obj_path: &str) -> MeshData<ClassicVertex> {
     let load_options = LoadOptions {
         // Faces can sometimes be given as arbitrary (convex?) polygons, but we only render
         // triangles so let's get the loader to split them up for us.
@@ -28,7 +28,7 @@ pub fn load_mesh(obj_path: &str) -> MeshData<Vertex> {
     mesh
 }
 
-fn flatten_meshes(models: &[tobj::Model]) -> MeshData<Vertex> {
+fn flatten_meshes(models: &[tobj::Model]) -> MeshData<ClassicVertex> {
     // OBJ format supports quite complex meshes with many materials and meshes, but temporarily
     // let's just throw all of it into a single vertex buffer.
     let mut vertices = Vec::new();
@@ -43,7 +43,7 @@ fn flatten_meshes(models: &[tobj::Model]) -> MeshData<Vertex> {
             );
             // Will be computed from triangle positions later.
             let normal = Vector3::zeros();
-            let vertex = Vertex { position, normal };
+            let vertex = ClassicVertex { position, normal };
             vertices.push(vertex);
         }
     }
