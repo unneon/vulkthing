@@ -1,12 +1,3 @@
-descriptor-set {
-    uniform "global" "ALL" "Global"
-    storage-buffer "stars" "ALL" "Star"
-    storage-buffer "voxel_vertices" "ALL" "VoxelVertex"
-    storage-buffer "voxel_triangles" "ALL" "VoxelTriangle"
-    storage-buffer "voxel_meshlets" "ALL" "VoxelMeshlet"
-    storage-buffer "voxel_octrees" "ALL" "SvoNode"
-}
-
 pipeline "voxel" task-shaders=true mesh-shaders=true
 pipeline "voxel_rt"
 pipeline "debug_voxel_triangle" mesh-shaders=true {

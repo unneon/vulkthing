@@ -13,7 +13,7 @@ public StructuredBuffer<VoxelVertex> voxel_vertices;
 public StructuredBuffer<VoxelTriangle> voxel_triangles;
 
 [[vk::binding(4)]]
-public StructuredBuffer<VoxelMeshlet> meshlets;
+public StructuredBuffer<VoxelMeshlet> voxel_meshlets;
 
 [[vk::binding(5)]]
 public StructuredBuffer<SvoNode> svo_nodes;

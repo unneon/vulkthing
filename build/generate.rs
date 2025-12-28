@@ -1,88 +1,14 @@
-use crate::config::{Compute, DescriptorBinding, Pipeline, Renderer, Sampler, VertexAttribute};
+use crate::config::{Compute, Pipeline, Renderer, Sampler, VertexAttribute};
 use crate::helper::to_camelcase;
-use crate::reflect::{reflect, Layout, Type};
-use crate::types::ShaderType;
-use std::borrow::Cow;
+use crate::reflect::{collect_all_types, Layout, Type};
+use crate::types::{AshDescriptor, AshEnum, ShaderType};
+use spirv_reflect::types::{ReflectDescriptorBinding, ReflectDescriptorType};
+use spirv_reflect::ShaderModule;
 use std::collections::{BTreeSet, HashMap};
 use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-
-#[derive(Clone, PartialEq)]
-enum BindingType {
-    AccelerationStructure,
-    Image,
-    InputAttachment,
-    StorageBuffer,
-    StorageImage,
-    Uniform,
-}
-
-impl BindingType {
-    fn name(&self) -> &'static str {
-        match self {
-            BindingType::AccelerationStructure => "ACCELERATION_STRUCTURE_KHR",
-            BindingType::Image => "COMBINED_IMAGE_SAMPLER",
-            BindingType::InputAttachment => "INPUT_ATTACHMENT",
-            BindingType::StorageBuffer => "STORAGE_BUFFER",
-            BindingType::StorageImage => "STORAGE_IMAGE",
-            BindingType::Uniform => "UNIFORM_BUFFER",
-        }
-    }
-}
-
-impl DescriptorBinding {
-    fn descriptor_type(&self) -> BindingType {
-        match self {
-            DescriptorBinding::AccelerationStructure(_) => BindingType::AccelerationStructure,
-            DescriptorBinding::Image(_) => BindingType::Image,
-            DescriptorBinding::InputAttachment(_) => BindingType::InputAttachment,
-            DescriptorBinding::StorageBuffer(_) => BindingType::StorageBuffer,
-            DescriptorBinding::StorageImage(_) => BindingType::StorageImage,
-            DescriptorBinding::Uniform(_) => BindingType::Uniform,
-        }
-    }
-
-    fn name(&self) -> &str {
-        match self {
-            DescriptorBinding::AccelerationStructure(as_) => &as_.name,
-            DescriptorBinding::Image(image) => &image.name,
-            DescriptorBinding::InputAttachment(input) => &input.name,
-            DescriptorBinding::StorageBuffer(storage) => &storage.name,
-            DescriptorBinding::StorageImage(image) => &image.name,
-            DescriptorBinding::Uniform(uniform) => &uniform.name,
-        }
-    }
-
-    fn stage(&self) -> &str {
-        match self {
-            DescriptorBinding::AccelerationStructure(as_) => &as_.stage,
-            DescriptorBinding::Image(image) => &image.stage,
-            DescriptorBinding::InputAttachment(input) => &input.stage,
-            DescriptorBinding::StorageBuffer(storage) => &storage.stage,
-            DescriptorBinding::StorageImage(image) => &image.stage,
-            DescriptorBinding::Uniform(uniform) => &uniform.stage,
-        }
-    }
-
-    fn value_type(&self) -> Cow<'static, str> {
-        match self {
-            DescriptorBinding::AccelerationStructure(_) => "&Option<RaytraceResources>".into(),
-            DescriptorBinding::Image(_)
-            | DescriptorBinding::InputAttachment(_)
-            | DescriptorBinding::StorageImage(_) => "vk::ImageView".into(),
-            DescriptorBinding::StorageBuffer(storage) => {
-                let typ = &storage.typ;
-                format!("&StorageBuffer<[{typ}]>").into()
-            }
-            DescriptorBinding::Uniform(uniform) => {
-                let typ = &uniform.typ;
-                format!("&UniformBuffer<{typ}>").into()
-            }
-        }
-    }
-}
 
 impl Display for Compute {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -102,22 +28,26 @@ impl Display for Sampler {
     }
 }
 
-pub fn generate_code(renderer: &Renderer) {
+pub fn generate_code(renderer: &Renderer, reflection: &ShaderModule) {
     let out_dir = PathBuf::from(std::env::var("OUT_DIR").unwrap());
-    generate_codegen(renderer, &out_dir);
-    generate_uniform(&out_dir);
+    generate_codegen(renderer, reflection, &out_dir);
+    generate_uniform(reflection, &out_dir);
 }
 
-fn generate_codegen(renderer: &Renderer, out_dir: &Path) {
+fn generate_codegen(renderer: &Renderer, reflection: &ShaderModule, out_dir: &Path) {
+    let descriptor_sets = reflection.enumerate_descriptor_sets(None).unwrap();
+    assert_eq!(descriptor_sets.len(), 1);
+    let descriptor_set = &descriptor_sets[0];
+
     let mut file = File::create(out_dir.join("codegen.rs")).unwrap();
     write!(file, r#"use crate::gpu::std140::{{"#).unwrap();
     let mut std140_types = BTreeSet::new();
     let mut std430_types = BTreeSet::new();
-    for binding in &renderer.descriptor_set.bindings {
-        if let DescriptorBinding::Uniform(uniform) = binding {
-            std140_types.insert(uniform.typ.as_str());
-        } else if let DescriptorBinding::StorageBuffer(storage) = binding {
-            std430_types.insert(storage.typ.as_str());
+    for binding in &descriptor_set.bindings {
+        if binding.descriptor_type == ReflectDescriptorType::UniformBuffer {
+            std140_types.insert(binding.struct_type().unwrap());
+        } else if binding.descriptor_type == ReflectDescriptorType::StorageBuffer {
+            std430_types.insert(binding.struct_type().unwrap());
         }
     }
     for typ in &std140_types {
@@ -242,18 +172,20 @@ struct Scratch {{"#
         writeln!(file, "    {}_sampler: vk::SamplerCreateInfo,", sampler.name).unwrap();
     }
     let mut pool_sizes = Vec::new();
-    for binding in &renderer.descriptor_set.bindings {
-        let binding_type = binding.descriptor_type();
-        let pool_size = match pool_sizes.iter_mut().find(|(ty, _)| *ty == binding_type) {
+    for binding in &descriptor_set.bindings {
+        let pool_size = match pool_sizes
+            .iter_mut()
+            .find(|(ty, _)| *ty == binding.descriptor_type)
+        {
             Some(pool_size) => pool_size,
             None => {
-                pool_sizes.push((binding_type, 0));
+                pool_sizes.push((binding.descriptor_type, 0));
                 pool_sizes.last_mut().unwrap()
             }
         };
         pool_size.1 += 2;
     }
-    let binding_count = renderer.descriptor_set.bindings.len();
+    let binding_count = descriptor_set.bindings.len();
     let pool_size_count = pool_sizes.len();
     writeln!(
         file,
@@ -379,23 +311,23 @@ static mut SCRATCH: Scratch = Scratch {{"#
     }
 
     writeln!(file, "    descriptor_set_bindings: [").unwrap();
-    for (binding_index, binding) in renderer.descriptor_set.bindings.iter().enumerate() {
-        let typ = binding.descriptor_type().name();
-        let stage = binding.stage();
+    for binding in &descriptor_set.bindings {
+        let binding_index = binding.binding;
+        let description_type = binding.descriptor_type.ash_variant();
         writeln!(
             file,
             r#"        vk::DescriptorSetLayoutBinding {{
             binding: {binding_index},
-            descriptor_type: vk::DescriptorType::{typ},
+            descriptor_type: vk::DescriptorType::{description_type},
             descriptor_count: 1,
-            stage_flags: vk::ShaderStageFlags::{stage},
+            stage_flags: vk::ShaderStageFlags::ALL,
             p_immutable_samplers: std::ptr::null(),
             _marker: std::marker::PhantomData,
         }},"#,
         )
         .unwrap();
     }
-    let binding_count = renderer.descriptor_set.bindings.len();
+    let binding_count = descriptor_set.bindings.len();
     writeln!(
         file,
         r"    ],
@@ -411,11 +343,11 @@ static mut SCRATCH: Scratch = Scratch {{"#
     )
     .unwrap();
     for (binding_type, size) in &pool_sizes {
-        let binding_type_name = binding_type.name();
+        let binding_type = binding_type.ash_variant();
         writeln!(
             file,
             r"        vk::DescriptorPoolSize {{
-            ty: vk::DescriptorType::{binding_type_name},
+            ty: vk::DescriptorType::{binding_type},
             descriptor_count: {size},
         }},"
         )
@@ -848,9 +780,9 @@ impl Samplers {{
 pub fn alloc_descriptor_set("#
     )
     .unwrap();
-    for binding in &renderer.descriptor_set.bindings {
-        let name = binding.name();
-        let typ = binding.value_type();
+    for binding in &descriptor_set.bindings {
+        let name = &binding.name;
+        let typ = binding.ash_value_type();
         writeln!(file, "    {name}: {typ},").unwrap();
     }
     write!(
@@ -871,8 +803,8 @@ pub fn alloc_descriptor_set("#
     update_descriptor_set(&descriptors"#
     )
     .unwrap();
-    for binding in &renderer.descriptor_set.bindings {
-        let name = binding.name();
+    for binding in &descriptor_set.bindings {
+        let name = &binding.name;
         write!(file, ", {name}").unwrap();
     }
 
@@ -888,13 +820,13 @@ pub fn update_descriptor_set(
     )
     .unwrap();
     let mut only_tlas = None;
-    for (binding_index, binding) in renderer.descriptor_set.bindings.iter().enumerate() {
-        let name = binding.name();
-        let typ = binding.value_type();
+    for binding in &descriptor_set.bindings {
+        let name = &binding.name;
+        let typ = binding.ash_value_type();
         writeln!(file, "        {name}: {typ},").unwrap();
-        if binding.descriptor_type() == BindingType::AccelerationStructure {
+        if binding.descriptor_type == ReflectDescriptorType::AccelerationStructureKHR {
             assert!(only_tlas.is_none());
-            assert_eq!(binding_index, renderer.descriptor_set.bindings.len() - 1);
+            assert_eq!(binding.binding as usize, descriptor_set.bindings.len() - 1);
             only_tlas = Some(name);
         }
     }
@@ -912,48 +844,51 @@ pub fn update_descriptor_set(
         r#"    for (_flight_index, descriptor) in descriptors.iter().enumerate() {{"#
     )
     .unwrap();
-    for (binding_index, binding) in renderer.descriptor_set.bindings.iter().enumerate() {
-        let binding_name = binding.name();
-        let binding_type = binding.descriptor_type().name();
-        let write_mutable = match binding {
-            DescriptorBinding::AccelerationStructure(_) => "mut ",
+    for binding in &descriptor_set.bindings {
+        let binding_index = binding.binding;
+        let binding_name = &binding.name;
+        let binding_type = binding.descriptor_type.ash_variant();
+        let write_mutable = match binding.descriptor_type {
+            ReflectDescriptorType::AccelerationStructureKHR => "mut ",
             _ => "",
         };
-        match binding {
-            DescriptorBinding::AccelerationStructure(_) => writeln!(
+        match binding.descriptor_type {
+            ReflectDescriptorType::AccelerationStructureKHR => writeln!(
                 file,
                 r#"        let mut {binding_name}_acceleration_structure = *vk::WriteDescriptorSetAccelerationStructureKHR::default()
             .acceleration_structures({binding_name}.as_ref().map(|as_| std::slice::from_ref(&as_.acceleration_structure)).unwrap_or_default());"#
             )
                 .unwrap(),
-            DescriptorBinding::Image(image) => {
-                let layout = &image.layout;
-                writeln!(
-                    file,
-                    r#"        let {binding_name}_image = *vk::DescriptorImageInfo::default()
-            .image_layout(vk::ImageLayout::{layout})
-            .image_view({binding_name});"#
-                )
-                    .unwrap()
+            ReflectDescriptorType::SampledImage => {
+                todo!()
+            //     let layout = &image.layout;
+            //     writeln!(
+            //         file,
+            //         r#"        let {binding_name}_image = *vk::DescriptorImageInfo::default()
+            // .image_layout(vk::ImageLayout::{layout})
+            // .image_view({binding_name});"#
+            //     )
+            //         .unwrap()
             }
-            DescriptorBinding::InputAttachment(_) => writeln!(
+            ReflectDescriptorType::InputAttachment => writeln!(
                 file,
                 r#"        let {binding_name}_image = *vk::DescriptorImageInfo::default()
             .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
             .image_view({binding_name});"#
             )
                 .unwrap(),
-            DescriptorBinding::StorageBuffer(_) => writeln!(file, r#"        let {binding_name}_buffer = {binding_name}.descriptor(_flight_index);"#).unwrap(),
-            DescriptorBinding::StorageImage(_) => writeln!(file,
+            ReflectDescriptorType::StorageBuffer => writeln!(file, r#"        let {binding_name}_buffer = {binding_name}.descriptor(_flight_index);"#).unwrap(),
+            ReflectDescriptorType::StorageImage => writeln!(file,
                                                            r#"        let {binding_name}_image = *vk::DescriptorImageInfo::default()
             .image_layout(vk::ImageLayout::GENERAL)
             .image_view({binding_name});"#
             ).unwrap(),
-            DescriptorBinding::Uniform(_) => writeln!(
+            ReflectDescriptorType::UniformBuffer => writeln!(
                 file,
                 r#"        let {binding_name}_buffer = {binding_name}.descriptor(_flight_index);"#
             )
                 .unwrap(),
+            _ => unimplemented!(),
         }
         writeln!(
             file,
@@ -963,36 +898,37 @@ pub fn update_descriptor_set(
             .descriptor_type(vk::DescriptorType::{binding_type})"#
         )
         .unwrap();
-        match binding {
-            DescriptorBinding::AccelerationStructure(_) => writeln!(
+        match binding.descriptor_type {
+            ReflectDescriptorType::AccelerationStructureKHR => writeln!(
                 file,
                 r#"            .push_next(&mut {binding_name}_acceleration_structure);
         {binding_name}.descriptor_count = 1;"#
             )
             .unwrap(),
-            DescriptorBinding::Image(_)
-            | DescriptorBinding::InputAttachment(_)
-            | DescriptorBinding::StorageImage(_) => writeln!(
+            ReflectDescriptorType::SampledImage
+            | ReflectDescriptorType::InputAttachment
+            | ReflectDescriptorType::StorageImage => writeln!(
                 file,
                 r#"            .image_info(std::slice::from_ref(&{binding_name}_image));"#
             )
             .unwrap(),
-            DescriptorBinding::StorageBuffer(_) => writeln!(
+            ReflectDescriptorType::StorageBuffer => writeln!(
                 file,
                 r#"            .buffer_info(std::slice::from_ref(&{binding_name}_buffer));"#
             )
             .unwrap(),
-            DescriptorBinding::Uniform(_) => writeln!(
+            ReflectDescriptorType::UniformBuffer => writeln!(
                 file,
                 r#"            .buffer_info(std::slice::from_ref(&{binding_name}_buffer));"#
             )
             .unwrap(),
+            _ => unimplemented!(),
         }
     }
-    let write_writes = |file: &mut File, bindings: &[DescriptorBinding]| {
+    let write_writes = |file: &mut File, bindings: &[ReflectDescriptorBinding]| {
         write!(file, r"[").unwrap();
         for (binding_index, binding) in bindings.iter().enumerate() {
-            let binding_name = binding.name();
+            let binding_name = &binding.name;
             write!(file, "{binding_name}").unwrap();
             if binding_index != bindings.len() - 1 {
                 write!(file, ", ").unwrap();
@@ -1001,10 +937,10 @@ pub fn update_descriptor_set(
         write!(file, "]").unwrap();
     };
     write!(file, r#"        let writes = "#).unwrap();
-    write_writes(&mut file, &renderer.descriptor_set.bindings);
+    write_writes(&mut file, &descriptor_set.bindings);
     writeln!(file, r#";"#).unwrap();
     if only_tlas.is_some() {
-        let count_without_raytracing = renderer.descriptor_set.bindings.len() - 1;
+        let count_without_raytracing = descriptor_set.bindings.len() - 1;
         writeln!(
             file,
             r#"        let writes = if supports_raytracing {{
@@ -1081,14 +1017,16 @@ pub fn create_samplers(dev: &Dev) -> Samplers {{"#
 pub fn create_descriptor_set_layout(_samplers: &Samplers, dev: &Dev) -> vk::DescriptorSetLayout {{"#
     )
     .unwrap();
-    for (binding_index, binding) in renderer.descriptor_set.bindings.iter().enumerate() {
-        if let DescriptorBinding::Image(image) = binding {
-            writeln!(
-                file,
-                "    unsafe {{ SCRATCH.descriptor_set_bindings[{binding_index}].p_immutable_samplers = &_samplers.{} }};",
-                image.sampler,
-            )
-                .unwrap();
+    for binding in &descriptor_set.bindings {
+        // let binding_index = binding.binding;
+        if binding.descriptor_type == ReflectDescriptorType::SampledImage {
+            // writeln!(
+            //     file,
+            //     "    unsafe {{ SCRATCH.descriptor_set_bindings[{binding_index}].p_immutable_samplers = &_samplers.{} }};",
+            //     image.sampler,
+            // )
+            //     .unwrap();
+            todo!()
         }
     }
     writeln!(file, "    unsafe {{ dev.create_descriptor_set_layout(&*&raw const SCRATCH.descriptor_set_layout, None).unwrap_unchecked() }}").unwrap();
@@ -1282,12 +1220,9 @@ pub fn create_pipelines(
     .unwrap();
 }
 
-fn generate_uniform(out_dir: &Path) {
-    let spirv_path = out_dir.join("reflection.spv");
-    let spirv = std::fs::read(&spirv_path).unwrap();
-    let refl = spirv_reflect::create_shader_module(&spirv).unwrap();
-    let descriptor_sets = refl.enumerate_descriptor_sets(None).unwrap();
-    let type_info = reflect(&descriptor_sets);
+fn generate_uniform(reflection: &ShaderModule, out_dir: &Path) {
+    let descriptor_sets = reflection.enumerate_descriptor_sets(None).unwrap();
+    let type_info = collect_all_types(&descriptor_sets);
     let mut file = File::create(out_dir.join("gpu.rs")).unwrap();
     for layout in [Layout::Std140, Layout::Std430] {
         let layout_lowercase = layout.lowercase();

@@ -18,7 +18,7 @@ void debug_voxel_screen_bound_mesh(
     const uint2 INDICES[4] = {{0, 1}, {0, 2}, {1, 3}, {2, 3}};
     const float2 VERTICES[4] = {{0, 0}, {0, 1}, {1, 0}, {1, 1}};
 
-    VoxelMeshlet meshlet = meshlets[global.debug.meshlet_id];
+    VoxelMeshlet meshlet = voxel_meshlets[global.debug.meshlet_id];
     if (let screen_aabb = screen_aabb_projection(meshlet.world_space_min, meshlet.world_space_max)) {
         SetMeshOutputCounts(4, 4);
         indices[id] = INDICES[id];
@@ -46,7 +46,7 @@ void debug_voxel_triangle_mesh(
     OutputVertices<DebugVoxelTriangleVertex, 128> vertices,
     OutputIndices<uint3, 256> indices
 ) {
-    VoxelMeshlet meshlet = meshlets[global.debug.meshlet_id];
+    VoxelMeshlet meshlet = voxel_meshlets[global.debug.meshlet_id];
     SetMeshOutputCounts(meshlet.vertex_count, meshlet.triangle_count);
 
     if (id < meshlet.triangle_count) {
@@ -83,7 +83,7 @@ void debug_voxel_world_bound_mesh(
     const float3 VERTICES[8] = {{0, 0, 0}, {0, 1, 0}, {1, 0, 0}, {1, 1, 0}, {0, 0, 1}, {0, 1, 1}, {1, 0, 1}, {1, 1, 1}};
 
     SetMeshOutputCounts(8, 12);
-    VoxelMeshlet meshlet = meshlets[global.debug.meshlet_id];
+    VoxelMeshlet meshlet = voxel_meshlets[global.debug.meshlet_id];
 
     indices[id] = INDICES[id];
 
@@ -165,7 +165,7 @@ void voxel_task(
     uint id : SV_GroupIndex,
 ) {
     uint meshlet_index = 64 * group_id.x + id.x;
-    VoxelMeshlet meshlet = meshlets[meshlet_index];
+    VoxelMeshlet meshlet = voxel_meshlets[meshlet_index];
 
     bool cull = meshlet_index >= global.voxels.meshlet_count;
     cull = cull || back_cull(meshlet);
@@ -191,7 +191,7 @@ void voxel_mesh(
     OutputVertices<VoxelMeshVertex, 128> vertices,
     OutputIndices<uint3, 256> indices,
 ) {
-    VoxelMeshlet meshlet = meshlets[payload.meshlet_ids[group_id.x]];
+    VoxelMeshlet meshlet = voxel_meshlets[payload.meshlet_ids[group_id.x]];
     SetMeshOutputCounts(meshlet.vertex_count, meshlet.triangle_count);
 
     if (id < meshlet.triangle_count) {

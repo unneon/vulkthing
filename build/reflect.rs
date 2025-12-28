@@ -1,4 +1,6 @@
 use spirv_reflect::types::{ReflectDescriptorSet, ReflectTypeDescription, ReflectTypeFlags};
+use spirv_reflect::ShaderModule;
+use std::path::PathBuf;
 use std::{borrow::Cow, collections::HashMap};
 
 pub struct TypeInfo<'a> {
@@ -84,7 +86,14 @@ impl Scalar {
     }
 }
 
-pub fn reflect(descriptor_sets: &[ReflectDescriptorSet]) -> TypeInfo<'_> {
+pub fn reflect_shaders() -> ShaderModule {
+    let out_dir = PathBuf::from(std::env::var("OUT_DIR").unwrap());
+    let spirv_path = out_dir.join("reflection.spv");
+    let spirv = std::fs::read(&spirv_path).unwrap();
+    spirv_reflect::create_shader_module(&spirv).unwrap()
+}
+
+pub fn collect_all_types(descriptor_sets: &[ReflectDescriptorSet]) -> TypeInfo<'_> {
     let mut structs = HashMap::new();
     for set in descriptor_sets {
         for binding in &set.bindings {

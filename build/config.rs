@@ -5,8 +5,6 @@ use knuffel::Decode;
 pub struct Renderer {
     #[knuffel(children(name = "sampler"))]
     pub samplers: Vec<Sampler>,
-    #[knuffel(child)]
-    pub descriptor_set: DescriptorSet,
     #[knuffel(children(name = "pipeline"))]
     pub pipelines: Vec<Pipeline>,
     #[knuffel(children(name = "compute"))]
@@ -25,78 +23,6 @@ pub struct Sampler {
     pub address_mode: String,
     #[knuffel(child)]
     pub unnormalized_coordinates: bool,
-}
-
-#[derive(Debug, Decode)]
-pub struct DescriptorSet {
-    #[knuffel(children)]
-    pub bindings: Vec<DescriptorBinding>,
-}
-
-#[derive(Debug, Decode)]
-pub enum DescriptorBinding {
-    AccelerationStructure(AccelerationStructureBinding),
-    Image(ImageBinding),
-    InputAttachment(InputAttachmentBinding),
-    StorageBuffer(StorageBufferBinding),
-    StorageImage(StorageImageBinding),
-    Uniform(UniformBinding),
-}
-
-#[derive(Debug, Decode)]
-pub struct AccelerationStructureBinding {
-    #[knuffel(argument)]
-    pub name: String,
-    #[knuffel(argument)]
-    pub stage: String,
-}
-
-#[derive(Debug, Decode)]
-pub struct ImageBinding {
-    #[knuffel(argument)]
-    pub name: String,
-    #[knuffel(argument)]
-    pub stage: String,
-    #[knuffel(argument)]
-    pub sampler: String,
-    #[knuffel(property, default = "SHADER_READ_ONLY_OPTIMAL".to_owned())]
-    pub layout: String,
-}
-
-#[derive(Debug, Decode)]
-pub struct InputAttachmentBinding {
-    #[knuffel(argument)]
-    pub name: String,
-    #[knuffel(argument)]
-    pub stage: String,
-}
-
-#[derive(Debug, Decode)]
-pub struct StorageBufferBinding {
-    #[knuffel(argument)]
-    pub name: String,
-    #[knuffel(argument)]
-    pub stage: String,
-    #[knuffel(argument)]
-    pub typ: String,
-}
-
-#[derive(Debug, Decode)]
-pub struct StorageImageBinding {
-    #[knuffel(argument)]
-    pub name: String,
-    #[knuffel(argument)]
-    pub stage: String,
-}
-
-#[derive(Debug, Decode)]
-pub struct UniformBinding {
-    #[knuffel(argument)]
-    pub name: String,
-    #[knuffel(argument)]
-    pub stage: String,
-    #[knuffel(argument)]
-    pub typ: String,
 }
 
 #[derive(Debug, Decode)]
