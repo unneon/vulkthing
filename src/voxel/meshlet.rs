@@ -1,4 +1,4 @@
-use crate::gpu::std430::{VoxelMeshlet, VoxelTriangle, VoxelVertex};
+use crate::gpu::{VoxelMeshlet, VoxelTriangle, VoxelVertex};
 use crate::voxel::local_mesh::LocalMesh;
 use crate::voxel::material::Material;
 use crate::voxel::sparse_octree::SparseOctree;
@@ -109,11 +109,8 @@ pub fn from_unclustered_mesh(
             triangle_offset,
             triangle_count: meshlet.triangles.len() as u32 / 3,
             chunk: Vector3::zeros(),
-            _pad0: 0,
             bound_base,
-            _pad1: 0,
             bound_size,
-            _pad2: 0,
         });
     }
     VoxelMesh {

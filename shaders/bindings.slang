@@ -18,10 +18,6 @@ public StructuredBuffer<VoxelMeshlet> voxel_meshlets;
 [[vk::binding(5)]]
 public StructuredBuffer<SvoNode> svo_nodes;
 
-// Temporarily, read the reflection build script and make sure the alignment will be handled
-// correctly before modifying any struct definitions! This can be fixed by auto-adding padding
-// fields depending on the layout.
-
 public struct Global {
     public Voxels voxels;
     public Light light;
@@ -69,7 +65,6 @@ public struct Camera {
     public float depth_near;
     public float depth_far;
     public float3 position;
-    float _pad0;
     public float3 direction;
 };
 
@@ -94,11 +89,8 @@ public struct VoxelMeshlet {
     public uint triangle_offset;
     public uint triangle_count;
     public int16_t3 chunk;
-    int16_t _pad0;
     public uint8_t3 bound_base;
-    uint8_t _pad1;
     public uint8_t3 bound_size;
-    uint8_t _pad2;
 
     public property world_space_min : float3 {
         get {

@@ -61,14 +61,15 @@ impl AshDescriptor for ReflectDescriptorBinding {
     }
 
     fn struct_type(&self) -> Option<&str> {
+        dbg!(self);
         let type_description = self.type_description.as_ref()?;
         if self.descriptor_type == ReflectDescriptorType::UniformBuffer {
-            Some(type_description.type_name.strip_suffix("_std140").unwrap())
+            Some(type_description.type_name.strip_suffix("_natural").unwrap())
         } else if self.descriptor_type == ReflectDescriptorType::StorageBuffer {
             Some(
                 type_description.members[0]
                     .type_name
-                    .strip_suffix("_std430")
+                    .strip_suffix("_natural")
                     .unwrap(),
             )
         } else {

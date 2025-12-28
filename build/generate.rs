@@ -1,6 +1,6 @@
 use crate::config::{Compute, Pipeline, Renderer, Sampler, VertexAttribute};
 use crate::helper::to_camelcase;
-use crate::reflect::{collect_all_types, Layout, Type};
+use crate::reflect::collect_all_types;
 use crate::types::{AshDescriptor, AshEnum, ShaderType};
 use spirv_reflect::types::{ReflectDescriptorBinding, ReflectDescriptorType};
 use spirv_reflect::ShaderModule;
@@ -40,29 +40,13 @@ fn generate_codegen(renderer: &Renderer, reflection: &ShaderModule, out_dir: &Pa
     let descriptor_set = &descriptor_sets[0];
 
     let mut file = File::create(out_dir.join("codegen.rs")).unwrap();
-    write!(file, r#"use crate::gpu::std140::{{"#).unwrap();
-    let mut std140_types = BTreeSet::new();
-    let mut std430_types = BTreeSet::new();
+    write!(file, r#"use crate::gpu::{{"#).unwrap();
     for binding in &descriptor_set.bindings {
-        if binding.descriptor_type == ReflectDescriptorType::UniformBuffer {
-            std140_types.insert(binding.struct_type().unwrap());
-        } else if binding.descriptor_type == ReflectDescriptorType::StorageBuffer {
-            std430_types.insert(binding.struct_type().unwrap());
+        if let Some(struct_type) = binding.struct_type() {
+            write!(file, "{struct_type},").unwrap();
         }
     }
-    for typ in &std140_types {
-        write!(file, "{typ},").unwrap();
-    }
     write!(
-        file,
-        r#"}};
-use crate::gpu::std430::{{"#
-    )
-    .unwrap();
-    for typ in &std430_types {
-        write!(file, "{typ},").unwrap();
-    }
-    writeln!(
         file,
         r#"}};
 use crate::renderer::debug::set_label;
@@ -1140,39 +1124,23 @@ fn generate_uniform(reflection: &ShaderModule, out_dir: &Path) {
     let descriptor_sets = reflection.enumerate_descriptor_sets(None).unwrap();
     let type_info = collect_all_types(&descriptor_sets);
     let mut file = File::create(out_dir.join("gpu.rs")).unwrap();
-    for layout in [Layout::Std140, Layout::Std430] {
-        let layout_lowercase = layout.lowercase();
-        writeln!(file, r#"pub mod {layout_lowercase} {{"#).unwrap();
-        for ((struct_name, struct_layout), struct_) in &type_info.structs {
-            if *struct_layout != layout {
-                continue;
-            }
-            let alignment = struct_.alignment;
-            writeln!(
-                file,
-                r#"    #[repr(C, align({alignment}))]
+    for (struct_name, struct_) in &type_info.structs {
+        let alignment = struct_.alignment;
+        writeln!(
+            file,
+            r#"    #[repr(C, align({alignment}))]
     #[derive(Clone, Copy, Debug)]
     pub struct {struct_name} {{"#
-            )
-            .unwrap();
-            for (member_name, member_typ) in &struct_.members {
-                if let Type::Struct(_, member_layout) = member_typ {
-                    assert_eq!(*member_layout, layout);
-                }
-                let member_typ_rust = member_typ.to_rust();
-                writeln!(file, "        pub {member_name}: {member_typ_rust},").unwrap();
-            }
-            writeln!(
-                file,
-                r#"    }}
-    "#
-            )
-            .unwrap();
+        )
+        .unwrap();
+        for (member_name, member_typ) in &struct_.members {
+            let member_typ_rust = member_typ.to_rust();
+            writeln!(file, "        pub {member_name}: {member_typ_rust},").unwrap();
         }
         writeln!(
             file,
-            r#"}}
-"#
+            r#"    }}
+    "#
         )
         .unwrap();
     }

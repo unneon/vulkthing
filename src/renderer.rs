@@ -9,8 +9,7 @@ pub mod swapchain_waiter;
 pub mod util;
 pub mod vertex;
 
-use crate::gpu::std140::{Atmosphere, Camera, Debug, Global, VoxelMaterial, Voxels};
-use crate::gpu::std430::Star;
+use crate::gpu::{Atmosphere, Camera, Debug, Global, Star, VoxelMaterial, Voxels};
 #[cfg(feature = "dev-menu")]
 use crate::interface::EnumInterface;
 use crate::renderer::codegen::{Pipelines, Samplers};
@@ -399,7 +398,6 @@ impl Renderer {
                     depth_near: settings.depth_near,
                     depth_far: settings.depth_far,
                     position: world.camera.position(),
-                    _pad0: 0.,
                     direction: world.camera.view_direction(),
                 },
                 materials,

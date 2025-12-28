@@ -1,6 +1,6 @@
 pub mod meshlets;
 
-use crate::gpu::std430::SvoNode;
+use crate::gpu::SvoNode;
 use crate::voxel::local_mesh::LocalMesh;
 use crate::voxel::material::Material;
 use crate::voxel::sparse_octree::SparseOctree;

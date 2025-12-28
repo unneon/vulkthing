@@ -24,6 +24,7 @@ fn compile_shader(entry_point: Option<&str>, spirv_path: &Path) {
         .args([
             "-target",
             "spirv",
+            "-fvk-use-scalar-layout",
             // TODO: Slangc should infer this based on mesh shader usage, report as bug.
             "-capability",
             "spirv_1_4",

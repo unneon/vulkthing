@@ -3,7 +3,7 @@ use crate::config::{
     DEFAULT_VOXEL_MESHLET_MAX_COUNT, DEFAULT_VOXEL_OCTREE_MAX_COUNT,
     DEFAULT_VOXEL_TRIANGLE_MAX_COUNT, DEFAULT_VOXEL_VERTEX_MAX_COUNT,
 };
-use crate::gpu::std430::Star;
+use crate::gpu::Star;
 use crate::mesh::MeshData;
 use crate::renderer::codegen::{
     alloc_descriptor_set, create_descriptor_pool, create_descriptor_set_layout, create_pipelines,
@@ -415,6 +415,7 @@ fn create_logical_device(
         .uniform_and_storage_buffer16_bit_access(true);
     let mut vk12_features = vk::PhysicalDeviceVulkan12Features::default()
         .buffer_device_address(true)
+        .scalar_block_layout(true)
         .shader_int8(true)
         .storage_buffer8_bit_access(true)
         .timeline_semaphore(true)

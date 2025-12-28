@@ -1,6 +1,5 @@
 use super::{svo_mixed, svo_uniform};
-use crate::gpu::std430::SvoNode;
-use crate::gpu::std430::{VoxelMeshlet, VoxelTriangle, VoxelVertex};
+use crate::gpu::{SvoNode, VoxelMeshlet, VoxelTriangle, VoxelVertex};
 use crate::renderer::util::{Dev, StorageBuffer};
 use crate::voxel::gpu::VoxelGpuMemory;
 use crate::voxel::local_mesh::LocalMesh;
