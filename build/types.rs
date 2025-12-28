@@ -39,10 +39,6 @@ impl ShaderType {
             ShaderType::Vertex => "vert",
         }
     }
-
-    pub fn requires_mesh_shaders(&self) -> bool {
-        matches!(self, ShaderType::Mesh | ShaderType::Task)
-    }
 }
 
 impl AshDescriptor for ReflectDescriptorBinding {

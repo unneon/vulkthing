@@ -7,7 +7,7 @@ use crate::gpu::std430::Star;
 use crate::mesh::MeshData;
 use crate::renderer::codegen::{
     alloc_descriptor_set, create_descriptor_pool, create_descriptor_set_layout, create_pipelines,
-    create_samplers, create_shader_modules,
+    create_samplers,
 };
 use crate::renderer::debug::{create_debug_messenger, set_label};
 use crate::renderer::device::{select_device, DeviceInfo};
@@ -94,15 +94,12 @@ impl Renderer {
             SwapchainWaiter::new(swapchain.handle, sync.clone(), &dev, event_loop_proxy);
         let depth = create_depth(swapchain.extent, &dev);
         let pipeline_layout = create_pipeline_layout(descriptor_set_layout, &dev);
-        let shader_modules = create_shader_modules(&dev);
         let pipelines = create_pipelines(
             vk::SampleCountFlags::TYPE_1,
             &swapchain,
-            &shader_modules,
             pipeline_layout,
             &dev,
         );
-        shader_modules.cleanup(&dev);
 
         let mut mesh_objects = Vec::new();
         for mesh in meshes {
@@ -234,15 +231,12 @@ impl Renderer {
     pub fn recreate_pipelines(&mut self) {
         unsafe { self.dev.device_wait_idle() }.unwrap();
         self.pipelines.cleanup(&self.dev);
-        let shader_modules = create_shader_modules(&self.dev);
         self.pipelines = create_pipelines(
             vk::SampleCountFlags::TYPE_1,
             &self.swapchain,
-            &shader_modules,
             self.pipeline_layout,
             &self.dev,
         );
-        shader_modules.cleanup(&self.dev);
     }
 
     fn cleanup_swapchain(&mut self) {
@@ -431,6 +425,8 @@ fn create_logical_device(
         .dynamic_rendering(true)
         .maintenance4(true)
         .synchronization2(true);
+    let mut gpl_features = vk::PhysicalDeviceGraphicsPipelineLibraryFeaturesEXT::default()
+        .graphics_pipeline_library(true);
     let mut ms_features = vk::PhysicalDeviceMeshShaderFeaturesEXT::default()
         .mesh_shader(device_support.mesh_shaders)
         .task_shader(device_support.mesh_shaders);
@@ -441,7 +437,8 @@ fn create_logical_device(
         .enabled_extension_names(&extensions)
         .push_next(&mut vk11_features)
         .push_next(&mut vk12_features)
-        .push_next(&mut vk13_features);
+        .push_next(&mut vk13_features)
+        .push_next(&mut gpl_features);
     if device_support.mesh_shaders {
         create_info = create_info.push_next(&mut ms_features);
     }

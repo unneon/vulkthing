@@ -70,7 +70,7 @@ use crate::renderer::shader::SpvArray;
 use crate::renderer::util::{{AsDescriptor, Dev, ImageResources, StorageBuffer, UniformBuffer}};
 use crate::renderer::{{DeviceSupport, Swapchain, COLOR_FORMAT, DEPTH_FORMAT, FRAMES_IN_FLIGHT}};
 use ash::vk;
-use std::ffi::CStr;
+use std::ffi::{{c_void, CStr}};
 use std::mem::MaybeUninit;
 
 pub struct Samplers {{"#
@@ -79,13 +79,7 @@ pub struct Samplers {{"#
     for sampler in &renderer.samplers {
         writeln!(file, "    pub {}: vk::Sampler,", sampler.name).unwrap();
     }
-    writeln!(
-        file,
-        r#"}}
-
-pub struct ShaderModules {{"#
-    )
-    .unwrap();
+    writeln!(file, r#"}}"#).unwrap();
     let mut pipeline_vertex_shaders = HashMap::new();
     let mut pipeline_fragment_shaders = HashMap::new();
     let mut pipeline_task_shaders = HashMap::new();
@@ -125,14 +119,9 @@ pub struct ShaderModules {{"#
     for compute in &renderer.computes {
         shaders.insert((compute.name.as_str(), ShaderType::Compute));
     }
-    for (name, typ) in &shaders {
-        let typ_lowercase = typ.lowercase();
-        writeln!(file, "    pub {name}_{typ_lowercase}: vk::ShaderModule,").unwrap();
-    }
     writeln!(
         file,
-        r#"}}
-
+        r#"
 #[repr(C)]
 pub struct Pipelines {{"#
     )
@@ -469,13 +458,18 @@ static mut SCRATCH: Scratch = Scratch {{"#
         } else {
             "VERTEX"
         };
+        let vertex_stage_lowercase = if pipeline.mesh_shaders {
+            "mesh"
+        } else {
+            "vertex"
+        };
         writeln!(file, r#"    {pipeline}_shader_stages: ["#).unwrap();
         if pipeline.task_shaders {
             writeln!(
                 file,
                 r#"        vk::PipelineShaderStageCreateInfo {{
             s_type: vk::StructureType::PIPELINE_SHADER_STAGE_CREATE_INFO,
-            p_next: std::ptr::null(),
+            p_next: unsafe {{ &raw const SCRATCH.{pipeline}_task }} as *const c_void,
             flags: vk::PipelineShaderStageCreateFlags::empty(),
             stage: vk::ShaderStageFlags::TASK_EXT,
             module: vk::ShaderModule::null(),
@@ -490,7 +484,7 @@ static mut SCRATCH: Scratch = Scratch {{"#
             file,
             r#"        vk::PipelineShaderStageCreateInfo {{
             s_type: vk::StructureType::PIPELINE_SHADER_STAGE_CREATE_INFO,
-            p_next: std::ptr::null(),
+            p_next: unsafe {{ &raw const SCRATCH.{pipeline}_{vertex_stage_lowercase} }} as *const c_void,
             flags: vk::PipelineShaderStageCreateFlags::empty(),
             stage: vk::ShaderStageFlags::{vertex_stage_type},
             module: vk::ShaderModule::null(),
@@ -500,7 +494,7 @@ static mut SCRATCH: Scratch = Scratch {{"#
         }},
         vk::PipelineShaderStageCreateInfo {{
             s_type: vk::StructureType::PIPELINE_SHADER_STAGE_CREATE_INFO,
-            p_next: std::ptr::null(),
+            p_next: unsafe {{ &raw const SCRATCH.{pipeline}_fragment }} as *const c_void,
             flags: vk::PipelineShaderStageCreateFlags::empty(),
             stage: vk::ShaderStageFlags::FRAGMENT,
             module: vk::ShaderModule::null(),
@@ -959,23 +953,6 @@ pub fn update_descriptor_set(
     }}
 }}
 
-impl ShaderModules {{
-    pub fn cleanup(&self, dev: &Dev) {{"#
-    )
-    .unwrap();
-    for (name, typ) in &shaders {
-        let typ_lowercase = typ.lowercase();
-        writeln!(
-            file,
-            r#"        unsafe {{ dev.destroy_shader_module(self.{name}_{typ_lowercase}, None) }};"#
-        )
-        .unwrap();
-    }
-    writeln!(
-        file,
-        r#"    }}
-}}
-
 impl Pipelines {{
     pub fn cleanup(&self, dev: &Dev) {{"#
     )
@@ -1038,36 +1015,6 @@ pub fn create_descriptor_pool(layout: vk::DescriptorSetLayout, dev: &Dev) -> vk:
     unsafe {{ dev.create_descriptor_pool(&*&raw const SCRATCH.descriptor_pool, None).unwrap_unchecked() }}
 }}
 
-pub fn create_shader_modules(dev: &Dev) -> ShaderModules {{"#
-    )
-    .unwrap();
-    for (name, typ) in &shaders {
-        let typ_lowercase = typ.lowercase();
-        // TODO: Fragment shaders which rely on mesh shader functionality (such
-        // as perprimitiveEXT) are still built on devices without mesh shaders
-        // support. This would need some dependency tracking, but if I add full
-        // non-mesh shader codepath I will be able to use conditional
-        // compilation in GLSL instead.
-        if !typ.requires_mesh_shaders() {
-            writeln!(file, r#"    let {name}_{typ_lowercase} = unsafe {{ dev.create_shader_module(&*&raw const SCRATCH.{name}_{typ_lowercase}, None).unwrap_unchecked() }};"#).unwrap();
-        } else {
-            writeln!(file, r#"    let {name}_{typ_lowercase} = if dev.support.mesh_shaders {{
-        unsafe {{ dev.create_shader_module(&*&raw const SCRATCH.{name}_{typ_lowercase}, None).unwrap_unchecked() }}
-    }} else {{
-        vk::ShaderModule::null()
-    }};"#).unwrap();
-        }
-    }
-    writeln!(file, "    ShaderModules {{").unwrap();
-    for (name, typ) in &shaders {
-        let typ_lowercase = typ.lowercase();
-        writeln!(file, "        {name}_{typ_lowercase},").unwrap();
-    }
-    writeln!(
-        file,
-        r#"    }}
-}}
-
 #[allow(clippy::identity_op)]
 pub fn create_pipelines(
     _msaa_samples: vk::SampleCountFlags,"#
@@ -1094,7 +1041,6 @@ pub fn create_pipelines(
     writeln!(
         file,
         r#"    swapchain: &Swapchain,
-    shader_modules: &ShaderModules,
     layout: vk::PipelineLayout,
     dev: &Dev,
 ) -> Pipelines {{"#
@@ -1112,35 +1058,6 @@ pub fn create_pipelines(
                 writeln!(file, "    unsafe {{ SCRATCH.{pipeline}_fragment_specialization_scratch.{spec} = {value} }};").unwrap();
             }
         }
-        if pipeline.task_shaders {
-            let task_shader = pipeline_task_shaders[pipeline.name.as_str()];
-            writeln!(
-                file,
-                r#"    unsafe {{ SCRATCH.{pipeline}_shader_stages[0].module = shader_modules.{task_shader}_task }};"#
-            ).unwrap();
-        }
-        if pipeline.mesh_shaders {
-            let mesh_stage_index = if pipeline.task_shaders { 1 } else { 0 };
-            let mesh_shader = pipeline_mesh_shaders[pipeline.name.as_str()];
-            writeln!(
-                file,
-                r#"    unsafe {{ SCRATCH.{pipeline}_shader_stages[{mesh_stage_index}].module = shader_modules.{mesh_shader}_mesh }};"#
-            ).unwrap();
-        } else {
-            let vertex_stage_index = if pipeline.task_shaders { 1 } else { 0 };
-            let vertex_shader = pipeline_vertex_shaders[pipeline.name.as_str()];
-            writeln!(
-                file,
-                r#"    unsafe {{ SCRATCH.{pipeline}_shader_stages[{vertex_stage_index}].module = shader_modules.{vertex_shader}_vertex }};"#
-            ).unwrap();
-        }
-        let fragment_stage_index = if pipeline.task_shaders { 2 } else { 1 };
-        let fragment_shader = pipeline_fragment_shaders[pipeline.name.as_str()];
-        writeln!(
-            file,
-            r#"    unsafe {{ SCRATCH.{pipeline}_shader_stages[{fragment_stage_index}].module = shader_modules.{fragment_shader}_fragment }};"#
-        )
-            .unwrap();
         writeln!(
             file,
             r#"    unsafe {{ SCRATCH.{pipeline}_color_formats[0] = swapchain.format.format }};"#
@@ -1157,8 +1074,7 @@ pub fn create_pipelines(
     for compute in &renderer.computes {
         writeln!(
             file,
-            r#"    unsafe {{ SCRATCH.{compute}_pipeline.layout = layout }};
-    unsafe {{ SCRATCH.{compute}_pipeline.stage.module = shader_modules.{compute}_compute }};"#
+            r#"    unsafe {{ SCRATCH.{compute}_pipeline.layout = layout }};"#
         )
         .unwrap();
     }
