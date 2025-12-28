@@ -38,7 +38,6 @@ mod world;
 
 const WINDOW_TITLE: &str = "Vulkthing";
 const VULKAN_APP_NAME: &str = "Vulkthing";
-const VULKAN_ENGINE_NAME: &str = "Unneongine";
 
 const WALK_SPEED: f32 = 25.;
 const SPRINT_SPEED: f32 = 100.;
