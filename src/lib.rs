@@ -78,8 +78,8 @@ impl ApplicationHandler<SwapchainEvent> for AppState {
         }
         window.set_cursor_visible(false);
 
-        let tetrahedron_mesh = load_mesh("assets/tetrahedron.obj");
-        let icosahedron_mesh = load_mesh("assets/icosahedron.obj");
+        let tetrahedron_mesh = load_mesh(include_str!("../assets/tetrahedron.obj"));
+        let icosahedron_mesh = load_mesh(include_str!("../assets/icosahedron.obj"));
         let mut renderer = Renderer::new(
             &window,
             self.event_loop_proxy.clone(),

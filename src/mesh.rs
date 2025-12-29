@@ -1,7 +1,7 @@
 use crate::gpu::ClassicVertex;
-use log::debug;
 use nalgebra::Vector3;
-use tobj::LoadOptions;
+use std::io::BufReader;
+use tobj::{LoadError, LoadOptions};
 
 #[derive(Clone, Debug)]
 pub struct MeshData<V> {
@@ -9,7 +9,7 @@ pub struct MeshData<V> {
     pub indices: Vec<u32>,
 }
 
-pub fn load_mesh(obj_path: &str) -> MeshData<ClassicVertex> {
+pub fn load_mesh(obj: &str) -> MeshData<ClassicVertex> {
     let load_options = LoadOptions {
         // Faces can sometimes be given as arbitrary (convex?) polygons, but we only render
         // triangles so let's get the loader to split them up for us.
@@ -19,13 +19,13 @@ pub fn load_mesh(obj_path: &str) -> MeshData<ClassicVertex> {
         single_index: true,
         ..Default::default()
     };
-    let meshes = tobj::load_obj(obj_path, &load_options).unwrap().0;
-    let mesh = flatten_meshes(&meshes);
-    debug!(
-        "mesh OBJ loaded, \x1B[1mfile\x1B[0m: {obj_path}, \x1B[1mvertices\x1B[0m: {}",
-        mesh.vertices.len()
-    );
-    mesh
+    let mut obj_reader = BufReader::new(obj.as_bytes());
+    let meshes = tobj::load_obj_buf(&mut obj_reader, &load_options, |_| {
+        Err(LoadError::OpenFileFailed)
+    })
+    .unwrap()
+    .0;
+    flatten_meshes(&meshes)
 }
 
 fn flatten_meshes(models: &[tobj::Model]) -> MeshData<ClassicVertex> {
