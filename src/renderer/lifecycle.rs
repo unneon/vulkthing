@@ -9,7 +9,7 @@ use crate::renderer::codegen::{
     alloc_descriptor_set, create_descriptor_pool, create_descriptor_set_layout, create_pipelines,
     create_samplers,
 };
-use crate::renderer::debug::{create_debug_messenger, set_label};
+use crate::renderer::debug::create_debug_messenger;
 use crate::renderer::device::{select_device, DeviceInfo};
 use crate::renderer::swapchain::create_swapchain;
 use crate::renderer::swapchain_waiter::SwapchainEvent;
@@ -27,7 +27,6 @@ use ash::khr::{surface, swapchain};
 use ash::{vk, Device, Entry, Instance};
 use log::{debug, warn};
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
-use std::ffi::CString;
 use std::sync::atomic::AtomicU32;
 use std::sync::Arc;
 use winit::dpi::PhysicalSize;
@@ -318,7 +317,6 @@ fn create_instance(window: &Window, entry: &Entry, args: &Args) -> Instance {
     // Set metadata of the app and the engine. May be used by the drivers to enable game-specific
     // and engine-specific optimizations, which won't happen, but let's set it to something sensible
     // anyway.
-    let app_name = CString::new(VULKAN_APP_NAME).unwrap();
     let app_version = vk::make_api_version(
         0,
         env!("CARGO_PKG_VERSION_MAJOR").parse().unwrap(),
@@ -326,7 +324,7 @@ fn create_instance(window: &Window, entry: &Entry, args: &Args) -> Instance {
         env!("CARGO_PKG_VERSION_PATCH").parse().unwrap(),
     );
     let app_info = vk::ApplicationInfo::default()
-        .application_name(&app_name)
+        .application_name(VULKAN_APP_NAME)
         .application_version(app_version)
         .api_version(vk::API_VERSION_1_3);
 
@@ -507,16 +505,10 @@ fn create_sync(image_count: usize, dev: &Dev) -> Synchronization {
     let mut in_flight: [vk::Fence; FRAMES_IN_FLIGHT] = Default::default();
     for i in 0..FRAMES_IN_FLIGHT {
         image_available[i] = unsafe { dev.create_semaphore(&semaphore_info, None) }.unwrap();
-        set_label(image_available[i], &format!("image_available[{i}]"), dev);
         in_flight[i] = unsafe { dev.create_fence(&fence_info, None) }.unwrap();
-        set_label(in_flight[i], &format!("in_flight[{i}]"), dev);
     }
     let render_finished = (0..image_count)
-        .map(|i| {
-            let render_finished = unsafe { dev.create_semaphore(&semaphore_info, None) }.unwrap();
-            set_label(render_finished, &format!("render_finished[{i}]"), dev);
-            render_finished
-        })
+        .map(|_| unsafe { dev.create_semaphore(&semaphore_info, None) }.unwrap())
         .collect();
     Synchronization {
         image_available,

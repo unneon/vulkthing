@@ -2,7 +2,7 @@ use crate::renderer::util::Dev;
 use ash::ext::debug_utils;
 use ash::vk;
 use ash::vk::Handle;
-use std::ffi::{CStr, CString};
+use std::ffi::CStr;
 
 pub fn create_debug_messenger(debug_ext: &debug_utils::Instance) -> vk::DebugUtilsMessengerEXT {
     // vulkan-tutorial.com also shows how to enable this for creating instances, but the ash
@@ -66,16 +66,15 @@ unsafe extern "system" fn callback(
     vk::FALSE
 }
 
-pub fn begin_label(buf: vk::CommandBuffer, text: &str, color: [u8; 3], dev: &Dev) {
+pub fn begin_label(buf: vk::CommandBuffer, text: &CStr, color: [u8; 3], dev: &Dev) {
     let color = [
         color[0] as f32 / 255.,
         color[1] as f32 / 255.,
         color[2] as f32 / 255.,
         1.,
     ];
-    let label_name = CString::new(text).unwrap();
     let label = vk::DebugUtilsLabelEXT::default()
-        .label_name(&label_name)
+        .label_name(text)
         .color(color);
     unsafe { dev.debug_ext.cmd_begin_debug_utils_label(buf, &label) };
 }
@@ -84,10 +83,9 @@ pub fn end_label(buf: vk::CommandBuffer, dev: &Dev) {
     unsafe { dev.debug_ext.cmd_end_debug_utils_label(buf) };
 }
 
-pub fn set_label<T: Handle>(object: T, name: &str, dev: &Dev) {
-    let object_name = CString::new(name).unwrap();
+pub fn set_label<T: Handle>(object: T, name: &CStr, dev: &Dev) {
     let name_info = vk::DebugUtilsObjectNameInfoEXT::default()
         .object_handle(object)
-        .object_name(&object_name);
+        .object_name(name);
     unsafe { dev.debug_ext.set_debug_utils_object_name(&name_info) }.unwrap();
 }

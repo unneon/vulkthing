@@ -12,6 +12,7 @@ use crate::renderer::{Renderer, RendererSettings};
 use crate::voxel::{Voxels, VoxelsConfig};
 use crate::world::World;
 use log::{debug, warn};
+use std::ffi::CStr;
 use std::time::Instant;
 use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalSize;
@@ -37,7 +38,7 @@ pub mod voxel;
 mod world;
 
 const WINDOW_TITLE: &str = "Vulkthing";
-const VULKAN_APP_NAME: &str = "Vulkthing";
+const VULKAN_APP_NAME: &CStr = c"Vulkthing";
 
 const WALK_SPEED: f32 = 25.;
 const SPRINT_SPEED: f32 = 100.;

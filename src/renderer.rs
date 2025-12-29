@@ -263,49 +263,59 @@ impl Renderer {
             VoxelRendering::Classic => todo!(),
             VoxelRendering::MeshShaders => {
                 let voxel_meshlet_count = self.voxel_meshlet_count.load(Ordering::SeqCst);
-                begin_label(buf, "Voxel draws (mesh shaders)", [255, 0, 0], &self.dev);
+                begin_label(buf, c"Voxel draws (mesh shaders)", [255, 0, 0], &self.dev);
                 self.bind_graphics_pipeline(buf, self.pipelines.voxel);
                 self.draw_mesh_shaders(buf, voxel_meshlet_count.div_ceil(64));
                 end_label(buf, &self.dev);
 
                 if voxel_meshlet_count > 0 {
-                    begin_label(buf, "Debug voxel triangle draw", [238, 186, 11], &self.dev);
+                    begin_label(buf, c"Debug voxel triangle draw", [238, 186, 11], &self.dev);
                     self.bind_graphics_pipeline(buf, self.pipelines.debug_voxel_triangle);
                     self.draw_mesh_shaders(buf, 1);
                     end_label(buf, &self.dev);
 
-                    begin_label(buf, "Debug voxel world bound draw", [255, 78, 0], &self.dev);
+                    begin_label(
+                        buf,
+                        c"Debug voxel world bound draw",
+                        [255, 78, 0],
+                        &self.dev,
+                    );
                     self.bind_graphics_pipeline(buf, self.pipelines.debug_voxel_world_bound);
                     self.draw_mesh_shaders(buf, 1);
                     end_label(buf, &self.dev);
 
-                    begin_label(buf, "Debug voxel screen bound draw", [113, 0, 0], &self.dev);
+                    begin_label(
+                        buf,
+                        c"Debug voxel screen bound draw",
+                        [113, 0, 0],
+                        &self.dev,
+                    );
                     self.bind_graphics_pipeline(buf, self.pipelines.debug_voxel_screen_bound);
                     self.draw_mesh_shaders(buf, 1);
                     end_label(buf, &self.dev);
                 }
             }
             VoxelRendering::RayTracing => {
-                begin_label(buf, "Voxel draws (ray tracing)", [255, 0, 0], &self.dev);
+                begin_label(buf, c"Voxel draws (ray tracing)", [255, 0, 0], &self.dev);
                 self.bind_graphics_pipeline(buf, self.pipelines.voxel_rt);
                 unsafe { self.dev.cmd_draw(buf, 6, 1, 0, 0) };
                 end_label(buf, &self.dev);
             }
         }
 
-        begin_label(buf, "Sun draw", [156, 85, 35], &self.dev);
+        begin_label(buf, c"Sun draw", [156, 85, 35], &self.dev);
         self.bind_graphics_pipeline(buf, self.pipelines.sun);
         self.mesh_objects[1].bind_vertex(buf, &self.dev);
         self.mesh_objects[1].draw(1, buf, &self.dev);
         end_label(buf, &self.dev);
 
-        begin_label(buf, "Star draws", [213, 204, 184], &self.dev);
+        begin_label(buf, c"Star draws", [213, 204, 184], &self.dev);
         self.bind_graphics_pipeline(buf, self.pipelines.star);
         self.mesh_objects[0].bind_vertex(buf, &self.dev);
         self.mesh_objects[0].draw(world.stars.len(), buf, &self.dev);
         end_label(buf, &self.dev);
 
-        begin_label(buf, "Skybox draw", [129, 147, 164], &self.dev);
+        begin_label(buf, c"Skybox draw", [129, 147, 164], &self.dev);
         self.bind_graphics_pipeline(buf, self.pipelines.skybox);
         unsafe { self.dev.cmd_draw(buf, 6, 1, 0, 0) };
         end_label(buf, &self.dev);
@@ -313,7 +323,7 @@ impl Renderer {
         #[cfg(feature = "dev-menu")]
         {
             // TODO: Fix drawing SRGB interface to linear color space.
-            begin_label(buf, "Debugging interface draw", [63, 70, 73], &self.dev);
+            begin_label(buf, c"Debugging interface draw", [63, 70, 73], &self.dev);
             self.interface_renderer
                 .as_mut()
                 .unwrap()
