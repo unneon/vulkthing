@@ -1,4 +1,4 @@
-use crate::gpu::{VoxelMeshlet, VoxelTriangle, VoxelVertex};
+use crate::gpu::{VoxelMeshlet, VoxelTriangle, VoxelTriangleData, VoxelVertex};
 use crate::voxel::local_mesh::LocalMesh;
 use crate::voxel::material::Material;
 use crate::voxel::sparse_octree::SparseOctree;
@@ -37,7 +37,9 @@ impl VoxelTriangle {
         assert!(normal < 6);
         VoxelTriangle {
             indices: indices.into(),
-            data: normal | ((material as u8) << 3),
+            data: VoxelTriangleData {
+                data: normal | ((material as u8) << 3),
+            },
         }
     }
 }

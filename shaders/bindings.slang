@@ -110,16 +110,35 @@ public struct VoxelMeshlet {
 
 public struct VoxelVertex {
     public uint8_t3 position;
-    // Two lowest bits encode an ambient occlusion value (00 => 0, 11 => 3/4), the other bits are unused.
     public uint8_t data;
+
+    public property ambient_occlusion : float {
+        get {
+            return 0.75 * bitfieldExtract(data, 0, 2) / 3;
+        }
+    }
 };
 
 public struct VoxelTriangle {
     public uint8_t3 indices;
-    // Three lowest bits encode a normal matching the convention of the DIRECTION array, five highest bits are used for
-    // material ID. Subject to heavy changes later.
-    public uint8_t data;
+    public VoxelTriangleData data;
 };
+
+public struct VoxelTriangleData {
+    public uint8_t data;
+
+    public property cubenormal : uint8_t {
+        get {
+            return bitfieldExtract(data, 0, 3);
+        }
+    }
+
+    public property material_id : uint8_t {
+        get {
+            return bitfieldExtract(data, 3, 5);
+        }
+    }
+}
 
 public struct SvoNode {
     public uint children[8];

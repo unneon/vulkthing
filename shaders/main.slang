@@ -204,7 +204,7 @@ void voxel_mesh(
     if (id < meshlet.triangle_count) {
         VoxelTriangle triangle = voxel_triangles[meshlet.triangle_offset + id];
         indices[id] = triangle.indices;
-        primitives[id].data = triangle.data;
+        primitives[id].data = triangle.data.data;
     }
 
     if (id < meshlet.vertex_count) {
@@ -212,7 +212,7 @@ void voxel_mesh(
         float3 world_space = vertex.position + global.voxels.chunk_size * float3(meshlet.chunk);
         float4 clip_space = mul(global.camera.projection_matrix, mul(global.camera.view_matrix, float4(world_space, 1)));
         vertices[id].position = clip_space;
-        vertices[id].ambient_occlusion = 0.75 * float(vertex.data & 3) / 3;
+        vertices[id].ambient_occlusion = vertex.ambient_occlusion;
     }
 }
 
@@ -221,8 +221,8 @@ float4 voxel_frag(
     float ambient_occlusion : AMBIENT_OCCLUSION,
     uint triangle_data : TRIANGLE_DATA,
 ) {
-    uint material_id = bitfieldExtract(triangle_data, 3, 5);
-    VoxelMaterial material = global.materials[material_id];
+    VoxelTriangleData triangle_data = {triangle_data};
+    VoxelMaterial material = global.materials[triangle_data.material_id];
     float3 light = (1 - ambient_occlusion) * material.albedo;
     return float4(light, 1);
 }
