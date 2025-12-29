@@ -3,24 +3,6 @@ module bindings;
 [[vk::binding(0)]]
 public ConstantBuffer<Global> global;
 
-[[vk::binding(1)]]
-public StructuredBuffer<Star> stars;
-
-[[vk::binding(2)]]
-public StructuredBuffer<VoxelVertex> voxel_vertices;
-
-[[vk::binding(3)]]
-public StructuredBuffer<VoxelTriangle> voxel_triangles;
-
-[[vk::binding(4)]]
-public StructuredBuffer<VoxelMeshlet> voxel_meshlets;
-
-[[vk::binding(5)]]
-public StructuredBuffer<SvoNode> svo_nodes;
-
-[[vk::binding(6)]]
-public StructuredBuffer<ClassicVertex> classic_vertices;
-
 public struct Global {
     public Voxels voxels;
     public Light light;
@@ -82,9 +64,53 @@ public struct Debug {
     public uint meshlet_id;
 };
 
+[[vk::binding(1)]]
+public StructuredBuffer<Star> stars;
+
 public struct Star {
     public float4x4 model;
 };
+
+[[vk::binding(2)]]
+public StructuredBuffer<VoxelVertex> voxel_vertices;
+
+public struct VoxelVertex {
+    public uint8_t3 position;
+    public uint8_t data;
+
+    public property ambient_occlusion : float {
+        get {
+            return 0.75 * bitfieldExtract(data, 0, 2) / 3;
+        }
+    }
+};
+
+[[vk::binding(3)]]
+public StructuredBuffer<VoxelTriangle> voxel_triangles;
+
+public struct VoxelTriangle {
+    public uint8_t3 indices;
+    public VoxelTriangleData data;
+};
+
+public struct VoxelTriangleData {
+    public uint8_t data;
+
+    public property cubenormal : uint8_t {
+        get {
+            return bitfieldExtract(data, 0, 3);
+        }
+    }
+
+    public property material_id : uint8_t {
+        get {
+            return bitfieldExtract(data, 3, 5);
+        }
+    }
+}
+
+[[vk::binding(4)]]
+public StructuredBuffer<VoxelMeshlet> voxel_meshlets;
 
 public struct VoxelMeshlet {
     public uint vertex_offset;
@@ -108,42 +134,16 @@ public struct VoxelMeshlet {
     }
 };
 
-public struct VoxelVertex {
-    public uint8_t3 position;
-    public uint8_t data;
-
-    public property ambient_occlusion : float {
-        get {
-            return 0.75 * bitfieldExtract(data, 0, 2) / 3;
-        }
-    }
-};
-
-public struct VoxelTriangle {
-    public uint8_t3 indices;
-    public VoxelTriangleData data;
-};
-
-public struct VoxelTriangleData {
-    public uint8_t data;
-
-    public property cubenormal : uint8_t {
-        get {
-            return bitfieldExtract(data, 0, 3);
-        }
-    }
-
-    public property material_id : uint8_t {
-        get {
-            return bitfieldExtract(data, 3, 5);
-        }
-    }
-}
+[[vk::binding(5)]]
+public StructuredBuffer<SvoNode> svo_nodes;
 
 public struct SvoNode {
     public uint children[8];
     public uint parent;
 };
+
+[[vk::binding(6)]]
+public StructuredBuffer<ClassicVertex> classic_vertices;
 
 public struct ClassicVertex {
     public float3 position;
