@@ -50,11 +50,11 @@ impl AshDescriptor for ReflectDescriptorBinding {
             | ReflectDescriptorType::StorageImage => "vk::ImageView".into(),
             ReflectDescriptorType::StorageBuffer => {
                 let typ = self.struct_type().unwrap();
-                format!("&StorageBuffer<[{typ}]>")
+                format!("&StorageBuffer<[crate::gpu::{typ}]>")
             }
             ReflectDescriptorType::UniformBuffer => {
                 let typ = self.struct_type().unwrap();
-                format!("&UniformBuffer<{typ}>")
+                format!("&UniformBuffer<crate::gpu::{typ}>")
             }
             _ => todo!(),
         }

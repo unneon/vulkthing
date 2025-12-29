@@ -1,9 +1,10 @@
 mod barrier;
-pub mod codegen;
 pub mod debug;
+pub mod descriptors;
 mod device;
 pub mod lifecycle;
-mod shader;
+pub mod pipelines;
+pub mod samplers;
 mod swapchain;
 pub mod swapchain_waiter;
 pub mod util;
@@ -11,8 +12,9 @@ pub mod util;
 use crate::gpu::{Atmosphere, Camera, ClassicVertex, Debug, Global, Star, VoxelMaterial, Voxels};
 #[cfg(feature = "dev-menu")]
 use crate::interface::EnumInterface;
-use crate::renderer::codegen::{Pipelines, Samplers};
 use crate::renderer::debug::{begin_label, end_label};
+use crate::renderer::pipelines::Pipelines;
+use crate::renderer::samplers::Samplers;
 use crate::renderer::swapchain::Swapchain;
 use crate::renderer::swapchain_waiter::{SwapchainEvent, SwapchainWaiter};
 use crate::renderer::util::{

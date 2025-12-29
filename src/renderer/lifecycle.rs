@@ -5,12 +5,13 @@ use crate::config::{
 };
 use crate::gpu::{ClassicVertex, Star};
 use crate::mesh::MeshData;
-use crate::renderer::codegen::{
-    alloc_descriptor_set, create_descriptor_pool, create_descriptor_set_layout, create_pipelines,
-    create_samplers,
-};
 use crate::renderer::debug::create_debug_messenger;
+use crate::renderer::descriptors::{
+    alloc_descriptor_set, create_descriptor_pool, create_descriptor_set_layout,
+};
 use crate::renderer::device::{select_device, DeviceInfo};
+use crate::renderer::pipelines::create_pipelines;
+use crate::renderer::samplers::create_samplers;
 use crate::renderer::swapchain::create_swapchain;
 use crate::renderer::swapchain_waiter::SwapchainEvent;
 use crate::renderer::util::{vulkan_str, Buffer, Dev, ImageResources, StorageBuffer};
@@ -84,7 +85,7 @@ impl Renderer {
         let samplers = create_samplers(&dev);
 
         let descriptor_set_layout = create_descriptor_set_layout(&samplers, &dev);
-        let descriptor_pool = create_descriptor_pool(descriptor_set_layout, &dev);
+        let descriptor_pool = create_descriptor_pool(&dev);
 
         let swapchain = create_swapchain(surface, window.inner_size(), &dev);
         let sync = create_sync(swapchain.images.len(), &dev);

@@ -83,6 +83,7 @@ pub fn end_label(buf: vk::CommandBuffer, dev: &Dev) {
     unsafe { dev.debug_ext.cmd_end_debug_utils_label(buf) };
 }
 
+#[allow(dead_code)]
 pub fn set_label<T: Handle>(object: T, name: &CStr, dev: &Dev) {
     let name_info = vk::DebugUtilsObjectNameInfoEXT::default()
         .object_handle(object)
