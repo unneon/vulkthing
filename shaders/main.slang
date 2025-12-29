@@ -158,6 +158,10 @@ struct VoxelMeshVertex {
     float ambient_occlusion : AMBIENT_OCCLUSION;
 };
 
+struct VoxelMeshTriangle {
+    uint data : TRIANGLE_DATA;
+};
+
 groupshared VoxelPayload voxel_task_payload;
 
 [shader("amplification")]
@@ -192,6 +196,7 @@ void voxel_mesh(
     in payload VoxelPayload payload,
     OutputVertices<VoxelMeshVertex, 128> vertices,
     OutputIndices<uint3, 256> indices,
+    OutputPrimitives<VoxelMeshTriangle, 256> primitives,
 ) {
     VoxelMeshlet meshlet = voxel_meshlets[payload.meshlet_ids[group_id.x]];
     SetMeshOutputCounts(meshlet.vertex_count, meshlet.triangle_count);
@@ -199,6 +204,7 @@ void voxel_mesh(
     if (id < meshlet.triangle_count) {
         VoxelTriangle triangle = voxel_triangles[meshlet.triangle_offset + id];
         indices[id] = triangle.indices;
+        primitives[id].data = triangle.data;
     }
 
     if (id < meshlet.vertex_count) {
@@ -212,12 +218,12 @@ void voxel_mesh(
 
 [shader("fragment")]
 float4 voxel_frag(
-    float4 frag_coord: SV_Position,
     float ambient_occlusion : AMBIENT_OCCLUSION,
+    uint triangle_data : TRIANGLE_DATA,
 ) {
-    float3 position = world_space_from_depth(frag_coord.z, frag_coord);
-    float3 color = normalize(position);
-    float3 light = (1 - ambient_occlusion) * color;
+    uint material_id = bitfieldExtract(triangle_data, 3, 5);
+    VoxelMaterial material = global.materials[material_id];
+    float3 light = (1 - ambient_occlusion) * material.albedo;
     return float4(light, 1);
 }
 
