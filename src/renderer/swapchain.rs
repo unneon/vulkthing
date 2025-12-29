@@ -11,6 +11,27 @@ pub struct Swapchain {
 }
 
 impl Swapchain {
+    pub fn full_viewport(&self) -> vk::Viewport {
+        vk::Viewport {
+            x: 0.,
+            y: 0.,
+            width: self.extent.width as f32,
+            height: self.extent.height as f32,
+            min_depth: 0.,
+            max_depth: 1.,
+        }
+    }
+
+    pub fn full_scissor(&self) -> vk::Rect2D {
+        vk::Rect2D {
+            offset: vk::Offset2D { x: 0, y: 0 },
+            extent: vk::Extent2D {
+                width: self.extent.width,
+                height: self.extent.height,
+            },
+        }
+    }
+
     pub fn cleanup(&self, dev: &Dev) {
         let swapchain_ext = swapchain::Device::new(&dev.instance, dev);
         for image in &self.images {

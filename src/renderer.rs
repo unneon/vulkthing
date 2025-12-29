@@ -545,34 +545,15 @@ impl Renderer {
 
     fn set_viewport(&self, buf: vk::CommandBuffer) {
         unsafe {
-            self.dev.cmd_set_viewport(
-                buf,
-                0,
-                &[vk::Viewport {
-                    x: 0.,
-                    y: 0.,
-                    width: self.swapchain.extent.width as f32,
-                    height: self.swapchain.extent.height as f32,
-                    min_depth: 0.,
-                    max_depth: 1.,
-                }],
-            )
+            self.dev
+                .cmd_set_viewport(buf, 0, &[self.swapchain.full_viewport()])
         }
     }
 
     fn set_scissor(&self, buf: vk::CommandBuffer) {
         unsafe {
-            self.dev.cmd_set_scissor(
-                buf,
-                0,
-                &[vk::Rect2D {
-                    offset: vk::Offset2D { x: 0, y: 0 },
-                    extent: vk::Extent2D {
-                        width: self.swapchain.extent.width,
-                        height: self.swapchain.extent.height,
-                    },
-                }],
-            )
+            self.dev
+                .cmd_set_scissor(buf, 0, &[self.swapchain.full_scissor()])
         }
     }
 
