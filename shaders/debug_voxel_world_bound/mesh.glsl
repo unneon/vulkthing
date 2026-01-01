@@ -17,7 +17,7 @@ void main() {
     gl_PrimitiveLineIndicesEXT[id] = INDICES[id];
 
     if (id < 8) {
-        vec3 world_space = global.voxels.chunk_size * meshlet.chunk + meshlet.bound_base + VERTICES[id] * vec3(meshlet.bound_size.x, meshlet.bound_size.y, meshlet.bound_size.z);
+        vec3 world_space = global.voxels.chunk_size * meshlet.chunk + meshlet.bound_base + VERTICES[id] * vec3(meshlet.bound_size);
         vec4 clip_space = global.camera.projection_matrix * global.camera.view_matrix * vec4(world_space, 1);
         gl_MeshVerticesEXT[id].gl_Position = clip_space;
     }

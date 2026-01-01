@@ -18,8 +18,7 @@ bool back_cull(VoxelMeshlet meshlet) {
 bool frustum_cull(VoxelMeshlet meshlet) {
     vec4 screen_aabb;
     if (screen_aabb_projection(voxel_meshlet_world_space_min(meshlet), voxel_meshlet_world_space_max(meshlet), screen_aabb)) {
-        // TODO: Report compiler bug to slangc.
-        return screen_aabb.x > 1 || screen_aabb.y > 1 || (screen_aabb.z) < -1 || (screen_aabb.w) < -1;
+        return screen_aabb.x > 1 || screen_aabb.y > 1 || screen_aabb.z < -1 || screen_aabb.w < -1;
     }
     return false;
 }

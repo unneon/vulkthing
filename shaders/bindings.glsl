@@ -142,11 +142,11 @@ layout(scalar, set = 0, binding = 6) readonly buffer ClassicVertices {
 };
 
 vec3 voxel_meshlet_world_space_min(VoxelMeshlet m) {
-    return global.voxels.chunk_size * m.chunk + m.bound_base;
+    return global.voxels.chunk_size * vec3(m.chunk) + m.bound_base;
 }
 
 vec3 voxel_meshlet_world_space_max(VoxelMeshlet m) {
-    return voxel_meshlet_world_space_min(m) + vec3(m.bound_size.x, m.bound_size.y, m.bound_size.z);
+    return voxel_meshlet_world_space_min(m) + vec3(m.bound_size);
 }
 
 #endif
