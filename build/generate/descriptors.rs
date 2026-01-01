@@ -92,7 +92,7 @@ pub fn alloc_descriptor_set("#
     )
     .unwrap();
     for binding in &descriptor_set.bindings {
-        let name = &binding.name;
+        let name = binding.name();
         let typ = binding.ash_value_type();
         writeln!(file, "    {name}: {typ},").unwrap();
     }
@@ -115,7 +115,7 @@ pub fn alloc_descriptor_set("#
     )
     .unwrap();
     for binding in &descriptor_set.bindings {
-        let name = &binding.name;
+        let name = binding.name();
         write!(file, ", {name}").unwrap();
     }
 
@@ -132,7 +132,7 @@ pub fn update_descriptor_set(
     .unwrap();
     let mut only_tlas = None;
     for binding in &descriptor_set.bindings {
-        let name = &binding.name;
+        let name = binding.name();
         let typ = binding.ash_value_type();
         writeln!(file, "        {name}: {typ},").unwrap();
         if binding.descriptor_type == ReflectDescriptorType::AccelerationStructureKHR {
@@ -157,7 +157,7 @@ pub fn update_descriptor_set(
     .unwrap();
     for binding in &descriptor_set.bindings {
         let binding_index = binding.binding;
-        let binding_name = &binding.name;
+        let binding_name = binding.name();
         let binding_type = binding.descriptor_type.ash_variant();
         let write_mutable = match binding.descriptor_type {
             ReflectDescriptorType::AccelerationStructureKHR => "mut ",
@@ -239,7 +239,7 @@ pub fn update_descriptor_set(
     let write_writes = |file: &mut File, bindings: &[ReflectDescriptorBinding]| {
         write!(file, r"[").unwrap();
         for (binding_index, binding) in bindings.iter().enumerate() {
-            let binding_name = &binding.name;
+            let binding_name = binding.name();
             write!(file, "{binding_name}").unwrap();
             if binding_index != bindings.len() - 1 {
                 write!(file, ", ").unwrap();

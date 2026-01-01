@@ -73,7 +73,7 @@ impl Scalar {
 
 pub fn reflect_shaders() -> ShaderModule {
     let out_dir = PathBuf::from(std::env::var("OUT_DIR").unwrap());
-    let spirv_path = out_dir.join("reflection.spv");
+    let spirv_path = out_dir.join("shaders").join("voxel.mesh.spv");
     let spirv = std::fs::read(&spirv_path).unwrap();
     spirv_reflect::create_shader_module(&spirv).unwrap()
 }
@@ -92,22 +92,23 @@ fn collect_types<'a>(typ: &'a ReflectTypeDescription, structs: &mut HashMap<&'a 
     for member in &typ.members {
         collect_types(member, structs);
     }
-    if is_struct(typ) {
-        let name = parse_struct_name(typ);
-        if !structs.contains_key(name) {
-            let mut alignment: usize = 1;
-            let mut members = Vec::new();
+    if is_struct(typ) && !structs.contains_key(typ.type_name.as_str()) {
+        let mut alignment: usize = 1;
+        let mut members = Vec::new();
 
-            for member in &typ.members {
-                let member_typ = parse_type(member);
-                let member_alignment = get_alignment(&member_typ, structs);
-                alignment = alignment.max(member_alignment);
-                members.push((member.struct_member_name.as_str(), member_typ));
-            }
-
-            let struct_ = Struct { alignment, members };
-            structs.insert(name, struct_);
+        for member in &typ.members {
+            let member_typ = parse_type(member);
+            let member_alignment = get_alignment(&member_typ, structs);
+            alignment = alignment.max(member_alignment);
+            members.push((member.struct_member_name.as_str(), member_typ));
         }
+
+        if let [(_, Type::Array(_, 0))] = members.as_slice() {
+            return;
+        }
+
+        let struct_ = Struct { alignment, members };
+        structs.insert(&typ.type_name, struct_);
     }
 }
 
@@ -117,27 +118,26 @@ fn is_struct(typ: &ReflectTypeDescription) -> bool {
         && typ.type_name != "StructuredBuffer"
 }
 
-fn parse_struct_name(typ: &ReflectTypeDescription) -> &str {
-    if let Some(name) = typ.type_name.strip_suffix("_natural") {
-        name
+fn parse_type(typ: &ReflectTypeDescription) -> Type<'_> {
+    if typ.type_flags.contains(ReflectTypeFlags::ARRAY) {
+        assert_eq!(typ.traits.array.dims.len(), 1);
+        let inner = parse_type_nonarray(typ);
+        let count = typ.traits.array.dims[0];
+        Type::Array(Box::new(inner), count)
     } else {
-        unreachable!()
+        parse_type_nonarray(typ)
     }
 }
 
-fn parse_type(typ: &ReflectTypeDescription) -> Type<'_> {
-    if let Some(name) = typ.type_name.strip_suffix("_natural") {
-        Type::Struct(name)
-    } else if typ.type_name.starts_with("_Array") {
-        let typ = &typ.members[0];
-        let subtyp = parse_type(typ);
-        assert_eq!(typ.traits.array.dims.len(), 1);
-        let count = typ.traits.array.dims[0];
-        Type::Array(Box::new(subtyp), count)
-    } else if typ
-        .type_name
-        .starts_with("_MatrixStorage_float4x4_ColMajor")
-    {
+fn parse_type_nonarray(typ: &ReflectTypeDescription) -> Type<'_> {
+    if typ.type_flags.contains(ReflectTypeFlags::STRUCT) {
+        assert!(!typ.type_name.is_empty());
+        Type::Struct(&typ.type_name)
+    } else if typ.type_flags.contains(ReflectTypeFlags::MATRIX) {
+        assert!(typ.type_flags.contains(ReflectTypeFlags::FLOAT));
+        assert_eq!(typ.traits.numeric.scalar.width, 32);
+        assert_eq!(typ.traits.numeric.matrix.row_count, 4);
+        assert_eq!(typ.traits.numeric.matrix.column_count, 4);
         Type::Matrix4F32
     } else if typ.type_flags.contains(ReflectTypeFlags::VECTOR) {
         let subtyp = parse_scalar(typ);
@@ -165,7 +165,7 @@ fn parse_scalar(typ: &ReflectTypeDescription) -> Scalar {
             _ => todo!("{typ:?}"),
         }
     } else {
-        todo!()
+        todo!("typ={typ:?}")
     }
 }
 

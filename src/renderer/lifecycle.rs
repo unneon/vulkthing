@@ -427,6 +427,7 @@ fn create_logical_device(
     let mut vk13_features = vk::PhysicalDeviceVulkan13Features::default()
         .dynamic_rendering(true)
         .maintenance4(true)
+        .shader_demote_to_helper_invocation(true)
         .synchronization2(true);
     let mut gpl_features = vk::PhysicalDeviceGraphicsPipelineLibraryFeaturesEXT::default()
         .graphics_pipeline_library(true);

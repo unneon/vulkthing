@@ -1,61 +1,39 @@
-use crate::config::Renderer;
-use std::path::{Path, PathBuf};
+use crate::pipelines::{Pipeline, Shader};
+use std::path::Path;
 use std::process::Command;
 
-pub fn compile_shaders(renderer: &Renderer) {
-    let out_dir = PathBuf::from(std::env::var("OUT_DIR").unwrap());
-    compile_shader(None, &out_dir.join("reflection.spv"));
+pub fn compile_shaders(pipelines: &[Pipeline], out_dir: &Path) {
     let shaders_dir = out_dir.join("shaders");
     std::fs::create_dir_all(&shaders_dir).unwrap();
-    for (shader_name, shader_type) in renderer.shaders() {
-        let spirv_path = shaders_dir.join(format!("{shader_name}.{}.spv", shader_type.extension()));
-        let entry_point = format!("{shader_name}_{}", shader_type.extension());
-        compile_shader(Some(&entry_point), &spirv_path);
+    for pipeline in pipelines {
+        for shader in pipeline.shaders() {
+            println!();
+            println!(
+                "----- COMPILING SHADER {:?} --------------",
+                shader.glsl_path()
+            );
+            compile_shader(&shader, &shaders_dir);
+        }
     }
 }
 
-fn compile_shader(entry_point: Option<&str>, spirv_path: &Path) {
-    let mut command = Command::new("slangc");
-    command.args(["shaders/main.slang", "-profile", "glsl_460"]);
-    if let Some(entry_point) = entry_point {
-        command.args(["-entry", entry_point]);
+fn compile_shader(shader: &Shader, shaders_dir: &Path) {
+    let name = shader.pipeline_name();
+    let stage = shader.stage();
+    let mut command = Command::new("glslangValidator");
+    command.args([
+        "--target-env",
+        "vulkan1.3",
+        "--glsl-version",
+        "460",
+        "shaders/limits.conf",
+        "-S",
+        shader.glslang_validator_stage(),
+    ]);
+    command.arg(shader.glsl_path());
+    command.arg("-o");
+    command.arg(shaders_dir.join(format!("{name}.{stage}.spv")));
+    if !command.status().unwrap().success() {
+        std::process::exit(1);
     }
-    let output = command
-        .args([
-            "-target",
-            "spirv",
-            "-fvk-use-scalar-layout",
-            // TODO: Slangc should infer this based on mesh shader usage, report as bug.
-            "-capability",
-            "spirv_1_4",
-            "-capability",
-            "spvGroupNonUniformArithmetic",
-            "-O3",
-            "-o",
-        ])
-        .arg(spirv_path)
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .unwrap()
-        .wait_with_output()
-        .unwrap();
-    let stderr = String::from_utf8(output.stderr).unwrap();
-    let mut error_found = false;
-    for [msg, ctx, highlight] in stderr.lines().array_chunks() {
-        let severity = if msg.contains(": error ") {
-            error_found = true;
-            "error"
-        } else if msg.contains(": warning ") {
-            "warning"
-        } else {
-            unreachable!()
-        };
-        println!("cargo::{severity}={msg}");
-        println!("cargo::{severity}={ctx}");
-        println!("cargo::{severity}={highlight}");
-    }
-    if error_found {
-        std::process::exit(0);
-    }
-    assert!(output.status.success());
 }
