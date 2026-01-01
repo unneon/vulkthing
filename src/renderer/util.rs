@@ -1,5 +1,5 @@
 use crate::renderer::{DeviceSupport, FRAMES_IN_FLIGHT};
-use ash::ext::{debug_utils, mesh_shader};
+use ash::ext::{debug_utils, extended_dynamic_state3, mesh_shader};
 use ash::khr::{buffer_device_address, surface, swapchain};
 use ash::{vk, Device, Instance};
 use std::ffi::CStr;
@@ -24,6 +24,7 @@ pub struct Dev {
     pub instance: Instance,
     pub debug_ext: debug_utils::Device,
     pub debug_ext_instance: debug_utils::Instance,
+    pub extended_dynamic_state3: extended_dynamic_state3::Device,
     pub surface_ext: surface::Instance,
     pub swapchain_ext: swapchain::Device,
     pub mesh_ext: mesh_shader::Device,

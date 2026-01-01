@@ -24,10 +24,3 @@ void main() {
         gl_MeshVerticesEXT[id].gl_Position = clip_space;
     }
 }
-
-/*
-pipeline "debug_voxel_triangle" mesh-shaders=true {
-    cull-mode "NONE"
-    polygon-mode "LINE"
-}
-*/

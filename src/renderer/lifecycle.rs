@@ -23,7 +23,7 @@ use crate::voxel::gpu::meshlets::VoxelMeshletMemory;
 use crate::voxel::gpu::{VoxelGpuMemory, EMPTY_ROOT};
 use crate::world::World;
 use crate::VULKAN_APP_NAME;
-use ash::ext::{debug_utils, mesh_shader};
+use ash::ext::{debug_utils, extended_dynamic_state3, mesh_shader};
 use ash::khr::{surface, swapchain};
 use ash::{vk, Device, Entry, Instance};
 use log::{debug, warn};
@@ -65,6 +65,8 @@ impl Renderer {
         let logical_device =
             create_logical_device(queue_family, &instance, physical_device, &device_support);
         let debug_ext = debug_utils::Device::new(&instance, &logical_device);
+        let extended_dynamic_state3 =
+            extended_dynamic_state3::Device::new(&instance, &logical_device);
         let swapchain_ext = swapchain::Device::new(&instance, &logical_device);
         let mesh_ext = mesh_shader::Device::new(&instance, &logical_device);
         let dev = Dev {
@@ -73,6 +75,7 @@ impl Renderer {
             instance,
             debug_ext,
             debug_ext_instance,
+            extended_dynamic_state3,
             surface_ext,
             swapchain_ext,
             mesh_ext,
@@ -395,7 +398,10 @@ fn create_logical_device(
         .queue_priorities(&[1.]);
     let queues = [queue_create];
 
-    let mut extensions = vec![swapchain::NAME.as_ptr()];
+    let mut extensions = vec![
+        swapchain::NAME.as_ptr(),
+        ash::ext::extended_dynamic_state3::NAME.as_ptr(),
+    ];
     if device_support.mesh_shaders {
         extensions.extend_from_slice(&[
             mesh_shader::NAME.as_ptr(),
@@ -429,6 +435,8 @@ fn create_logical_device(
         .maintenance4(true)
         .shader_demote_to_helper_invocation(true)
         .synchronization2(true);
+    let mut eds3_features = vk::PhysicalDeviceExtendedDynamicState3FeaturesEXT::default()
+        .extended_dynamic_state3_polygon_mode(true);
     let mut gpl_features = vk::PhysicalDeviceGraphicsPipelineLibraryFeaturesEXT::default()
         .graphics_pipeline_library(true);
     let mut ms_features = vk::PhysicalDeviceMeshShaderFeaturesEXT::default()
@@ -442,6 +450,7 @@ fn create_logical_device(
         .push_next(&mut vk11_features)
         .push_next(&mut vk12_features)
         .push_next(&mut vk13_features)
+        .push_next(&mut eds3_features)
         .push_next(&mut gpl_features);
     if device_support.mesh_shaders {
         create_info = create_info.push_next(&mut ms_features);

@@ -37,16 +37,18 @@ static ASSEMBLY: vk::PipelineInputAssemblyStateCreateInfo = vk::PipelineInputAss
     _marker: std::marker::PhantomData,
 }};
 
-static DYNAMIC_STATES: [vk::DynamicState; 2] = [
+static DYNAMIC_STATES: [vk::DynamicState; 4] = [
     vk::DynamicState::VIEWPORT,
     vk::DynamicState::SCISSOR,
+    vk::DynamicState::CULL_MODE,
+    vk::DynamicState::POLYGON_MODE_EXT,
 ];
 
 static DYNAMIC_STATE: vk::PipelineDynamicStateCreateInfo = vk::PipelineDynamicStateCreateInfo {{
     s_type: vk::StructureType::PIPELINE_DYNAMIC_STATE_CREATE_INFO,
     p_next: std::ptr::null(),
     flags: vk::PipelineDynamicStateCreateFlags::empty(),
-    dynamic_state_count: 2,
+    dynamic_state_count: 4,
     p_dynamic_states: &raw const DYNAMIC_STATES[0],
     _marker: std::marker::PhantomData,
 }};"#
@@ -167,9 +169,6 @@ static {pipeline_name_uppercase}_VERTEX_STATE: vk::PipelineVertexInputStateCreat
             )
             .unwrap();
         }
-        // TODO: polygon_mode, cull_mode
-        let polygon_mode = "FILL";
-        let cull_mode = "BACK";
         let vertex_input_state = if pipeline.vertex_shader().is_some() {
             format!("&raw const {pipeline_name_uppercase}_VERTEX_STATE")
         } else {
@@ -195,8 +194,8 @@ static {pipeline_name_uppercase}_RASTERIZER: vk::PipelineRasterizationStateCreat
     flags: vk::PipelineRasterizationStateCreateFlags::empty(),
     depth_clamp_enable: 0,
     rasterizer_discard_enable: 0,
-    polygon_mode: vk::PolygonMode::{polygon_mode},
-    cull_mode: vk::CullModeFlags::{cull_mode},
+    polygon_mode: vk::PolygonMode::FILL,
+    cull_mode: vk::CullModeFlags::BACK,
     front_face: vk::FrontFace::COUNTER_CLOCKWISE,
     depth_bias_enable: 0,
     depth_bias_constant_factor: 0.,

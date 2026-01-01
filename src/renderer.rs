@@ -260,6 +260,8 @@ impl Renderer {
         self.bind_descriptor_set(buf);
         self.set_viewport(buf);
         self.set_scissor(buf);
+        self.set_cull_mode(buf, vk::CullModeFlags::BACK);
+        self.set_polygon_mode(buf, vk::PolygonMode::FILL);
 
         match settings.voxel_rendering {
             VoxelRendering::Classic => todo!(),
@@ -273,7 +275,11 @@ impl Renderer {
                 if voxel_meshlet_count > 0 {
                     begin_label(buf, c"Debug voxel triangle draw", [238, 186, 11], &self.dev);
                     self.bind_graphics_pipeline(buf, self.pipelines.debug_voxel_triangle);
+                    self.set_cull_mode(buf, vk::CullModeFlags::NONE);
+                    self.set_polygon_mode(buf, vk::PolygonMode::LINE);
                     self.draw_mesh_shaders(buf, 1);
+                    self.set_cull_mode(buf, vk::CullModeFlags::BACK);
+                    self.set_polygon_mode(buf, vk::PolygonMode::FILL);
                     end_label(buf, &self.dev);
 
                     begin_label(
@@ -556,6 +562,18 @@ impl Renderer {
         unsafe {
             self.dev
                 .cmd_set_scissor(buf, 0, &[self.swapchain.full_scissor()])
+        }
+    }
+
+    fn set_cull_mode(&self, buf: vk::CommandBuffer, mode: vk::CullModeFlags) {
+        unsafe { self.dev.cmd_set_cull_mode(buf, mode) }
+    }
+
+    fn set_polygon_mode(&self, buf: vk::CommandBuffer, mode: vk::PolygonMode) {
+        unsafe {
+            self.dev
+                .extended_dynamic_state3
+                .cmd_set_polygon_mode(buf, mode)
         }
     }
 
