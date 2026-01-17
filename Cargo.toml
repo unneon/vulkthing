@@ -25,5 +25,4 @@ tobj = { version = "4.0", default-features = false }
 winit = "0.30"
 
 [build-dependencies]
-knuffel = "3.2"
 spirv-reflect = { git = "https://github.com/gwihlidal/spirv-reflect-rs" }
