@@ -5,6 +5,16 @@
 #extension GL_EXT_shader_explicit_arithmetic_types : require
 #extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
 #extension GL_EXT_shader_explicit_arithmetic_types_int16 : require
+#extension GL_EXT_debug_printf : require
+
+const vec3 DIRECTIONS[6] = {
+vec3(1, 0, 0),
+vec3(-1, 0, 0),
+vec3(0, 1, 0),
+vec3(0, -1, 0),
+vec3(0, 0, 1),
+vec3(0, 0, -1),
+};
 
 struct Voxels {
     uint chunk_size;
@@ -68,19 +78,23 @@ struct VoxelVertex {
 };
 
 float voxel_vertex_ambient_occlusion(VoxelVertex v) {
-    return 0.75 * float(bitfieldExtract(v.data, 0, 2)) / 3;
+    return 0.75 * float(bitfieldExtract(uint(v.data), 0, 2)) / 3;
 }
 
 struct VoxelTriangleData {
     uint8_t data;
 };
 
-uint8_t voxel_triangle_cubenormal(VoxelTriangleData d) {
-    return uint8_t(bitfieldExtract(d.data, 0, 3));
+uint voxel_triangle_cubenormal(VoxelTriangleData d) {
+    return bitfieldExtract(uint(d.data), 0, 3);
 }
 
-uint8_t voxel_triangle_material_id(VoxelTriangleData triangle) {
-    return uint8_t(bitfieldExtract(triangle.data, 3, 5));
+vec3 voxel_triangle_normal(VoxelTriangleData d) {
+    return DIRECTIONS[voxel_triangle_cubenormal(d)];
+}
+
+uint voxel_triangle_material_id(VoxelTriangleData triangle) {
+    return bitfieldExtract(uint(triangle.data), 3, 5);
 }
 
 struct VoxelTriangle {

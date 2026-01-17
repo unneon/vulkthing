@@ -357,10 +357,14 @@ fn create_instance(window: &Window, entry: &Entry, args: &Args) -> Instance {
             .to_vec();
     extension_names.push(debug_utils::NAME.as_ptr());
 
+    let mut validation_features = vk::ValidationFeaturesEXT::default();
+    // TODO: Validation layers print some nonsense warning if you enable this.
+    // .enabled_validation_features(&[vk::ValidationFeatureEnableEXT::DEBUG_PRINTF]);
     let instance_create_info = vk::InstanceCreateInfo::default()
         .application_info(&app_info)
         .enabled_layer_names(&layer_names)
-        .enabled_extension_names(&extension_names);
+        .enabled_extension_names(&extension_names)
+        .push_next(&mut validation_features);
 
     unsafe { entry.create_instance(&instance_create_info, None) }.unwrap()
 }
